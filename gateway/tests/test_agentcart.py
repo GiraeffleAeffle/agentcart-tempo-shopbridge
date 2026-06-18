@@ -337,6 +337,7 @@ class AgentCartTests(unittest.TestCase):
             service = make_service(pathlib.Path(raw_tmp))
             result = service.search_catalog("buy my favorite tea")
             self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
+            self.assertEqual(result["preference_context"]["id"], "max.favorite_tea")
             self.assertEqual(result["products"][0]["id"], "woo_203")
             self.assertEqual(result["products"][0]["merchant_id"], "woocommerce-demo-tea")
             quote = service.create_quote(
@@ -358,9 +359,12 @@ class AgentCartTests(unittest.TestCase):
 
             result = service.search_catalog("Please buy my favourite tea")
             self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
+            self.assertEqual(result["preference_context"]["id"], "max.favorite_tea")
             self.assertEqual(result["products"][0]["id"], "woo_203")
             self.assertEqual(service.get_product("favorite_tea")["id"], "woo_203")
             self.assertEqual(service.get_product("favourite_tea")["id"], "woo_203")
+            self.assertEqual(service.get_product("fav_tea")["id"], "woo_203")
+            self.assertEqual(service.get_product("usual_tea")["id"], "woo_203")
 
             quote = service.create_quote(
                 {
@@ -373,6 +377,20 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(quote["merchant_id"], "woocommerce-demo-tea")
             self.assertEqual(quote["items"][0]["product_id"], "woo_203")
             self.assertEqual(quote["total_cents"], 1480)
+
+    def test_household_preference_resolver_handles_short_names_and_typos(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+
+            for query in ("Please buy my fav tea", "Please buy my favourit tea", "Please order our usual tea"):
+                with self.subTest(query=query):
+                    result = service.search_catalog(query)
+                    self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
+                    self.assertEqual(result["preference_context"]["id"], "max.favorite_tea")
+                    self.assertEqual(result["products"][0]["id"], "woo_203")
+                    tournament = service.quote_tournament({"q": query, "country": "DE", "postal_code": "15344"})
+                    self.assertEqual(tournament["winner"]["merchant_id"], "woocommerce-demo-tea")
+                    self.assertEqual(tournament["winner"]["total_cents"], 1480)
 
     def test_quote_includes_shipping_vat_policy_and_merchant_of_record(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

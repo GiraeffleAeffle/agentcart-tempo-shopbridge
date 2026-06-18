@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
+import difflib
 import hashlib
 import html
 import hmac
@@ -438,35 +439,75 @@ def command_available(command: str) -> bool:
     return bool(parts and shutil.which(parts[0]))
 
 
-PRODUCT_ALIASES = {
-    "favorite_tea": "tea_hazels_chocolate_100g",
-    "my_favorite_tea": "tea_hazels_chocolate_100g",
-    "favourite_tea": "tea_hazels_chocolate_100g",
-    "my_favourite_tea": "tea_hazels_chocolate_100g",
-    "hazels_chocolate": "tea_hazels_chocolate_100g",
-    "hazels_chocolate_tea": "tea_hazels_chocolate_100g",
+HOUSEHOLD_PRODUCT_PREFERENCES = {
+    "max.favorite_tea": {
+        "id": "max.favorite_tea",
+        "owner": "Max",
+        "kind": "household_product_preference",
+        "canonical_name": "Hazel's Chocolate Tea",
+        "canonical_query": "Hazel's Chocolate Tea",
+        "fallback_product_id": "tea_hazels_chocolate_100g",
+        "category": "grocery.tea",
+        "context_sources": ["Vikunja shopping tasks", "Home Assistant stock automation", "OpenClaw household profile"],
+        "reason": "Max's household profile maps favourite/favorite/usual tea to Hazel's Chocolate Tea.",
+    }
 }
+
+PRODUCT_ALIASES = {
+    "favorite_tea": "max.favorite_tea",
+    "my_favorite_tea": "max.favorite_tea",
+    "favourite_tea": "max.favorite_tea",
+    "my_favourite_tea": "max.favorite_tea",
+    "fav_tea": "max.favorite_tea",
+    "my_fav_tea": "max.favorite_tea",
+    "usual_tea": "max.favorite_tea",
+    "my_usual_tea": "max.favorite_tea",
+    "regular_tea": "max.favorite_tea",
+    "go_to_tea": "max.favorite_tea",
+    "hazels_chocolate": "max.favorite_tea",
+    "hazels_chocolate_tea": "max.favorite_tea",
+}
+
+HOUSEHOLD_PREFERENCE_WORDS = {"fav", "favorite", "favourite", "preferred", "usual", "regular", "normal", "standard"}
+HOUSEHOLD_CONTEXT_WORDS = {"my", "our", "max", "household"}
 
 
 def normalize_alias(value: str) -> str:
     return "_".join(re.findall(r"[a-z0-9]+", value.lower()))
 
 
-def resolve_product_alias(value: str) -> str | None:
+def preference_word_match(token: str) -> bool:
+    if token in HOUSEHOLD_PREFERENCE_WORDS:
+        return True
+    return any(difflib.SequenceMatcher(None, token, expected).ratio() >= 0.82 for expected in HOUSEHOLD_PREFERENCE_WORDS)
+
+
+def household_preference_for_intent(value: str) -> dict[str, Any] | None:
     normalized = normalize_alias(value)
     if normalized in PRODUCT_ALIASES:
-        return PRODUCT_ALIASES[normalized]
-    if ("favorite" in normalized or "favourite" in normalized) and "tea" in normalized:
-        return PRODUCT_ALIASES["favorite_tea"]
-    if "hazel" in normalized and "chocolate" in normalized:
-        return PRODUCT_ALIASES["hazels_chocolate"]
+        return HOUSEHOLD_PRODUCT_PREFERENCES[PRODUCT_ALIASES[normalized]]
+    tokens = normalized.split("_") if normalized else []
+    token_set = set(tokens)
+    if "hazel" in token_set and "chocolate" in token_set:
+        return HOUSEHOLD_PRODUCT_PREFERENCES["max.favorite_tea"]
+    if "tea" in token_set and (
+        any(preference_word_match(token) for token in tokens) or bool(token_set & HOUSEHOLD_CONTEXT_WORDS)
+    ):
+        return HOUSEHOLD_PRODUCT_PREFERENCES["max.favorite_tea"]
+    return None
+
+
+def resolve_product_alias(value: str) -> str | None:
+    preference = household_preference_for_intent(value)
+    if preference:
+        return str(preference["fallback_product_id"])
     return None
 
 
 def catalog_query_for_intent(value: str) -> str:
-    alias = resolve_product_alias(value)
-    if alias == "tea_hazels_chocolate_100g":
-        return "Hazel's Chocolate Tea"
+    preference = household_preference_for_intent(value)
+    if preference:
+        return str(preference["canonical_query"])
     return value
 
 
@@ -2445,7 +2486,7 @@ Use it for opt-in household purchases only. Do not scrape third-party shops.
 Recommended flow:
 0. If asked about household context, list open tasks: GET /v1/tasks/open?limit=20
 1. Search catalog: GET /v1/catalog/search?q=tea
-   - "my favorite tea" resolves to Hazel's Chocolate Tea.
+   - "my favorite/favourite/fav/usual tea" resolves from the household profile to Hazel's Chocolate Tea.
 2. Optional but recommended: inspect opt-in merchants and compare private final quotes:
    - GET /v1/registry
    - GET /v1/quote-tournament?q=tea&country=DE
@@ -2739,6 +2780,7 @@ separate human confirmation.
 
     def search_catalog(self, query: str) -> dict[str, Any]:
         catalog_query = catalog_query_for_intent(query)
+        preference_context = household_preference_for_intent(query)
         with self.lock:
             products: list[dict[str, Any]] = []
             merchants = []
@@ -2784,6 +2826,7 @@ separate human confirmation.
         return {
             "query": query,
             "catalog_query": catalog_query,
+            "preference_context": preference_context,
             "products": products,
             "merchant": products[0].get("merchant", merchants[0]) if products and isinstance(products[0], dict) else merchants[0] if merchants else self.adapter.merchant,
             "merchants": merchants,
@@ -2806,8 +2849,9 @@ separate human confirmation.
     def resolve_product_request_id(self, product_id: str) -> str:
         if self.is_known_product_id(product_id):
             return product_id
+        preference_context = household_preference_for_intent(product_id)
         alias_product_id = resolve_product_alias(product_id)
-        if alias_product_id == "tea_hazels_chocolate_100g":
+        if preference_context:
             catalog = self.search_catalog(product_id)
             products = catalog.get("products") if isinstance(catalog, dict) else []
             if isinstance(products, list) and products:
