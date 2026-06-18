@@ -1,0 +1,46 @@
+# Example Home Assistant package for the Household OS bridge.
+# Copy into home-ops/packages only after replacing mobile_app services and entity IDs.
+
+notify:
+  - name: household
+    platform: group
+    services:
+      - action: mobile_app_maximilians_iphone
+      - action: mobile_app_iphone_paula
+
+script:
+  household_lueften_reminder:
+    alias: Household lueften reminder
+    description: Safe script called by Household OS when CO2 is high.
+    mode: queued
+    fields:
+      message:
+        name: Message
+        required: false
+        selector:
+          text:
+    sequence:
+      - action: notify.household
+        data:
+          title: Lueften
+          message: >-
+            {{ message | default('CO2 is high. Open a window for a few minutes.', true) }}
+      - action: logbook.log
+        data:
+          name: Household OS
+          message: Sent a lueften reminder through a safe script.
+
+  household_weekend_reset:
+    alias: Household weekend reset
+    description: Safe placeholder for weekend planning reminders.
+    mode: single
+    sequence:
+      - action: notify.household
+        data:
+          title: Weekend plan
+          message: Review errands, shopping, laundry, and home projects in Vikunja.
+      - action: persistent_notification.create
+        data:
+          notification_id: household_weekend_reset
+          title: Weekend plan
+          message: Review errands, shopping, laundry, and home projects in Vikunja.

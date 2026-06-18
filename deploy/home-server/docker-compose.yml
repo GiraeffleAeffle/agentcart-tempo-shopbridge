@@ -1,0 +1,145 @@
+services:
+  agentcart:
+    build: ${AGENTCART_CONTEXT:-../../gateway}
+    restart: unless-stopped
+    depends_on:
+      - vikunja
+    ports:
+      - "0.0.0.0:${AGENTCART_HOST_PORT:-8099}:8099"
+    environment:
+      AGENTCART_BIND: 0.0.0.0
+      AGENTCART_PORT: 8099
+      AGENTCART_PUBLIC_URL: ${AGENTCART_PUBLIC_URL:-http://localhost:8099}
+      AGENTCART_TIMEZONE: ${AGENTCART_TIMEZONE:-Europe/Berlin}
+      AGENTCART_TOKEN: ${AGENTCART_TOKEN}
+      AGENTCART_DATA_DIR: /data
+      AGENTCART_DEFAULT_SHIP_COUNTRY: ${AGENTCART_DEFAULT_SHIP_COUNTRY:-DE}
+      AGENTCART_DEFAULT_SHIP_POSTAL_CODE: ${AGENTCART_DEFAULT_SHIP_POSTAL_CODE:-15344}
+      AGENTCART_DELIVERY_CALENDAR_ENABLED: ${AGENTCART_DELIVERY_CALENDAR_ENABLED:-true}
+      AGENTCART_DELIVERY_CALENDAR_TOKEN: ${AGENTCART_DELIVERY_CALENDAR_TOKEN}
+      WOOCOMMERCE_MODE: ${WOOCOMMERCE_MODE:-disabled}
+      WOOCOMMERCE_BASE_URL: ${WOOCOMMERCE_BASE_URL:-}
+      WOOCOMMERCE_AGENTCART_TOKEN: ${WOOCOMMERCE_AGENTCART_TOKEN:-}
+      WOOCOMMERCE_MERCHANT_ID: ${WOOCOMMERCE_MERCHANT_ID:-woocommerce-demo-shop}
+      WOOCOMMERCE_MERCHANT_NAME: ${WOOCOMMERCE_MERCHANT_NAME:-AgentCart Demo Shop}
+      HOMEASSISTANT_URL: ${HOMEASSISTANT_URL:-}
+      HOMEASSISTANT_TOKEN: ${HOMEASSISTANT_TOKEN:-}
+      HA_NOTIFY_SERVICES: ${HA_NOTIFY_SERVICES:-}
+      VIKUNJA_API_URL: http://vikunja:3456/api/v1
+      VIKUNJA_WEB_URL: ${VIKUNJA_WEB_URL:-http://localhost:3456}
+      VIKUNJA_TOKEN: ${VIKUNJA_TOKEN:-}
+      VIKUNJA_PROJECT_ID: ${VIKUNJA_PROJECT_ID:-}
+    volumes:
+      - agentcart_data:/data
+
+  household-os:
+    build: ${HOUSEHOLD_OS_CONTEXT:-../../household-os}
+    restart: unless-stopped
+    depends_on:
+      - vikunja
+      - agentcart
+    ports:
+      - "0.0.0.0:${HOUSEHOLD_OS_HOST_PORT:-8088}:8088"
+    environment:
+      HOUSEHOLD_OS_BIND: 0.0.0.0
+      HOUSEHOLD_OS_PORT: 8088
+      HOUSEHOLD_OS_TOKEN: ${HOUSEHOLD_OS_TOKEN}
+      AUDIT_LOG_PATH: /data/audit.jsonl
+      CHAT_HISTORY_PATH: /data/chat.jsonl
+      SESSION_PATH: /data/sessions.json
+      VIKUNJA_API_URL: http://vikunja:3456/api/v1
+      VIKUNJA_SERVICE_PUBLICURL: ${VIKUNJA_SERVICE_PUBLICURL:-http://localhost:3456}
+      VIKUNJA_WEB_URL: ${VIKUNJA_WEB_URL:-http://localhost:3456}
+      VIKUNJA_TOKEN: ${VIKUNJA_TOKEN:-}
+      HOMEASSISTANT_URL: ${HOMEASSISTANT_URL:-}
+      HOMEASSISTANT_TOKEN: ${HOMEASSISTANT_TOKEN:-}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      AGENTCART_URL: http://agentcart:8099
+      AGENTCART_TOKEN: ${AGENTCART_TOKEN}
+      HA_NOTIFY_SERVICES: ${HA_NOTIFY_SERVICES:-}
+    volumes:
+      - household_os_data:/data
+
+  vikunja-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vikunja}
+      POSTGRES_USER: ${POSTGRES_USER:-vikunja}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - vikunja_db:/var/lib/postgresql/data
+
+  vikunja:
+    image: vikunja/vikunja:2.3.0
+    restart: unless-stopped
+    depends_on:
+      - vikunja-db
+    ports:
+      - "0.0.0.0:${VIKUNJA_HOST_PORT:-3456}:3456"
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: ${VIKUNJA_SERVICE_PUBLICURL:-http://localhost:3456}
+      VIKUNJA_SERVICE_SECRET: ${VIKUNJA_SERVICE_SECRET}
+      VIKUNJA_SERVICE_TIMEZONE: ${AGENTCART_TIMEZONE:-Europe/Berlin}
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: "false"
+      VIKUNJA_DATABASE_TYPE: postgres
+      VIKUNJA_DATABASE_HOST: vikunja-db
+      VIKUNJA_DATABASE_DATABASE: ${POSTGRES_DB:-vikunja}
+      VIKUNJA_DATABASE_USER: ${POSTGRES_USER:-vikunja}
+      VIKUNJA_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - vikunja_files:/app/vikunja/files
+
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    profiles: ["homeassistant"]
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:${HOME_ASSISTANT_HOST_PORT:-8123}:8123"
+    environment:
+      TZ: ${AGENTCART_TIMEZONE:-Europe/Berlin}
+    volumes:
+      - homeassistant_config:/config
+
+  woocommerce-db:
+    image: mariadb:11
+    profiles: ["woocommerce-demo"]
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: ${WOO_DB_PASSWORD}
+      MYSQL_RANDOM_ROOT_PASSWORD: "1"
+    volumes:
+      - woocommerce_db:/var/lib/mysql
+
+  woocommerce:
+    image: wordpress:php8.2-apache
+    profiles: ["woocommerce-demo"]
+    restart: unless-stopped
+    depends_on:
+      - woocommerce-db
+    ports:
+      - "0.0.0.0:${WOO_HOST_PORT:-8098}:80"
+    environment:
+      WORDPRESS_DB_HOST: woocommerce-db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${WOO_DB_PASSWORD}
+      WORDPRESS_DB_NAME: wordpress
+      AGENTCART_SHOPBRIDGE_TOKEN: ${WOOCOMMERCE_AGENTCART_TOKEN}
+      AGENTCART_MERCHANT_ID: ${WOOCOMMERCE_MERCHANT_ID:-woocommerce-demo-shop}
+      AGENTCART_MERCHANT_NAME: ${WOOCOMMERCE_MERCHANT_NAME:-AgentCart Demo Shop}
+      AGENTCART_SUPPORT_EMAIL: ${WOO_ADMIN_EMAIL:-merchant@example.com}
+    volumes:
+      - woocommerce_data:/var/www/html
+      - ../../woocommerce-shopbridge/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+
+volumes:
+  agentcart_data:
+  household_os_data:
+  vikunja_db:
+  vikunja_files:
+  homeassistant_config:
+  woocommerce_db:
+  woocommerce_data:

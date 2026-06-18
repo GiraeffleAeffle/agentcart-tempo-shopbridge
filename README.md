@@ -9,24 +9,25 @@ WooCommerce order creation, delivery visibility, refund metadata, and audit.
 
 ```text
 gateway/                  AgentCart API, household demo, pitch/architecture pages
+household-os/             Home Assistant / Vikunja / OpenClaw chat bridge
 woocommerce-shopbridge/   WordPress/WooCommerce plugin
 demo/woocommerce/         Local WooCommerce demo shop compose files and seed script
-docs/                     Hackathon runbook, MPP compatibility, review prompt
+deploy/home-server/       NUC/home-server compose package
+docs/                     Hackathon story, runbook, production tracks, protocol notes
 ```
 
 ## Demo Flow
 
-1. Household agent receives: "buy my favorite tea, Hazel's Chocolate".
-2. AgentCart discovers two opt-in shops and runs a private quote tournament.
-3. The best quote is selected by final price, delivery, policy, and manifest
+1. Household agent receives: "Please buy my favourite tea".
+2. AgentCart resolves the household preference to Hazel's Chocolate Tea.
+3. AgentCart discovers two opt-in shops and runs a private quote tournament.
+4. The best quote is selected by final price, delivery, policy, and manifest
    integrity.
-4. User approves the exact quote.
-5. Checkout follows an MPP-shaped HTTP 402 payment flow and attaches a Tempo
+5. User approves the exact quote.
+6. Checkout follows an MPP-shaped HTTP 402 payment flow and attaches a Tempo
    testnet proof.
-6. The WooCommerce ShopBridge plugin creates the merchant order.
-7. AgentCart updates task/calendar/audit state.
-8. Optional refund demo records a WooCommerce refund object while clearly
-   stating whether a real Stripe/card or Tempo refund was verified.
+7. The WooCommerce ShopBridge plugin creates the merchant order.
+8. AgentCart updates Vikunja, delivery calendar, and audit state.
 
 ## Important Boundary
 
@@ -58,6 +59,24 @@ http://127.0.0.1:8099/onboarding.html
 http://127.0.0.1:8099/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344
 ```
 
+## Home-Server Package
+
+```sh
+cd deploy/home-server
+cp .env.example .env
+docker-compose up -d --build
+```
+
+Optional profiles:
+
+```sh
+docker-compose --profile homeassistant --profile woocommerce-demo up -d --build
+```
+
+This starts AgentCart, Household OS, Vikunja, and optional Home Assistant /
+WooCommerce demo services. OpenClaw is expected to run separately or on the same
+network with the provided skills installed.
+
 ## WooCommerce Plugin
 
 Install `woocommerce-shopbridge/agentcart-shopbridge` into:
@@ -77,12 +96,28 @@ The plugin exposes:
 - `/wp-json/agentcart/v1/orders/{id}/status`
 - `/wp-json/agentcart/v1/orders/{id}/refunds`
 
+## Production Tracks
+
+- `docs/PRODUCTION_NEXT_STEPS.md`
+- `docs/WOOCOMMERCE_PRODUCTION_HARDENING.md`
+- `docs/SETTLEMENT_OPTIONS.md`
+- `docs/MERCHANT_REGISTRY.md`
+- `docs/DELIVERY_AND_REFUNDS.md`
+
+These are not marketing placeholders. They define the concrete work required to
+move from hackathon demo to production candidate.
+
 ## Verification
 
 ```sh
 cd gateway
 python3 -m unittest discover -s tests
-npx mppx discover validate http://127.0.0.1:8099/openapi.json
 ```
 
-Use `docs/HACKATHON_DEMO.md` for the full presentation runbook.
+```sh
+cd household-os
+python3 -m unittest discover -s tests
+```
+
+Use `docs/HACKATHON_DEMO.md` for the full presentation runbook and
+`docs/PROJECT_STORY.md` for the Devpost story.
