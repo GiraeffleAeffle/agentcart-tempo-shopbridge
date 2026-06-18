@@ -1,0 +1,19 @@
+[Unit]
+Description=AgentCart demo merchant bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+WorkingDirectory=/home/openclaw/workspace/agentcart
+Environment=HOME=/home/openclaw
+EnvironmentFile=/etc/openclaw/agentcart.env
+ExecStart=/usr/bin/python3 /home/openclaw/workspace/agentcart/agentcart.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

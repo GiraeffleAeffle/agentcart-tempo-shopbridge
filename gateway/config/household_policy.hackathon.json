@@ -1,0 +1,13 @@
+{
+  "household_id": "max-household-demo",
+  "max_order_total_cents": 4000,
+  "monthly_budget_cents": 50000,
+  "auto_approve_below_cents": 0,
+  "require_human_approval": true,
+  "allowed_merchants": ["demo-tea-shop", "woocommerce-demo-tea", "woocommerce-demo-shop"],
+  "blocked_merchants": [],
+  "allowed_categories": ["grocery.tea", "woocommerce.tea", "woocommerce.personal-care", "woocommerce.household", "woocommerce.coffee"],
+  "blocked_categories": ["alcohol", "tobacco", "gift-card", "medicine"],
+  "allowed_ship_countries": ["DE"],
+  "replay_window_seconds": 300
+}

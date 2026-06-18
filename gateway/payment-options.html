@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart Payment And Refund Options</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172027;
+      --muted: #5e6a66;
+      --line: #cbd8d4;
+      --soft: #f4f7f6;
+      --panel: #ffffff;
+      --agent: #176c5f;
+      --stripe: #635bff;
+      --tempo: #6b4d8d;
+      --warn: #8b5a1d;
+      --risk: #9b3333;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: #fff; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+    header { padding: 28px 32px 22px; background: var(--soft); border-bottom: 1px solid var(--line); }
+    main { max-width: 1220px; margin: 0 auto; padding: 24px 24px 46px; }
+    h1 { margin: 0 0 8px; font-size: 32px; letter-spacing: 0; }
+    h2 { margin: 26px 0 12px; font-size: 20px; letter-spacing: 0; }
+    h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0; }
+    p { margin: 0; }
+    .lead { max-width: 980px; color: var(--muted); font-size: 16px; }
+    a { color: var(--agent); }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    .button { border: 1px solid var(--agent); background: var(--agent); color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 650; text-decoration: none; }
+    .secondary { background: #fff; color: var(--agent); }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 16px; min-height: 150px; }
+    .card strong { display: block; margin-bottom: 8px; font-size: 17px; }
+    .card p, li { color: var(--muted); }
+    ul, ol { margin: 0; padding-left: 20px; }
+    li { margin: 7px 0; }
+    table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { padding: 10px 11px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { background: var(--soft); color: #33423e; font-size: 12px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    code { background: #edf3f1; border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px; font-size: .92em; }
+    .tag { display: inline-block; border-radius: 999px; padding: 3px 8px; color: #fff; font-size: 12px; font-weight: 700; }
+    .tempo { background: var(--tempo); }
+    .stripe { background: var(--stripe); }
+    .warn { background: var(--warn); }
+    .muted { color: var(--muted); }
+    .risk { color: var(--risk); font-weight: 700; }
+    @media (max-width: 920px) {
+      header { padding: 22px 20px 18px; }
+      main { padding: 18px 16px 36px; }
+      .grid, .two { grid-template-columns: 1fr; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Payment And Refund Options</h1>
+    <p class="lead">AgentCart should make payments easy for a WooCommerce merchant without pretending that settlement, refunds, FX, chargebacks, and consumer rights disappear. The right production shape is multi-rail: Tempo for stablecoin-capable agents, Stripe/card for normal users and EUR merchants.</p>
+    <div class="actions">
+      <a class="button secondary" href="/">Dashboard</a>
+      <a class="button secondary" href="/presentation.html">Presentation</a>
+      <a class="button secondary" href="/onboarding.html">Onboarding</a>
+      <a class="button secondary" href="/protocol-fields.html">Field Map</a>
+      <a class="button secondary" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344">Quote Tournament</a>
+      <a class="button" href="/architecture.html">Architecture</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="grid">
+      <div class="card">
+        <strong>Normal buyer setup</strong>
+        <ol>
+          <li>Use an agent that can call the ShopBridge catalog, quote, approval, checkout, and order-status APIs.</li>
+          <li>Store delivery address and household policy in the agent or buyer profile.</li>
+          <li>Provide a payment credential source: funded MPP wallet, Link/Stripe SPT flow, or another supported MPP method.</li>
+          <li>Approve the final quote before checkout.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <strong>WooCommerce merchant setup</strong>
+        <ol>
+          <li>Install WooCommerce and configure products, tax, stock, shipping, terms, and returns as usual.</li>
+          <li>Install AgentCart ShopBridge and publish the machine-readable manifest.</li>
+          <li>Choose settlement methods: Tempo stablecoin, Stripe/card, or both.</li>
+          <li>Configure verifier, recipient/profile, refund handling, and order-status/tracking plugins.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <strong>Hackathon boundary</strong>
+        <p>The demo proves opt-in discovery, quote competition, human approval, Woo order creation, pathUSD testnet proof, delivery estimate, Vikunja task, and audit. It does not claim real EUR settlement or production refund automation.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Payment Rails</h2>
+      <table>
+        <thead>
+          <tr><th>Rail</th><th>Buyer needs</th><th>Merchant needs</th><th>Best use</th><th>Main caveat</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag tempo">Tempo MPP</span></td>
+            <td>Agent wallet/account that can create MPP credentials and has the required stablecoin balance.</td>
+            <td>Tempo recipient address, MPP verifier/server, accounting policy for stablecoin settlement, refund process.</td>
+            <td>Agent-native payments, low-value API/tool calls, crypto-capable buyers.</td>
+            <td>EUR shops need FX/accounting handling when product quote is EUR but settlement is USDC/pathUSD.</td>
+          </tr>
+          <tr>
+            <td><span class="tag stripe">Stripe/card MPP</span></td>
+            <td>Payment method exposed through Link/Stripe Shared Payment Token flow, with explicit spend approval.</td>
+            <td>Stripe account, machine-payment access, Business Network/profile id, card/link payment method configuration, verifier.</td>
+            <td>Normal users, EUR merchants, refunds, reporting, disputes, and fiat payouts.</td>
+            <td>Requires Stripe access and an SPT-capable buyer flow. It is easier operationally but less permissionless.</td>
+          </tr>
+          <tr>
+            <td><span class="tag warn">Hybrid</span></td>
+            <td>Agent picks one of the advertised methods it supports.</td>
+            <td>ShopBridge advertises multiple MPP challenges and verifies whichever credential is presented.</td>
+            <td>Best production story for WooCommerce shops.</td>
+            <td>More integration work and clearer UI needed so the merchant understands settlement and fees.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Refund Handling</h2>
+      <div class="grid two">
+        <div class="card">
+          <strong>What WooCommerce already has</strong>
+          <p>WooCommerce already represents refunds in the order admin. The screenshot with the Refund button is useful for the demo because it shows we are creating a real Woo order surface, not a fake standalone receipt.</p>
+        </div>
+        <div class="card">
+          <strong>What AgentCart must add for production</strong>
+          <p>A Woo refund must call the same payment verifier/rail that accepted the payment. Recording a Woo refund is not enough if the money moved through Tempo, Stripe, or another rail.</p>
+        </div>
+      </div>
+      <table style="margin-top:14px">
+        <thead>
+          <tr><th>Refund case</th><th>Production behavior</th><th>AgentCart fields to store</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Stripe/card</td>
+            <td>Use Stripe refund API or Dashboard. Stripe keeps the payment/refund/reporting/dispute record.</td>
+            <td><code>stripe_payment_intent</code>, <code>refund_id</code>, <code>amount</code>, <code>currency</code>, <code>status</code>, <code>reason</code>.</td>
+          </tr>
+          <tr>
+            <td>Tempo stablecoin</td>
+            <td>Refund to the source wallet or run a rail-specific refund transfer. The verifier should bind the refund to the original receipt and quote/order.</td>
+            <td><code>transaction_reference</code>, <code>from_wallet</code>, <code>refund_transaction_reference</code>, <code>asset</code>, <code>network</code>.</td>
+          </tr>
+          <tr>
+            <td>Demo mode</td>
+            <td>Record refund intent only. Do not claim funds moved.</td>
+            <td><code>state: demo_refund_recorded</code>, <code>real_refund: false</code>, <code>reason</code>, <code>audit_event_id</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Suggested Product Decision</h2>
+      <div class="grid two">
+        <div class="card">
+          <strong>Include in hackathon</strong>
+          <ul>
+            <li>Show Stripe/card and refunds as production-grade options in the merchant onboarding story.</li>
+            <li>Expose <code>refund_policy</code> and <code>payment_requirements.protocols[]</code> in the merchant manifest/quote.</li>
+            <li>Show the WooCommerce Refund button and explain that real rail refunds are future verifier work.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <strong>Do not overbuild before presentation</strong>
+          <ul>
+            <li>Do not implement live Stripe/card unless credentials and access are ready.</li>
+            <li>Do not claim Woo refunds move pathUSD or EUR unless the rail refund actually executes.</li>
+            <li>Do not make the buyer create a shop account in the browser; collect address and consent through the agent profile/API.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Sources</h2>
+      <p class="muted">Official docs checked: <a href="https://docs.stripe.com/payments/machine">Stripe machine payments</a>, <a href="https://docs.stripe.com/payments/machine/mpp">Stripe MPP payments</a>, <a href="https://mpp.dev/advanced/refunds">MPP refunds</a>, and <a href="https://mpp.dev/protocol/">MPP protocol overview</a>.</p>
+    </section>
+  </main>
+</body>
+</html>

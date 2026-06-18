@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart Agent Console</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1d252c;
+      --muted: #5f6b73;
+      --line: #d9e0e6;
+      --panel: #f6f8f9;
+      --brand: #0a6c60;
+      --accent: #8a4a13;
+      --danger: #9b1c1c;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #fff;
+      letter-spacing: 0;
+    }
+
+    header {
+      padding: 26px 30px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #edf5f3;
+    }
+
+    h1 { margin: 0 0 6px; font-size: 28px; line-height: 1.1; letter-spacing: 0; }
+    h2 { margin: 0 0 12px; font-size: 17px; letter-spacing: 0; }
+    h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: 0; }
+    p { margin: 0; }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 22px 24px 42px;
+      display: grid;
+      grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .lede { color: var(--muted); max-width: 840px; }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+    }
+
+    .stack { display: grid; gap: 12px; }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: #3d4951;
+      font-weight: 650;
+      font-size: 13px;
+    }
+
+    input, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 10px;
+      font: inherit;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    button, .button {
+      border: 1px solid var(--brand);
+      background: var(--brand);
+      color: #fff;
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      text-align: center;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .secondary {
+      background: #fff;
+      color: var(--brand);
+    }
+
+    .danger {
+      border-color: var(--danger);
+      background: var(--danger);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .product-list {
+      display: grid;
+      gap: 8px;
+      max-height: 420px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .product {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px;
+      display: grid;
+      gap: 4px;
+      background: #fff;
+    }
+
+    .product.selected {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 2px rgba(10,108,96,0.12);
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-block;
+      width: fit-content;
+      border-radius: 5px;
+      padding: 2px 6px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .badge.woo {
+      background: #fff1e5;
+      color: var(--accent);
+    }
+
+    .status {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--panel);
+      display: grid;
+      gap: 7px;
+    }
+
+    .status strong {
+      font-size: 13px;
+    }
+
+    .log {
+      min-height: 420px;
+      max-height: 680px;
+      overflow: auto;
+      background: #101519;
+      color: #dce7ec;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+
+    .json {
+      background: #eef1f3;
+      border-radius: 6px;
+      padding: 9px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+
+    .links {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    @media (max-width: 900px) {
+      header { padding: 22px 18px 16px; }
+      main { grid-template-columns: 1fr; padding: 18px 14px 32px; }
+      .log { min-height: 280px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Agent Console</h1>
+    <p class="lede">Run the household-agent side of the demo: search an opt-in merchant catalog, request a quote, ask for human approval, then complete the HTTP 402 payment-auth checkout.</p>
+    <div class="links">
+      <a class="button secondary" href="/">Merchant Dashboard</a>
+      <a class="button secondary" href="/architecture.html">Architecture</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="stack">
+      <div class="panel stack">
+        <h2>Agent Intent</h2>
+        <label>
+          Search query
+          <input id="query" value="tea" autocomplete="off">
+        </label>
+        <label>
+          API token
+          <input id="apiToken" type="password" placeholder="Only needed when AGENTCART_TOKEN is set">
+        </label>
+        <div class="actions">
+          <button id="searchButton" type="button">Search Catalog</button>
+          <button id="resetButton" class="secondary" type="button">Reset Console</button>
+        </div>
+      </div>
+
+      <div class="panel stack">
+        <h2>Products</h2>
+        <div id="products" class="product-list"></div>
+      </div>
+
+      <div class="panel stack">
+        <h2>Quote</h2>
+        <label>
+          Quantity
+          <input id="quantity" type="number" min="1" max="20" value="1">
+        </label>
+        <label>
+          Reason
+          <input id="reason" value="Home Assistant tea stock sensor is low">
+        </label>
+        <button id="quoteButton" type="button" disabled>Request Quote</button>
+        <div id="quoteStatus" class="status"></div>
+      </div>
+
+      <div class="panel stack">
+        <h2>Approval + Checkout</h2>
+        <div class="actions">
+          <button id="approvalButton" type="button" disabled>Create Approval</button>
+          <button id="pollButton" class="secondary" type="button" disabled>Poll Approval</button>
+          <button id="checkoutButton" type="button" disabled>Run MPP Checkout</button>
+        </div>
+        <div id="approvalStatus" class="status"></div>
+      </div>
+    </section>
+
+    <section class="stack">
+      <div class="panel">
+        <h2>Agent Transcript</h2>
+        <div id="log" class="log"></div>
+      </div>
+      <div class="panel stack">
+        <h2>Latest Object</h2>
+        <div id="latest" class="json">{}</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      products: [],
+      selectedProduct: null,
+      quote: null,
+      approval: null,
+      order: null,
+    };
+
+    const els = {
+      query: document.getElementById("query"),
+      apiToken: document.getElementById("apiToken"),
+      searchButton: document.getElementById("searchButton"),
+      resetButton: document.getElementById("resetButton"),
+      products: document.getElementById("products"),
+      quantity: document.getElementById("quantity"),
+      reason: document.getElementById("reason"),
+      quoteButton: document.getElementById("quoteButton"),
+      quoteStatus: document.getElementById("quoteStatus"),
+      approvalButton: document.getElementById("approvalButton"),
+      pollButton: document.getElementById("pollButton"),
+      checkoutButton: document.getElementById("checkoutButton"),
+      approvalStatus: document.getElementById("approvalStatus"),
+      log: document.getElementById("log"),
+      latest: document.getElementById("latest"),
+    };
+
+    els.apiToken.value = localStorage.getItem("agentcart.apiToken") || "";
+    els.apiToken.addEventListener("input", () => localStorage.setItem("agentcart.apiToken", els.apiToken.value));
+
+    function authHeaders() {
+      const headers = { "accept": "application/json" };
+      if (els.apiToken.value.trim()) {
+        headers["x-agentcart-token"] = els.apiToken.value.trim();
+      }
+      return headers;
+    }
+
+    async function api(path, options = {}) {
+      const headers = { ...authHeaders(), ...(options.headers || {}) };
+      const response = await fetch(path, { ...options, headers });
+      const text = await response.text();
+      const body = text ? JSON.parse(text) : null;
+      if (!response.ok && response.status !== 402) {
+        throw new Error(body?.error?.message || `HTTP ${response.status}`);
+      }
+      return { status: response.status, headers: response.headers, body };
+    }
+
+    function log(message, obj) {
+      const time = new Date().toLocaleTimeString();
+      els.log.textContent += `[${time}] ${message}\n`;
+      if (obj !== undefined) {
+        els.log.textContent += JSON.stringify(obj, null, 2) + "\n";
+        els.latest.textContent = JSON.stringify(obj, null, 2);
+      }
+      els.log.scrollTop = els.log.scrollHeight;
+    }
+
+    function money(cents, currency = "EUR") {
+      return `${(cents / 100).toFixed(2)} ${currency}`;
+    }
+
+    function renderProducts() {
+      els.products.innerHTML = "";
+      if (!state.products.length) {
+        els.products.innerHTML = "<p class=\"meta\">No products loaded yet.</p>";
+        return;
+      }
+      for (const product of state.products) {
+        const div = document.createElement("button");
+        div.type = "button";
+        div.className = "product" + (state.selectedProduct?.id === product.id ? " selected" : "");
+        div.innerHTML = `
+          <span class="badge ${product.adapter === "woocommerce" ? "woo" : ""}">${product.adapter || "demo"}</span>
+          <h3>${escapeHtml(product.title)}</h3>
+          <p class="meta">${escapeHtml(product.merchant.name)} · ${escapeHtml(product.sku)} · stock ${product.stock}</p>
+          <p>${escapeHtml(product.description)}</p>
+          <strong>${money(product.price_hint.amount_cents, product.price_hint.currency)}</strong>
+        `;
+        div.addEventListener("click", () => {
+          state.selectedProduct = product;
+          state.quote = null;
+          state.approval = null;
+          state.order = null;
+          log(`Selected ${product.title} from ${product.merchant.name}.`);
+          renderProducts();
+          renderStatus();
+        });
+        els.products.appendChild(div);
+      }
+    }
+
+    function renderStatus() {
+      els.quoteButton.disabled = !state.selectedProduct;
+      els.approvalButton.disabled = !state.quote || state.quote.policy_result.decision === "deny";
+      els.pollButton.disabled = !state.approval;
+      els.checkoutButton.disabled = !state.approval || state.approval.state !== "approved" || Boolean(state.order);
+
+      if (!state.quote) {
+        els.quoteStatus.innerHTML = "<p class=\"meta\">Select a product and request a quote.</p>";
+      } else {
+        els.quoteStatus.innerHTML = `
+          <strong>${escapeHtml(state.quote.id)}</strong>
+          <p>Total: ${money(state.quote.total_cents, state.quote.currency)}</p>
+          <p>Policy: ${escapeHtml(state.quote.policy_result.decision)} — ${escapeHtml(state.quote.policy_result.reasons.join("; "))}</p>
+          <p>Merchant: ${escapeHtml(state.quote.merchant.name)}</p>
+        `;
+      }
+
+      if (!state.approval) {
+        els.approvalStatus.innerHTML = "<p class=\"meta\">Create an approval request after quote.</p>";
+      } else {
+        const approvalLink = state.approval.decision_url
+          ? `<a class="button secondary" href="${state.approval.decision_url}" target="_blank" rel="noopener">Open Approval</a>`
+          : "";
+        els.approvalStatus.innerHTML = `
+          <strong>${escapeHtml(state.approval.id)}</strong>
+          <p>State: ${escapeHtml(state.approval.state)}</p>
+          <p>Human approval is intentionally separate from the agent.</p>
+          <div class="actions">${approvalLink}</div>
+          ${state.order ? `<p>Order: ${escapeHtml(state.order.id)} · merchant ref ${escapeHtml(state.order.merchant_order_id)}</p>` : ""}
+        `;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    async function searchCatalog() {
+      log(`Agent searches catalog for "${els.query.value}".`);
+      const { body } = await api(`/v1/catalog/search?q=${encodeURIComponent(els.query.value)}`);
+      state.products = body.products || [];
+      state.selectedProduct = state.products[0] || null;
+      state.quote = null;
+      state.approval = null;
+      state.order = null;
+      log(`Catalog returned ${state.products.length} products.`, body);
+      renderProducts();
+      renderStatus();
+    }
+
+    async function requestQuote() {
+      const product = state.selectedProduct;
+      if (!product) return;
+      const payload = {
+        agent_id: "agent-console",
+        reason: els.reason.value || "household agent requested purchase",
+        items: [{ product_id: product.id, quantity: Number(els.quantity.value || 1) }],
+        ship_to: { country: "DE", postal_code: "15344" },
+      };
+      log("Agent requests final quote.", payload);
+      const { body } = await api("/v1/quotes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      state.quote = body;
+      state.approval = null;
+      state.order = null;
+      log("Quote received.", body);
+      renderStatus();
+    }
+
+    async function createApproval() {
+      if (!state.quote) return;
+      const payload = { quote_id: state.quote.id, channel: "agent_console" };
+      log("Agent asks for human approval.", payload);
+      const { body } = await api("/v1/approvals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      state.approval = body;
+      log("Approval request created. Open the approval link and approve or reject.", body);
+      renderStatus();
+    }
+
+    async function pollApproval() {
+      if (!state.approval) return;
+      const { body } = await api(`/v1/approvals/${state.approval.id}`);
+      state.approval = { ...state.approval, ...body };
+      log(`Approval state is ${state.approval.state}.`, body);
+      renderStatus();
+    }
+
+    async function runCheckout() {
+      if (!state.quote || !state.approval || state.approval.state !== "approved") return;
+      const payload = {
+        quote_id: state.quote.id,
+        approval_id: state.approval.id,
+        idempotency_key: `agent-console-${state.approval.id}`,
+      };
+      const bodyText = JSON.stringify(payload);
+      log("Agent attempts checkout. Server should return 402 Payment Required.", payload);
+      const first = await api("/v1/checkout", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": payload.idempotency_key,
+        },
+        body: bodyText,
+      });
+      log(`Checkout step 1 returned HTTP ${first.status}.`, first.body);
+      if (first.status !== 402) {
+        state.order = first.body.order;
+        renderStatus();
+        return;
+      }
+
+      log("Agent retries with Authorization: Payment demo:<challenge>.");
+      const second = await api("/v1/checkout", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": payload.idempotency_key,
+          "authorization": first.body.demo_authorization,
+        },
+        body: bodyText,
+      });
+      state.order = second.body.order;
+      log(`Checkout step 2 returned HTTP ${second.status}. Order created.`, second.body);
+      renderStatus();
+    }
+
+    function resetConsole() {
+      state.products = [];
+      state.selectedProduct = null;
+      state.quote = null;
+      state.approval = null;
+      state.order = null;
+      els.log.textContent = "";
+      els.latest.textContent = "{}";
+      renderProducts();
+      renderStatus();
+    }
+
+    els.searchButton.addEventListener("click", () => searchCatalog().catch(error => log(`Error: ${error.message}`)));
+    els.quoteButton.addEventListener("click", () => requestQuote().catch(error => log(`Error: ${error.message}`)));
+    els.approvalButton.addEventListener("click", () => createApproval().catch(error => log(`Error: ${error.message}`)));
+    els.pollButton.addEventListener("click", () => pollApproval().catch(error => log(`Error: ${error.message}`)));
+    els.checkoutButton.addEventListener("click", () => runCheckout().catch(error => log(`Error: ${error.message}`)));
+    els.resetButton.addEventListener("click", resetConsole);
+
+    renderProducts();
+    renderStatus();
+    log("Agent console ready. Start with Search Catalog.");
+  </script>
+</body>
+</html>

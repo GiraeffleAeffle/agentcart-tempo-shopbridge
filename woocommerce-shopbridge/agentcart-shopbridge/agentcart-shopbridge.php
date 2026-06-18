@@ -1,0 +1,1474 @@
+<?php
+/**
+ * Plugin Name: AgentCart ShopBridge for WooCommerce
+ * Description: Exposes opt-in WooCommerce catalog, quote, and paid-order endpoints for AgentCart household agents.
+ * Version: 0.1.0
+ * Author: AgentCart Hackathon
+ * Requires Plugins: woocommerce
+ */
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+final class AgentCart_ShopBridge {
+    const API_NAMESPACE = 'agentcart/v1';
+    const TOKEN_OPTION = 'agentcart_shopbridge_token';
+    const QUOTE_TRANSIENT_PREFIX = 'agentcart_shopbridge_quote_';
+    const STATUS_TOKEN_META = '_agentcart_order_status_token';
+    const PAYMENT_VERIFIER_URL_OPTION = 'agentcart_shopbridge_payment_verifier_url';
+    const PAYMENT_VERIFIER_TOKEN_OPTION = 'agentcart_shopbridge_payment_verifier_token';
+    const TEMPO_RECIPIENT_OPTION = 'agentcart_shopbridge_tempo_recipient';
+    const TEMPO_NETWORK_OPTION = 'agentcart_shopbridge_tempo_network';
+    const STRIPE_PROFILE_ID_OPTION = 'agentcart_shopbridge_stripe_profile_id';
+    const SUPPORT_EMAIL_OPTION = 'agentcart_shopbridge_support_email';
+
+    public static function init() {
+        add_action('rest_api_init', [__CLASS__, 'register_routes']);
+        add_action('admin_menu', [__CLASS__, 'register_admin_menu']);
+        add_action('admin_init', [__CLASS__, 'ensure_token']);
+        add_action('admin_init', [__CLASS__, 'register_settings']);
+        add_action('parse_request', [__CLASS__, 'maybe_serve_well_known_manifest']);
+    }
+
+    public static function ensure_token() {
+        if (!get_option(self::TOKEN_OPTION)) {
+            update_option(self::TOKEN_OPTION, wp_generate_password(40, false, false));
+        }
+    }
+
+    public static function register_routes() {
+        register_rest_route(self::API_NAMESPACE, '/capability', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [__CLASS__, 'capability'],
+            'permission_callback' => [__CLASS__, 'authorize_public_read'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/catalog', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [__CLASS__, 'catalog'],
+            'permission_callback' => [__CLASS__, 'authorize_public_read'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/products/(?P<id>[\d]+)', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [__CLASS__, 'product'],
+            'permission_callback' => [__CLASS__, 'authorize_public_read'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/quote', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [__CLASS__, 'quote'],
+            'permission_callback' => [__CLASS__, 'authorize_public_read'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/orders', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [__CLASS__, 'create_order'],
+            'permission_callback' => [__CLASS__, 'authorize_checkout'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/orders/(?P<id>[\d]+)/status', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [__CLASS__, 'order_status'],
+            'permission_callback' => [__CLASS__, 'authorize_order_status'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/orders/(?P<id>[\d]+)/refunds', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [__CLASS__, 'create_refund'],
+            'permission_callback' => [__CLASS__, 'authorize_refund'],
+        ]);
+    }
+
+    public static function register_admin_menu() {
+        add_submenu_page(
+            'woocommerce',
+            'AgentCart ShopBridge',
+            'AgentCart',
+            'manage_woocommerce',
+            'agentcart-shopbridge',
+            [__CLASS__, 'render_settings_page']
+        );
+    }
+
+    public static function register_settings() {
+        register_setting('agentcart_shopbridge', self::TOKEN_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::SUPPORT_EMAIL_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_email',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::TEMPO_NETWORK_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_key',
+            'default' => 'testnet',
+        ]);
+        register_setting('agentcart_shopbridge', self::TEMPO_RECIPIENT_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::STRIPE_PROFILE_ID_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::PAYMENT_VERIFIER_URL_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'esc_url_raw',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::PAYMENT_VERIFIER_TOKEN_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
+    }
+
+    public static function render_settings_page() {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('You do not have permission to manage AgentCart ShopBridge.', 'agentcart-shopbridge'));
+        }
+        self::ensure_token();
+        $manifest_url = home_url('/.well-known/agentcart.json');
+        $catalog_url = rest_url(self::API_NAMESPACE . '/catalog');
+        $quote_url = rest_url(self::API_NAMESPACE . '/quote');
+        $orders_url = rest_url(self::API_NAMESPACE . '/orders');
+        $payment_verifier_url = self::payment_verifier_url();
+        $tempo_recipient = self::tempo_recipient();
+        $stripe_profile_id = self::stripe_profile_id();
+        $support_email = self::support_email();
+        ?>
+        <div class="wrap">
+            <h1>AgentCart ShopBridge</h1>
+            <p>
+                Expose this WooCommerce store to household agents through machine-readable discovery,
+                catalog, quote, paid-order, and order-status endpoints. WooCommerce stays the source of
+                truth for products, stock, tax, shipping, fulfillment, refunds, and support.
+            </p>
+
+            <h2>Readiness</h2>
+            <table class="widefat striped" style="max-width: 980px;">
+                <tbody>
+                    <tr>
+                        <th scope="row">Discovery manifest</th>
+                        <td><code><?php echo esc_html($manifest_url); ?></code></td>
+                        <td><?php echo self::admin_status_badge(true, 'Published'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Merchant token</th>
+                        <td>Used by a trusted AgentCart gateway for demo or private integrations.</td>
+                        <td><?php echo self::admin_status_badge((bool) self::merchant_token_value(), 'Configured', 'Missing'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Tempo recipient</th>
+                        <td><code><?php echo esc_html($tempo_recipient ?: 'not configured'); ?></code></td>
+                        <td><?php echo self::admin_status_badge($tempo_recipient !== '', 'Configured', 'Missing'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Payment verifier</th>
+                        <td><code><?php echo esc_html($payment_verifier_url ?: 'trusted gateway token mode'); ?></code></td>
+                        <td><?php echo self::admin_status_badge($payment_verifier_url !== '', 'Production shape', 'Demo mode'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Stripe/card MPP</th>
+                        <td><code><?php echo esc_html($stripe_profile_id ?: 'not configured'); ?></code></td>
+                        <td><?php echo self::admin_status_badge($stripe_profile_id !== '' && $payment_verifier_url !== '', 'Configured', 'Needs Stripe profile + verifier'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Support email</th>
+                        <td><code><?php echo esc_html($support_email ?: 'not published'); ?></code></td>
+                        <td><?php echo self::admin_status_badge($support_email !== '', 'Configured', 'Missing'); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2>Endpoints</h2>
+            <table class="widefat striped" style="max-width: 980px;">
+                <tbody>
+                    <tr><th scope="row">Manifest</th><td><code><?php echo esc_html($manifest_url); ?></code></td></tr>
+                    <tr><th scope="row">Catalog</th><td><code><?php echo esc_html($catalog_url); ?></code></td></tr>
+                    <tr><th scope="row">Quote</th><td><code><?php echo esc_html($quote_url); ?></code></td></tr>
+                    <tr><th scope="row">Paid order</th><td><code><?php echo esc_html($orders_url); ?></code></td></tr>
+                </tbody>
+            </table>
+
+            <h2>Settings</h2>
+            <form method="post" action="options.php">
+                <?php settings_fields('agentcart_shopbridge'); ?>
+                <table class="form-table" role="presentation">
+                    <?php self::render_text_setting_row('Merchant token', self::TOKEN_OPTION, self::merchant_token_value(), 'AGENTCART_SHOPBRIDGE_TOKEN', 'Shared secret for a trusted AgentCart gateway. Production public checkout should use a payment verifier.'); ?>
+                    <?php self::render_text_setting_row('Support email', self::SUPPORT_EMAIL_OPTION, $support_email, 'AGENTCART_SUPPORT_EMAIL', 'Published in the merchant-of-record block for customer support.'); ?>
+                    <?php self::render_text_setting_row('Tempo network', self::TEMPO_NETWORK_OPTION, self::tempo_network(), 'AGENTCART_TEMPO_NETWORK', 'For the hackathon this is usually testnet.'); ?>
+                    <?php self::render_text_setting_row('Tempo recipient address', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Merchant or payment-provider recipient used by the payment verifier.'); ?>
+                    <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
+                    <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
+                    <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
+                </table>
+                <?php submit_button('Save AgentCart settings'); ?>
+            </form>
+
+            <h2>Merchant Onboarding Checklist</h2>
+            <ol>
+                <li>Add normal WooCommerce products, prices, stock, VAT/tax, and shipping countries.</li>
+                <li>Configure this page with support, Tempo recipient, and payment verification settings.</li>
+                <li>Share the manifest URL or register its hash in an AgentCart discovery registry.</li>
+                <li>Run a sandbox quote and order test before allowing public agent checkout.</li>
+            </ol>
+        </div>
+        <?php
+    }
+
+    public static function maybe_serve_well_known_manifest() {
+        $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+        if ($path !== '/.well-known/agentcart.json') {
+            return;
+        }
+        if (!class_exists('WooCommerce')) {
+            wp_send_json(['error' => 'WooCommerce is required.'], 503);
+        }
+        wp_send_json(self::capability());
+    }
+
+    public static function authorize_public_read(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
+        }
+        return true;
+    }
+
+    public static function authorize(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
+        }
+        if (!self::has_valid_merchant_token($request)) {
+            return new WP_Error('agentcart_unauthorized', 'Missing or invalid AgentCart merchant token.', ['status' => 401]);
+        }
+        return true;
+    }
+
+    public static function authorize_checkout(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
+        }
+        if (self::has_valid_merchant_token($request)) {
+            return true;
+        }
+        if (self::payment_verifier_url() !== '') {
+            return true;
+        }
+        return new WP_Error(
+            'agentcart_unauthorized',
+            'Order creation requires the merchant token unless an external payment verifier is configured.',
+            ['status' => 401]
+        );
+    }
+
+    public static function authorize_order_status(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
+        }
+        if (self::has_valid_merchant_token($request)) {
+            return true;
+        }
+        $order = wc_get_order(intval($request['id']));
+        if (!$order) {
+            return new WP_Error('agentcart_not_found', 'Order not found.', ['status' => 404]);
+        }
+        $configured = (string) $order->get_meta(self::STATUS_TOKEN_META, true);
+        $supplied = (string) $request->get_header('x-agentcart-order-token');
+        if ($configured !== '' && $supplied !== '' && hash_equals($configured, $supplied)) {
+            return true;
+        }
+        return new WP_Error('agentcart_unauthorized', 'Missing or invalid AgentCart order status token.', ['status' => 401]);
+    }
+
+    public static function authorize_refund(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
+        }
+        if (self::has_valid_merchant_token($request)) {
+            return true;
+        }
+        return new WP_Error(
+            'agentcart_unauthorized',
+            'Refund creation requires the merchant token. Buyer-facing refund requests should be approved by the merchant or trusted gateway before this endpoint is called.',
+            ['status' => 401]
+        );
+    }
+
+    private static function has_valid_merchant_token(WP_REST_Request $request) {
+        $configured = self::merchant_token_value();
+        $supplied = $request->get_header('x-agentcart-merchant-token');
+        return $configured && $supplied && hash_equals((string) $configured, (string) $supplied);
+    }
+
+    private static function merchant_token_value() {
+        return defined('AGENTCART_SHOPBRIDGE_TOKEN') ? (string) AGENTCART_SHOPBRIDGE_TOKEN : (string) get_option(self::TOKEN_OPTION, '');
+    }
+
+    private static function admin_status_badge($ok, $ok_label, $missing_label = 'Missing') {
+        $color = $ok ? '#008a20' : '#996800';
+        $background = $ok ? '#edfaef' : '#fff8e5';
+        $label = $ok ? $ok_label : $missing_label;
+        return '<span style="display:inline-block;padding:3px 8px;border-radius:999px;background:' . esc_attr($background) . ';color:' . esc_attr($color) . ';font-weight:600;">' . esc_html($label) . '</span>';
+    }
+
+    private static function render_text_setting_row($label, $option, $value, $constant, $description) {
+        self::render_setting_row('text', $label, $option, $value, $constant, $description);
+    }
+
+    private static function render_password_setting_row($label, $option, $value, $constant, $description) {
+        self::render_setting_row('password', $label, $option, $value, $constant, $description);
+    }
+
+    private static function render_setting_row($type, $label, $option, $value, $constant, $description) {
+        $constant_defined = defined($constant);
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr($option); ?>"><?php echo esc_html($label); ?></label></th>
+            <td>
+                <input
+                    id="<?php echo esc_attr($option); ?>"
+                    name="<?php echo esc_attr($option); ?>"
+                    type="<?php echo esc_attr($type); ?>"
+                    class="regular-text"
+                    value="<?php echo esc_attr((string) $value); ?>"
+                    autocomplete="off"
+                    <?php disabled($constant_defined); ?>
+                >
+                <p class="description">
+                    <?php echo esc_html($description); ?>
+                    <?php if ($constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code><?php echo esc_html($constant); ?></code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <?php
+    }
+
+    public static function capability() {
+        return [
+            'name' => 'AgentCart ShopBridge for WooCommerce',
+            'version' => '0.1.0',
+            'merchant' => self::merchant(),
+            'manifest_url' => home_url('/.well-known/agentcart.json'),
+            'protocols' => [
+                [
+                    'id' => 'agentcart-shopbridge',
+                    'version' => '0.1',
+                    'role' => 'merchant_catalog_quote_checkout',
+                ],
+                [
+                    'id' => 'tempo-mpp',
+                    'network' => self::tempo_network(),
+                    'recipient' => self::tempo_recipient(),
+                    'verifier_configured' => self::payment_verifier_url() !== '',
+                ],
+                [
+                    'id' => 'stripe-card-mpp',
+                    'network_id' => self::stripe_profile_id(),
+                    'verifier_configured' => self::payment_verifier_url() !== '',
+                    'configured' => self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '',
+                ],
+            ],
+            'capabilities' => [
+                'catalog' => true,
+                'quote' => true,
+                'server_side_quote_binding' => true,
+                'paid_order_creation' => true,
+                'merchant_of_record' => true,
+                'guest_checkout' => true,
+                'shipping_address_on_order' => true,
+                'order_status_token' => true,
+                'tracking_metadata_read' => true,
+                'agentcart_order_ip_minimized' => true,
+                'refund_endpoint' => true,
+                'refunds_remain_in_woocommerce_with_external_rail_verification' => true,
+            ],
+            'delivery' => [
+                'ship_to_countries' => self::shipping_countries(),
+                'shipping_country_names' => self::shipping_country_names(),
+                'quote_requires_supported_country' => true,
+            ],
+            'endpoints' => [
+                'manifest' => home_url('/.well-known/agentcart.json'),
+                'capability' => rest_url(self::API_NAMESPACE . '/capability'),
+                'catalog' => rest_url(self::API_NAMESPACE . '/catalog'),
+                'product' => rest_url(self::API_NAMESPACE . '/products/{id}'),
+                'quote' => rest_url(self::API_NAMESPACE . '/quote'),
+                'orders' => rest_url(self::API_NAMESPACE . '/orders'),
+                'order_status' => rest_url(self::API_NAMESPACE . '/orders/{id}/status'),
+                'refunds' => rest_url(self::API_NAMESPACE . '/orders/{id}/refunds'),
+            ],
+            'discovery' => [
+                'well_known' => '/.well-known/agentcart.json',
+                'registry_ready' => true,
+                'suggested_registry_record' => [
+                    'merchant_id' => self::merchant()['id'],
+                    'manifest_url' => home_url('/.well-known/agentcart.json'),
+                    'manifest_hash_alg' => 'sha-256',
+                ],
+            ],
+            'payment_verification' => [
+                'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
+                'external_verifier_configured' => self::payment_verifier_url() !== '',
+                'tempo_recipient_configured' => self::tempo_recipient() !== '',
+                'tempo_network' => self::tempo_network(),
+                'stripe_profile_configured' => self::stripe_profile_id() !== '',
+                'refunds_use_same_verifier' => true,
+            ],
+            'refund_policy' => [
+                'endpoint' => rest_url(self::API_NAMESPACE . '/orders/{id}/refunds'),
+                'requires_merchant_token' => true,
+                'demo_mode_records_woo_refund_only' => self::payment_verifier_url() === '',
+                'production_requires_rail_refund_verification' => true,
+            ],
+        ];
+    }
+
+    public static function catalog(WP_REST_Request $request) {
+        $search = sanitize_text_field((string) $request->get_param('search'));
+        $limit = min(24, max(1, intval($request->get_param('limit') ?: 12)));
+        $query = [
+            'status' => 'publish',
+            'type' => ['simple'],
+            'limit' => $limit,
+            'return' => 'objects',
+        ];
+        if ($search !== '') {
+            $query['s'] = $search;
+        }
+        $products = wc_get_products($query);
+        return [
+            'merchant' => self::merchant(),
+            'products' => array_values(array_map([__CLASS__, 'serialize_product'], $products)),
+        ];
+    }
+
+    public static function product(WP_REST_Request $request) {
+        $product = wc_get_product(intval($request['id']));
+        if (!$product || $product->get_status() !== 'publish') {
+            return new WP_Error('agentcart_not_found', 'Product not found.', ['status' => 404]);
+        }
+        return self::serialize_product($product);
+    }
+
+    public static function quote(WP_REST_Request $request) {
+        $body = $request->get_json_params();
+        $items = isset($body['items']) && is_array($body['items']) ? $body['items'] : [];
+        if (!$items) {
+            return new WP_Error('agentcart_bad_request', 'items are required.', ['status' => 400]);
+        }
+        $serialized_items = [];
+        $subtotal = 0;
+        $tax_buckets = [];
+        $ship_to = self::normalize_address($body['ship_to'] ?? ['country' => WC()->countries->get_base_country() ?: 'DE']);
+        $shipping_countries = self::shipping_countries();
+        if ($shipping_countries && !in_array($ship_to['country'], $shipping_countries, true)) {
+            return new WP_Error('agentcart_shipping_country_unsupported', 'Shop does not ship to country: ' . $ship_to['country'], ['status' => 400]);
+        }
+        foreach ($items as $item) {
+            $product_id = self::source_product_id($item);
+            $quantity = max(1, min(20, intval($item['quantity'] ?? 1)));
+            $product = wc_get_product($product_id);
+            if (!$product || $product->get_status() !== 'publish') {
+                return new WP_Error('agentcart_product_missing', 'Product not found: ' . $product_id, ['status' => 404]);
+            }
+            if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
+                return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
+            }
+            $unit = self::cents((float) wc_get_price_including_tax($product, ['qty' => 1]));
+            $line = $unit * $quantity;
+            $subtotal += $line;
+            $rate_bps = self::vat_rate_bps($product);
+            $tax_buckets[$rate_bps] = ($tax_buckets[$rate_bps] ?? 0) + $line;
+            $serialized = self::serialize_product($product);
+            $serialized_items[] = [
+                'product_id' => $serialized['product_id'],
+                'source_product_id' => $product_id,
+                'sku' => $serialized['sku'],
+                'title' => $serialized['title'],
+                'quantity' => $quantity,
+                'unit_price_cents' => $unit,
+                'line_total_cents' => $line,
+                'currency' => get_woocommerce_currency(),
+                'category' => $serialized['category'],
+                'vat_rate_bps' => $rate_bps,
+            ];
+        }
+        $shipping = $subtotal >= 3500 ? 0 : 490;
+        if ($shipping > 0) {
+            $tax_buckets[1900] = ($tax_buckets[1900] ?? 0) + $shipping;
+        }
+        $now = time();
+        $quote_id = 'woo_quote_' . wp_generate_uuid4();
+        $quote = [
+            'id' => $quote_id,
+            'merchant' => self::merchant(),
+            'merchant_of_record' => self::merchant()['merchant_of_record'],
+            'items' => $serialized_items,
+            'ship_to' => $ship_to,
+            'delivery_requirements' => [
+                'ship_to_country' => $ship_to['country'],
+                'supported_countries' => $shipping_countries,
+            ],
+            'subtotal_cents' => $subtotal,
+            'shipping' => [
+                'amount_cents' => $shipping,
+                'currency' => get_woocommerce_currency(),
+                'method' => 'woocommerce-demo-standard',
+                'vat_rate_bps' => 1900,
+            ],
+            'vat_lines' => self::vat_lines($tax_buckets),
+            'total_cents' => $subtotal + $shipping,
+            'currency' => get_woocommerce_currency(),
+            'delivery_estimate' => [
+                'min_days' => 2,
+                'max_days' => 4,
+                'label' => '2-4 business days',
+            ],
+            'delivery_window' => self::delivery_window(2, 4),
+            'stock_reserved_until' => null,
+            'stock_reservation' => [
+                'state' => 'not_reserved',
+                'checked_at' => gmdate('c', $now),
+                'rechecked_before_order_creation' => true,
+            ],
+            'expires_at' => gmdate('c', $now + 15 * 60),
+            'terms_url' => wc_get_page_permalink('terms') ?: home_url('/terms'),
+            'returns_url' => home_url('/returns'),
+        ];
+        $quote['quote_hash'] = self::quote_hash($quote);
+        $quote['payment_requirements'] = self::payment_requirements($quote);
+        $quote['refund_policy'] = self::quote_refund_policy();
+        set_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id, $quote, 15 * MINUTE_IN_SECONDS);
+        return $quote;
+    }
+
+    public static function create_order(WP_REST_Request $request) {
+        $body = $request->get_json_params();
+        $receipt = isset($body['payment_receipt']) && is_array($body['payment_receipt']) ? $body['payment_receipt'] : [];
+        if (empty($receipt['id'])) {
+            return new WP_Error('agentcart_bad_request', 'payment_receipt.id is required.', ['status' => 400]);
+        }
+        $agentcart_order_id = sanitize_text_field((string) ($body['agentcart_order_id'] ?? ''));
+        if ($agentcart_order_id !== '') {
+            $existing_orders = wc_get_orders([
+                'limit' => 1,
+                'return' => 'objects',
+                'meta_key' => '_agentcart_order_id',
+                'meta_value' => $agentcart_order_id,
+            ]);
+            if (!empty($existing_orders)) {
+                return self::serialize_order_response($existing_orders[0], 'existing');
+            }
+        }
+
+        $merchant_quote_id = self::merchant_quote_id_from_body($body);
+        if ($merchant_quote_id === '') {
+            return new WP_Error('agentcart_bad_request', 'merchant_quote_id is required.', ['status' => 400]);
+        }
+        $quote = get_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
+        if (!is_array($quote)) {
+            return new WP_Error('agentcart_quote_expired', 'Merchant quote is unknown or expired.', ['status' => 409]);
+        }
+        if (strtotime((string) ($quote['expires_at'] ?? '')) < time()) {
+            delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
+            return new WP_Error('agentcart_quote_expired', 'Merchant quote has expired.', ['status' => 409]);
+        }
+        $expected_quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
+        $supplied_quote_hash = sanitize_text_field((string) ($body['quote_hash'] ?? ($body['quote']['quote_hash'] ?? '')));
+        if ($supplied_quote_hash !== '' && !hash_equals($expected_quote_hash, $supplied_quote_hash)) {
+            return new WP_Error('agentcart_quote_mismatch', 'quote_hash does not match the stored merchant quote.', ['status' => 409]);
+        }
+        if ($supplied_quote_hash === '' && !self::has_valid_merchant_token($request)) {
+            return new WP_Error('agentcart_quote_hash_required', 'quote_hash is required for public checkout.', ['status' => 400]);
+        }
+
+        $payment_verification = self::verify_payment_receipt($quote, $receipt, $body, $request);
+        if (is_wp_error($payment_verification)) {
+            return $payment_verification;
+        }
+
+        $validated_items = [];
+        foreach ($quote['items'] as $item) {
+            $product_id = self::source_product_id($item);
+            $quantity = max(1, min(20, intval($item['quantity'] ?? 1)));
+            $product = wc_get_product($product_id);
+            if (!$product || $product->get_status() !== 'publish') {
+                return new WP_Error('agentcart_product_missing', 'Product not found: ' . $product_id, ['status' => 404]);
+            }
+            if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
+                return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
+            }
+            $validated_items[] = [$product, $item, $quantity];
+        }
+
+        $order = wc_create_order([
+            'created_via' => 'agentcart-shopbridge',
+            'status' => 'processing',
+        ]);
+        if (is_wp_error($order)) {
+            return $order;
+        }
+        foreach ($validated_items as $validated_item) {
+            [$product, $quote_item, $quantity] = $validated_item;
+            $item_id = $order->add_product($product, $quantity);
+            $order_item = $order->get_item($item_id);
+            if ($order_item) {
+                $line_total = intval($quote_item['line_total_cents'] ?? 0) / 100;
+                $order_item->set_subtotal($line_total);
+                $order_item->set_total($line_total);
+                $order_item->save();
+            }
+        }
+        $shipping = isset($quote['shipping']) && is_array($quote['shipping']) ? $quote['shipping'] : [];
+        $shipping_cents = intval($shipping['amount_cents'] ?? 0);
+        if ($shipping_cents > 0) {
+            $shipping_item = new WC_Order_Item_Shipping();
+            $shipping_item->set_method_title(sanitize_text_field((string) ($shipping['method'] ?? 'AgentCart standard shipping')));
+            $shipping_item->set_method_id('agentcart_standard');
+            $shipping_item->set_total($shipping_cents / 100);
+            $order->add_item($shipping_item);
+        }
+        $ship_to = self::normalize_address($quote['ship_to'] ?? $body['ship_to'] ?? ['country' => 'DE']);
+        $bill_to = self::normalize_address($body['bill_to'] ?? $ship_to);
+        $status_token = wp_generate_password(40, false, false);
+        $order->set_address($ship_to, 'shipping');
+        $order->set_address($bill_to, 'billing');
+        self::minimize_order_network_metadata($order);
+        $order->set_payment_method('tempo_mpp');
+        $order->set_payment_method_title('Tempo MPP via AgentCart');
+        $order->set_transaction_id(sanitize_text_field((string) $receipt['id']));
+        $order->update_meta_data('_agentcart_order_id', $agentcart_order_id);
+        $order->update_meta_data('_agentcart_quote_id', sanitize_text_field((string) ($body['agentcart_quote_id'] ?? '')));
+        $order->update_meta_data('_agentcart_merchant_quote_id', sanitize_text_field((string) ($body['merchant_quote_id'] ?? '')));
+        $order->update_meta_data('_agentcart_payment_receipt_id', sanitize_text_field((string) $receipt['id']));
+        $order->update_meta_data('_agentcart_reason', sanitize_text_field((string) ($body['reason'] ?? '')));
+        $order->update_meta_data('_agentcart_quote_hash', $expected_quote_hash);
+        $order->update_meta_data('_agentcart_payment_verification', wp_json_encode($payment_verification));
+        if (!empty($payment_verification['transaction_reference'])) {
+            $order->update_meta_data('_agentcart_payment_transaction_reference', sanitize_text_field((string) $payment_verification['transaction_reference']));
+        }
+        $order->update_meta_data('_agentcart_delivery_window', wp_json_encode($quote['delivery_window'] ?? null));
+        $order->update_meta_data(self::STATUS_TOKEN_META, $status_token);
+        $order->calculate_totals();
+        $order->payment_complete(sanitize_text_field((string) $receipt['id']));
+        $order->set_date_paid(time());
+        $order->add_order_note('AgentCart created this order after quote-bound payment verification: ' . sanitize_text_field((string) ($payment_verification['mode'] ?? 'unknown')) . '.');
+        $order->save();
+        delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
+        return self::serialize_order_response($order, 'created', $payment_verification);
+    }
+
+    public static function order_status(WP_REST_Request $request) {
+        $order = wc_get_order(intval($request['id']));
+        if (!$order) {
+            return new WP_Error('agentcart_not_found', 'Order not found.', ['status' => 404]);
+        }
+        return self::serialize_order_status($order);
+    }
+
+    public static function create_refund(WP_REST_Request $request) {
+        $order = wc_get_order(intval($request['id']));
+        if (!$order) {
+            return new WP_Error('agentcart_not_found', 'Order not found.', ['status' => 404]);
+        }
+        if ((string) $order->get_meta('_agentcart_order_id', true) === '') {
+            return new WP_Error('agentcart_not_agentcart_order', 'Only AgentCart-created orders can use the AgentCart refund endpoint.', ['status' => 409]);
+        }
+
+        $body = $request->get_json_params();
+        $body = is_array($body) ? $body : [];
+        $remaining_cents = self::cents((float) $order->get_remaining_refund_amount());
+        if ($remaining_cents <= 0) {
+            return new WP_Error('agentcart_refund_unavailable', 'This order has no refundable amount remaining.', ['status' => 409]);
+        }
+        $amount_cents = isset($body['amount_cents']) ? intval($body['amount_cents']) : $remaining_cents;
+        $amount_cents = max(1, min($amount_cents, $remaining_cents));
+        $reason = sanitize_text_field((string) ($body['reason'] ?? 'AgentCart merchant-approved refund'));
+        $rail = sanitize_key((string) ($body['rail'] ?? self::payment_rail_from_order($order)));
+
+        $refund_verification = self::verify_refund_request($order, $amount_cents, $reason, $rail, $body);
+        if (is_wp_error($refund_verification)) {
+            return $refund_verification;
+        }
+
+        $refund = wc_create_refund([
+            'amount' => $amount_cents / 100,
+            'reason' => $reason,
+            'order_id' => $order->get_id(),
+            'refund_payment' => false,
+            'restock_items' => false,
+        ]);
+        if (is_wp_error($refund)) {
+            return $refund;
+        }
+
+        $refund->update_meta_data('_agentcart_refund_verification', wp_json_encode($refund_verification));
+        $refund->update_meta_data('_agentcart_refund_rail', $rail);
+        $refund->save();
+
+        $refunds = self::stored_refund_events($order);
+        $refunds[] = [
+            'refund_id' => (string) $refund->get_id(),
+            'amount_cents' => $amount_cents,
+            'currency' => $order->get_currency(),
+            'rail' => $rail,
+            'reason' => $reason,
+            'verification' => $refund_verification,
+            'created_at' => gmdate('c'),
+        ];
+        $order->update_meta_data('_agentcart_refunds', wp_json_encode($refunds));
+        $order->add_order_note(
+            'AgentCart refund recorded: '
+            . wc_price($amount_cents / 100, ['currency' => $order->get_currency()])
+            . ' via ' . $rail . '. Rail verification state: '
+            . sanitize_text_field((string) ($refund_verification['state'] ?? 'unknown')) . '.'
+        );
+        $order->save();
+
+        return [
+            'platform' => 'woocommerce-agentcart-plugin',
+            'state' => 'refund_recorded',
+            'order_id' => (string) $order->get_id(),
+            'refund_id' => (string) $refund->get_id(),
+            'amount_cents' => $amount_cents,
+            'currency' => $order->get_currency(),
+            'rail' => $rail,
+            'real_refund_verified' => !empty($refund_verification['real_refund_verified']),
+            'verification' => $refund_verification,
+            'refunds' => self::serialize_refunds($order),
+        ];
+    }
+
+    private static function serialize_order_response(WC_Order $order, $state = 'created', $payment_verification = null) {
+        $status_token = (string) $order->get_meta(self::STATUS_TOKEN_META, true);
+        return [
+            'platform' => 'woocommerce-agentcart-plugin',
+            'state' => $state,
+            'id' => (string) $order->get_id(),
+            'number' => $order->get_order_number(),
+            'status' => $order->get_status(),
+            'payment_method' => $order->get_payment_method(),
+            'url' => admin_url('post.php?post=' . $order->get_id() . '&action=edit'),
+            'status_url' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/status'),
+            'status_token' => $status_token,
+            'fulfillment' => self::serialize_fulfillment($order),
+            'payment_verification' => is_array($payment_verification) ? $payment_verification : self::stored_payment_verification($order),
+            'refund_policy' => self::refund_policy($order),
+            'refunds' => self::serialize_refunds($order),
+        ];
+    }
+
+    private static function serialize_order_status(WC_Order $order) {
+        return [
+            'platform' => 'woocommerce-agentcart-plugin',
+            'id' => (string) $order->get_id(),
+            'number' => $order->get_order_number(),
+            'status' => $order->get_status(),
+            'payment_status' => $order->is_paid() ? 'paid' : 'unpaid',
+            'payment_method' => $order->get_payment_method(),
+            'fulfillment' => self::serialize_fulfillment($order),
+            'refund_policy' => self::refund_policy($order),
+            'refunds' => self::serialize_refunds($order),
+            'updated_at' => $order->get_date_modified() ? $order->get_date_modified()->date('c') : null,
+        ];
+    }
+
+    private static function minimize_order_network_metadata(WC_Order $order) {
+        if (method_exists($order, 'set_customer_ip_address')) {
+            $order->set_customer_ip_address('');
+        }
+        if (method_exists($order, 'set_customer_user_agent')) {
+            $order->set_customer_user_agent('');
+        }
+        $order->update_meta_data('_agentcart_privacy_note', 'AgentCart order creation clears WooCommerce customer IP and user-agent fields.');
+    }
+
+    private static function merchant_quote_id_from_body($body) {
+        $quote = isset($body['quote']) && is_array($body['quote']) ? $body['quote'] : [];
+        return sanitize_text_field((string) (
+            $body['merchant_quote_id']
+            ?? $quote['merchant_quote_id']
+            ?? $quote['id']
+            ?? ''
+        ));
+    }
+
+    private static function verify_payment_receipt($quote, $receipt, $body, WP_REST_Request $request) {
+        $expected_amount = intval($quote['total_cents'] ?? 0);
+        $expected_currency = (string) ($quote['currency'] ?? get_woocommerce_currency());
+        $receipt_amount = intval($receipt['amount_cents'] ?? 0);
+        $receipt_currency = (string) ($receipt['currency'] ?? '');
+        if ($receipt_amount !== $expected_amount || strtoupper($receipt_currency) !== strtoupper($expected_currency)) {
+            return new WP_Error(
+                'agentcart_payment_amount_mismatch',
+                'Payment receipt amount or currency does not match the stored quote.',
+                ['status' => 402]
+            );
+        }
+
+        $verifier_url = self::payment_verifier_url();
+        if ($verifier_url !== '') {
+            $verification = self::call_payment_verifier($verifier_url, $quote, $receipt, $body);
+            if (is_wp_error($verification)) {
+                return $verification;
+            }
+            return $verification;
+        }
+
+        if (!self::has_valid_merchant_token($request)) {
+            return new WP_Error(
+                'agentcart_payment_verifier_required',
+                'Public checkout requires an external payment verifier.',
+                ['status' => 401]
+            );
+        }
+
+        return [
+            'state' => 'verified',
+            'mode' => 'trusted_agentcart_token',
+            'real_settlement_verified' => false,
+            'amount_cents' => $expected_amount,
+            'currency' => $expected_currency,
+            'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'note' => 'Merchant token authenticated AgentCart. Configure a payment verifier before production use.',
+        ];
+    }
+
+    private static function call_payment_verifier($verifier_url, $quote, $receipt, $body) {
+        $payload = [
+            'operation' => 'payment',
+            'quote' => $quote,
+            'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'payment_receipt' => $receipt,
+            'agentcart_order_id' => sanitize_text_field((string) ($body['agentcart_order_id'] ?? '')),
+            'expected' => [
+                'amount_cents' => intval($quote['total_cents'] ?? 0),
+                'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+                'merchant_id' => self::merchant()['id'],
+                'tempo_network' => self::tempo_network(),
+                'tempo_recipient' => self::tempo_recipient(),
+            ],
+        ];
+        $headers = ['Content-Type' => 'application/json'];
+        $token = self::payment_verifier_token();
+        if ($token !== '') {
+            $headers['Authorization'] = 'Bearer ' . $token;
+        }
+        $response = wp_remote_post($verifier_url, [
+            'headers' => $headers,
+            'body' => wp_json_encode($payload),
+            'timeout' => 15,
+        ]);
+        if (is_wp_error($response)) {
+            return new WP_Error('agentcart_payment_verifier_failed', $response->get_error_message(), ['status' => 502]);
+        }
+        $status = intval(wp_remote_retrieve_response_code($response));
+        $raw_body = wp_remote_retrieve_body($response);
+        $decoded = json_decode($raw_body, true);
+        if ($status < 200 || $status >= 300 || !is_array($decoded) || empty($decoded['ok'])) {
+            return new WP_Error('agentcart_payment_not_verified', 'External payment verifier rejected the receipt.', ['status' => 402, 'detail' => $decoded ?: $raw_body]);
+        }
+        $expected_quote_hash = (string) ($quote['quote_hash'] ?? '');
+        $verified_quote_hash = (string) ($decoded['quote_hash'] ?? '');
+        $verified_amount = intval($decoded['amount_cents'] ?? -1);
+        $verified_currency = strtoupper((string) ($decoded['currency'] ?? ''));
+        $expected_currency = strtoupper((string) ($quote['currency'] ?? get_woocommerce_currency()));
+        $verified_network = (string) ($decoded['network'] ?? '');
+        $expected_network = self::tempo_network();
+        $verified_recipient = strtolower((string) ($decoded['recipient'] ?? ''));
+        $expected_recipient = strtolower(self::tempo_recipient());
+        $transaction_reference = sanitize_text_field((string) ($decoded['transaction_reference'] ?? ''));
+        if (
+            $verified_quote_hash === ''
+            || !hash_equals($expected_quote_hash, $verified_quote_hash)
+            || $verified_amount !== intval($quote['total_cents'] ?? 0)
+            || $verified_currency !== $expected_currency
+        ) {
+            return new WP_Error('agentcart_payment_verifier_mismatch', 'External payment verifier response does not match the quote.', ['status' => 402]);
+        }
+        if ($expected_network !== '' && $verified_network !== '' && $verified_network !== $expected_network) {
+            return new WP_Error('agentcart_payment_network_mismatch', 'External payment verifier returned the wrong network.', ['status' => 402]);
+        }
+        if ($expected_recipient !== '' && $verified_recipient !== '' && $verified_recipient !== $expected_recipient) {
+            return new WP_Error('agentcart_payment_recipient_mismatch', 'External payment verifier returned the wrong recipient.', ['status' => 402]);
+        }
+        if ($transaction_reference === '') {
+            return new WP_Error('agentcart_payment_reference_required', 'External payment verifier must return a transaction_reference.', ['status' => 402]);
+        }
+        $existing_orders = wc_get_orders([
+            'limit' => 1,
+            'return' => 'objects',
+            'meta_key' => '_agentcart_payment_transaction_reference',
+            'meta_value' => $transaction_reference,
+        ]);
+        if (!empty($existing_orders)) {
+            return new WP_Error('agentcart_payment_replay', 'Payment transaction reference has already been used.', ['status' => 409]);
+        }
+        return [
+            'state' => 'verified',
+            'mode' => 'external_verifier',
+            'real_settlement_verified' => !empty($decoded['real_settlement_verified']),
+            'amount_cents' => $verified_amount,
+            'currency' => $expected_currency,
+            'network' => $verified_network ?: $expected_network,
+            'recipient' => $verified_recipient ?: $expected_recipient,
+            'transaction_reference' => $transaction_reference,
+            'quote_hash' => $expected_quote_hash,
+        ];
+    }
+
+    private static function verify_refund_request(WC_Order $order, $amount_cents, $reason, $rail, $body) {
+        $currency = $order->get_currency();
+        $quote_hash = (string) $order->get_meta('_agentcart_quote_hash', true);
+        $payment_verification = self::stored_payment_verification($order);
+        $transaction_reference = '';
+        if (is_array($payment_verification)) {
+            $transaction_reference = sanitize_text_field((string) ($payment_verification['transaction_reference'] ?? ''));
+        }
+        if ($transaction_reference === '') {
+            $transaction_reference = sanitize_text_field((string) $order->get_meta('_agentcart_payment_transaction_reference', true));
+        }
+
+        $verifier_url = self::payment_verifier_url();
+        if ($verifier_url !== '') {
+            $verification = self::call_refund_verifier(
+                $verifier_url,
+                $order,
+                $amount_cents,
+                $currency,
+                $reason,
+                $rail,
+                $quote_hash,
+                $transaction_reference,
+                $payment_verification,
+                $body
+            );
+            if (is_wp_error($verification)) {
+                return $verification;
+            }
+            return $verification;
+        }
+
+        return [
+            'state' => 'demo_refund_recorded',
+            'mode' => 'trusted_agentcart_token',
+            'rail' => $rail,
+            'real_refund_verified' => false,
+            'amount_cents' => intval($amount_cents),
+            'currency' => $currency,
+            'quote_hash' => $quote_hash,
+            'original_transaction_reference' => $transaction_reference,
+            'note' => 'WooCommerce refund record only. No Stripe, card, Tempo, stablecoin, or EUR rail refund was executed.',
+        ];
+    }
+
+    private static function call_refund_verifier($verifier_url, WC_Order $order, $amount_cents, $currency, $reason, $rail, $quote_hash, $transaction_reference, $payment_verification, $body) {
+        $payload = [
+            'operation' => 'refund',
+            'merchant' => self::merchant(),
+            'order' => [
+                'id' => (string) $order->get_id(),
+                'number' => $order->get_order_number(),
+                'agentcart_order_id' => (string) $order->get_meta('_agentcart_order_id', true),
+                'agentcart_quote_id' => (string) $order->get_meta('_agentcart_quote_id', true),
+                'merchant_quote_id' => (string) $order->get_meta('_agentcart_merchant_quote_id', true),
+                'quote_hash' => $quote_hash,
+                'currency' => $currency,
+                'payment_method' => $order->get_payment_method(),
+                'payment_receipt_id' => (string) $order->get_meta('_agentcart_payment_receipt_id', true),
+                'transaction_reference' => $transaction_reference,
+                'payment_verification' => is_array($payment_verification) ? $payment_verification : null,
+            ],
+            'refund' => [
+                'amount_cents' => intval($amount_cents),
+                'currency' => $currency,
+                'reason' => $reason,
+                'rail' => $rail,
+                'requested_reference' => sanitize_text_field((string) ($body['requested_reference'] ?? '')),
+            ],
+            'expected' => [
+                'amount_cents' => intval($amount_cents),
+                'currency' => $currency,
+                'quote_hash' => $quote_hash,
+                'original_transaction_reference' => $transaction_reference,
+                'tempo_network' => self::tempo_network(),
+                'tempo_recipient' => self::tempo_recipient(),
+                'stripe_profile_id' => self::stripe_profile_id(),
+            ],
+        ];
+        $headers = ['Content-Type' => 'application/json'];
+        $token = self::payment_verifier_token();
+        if ($token !== '') {
+            $headers['Authorization'] = 'Bearer ' . $token;
+        }
+        $response = wp_remote_post($verifier_url, [
+            'headers' => $headers,
+            'body' => wp_json_encode($payload),
+            'timeout' => 20,
+        ]);
+        if (is_wp_error($response)) {
+            return new WP_Error('agentcart_refund_verifier_failed', $response->get_error_message(), ['status' => 502]);
+        }
+        $status = intval(wp_remote_retrieve_response_code($response));
+        $raw_body = wp_remote_retrieve_body($response);
+        $decoded = json_decode($raw_body, true);
+        if ($status < 200 || $status >= 300 || !is_array($decoded) || empty($decoded['ok'])) {
+            return new WP_Error('agentcart_refund_not_verified', 'External payment verifier rejected the refund.', ['status' => 402, 'detail' => $decoded ?: $raw_body]);
+        }
+        $verified_amount = intval($decoded['amount_cents'] ?? -1);
+        $verified_currency = strtoupper((string) ($decoded['currency'] ?? ''));
+        $refund_reference = sanitize_text_field((string) ($decoded['refund_reference'] ?? $decoded['refund_id'] ?? $decoded['transaction_reference'] ?? ''));
+        if ($verified_amount !== intval($amount_cents) || $verified_currency !== strtoupper($currency)) {
+            return new WP_Error('agentcart_refund_verifier_mismatch', 'External refund verifier response does not match the refund amount or currency.', ['status' => 402]);
+        }
+        if ($refund_reference === '') {
+            return new WP_Error('agentcart_refund_reference_required', 'External refund verifier must return a refund_reference.', ['status' => 402]);
+        }
+        return [
+            'state' => 'rail_refund_verified',
+            'mode' => 'external_verifier',
+            'rail' => sanitize_key((string) ($decoded['rail'] ?? $rail)),
+            'real_refund_verified' => !empty($decoded['real_refund_verified']),
+            'amount_cents' => $verified_amount,
+            'currency' => $currency,
+            'quote_hash' => $quote_hash,
+            'original_transaction_reference' => $transaction_reference,
+            'refund_reference' => $refund_reference,
+            'provider' => sanitize_text_field((string) ($decoded['provider'] ?? 'external_verifier')),
+        ];
+    }
+
+    private static function stored_payment_verification(WC_Order $order) {
+        $raw = $order->get_meta('_agentcart_payment_verification', true);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private static function stored_refund_events(WC_Order $order) {
+        $raw = $order->get_meta('_agentcart_refunds', true);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private static function serialize_refunds(WC_Order $order) {
+        $result = [];
+        foreach ($order->get_refunds() as $refund) {
+            $verification_raw = $refund->get_meta('_agentcart_refund_verification', true);
+            $verification = is_string($verification_raw) ? json_decode($verification_raw, true) : null;
+            $result[] = [
+                'id' => (string) $refund->get_id(),
+                'amount_cents' => self::cents((float) $refund->get_amount()),
+                'currency' => $order->get_currency(),
+                'reason' => $refund->get_reason(),
+                'rail' => (string) $refund->get_meta('_agentcart_refund_rail', true),
+                'verification' => is_array($verification) ? $verification : null,
+                'created_at' => $refund->get_date_created() ? $refund->get_date_created()->date('c') : null,
+            ];
+        }
+        return $result;
+    }
+
+    private static function refund_policy(WC_Order $order) {
+        return [
+            'endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/refunds'),
+            'requires_merchant_token' => true,
+            'remaining_refundable_cents' => self::cents((float) $order->get_remaining_refund_amount()),
+            'currency' => $order->get_currency(),
+            'demo_mode_records_woo_refund_only' => self::payment_verifier_url() === '',
+            'production_requires_rail_refund_verification' => true,
+            'rails' => self::payment_rails(),
+        ];
+    }
+
+    private static function quote_refund_policy() {
+        return [
+            'returns_url' => self::merchant()['returns_url'],
+            'refund_endpoint_template' => rest_url(self::API_NAMESPACE . '/orders/{id}/refunds'),
+            'requires_merchant_token' => true,
+            'demo_mode_records_woo_refund_only' => self::payment_verifier_url() === '',
+            'production_requires_rail_refund_verification' => true,
+        ];
+    }
+
+    private static function payment_rail_from_order(WC_Order $order) {
+        $method = $order->get_payment_method();
+        if (strpos($method, 'stripe') !== false) {
+            return 'stripe-card-mpp';
+        }
+        if (strpos($method, 'tempo') !== false) {
+            return 'tempo-mpp';
+        }
+        return $method ?: 'agentcart-demo';
+    }
+
+    private static function serialize_fulfillment(WC_Order $order) {
+        $tracking = self::tracking_from_order_meta($order);
+        $delivery_window = self::stored_delivery_window($order);
+        $state = $tracking['tracking_number'] ? 'shipped' : ($order->has_status('completed') ? 'fulfilled' : 'preparing');
+        return [
+            'state' => $state,
+            'order_status' => $order->get_status(),
+            'carrier' => $tracking['carrier'],
+            'tracking_number' => $tracking['tracking_number'],
+            'tracking_url' => $tracking['tracking_url'],
+            'estimated_delivery_window' => $delivery_window,
+            'source' => $tracking['source'],
+            'note' => $tracking['tracking_number'] ? 'Carrier tracking metadata was read from WooCommerce order meta.' : 'No carrier tracking metadata is attached yet.',
+        ];
+    }
+
+    private static function tracking_from_order_meta(WC_Order $order) {
+        $result = [
+            'carrier' => null,
+            'tracking_number' => null,
+            'tracking_url' => null,
+            'source' => 'woocommerce_order_meta',
+        ];
+        $shipment_items = $order->get_meta('_wc_shipment_tracking_items', true);
+        if (is_array($shipment_items) && !empty($shipment_items)) {
+            $item = reset($shipment_items);
+            if (is_array($item)) {
+                $result['carrier'] = sanitize_text_field((string) ($item['tracking_provider'] ?? $item['custom_tracking_provider'] ?? ''));
+                $result['tracking_number'] = sanitize_text_field((string) ($item['tracking_number'] ?? ''));
+                $result['tracking_url'] = esc_url_raw((string) ($item['custom_tracking_link'] ?? $item['tracking_link'] ?? ''));
+                $result['source'] = 'woocommerce_shipment_tracking';
+                return $result;
+            }
+        }
+        $result['carrier'] = sanitize_text_field((string) ($order->get_meta('_tracking_provider', true) ?: $order->get_meta('_carrier', true)));
+        $result['tracking_number'] = sanitize_text_field((string) ($order->get_meta('_tracking_number', true) ?: $order->get_meta('tracking_number', true)));
+        $result['tracking_url'] = esc_url_raw((string) ($order->get_meta('_tracking_url', true) ?: $order->get_meta('tracking_url', true)));
+        return $result;
+    }
+
+    private static function stored_delivery_window(WC_Order $order) {
+        $raw = $order->get_meta('_agentcart_delivery_window', true);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private static function quote_hash($quote) {
+        return hash('sha256', wp_json_encode(self::quote_hash_payload($quote)));
+    }
+
+    private static function quote_hash_payload($quote) {
+        return [
+            'id' => (string) ($quote['id'] ?? ''),
+            'merchant_id' => self::merchant()['id'],
+            'items' => $quote['items'] ?? [],
+            'ship_to' => $quote['ship_to'] ?? [],
+            'subtotal_cents' => intval($quote['subtotal_cents'] ?? 0),
+            'shipping' => $quote['shipping'] ?? [],
+            'vat_lines' => $quote['vat_lines'] ?? [],
+            'total_cents' => intval($quote['total_cents'] ?? 0),
+            'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+            'expires_at' => (string) ($quote['expires_at'] ?? ''),
+        ];
+    }
+
+    private static function payment_requirements($quote) {
+        return [
+            'amount_cents' => intval($quote['total_cents'] ?? 0),
+            'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+            'quote_hash' => (string) ($quote['quote_hash'] ?? self::quote_hash($quote)),
+            'checkout_endpoint' => rest_url(self::API_NAMESPACE . '/orders'),
+            'verification' => [
+                'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
+                'external_verifier_configured' => self::payment_verifier_url() !== '',
+            ],
+            'protocols' => [
+                [
+                    'id' => 'tempo-mpp',
+                    'type' => 'stablecoin',
+                    'available' => self::tempo_recipient() !== '' || self::payment_verifier_url() !== '',
+                    'network' => self::tempo_network(),
+                    'recipient' => self::tempo_recipient(),
+                    'amount_cents' => intval($quote['total_cents'] ?? 0),
+                    'quote_currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+                    'settlement_asset' => self::tempo_settlement_asset(),
+                    'settlement_note' => 'WooCommerce quotes in the store currency. If the Tempo asset differs, the external verifier/payment provider must bind the FX conversion and settlement terms to the quote before creating a paid order.',
+                ],
+                [
+                    'id' => 'stripe-card-mpp',
+                    'type' => 'card',
+                    'available' => self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '',
+                    'network_id' => self::stripe_profile_id(),
+                    'amount_cents' => intval($quote['total_cents'] ?? 0),
+                    'quote_currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+                    'settlement_note' => 'Stripe/card MPP requires Stripe machine-payment access, a Stripe profile/network id, and an external verifier that validates Shared Payment Token credentials and refunds.',
+                    'setup_required' => self::stripe_profile_id() === '' || self::payment_verifier_url() === '',
+                ],
+                [
+                    'id' => 'http-402-compatible',
+                    'scheme' => 'Payment',
+                    'quote_hash_required' => true,
+                ],
+            ],
+        ];
+    }
+
+    private static function delivery_window($min_days, $max_days) {
+        $earliest = gmdate('Y-m-d', strtotime('+' . intval($min_days) . ' days'));
+        $latest = gmdate('Y-m-d', strtotime('+' . intval($max_days) . ' days'));
+        return [
+            'earliest_date' => $earliest,
+            'latest_date' => $latest,
+            'label' => intval($min_days) . '-' . intval($max_days) . ' business days',
+            'source' => 'merchant_estimate',
+        ];
+    }
+
+    private static function payment_verifier_url() {
+        if (defined('AGENTCART_PAYMENT_VERIFIER_URL')) {
+            $value = trim((string) AGENTCART_PAYMENT_VERIFIER_URL);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::PAYMENT_VERIFIER_URL_OPTION, ''));
+    }
+
+    private static function payment_verifier_token() {
+        if (defined('AGENTCART_PAYMENT_VERIFIER_TOKEN')) {
+            $value = trim((string) AGENTCART_PAYMENT_VERIFIER_TOKEN);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::PAYMENT_VERIFIER_TOKEN_OPTION, ''));
+    }
+
+    private static function tempo_recipient() {
+        if (defined('AGENTCART_TEMPO_RECIPIENT_ADDRESS')) {
+            $value = trim((string) AGENTCART_TEMPO_RECIPIENT_ADDRESS);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::TEMPO_RECIPIENT_OPTION, ''));
+    }
+
+    private static function tempo_network() {
+        if (defined('AGENTCART_TEMPO_NETWORK')) {
+            $value = trim((string) AGENTCART_TEMPO_NETWORK);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::TEMPO_NETWORK_OPTION, 'testnet')) ?: 'testnet';
+    }
+
+    private static function tempo_settlement_asset() {
+        $network = self::tempo_network();
+        if ($network === 'mainnet') {
+            return [
+                'asset' => 'USDC.e',
+                'denomination' => 'USD stablecoin',
+                'token_standard' => 'TIP-20',
+                'network' => 'mainnet',
+            ];
+        }
+        return [
+            'asset' => 'pathUSD',
+            'denomination' => 'USD stablecoin',
+            'token_standard' => 'TIP-20',
+            'network' => $network ?: 'testnet',
+            'token_address' => '0x20c0000000000000000000000000000000000000',
+        ];
+    }
+
+    private static function stripe_profile_id() {
+        if (defined('AGENTCART_STRIPE_PROFILE_ID')) {
+            $value = trim((string) AGENTCART_STRIPE_PROFILE_ID);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::STRIPE_PROFILE_ID_OPTION, ''));
+    }
+
+    private static function payment_rails() {
+        return [
+            [
+                'id' => 'tempo-mpp',
+                'type' => 'stablecoin',
+                'configured' => self::tempo_recipient() !== '' || self::payment_verifier_url() !== '',
+                'network' => self::tempo_network(),
+                'recipient_configured' => self::tempo_recipient() !== '',
+                'settlement_asset' => self::tempo_settlement_asset(),
+                'refunds_require_verifier_for_real_funds' => true,
+            ],
+            [
+                'id' => 'stripe-card-mpp',
+                'type' => 'card',
+                'configured' => self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '',
+                'network_id' => self::stripe_profile_id(),
+                'requires_stripe_machine_payments' => true,
+                'refunds_use_stripe_or_verifier' => true,
+            ],
+        ];
+    }
+
+    private static function support_email() {
+        if (defined('AGENTCART_SUPPORT_EMAIL')) {
+            $value = sanitize_email((string) AGENTCART_SUPPORT_EMAIL);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return sanitize_email((string) get_option(self::SUPPORT_EMAIL_OPTION, ''));
+    }
+
+    private static function shipping_countries() {
+        if (!class_exists('WooCommerce') || !WC() || !WC()->countries) {
+            return ['DE'];
+        }
+        $countries = [];
+        if (method_exists(WC()->countries, 'get_shipping_countries')) {
+            $countries = WC()->countries->get_shipping_countries();
+        }
+        if (!$countries && method_exists(WC()->countries, 'get_allowed_countries')) {
+            $countries = WC()->countries->get_allowed_countries();
+        }
+        if (!$countries) {
+            $base = WC()->countries->get_base_country();
+            $countries = [$base ?: 'DE' => true];
+        }
+        return array_values(array_unique(array_map('strtoupper', array_keys($countries))));
+    }
+
+    private static function shipping_country_names() {
+        if (!class_exists('WooCommerce') || !WC() || !WC()->countries) {
+            return ['DE' => 'Germany'];
+        }
+        $countries = method_exists(WC()->countries, 'get_shipping_countries') ? WC()->countries->get_shipping_countries() : [];
+        if (!$countries && method_exists(WC()->countries, 'get_allowed_countries')) {
+            $countries = WC()->countries->get_allowed_countries();
+        }
+        if (!$countries) {
+            return ['DE' => 'Germany'];
+        }
+        $result = [];
+        foreach ($countries as $code => $name) {
+            $result[strtoupper((string) $code)] = (string) $name;
+        }
+        return $result;
+    }
+
+    private static function merchant() {
+        return [
+            'id' => defined('AGENTCART_MERCHANT_ID') ? AGENTCART_MERCHANT_ID : 'woocommerce-demo-shop',
+            'name' => get_bloginfo('name') ?: 'WooCommerce Demo Shop',
+            'merchant_of_record' => [
+                'name' => get_bloginfo('name') ?: 'WooCommerce Demo Shop',
+                'country' => WC()->countries->get_base_country() ?: 'DE',
+                'vat_id' => get_option('woocommerce_store_vat_number') ?: 'demo-vat',
+                'support_email' => self::support_email(),
+            ],
+            'terms_url' => wc_get_page_permalink('terms') ?: home_url('/terms'),
+            'returns_url' => home_url('/returns'),
+        ];
+    }
+
+    private static function serialize_product(WC_Product $product) {
+        $category = 'household.supplies';
+        $category_ids = $product->get_category_ids();
+        if ($category_ids) {
+            $term = get_term($category_ids[0], 'product_cat');
+            if ($term && !is_wp_error($term)) {
+                $category = 'woocommerce.' . $term->slug;
+            }
+        }
+        $image_urls = [];
+        $image_id = $product->get_image_id();
+        if ($image_id) {
+            $url = wp_get_attachment_image_url($image_id, 'full');
+            if ($url) {
+                $image_urls[] = $url;
+            }
+        }
+        return [
+            'id' => 'woo_' . $product->get_id(),
+            'product_id' => 'woo_' . $product->get_id(),
+            'source_product_id' => $product->get_id(),
+            'merchant_id' => self::merchant()['id'],
+            'sku' => $product->get_sku() ?: 'WOO-' . $product->get_id(),
+            'title' => wp_strip_all_tags($product->get_name()),
+            'description' => wp_strip_all_tags($product->get_short_description() ?: $product->get_description()),
+            'category' => $category,
+            'brand' => get_bloginfo('name') ?: 'WooCommerce',
+            'unit_size' => $product->get_weight() ?: 'unit',
+            'image_urls' => $image_urls,
+            'price_cents' => self::cents((float) wc_get_price_including_tax($product, ['qty' => 1])),
+            'currency' => get_woocommerce_currency(),
+            'vat_rate_bps' => self::vat_rate_bps($product),
+            'stock' => $product->managing_stock() && $product->get_stock_quantity() !== null ? intval($product->get_stock_quantity()) : 999,
+            'availability' => $product->is_in_stock() ? 'in_stock' : 'out_of_stock',
+            'shipping_regions' => self::shipping_countries(),
+            'eligible_for_agent_checkout' => true,
+        ];
+    }
+
+    private static function source_product_id($item) {
+        if (isset($item['source_product_id'])) {
+            return intval($item['source_product_id']);
+        }
+        $raw = (string) ($item['product_id'] ?? $item['id'] ?? '');
+        return intval(str_replace('woo_', '', $raw));
+    }
+
+    private static function normalize_address($raw) {
+        $raw = is_array($raw) ? $raw : [];
+        $country = strtoupper(sanitize_text_field((string) ($raw['country'] ?? 'DE')));
+        return [
+            'first_name' => sanitize_text_field((string) ($raw['first_name'] ?? 'AgentCart')),
+            'last_name' => sanitize_text_field((string) ($raw['last_name'] ?? 'Household')),
+            'company' => sanitize_text_field((string) ($raw['company'] ?? '')),
+            'address_1' => sanitize_text_field((string) ($raw['address_1'] ?? 'Futura Camp Demo Street 1')),
+            'address_2' => sanitize_text_field((string) ($raw['address_2'] ?? '')),
+            'city' => sanitize_text_field((string) ($raw['city'] ?? 'Strausberg')),
+            'state' => sanitize_text_field((string) ($raw['state'] ?? 'BB')),
+            'postcode' => sanitize_text_field((string) ($raw['postcode'] ?? $raw['postal_code'] ?? '15344')),
+            'country' => $country ?: 'DE',
+            'email' => sanitize_email((string) ($raw['email'] ?? get_option('admin_email'))),
+            'phone' => sanitize_text_field((string) ($raw['phone'] ?? '')),
+        ];
+    }
+
+    private static function cents($amount) {
+        return intval(round($amount * 100));
+    }
+
+    private static function vat_rate_bps(WC_Product $product) {
+        $rates = WC_Tax::get_rates($product->get_tax_class());
+        if (!$rates) {
+            return 1900;
+        }
+        $rate = reset($rates);
+        return intval(round(floatval($rate['rate'] ?? 19) * 100));
+    }
+
+    private static function vat_lines($buckets) {
+        $lines = [];
+        ksort($buckets);
+        foreach ($buckets as $rate_bps => $gross) {
+            if ($gross <= 0) {
+                continue;
+            }
+            $lines[] = [
+                'rate_bps' => intval($rate_bps),
+                'taxable_gross_cents' => intval($gross),
+                'vat_cents' => intval(round($gross * $rate_bps / (10000 + $rate_bps))),
+                'currency' => get_woocommerce_currency(),
+                'included_in_price' => true,
+            ];
+        }
+        return $lines;
+    }
+}
+
+AgentCart_ShopBridge::init();

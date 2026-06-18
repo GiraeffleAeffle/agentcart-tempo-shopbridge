@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart Architecture</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c252b;
+      --muted: #596771;
+      --line: #d7e0e6;
+      --soft: #f5f8f9;
+      --agent: #0b6b63;
+      --home: #245c9f;
+      --merchant: #8a4a13;
+      --payment: #6a4b91;
+      --risk: #9b2f2f;
+      --data: #54616a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #ffffff;
+      color: var(--ink);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: #edf5f3;
+      padding: 28px 32px 20px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 30px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    main {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 24px 24px 42px;
+    }
+
+    .lede {
+      max-width: 920px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 22px 0 26px;
+    }
+
+    .summary-item {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--agent);
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: #fff;
+      min-height: 94px;
+    }
+
+    .summary-item.home {
+      border-left-color: var(--home);
+    }
+
+    .summary-item.merchant {
+      border-left-color: var(--merchant);
+    }
+
+    .summary-item.payment {
+      border-left-color: var(--payment);
+    }
+
+    .summary-item p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .diagram-shell {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .diagram-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--soft);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .diagram-wrap {
+      width: 100%;
+      overflow-x: auto;
+      background: #fbfcfd;
+    }
+
+    svg {
+      display: block;
+      min-width: 1100px;
+      width: 100%;
+      height: auto;
+    }
+
+    .band {
+      fill: #ffffff;
+      stroke: #d7e0e6;
+      stroke-width: 1;
+    }
+
+    .band-label {
+      fill: #596771;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .node {
+      fill: #ffffff;
+      stroke: #cbd7de;
+      stroke-width: 1.4;
+      rx: 8;
+      ry: 8;
+    }
+
+    .node.home {
+      stroke: var(--home);
+    }
+
+    .node.agent {
+      stroke: var(--agent);
+    }
+
+    .node.merchant {
+      stroke: var(--merchant);
+    }
+
+    .node.payment {
+      stroke: var(--payment);
+    }
+
+    .node.risk {
+      stroke: var(--risk);
+    }
+
+    .node.data {
+      stroke: var(--data);
+    }
+
+    .node-title {
+      fill: var(--ink);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .node-text {
+      fill: var(--muted);
+      font-size: 11px;
+    }
+
+    .arrow {
+      fill: none;
+      stroke: #66727a;
+      stroke-width: 1.6;
+      marker-end: url(#arrow);
+    }
+
+    .arrow.payment {
+      stroke: var(--payment);
+    }
+
+    .arrow.audit {
+      stroke: var(--data);
+      stroke-dasharray: 5 4;
+    }
+
+    .arrow-label {
+      fill: #3f4a51;
+      font-size: 10.5px;
+      font-weight: 650;
+    }
+
+    .note {
+      fill: #fff8ec;
+      stroke: #d8a353;
+      stroke-width: 1.2;
+      rx: 8;
+      ry: 8;
+    }
+
+    .note-title {
+      fill: #6b3a09;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .note-text {
+      fill: #6b4c2e;
+      font-size: 11px;
+    }
+
+    .sections {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    section {
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }
+
+    .flow-list,
+    .risk-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .flow-list li,
+    .risk-list li {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 10px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+
+    .step {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--agent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 750;
+      font-size: 12px;
+    }
+
+    .risk-list .step {
+      background: var(--risk);
+    }
+
+    .item-title {
+      font-weight: 720;
+      margin-bottom: 2px;
+    }
+
+    .item-text {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .transfer {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .transfer-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .transfer-col {
+      padding: 14px;
+      border-right: 1px solid var(--line);
+      background: #fff;
+      min-height: 168px;
+    }
+
+    .transfer-col:last-child {
+      border-right: 0;
+    }
+
+    .badge {
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 3px 7px;
+      border-radius: 5px;
+      background: #eef5f2;
+      color: var(--agent);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .badge.warn {
+      background: #fff1e5;
+      color: var(--merchant);
+    }
+
+    .badge.stop {
+      background: #fdeaea;
+      color: var(--risk);
+    }
+
+    .transfer p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    footer {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    code {
+      background: #eef1f3;
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      header {
+        padding: 22px 18px 18px;
+      }
+
+      main {
+        padding: 18px 14px 32px;
+      }
+
+      .summary,
+      .sections,
+      .transfer-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .diagram-head {
+        display: block;
+      }
+
+      .legend {
+        margin-top: 10px;
+      }
+
+      .transfer-col {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .transfer-col:last-child {
+        border-bottom: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AgentCart System Architecture</h1>
+    <p class="lede">
+      AgentCart is a household safety and merchant adapter layer around MPP HTTP-auth checkout. It makes opt-in merchants agent-readable without making them implement every agent protocol on day one.
+    </p>
+  </header>
+
+  <main>
+    <div class="summary" aria-label="Architecture summary">
+      <div class="summary-item home">
+        <h3>Household Control</h3>
+        <p>Home Assistant triggers, explicit approval, policy checks, and auditability stay local.</p>
+      </div>
+      <div class="summary-item">
+        <h3>Agent API</h3>
+        <p>Agents get a stable surface for search, quote, approval, checkout, order state, and audit logs.</p>
+      </div>
+      <div class="summary-item merchant">
+        <h3>Merchant Adapter</h3>
+        <p>Opt-in shops expose catalog, stock, quotes, orders, and fulfillment through a simple adapter.</p>
+      </div>
+      <div class="summary-item payment">
+        <h3>Payment Boundary</h3>
+        <p>MPP/x402 belongs at checkout. Catalog, policy, approval, and orders are commerce-layer concerns.</p>
+      </div>
+    </div>
+
+    <div class="diagram-shell">
+      <div class="diagram-head">
+        <div>
+          <h2>End-to-End Demo Topology</h2>
+          <p class="lede">The current MVP runs as one service, but the boxes show the stable boundaries to preserve as the project grows.</p>
+        </div>
+        <div class="legend" aria-label="Legend">
+          <span><i class="dot" style="background:var(--home)"></i>Home</span>
+          <span><i class="dot" style="background:var(--agent)"></i>AgentCart</span>
+          <span><i class="dot" style="background:var(--merchant)"></i>Merchant</span>
+          <span><i class="dot" style="background:var(--payment)"></i>Payment</span>
+          <span><i class="dot" style="background:var(--data)"></i>Data</span>
+        </div>
+      </div>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1220 760" role="img" aria-labelledby="diagram-title diagram-desc">
+          <title id="diagram-title">AgentCart architecture diagram</title>
+          <desc id="diagram-desc">Household agent calls AgentCart APIs, AgentCart evaluates policy and approval, then uses an HTTP 402 payment checkout to create a merchant order and audit trail.</desc>
+
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#66727a"></path>
+            </marker>
+          </defs>
+
+          <rect class="band" x="32" y="40" width="260" height="610"></rect>
+          <text class="band-label" x="52" y="68">Household / Local Network</text>
+
+          <rect class="band" x="330" y="40" width="500" height="610"></rect>
+          <text class="band-label" x="350" y="68">AgentCart Gateway</text>
+
+          <rect class="band" x="868" y="40" width="320" height="610"></rect>
+          <text class="band-label" x="888" y="68">Opt-in Merchant / Payment</text>
+
+          <rect class="node home" x="62" y="105" width="200" height="72"></rect>
+          <text class="node-title" x="82" y="131">Home Assistant</text>
+          <text class="node-text" x="82" y="151">tea stock low sensor</text>
+          <text class="node-text" x="82" y="166">mobile approval action</text>
+
+          <rect class="node home" x="62" y="230" width="200" height="72"></rect>
+          <text class="node-title" x="82" y="256">Household Agent</text>
+          <text class="node-text" x="82" y="276">OpenClaw / local LLM</text>
+          <text class="node-text" x="82" y="291">calls AgentCart API</text>
+
+          <rect class="node data" x="62" y="482" width="200" height="72"></rect>
+          <text class="node-title" x="82" y="508">Vikunja</text>
+          <text class="node-text" x="82" y="528">task: Tea ordered</text>
+          <text class="node-text" x="82" y="543">household record</text>
+
+          <rect class="node agent" x="370" y="100" width="180" height="72"></rect>
+          <text class="node-title" x="390" y="126">Agent API</text>
+          <text class="node-text" x="390" y="146">search, quote</text>
+          <text class="node-text" x="390" y="161">approval, checkout</text>
+
+          <rect class="node agent" x="610" y="100" width="180" height="72"></rect>
+          <text class="node-title" x="630" y="126">Catalog Service</text>
+          <text class="node-text" x="630" y="146">normalized products</text>
+          <text class="node-text" x="630" y="161">merchant metadata</text>
+
+          <rect class="node agent" x="370" y="220" width="180" height="80"></rect>
+          <text class="node-title" x="390" y="246">Quote Service</text>
+          <text class="node-text" x="390" y="266">final total, VAT</text>
+          <text class="node-text" x="390" y="281">shipping, stock, expiry</text>
+
+          <rect class="node risk" x="610" y="220" width="180" height="80"></rect>
+          <text class="node-title" x="630" y="246">Policy Engine</text>
+          <text class="node-text" x="630" y="266">budget, category</text>
+          <text class="node-text" x="630" y="281">merchant allowlist</text>
+
+          <rect class="node home" x="370" y="350" width="180" height="80"></rect>
+          <text class="node-title" x="390" y="376">Approval Broker</text>
+          <text class="node-text" x="390" y="396">HA notification</text>
+          <text class="node-text" x="390" y="411">signed decision token</text>
+
+          <rect class="node payment" x="610" y="350" width="180" height="80"></rect>
+          <text class="node-title" x="630" y="376">Payment Adapter</text>
+          <text class="node-text" x="630" y="396">402 challenge</text>
+          <text class="node-text" x="630" y="411">Payment receipt</text>
+
+          <rect class="node agent" x="370" y="482" width="180" height="72"></rect>
+          <text class="node-title" x="390" y="508">Order Service</text>
+          <text class="node-text" x="390" y="528">idempotent order</text>
+          <text class="node-text" x="390" y="543">state tracking</text>
+
+          <rect class="node data" x="610" y="482" width="180" height="72"></rect>
+          <text class="node-title" x="630" y="508">Audit Log</text>
+          <text class="node-text" x="630" y="528">quote, policy</text>
+          <text class="node-text" x="630" y="543">approval, payment</text>
+
+          <rect class="node merchant" x="905" y="100" width="230" height="80"></rect>
+          <text class="node-title" x="925" y="126">Merchant Adapter</text>
+          <text class="node-text" x="925" y="146">DemoTeaShop + Woo now</text>
+          <text class="node-text" x="925" y="161">Shopify / ACP later</text>
+
+          <rect class="node merchant" x="905" y="235" width="230" height="80"></rect>
+          <text class="node-title" x="925" y="261">Merchant Dashboard</text>
+          <text class="node-text" x="925" y="281">products, quotes</text>
+          <text class="node-text" x="925" y="296">orders, fulfillment</text>
+
+          <rect class="node payment" x="905" y="370" width="230" height="88"></rect>
+          <text class="node-title" x="925" y="396">Real Payment Rail</text>
+          <text class="node-text" x="925" y="416">MPP methods: Tempo, Stripe, x402</text>
+          <text class="node-text" x="925" y="431">merchant account receives funds</text>
+          <text class="node-text" x="925" y="446">live mode only when compliant</text>
+
+          <rect class="node merchant" x="905" y="510" width="230" height="80"></rect>
+          <text class="node-title" x="925" y="536">Merchant of Record</text>
+          <text class="node-text" x="925" y="556">tax, invoice, support</text>
+          <text class="node-text" x="925" y="571">refunds, fulfillment</text>
+
+          <path class="arrow" d="M 162 177 C 162 200, 162 207, 162 230"></path>
+          <text class="arrow-label" x="178" y="206">1 low stock</text>
+
+          <path class="arrow" d="M 262 266 C 310 266, 322 136, 370 136"></path>
+          <text class="arrow-label" x="272" y="188">2 search / quote</text>
+
+          <path class="arrow" d="M 550 136 L 610 136"></path>
+          <text class="arrow-label" x="557" y="126">catalog</text>
+
+          <path class="arrow" d="M 790 140 C 835 140, 860 140, 905 140"></path>
+          <text class="arrow-label" x="810" y="128">adapter call</text>
+
+          <path class="arrow" d="M 460 172 L 460 220"></path>
+          <text class="arrow-label" x="474" y="200">3 quote</text>
+
+          <path class="arrow" d="M 550 260 L 610 260"></path>
+          <text class="arrow-label" x="557" y="250">4 policy</text>
+
+          <path class="arrow" d="M 610 300 C 555 325, 530 340, 500 350"></path>
+          <text class="arrow-label" x="520" y="326">5 approval required</text>
+
+          <path class="arrow" d="M 370 390 C 310 390, 295 140, 262 140"></path>
+          <text class="arrow-label" x="276" y="356">6 notify HA</text>
+
+          <path class="arrow" d="M 262 130 C 315 130, 318 390, 370 390"></path>
+          <text class="arrow-label" x="268" y="120">7 approve / reject</text>
+
+          <path class="arrow payment" d="M 550 390 L 610 390"></path>
+          <text class="arrow-label" x="557" y="380">8 checkout</text>
+
+          <path class="arrow payment" d="M 790 390 C 835 390, 860 414, 905 414"></path>
+          <text class="arrow-label" x="810" y="382">402 -> Payment</text>
+
+          <path class="arrow" d="M 700 430 C 670 492, 610 518, 550 518"></path>
+          <text class="arrow-label" x="586" y="464">9 receipt</text>
+
+          <path class="arrow" d="M 550 518 C 694 518, 760 275, 905 275"></path>
+          <text class="arrow-label" x="675" y="506">10 create order</text>
+
+          <path class="arrow" d="M 905 550 C 765 552, 686 548, 550 528"></path>
+          <text class="arrow-label" x="710" y="574">order lifecycle</text>
+
+          <path class="arrow" d="M 370 518 C 318 518, 300 518, 262 518"></path>
+          <text class="arrow-label" x="276" y="508">11 task</text>
+
+          <path class="arrow audit" d="M 460 300 C 500 458, 550 518, 610 518"></path>
+          <path class="arrow audit" d="M 700 300 L 700 482"></path>
+          <path class="arrow audit" d="M 460 430 C 500 480, 560 500, 610 518"></path>
+          <text class="arrow-label" x="632" y="468">audit every step</text>
+
+          <rect class="note" x="72" y="675" width="340" height="54"></rect>
+          <text class="note-title" x="92" y="699">Hackathon invariant</text>
+          <text class="note-text" x="92" y="716">Do not scrape real shops. Use opt-in merchants only.</text>
+
+          <rect class="note" x="456" y="675" width="340" height="54"></rect>
+          <text class="note-title" x="476" y="699">MPP boundary</text>
+          <text class="note-text" x="476" y="716">Only checkout is payment-protocol-specific.</text>
+
+          <rect class="note" x="840" y="675" width="340" height="54"></rect>
+          <text class="note-title" x="860" y="699">Real-money rule</text>
+          <text class="note-text" x="860" y="716">Funds should settle to the merchant, not AgentCart.</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="sections">
+      <section>
+        <h2>Purchase Flow</h2>
+        <ol class="flow-list">
+          <li><span class="step">1</span><div><div class="item-title">Home Assistant detects low tea stock</div><div class="item-text">A sensor, button, or automation creates the reason for the purchase.</div></div></li>
+          <li><span class="step">2</span><div><div class="item-title">Household agent searches and quotes</div><div class="item-text">The agent calls AgentCart catalog and quote endpoints, not third-party shop websites.</div></div></li>
+          <li><span class="step">3</span><div><div class="item-title">Policy and approval gate the order</div><div class="item-text">Budget, category, merchant allowlist, delivery region, approval token, and expiry are checked before payment.</div></div></li>
+          <li><span class="step">4</span><div><div class="item-title">Checkout uses HTTP Payment authentication</div><div class="item-text"><code>402 Payment Required</code> returns a payment challenge; the retry uses <code>Authorization: Payment</code>.</div></div></li>
+          <li><span class="step">5</span><div><div class="item-title">Order, Vikunja, and audit trail are written</div><div class="item-text">The merchant order, task update, and audit events explain why the purchase happened.</div></div></li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Safety Boundaries</h2>
+        <ul class="risk-list">
+          <li><span class="step">!</span><div><div class="item-title">No hidden browser purchasing</div><div class="item-text">Only opt-in merchants or demo shops should be connected.</div></div></li>
+          <li><span class="step">!</span><div><div class="item-title">Merchant remains merchant of record</div><div class="item-text">Tax, invoice, fulfillment, returns, refunds, and support stay with the merchant.</div></div></li>
+          <li><span class="step">!</span><div><div class="item-title">No custody in AgentCart</div><div class="item-text">AgentCart should not collect money and later pay the merchant unless you intentionally become a marketplace/payment intermediary.</div></div></li>
+          <li><span class="step">!</span><div><div class="item-title">Replay protection</div><div class="item-text">Checkout binds quote, approval, amount, digest, idempotency key, and a single-use payment challenge.</div></div></li>
+        </ul>
+      </section>
+    </div>
+
+    <section class="transfer" aria-label="Real value transfer options">
+      <div class="transfer-grid">
+        <div class="transfer-col">
+          <span class="badge">Recommended demo</span>
+          <h3>Test-mode payment adapter</h3>
+          <p>Use official MPP testnet tooling or the current demo payment adapter. It proves the full architecture without live funds, chargebacks, tax exposure, or fulfillment liability.</p>
+        </div>
+        <div class="transfer-col">
+          <span class="badge warn">Possible with setup</span>
+          <h3>Live opt-in merchant payment</h3>
+          <p>Replace the demo adapter with an official MPP method such as Tempo, Stripe, or x402-compatible settlement into the merchant account. Use a tiny event pickup product and a real refund path.</p>
+        </div>
+        <div class="transfer-col">
+          <span class="badge stop">Avoid</span>
+          <h3>AgentCart as money handler</h3>
+          <p>If AgentCart accepts funds and remits later, it stops being a simple bridge and starts looking like a marketplace or payment intermediary.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      Source artifact: <code>home-ops/agentcart/architecture.html</code>. The current MVP uses a demo payment method plus optional Tempo MPP testnet proof; the architecture preserves a clean slot for official MPP methods later.
+    </footer>
+  </main>
+</body>
+</html>

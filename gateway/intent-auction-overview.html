@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart Intent And Quote Market</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #182026;
+      --muted: #5f6b73;
+      --line: #d7e0e5;
+      --panel: #f5f8f7;
+      --brand: #0a6c60;
+      --accent: #7a4b12;
+      --warn: #8a241f;
+      --good: #116149;
+      --bg: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      padding: 30px 34px 24px;
+      border-bottom: 1px solid var(--line);
+      background: #eef5f2;
+    }
+    main {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 26px 24px 44px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 31px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 28px 0 12px;
+      font-size: 19px;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 0 0 7px;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+    p { margin: 0; }
+    .lead {
+      max-width: 940px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .button {
+      border: 1px solid var(--brand);
+      background: var(--brand);
+      color: #fff;
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+    .button.secondary {
+      background: #fff;
+      color: var(--brand);
+    }
+    .legend, .grid, .swimlane {
+      display: grid;
+      gap: 12px;
+    }
+    .legend {
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      margin-top: 18px;
+    }
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: #fff;
+    }
+    .chip b { display: block; margin-bottom: 3px; }
+    .muted { color: var(--muted); }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(120px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+      margin-top: 12px;
+    }
+    .node {
+      min-height: 136px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+      position: relative;
+    }
+    .node::after {
+      content: "";
+      position: absolute;
+      right: -10px;
+      top: 50%;
+      width: 10px;
+      height: 1px;
+      background: var(--line);
+    }
+    .node:last-child::after { display: none; }
+    .node .kicker {
+      display: inline-block;
+      margin-bottom: 8px;
+      color: #fff;
+      background: var(--brand);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .node.intent .kicker { background: #314a6f; }
+    .node.private .kicker { background: var(--accent); }
+    .node.danger .kicker { background: var(--warn); }
+    .node.good .kicker { background: var(--good); }
+    .compare {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+      margin-top: 12px;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .panel h3 {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    .panel ul {
+      margin: 0;
+      padding: 12px 16px 14px 28px;
+    }
+    .panel li { margin: 6px 0; }
+    .rule-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .rule {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--brand);
+      border-radius: 8px;
+      padding: 13px;
+      background: #fff;
+      min-height: 118px;
+    }
+    .rule.warn { border-left-color: var(--warn); }
+    .rule.good { border-left-color: var(--good); }
+    .registry {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .registry .box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 13px;
+      min-height: 150px;
+    }
+    code {
+      background: #eef1f3;
+      border-radius: 4px;
+      padding: 2px 5px;
+      word-break: break-word;
+    }
+    .caption {
+      margin-top: 10px;
+      color: var(--muted);
+    }
+    @media (max-width: 980px) {
+      .flow, .compare, .registry { grid-template-columns: 1fr; }
+      .node::after { display: none; }
+      header { padding: 24px 22px 20px; }
+      main { padding: 22px 16px 36px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AgentCart Intent And Quote Market</h1>
+    <p class="lead">The useful analogy is intents, not ads: a household states constrained demand, merchants answer with signed quotes, and the user's agent ranks locally by policy before any payment happens.</p>
+    <div class="actions">
+      <a class="button" href="/registry?q=tea&country=DE">Run Live Quote Tournament</a>
+      <a class="button secondary" href="/judge">Judge View</a>
+      <a class="button secondary" href="/">Dashboard</a>
+    </div>
+    <section class="legend">
+      <div class="chip"><b>Public</b><span class="muted">Merchant identity, domain, manifest hash, supported protocols.</span></div>
+      <div class="chip"><b>Private</b><span class="muted">Household demand, delivery address, quote request, approval decision.</span></div>
+      <div class="chip"><b>User-Owned</b><span class="muted">Ranking policy, budget, preferences, final approval.</span></div>
+      <div class="chip"><b>Verifiable</b><span class="muted">Quote hash, payment proof, Woo order id, audit log.</span></div>
+    </section>
+  </header>
+
+  <main>
+    <h2>Safe Flow</h2>
+    <section class="flow" aria-label="AgentCart intent quote flow">
+      <article class="node intent">
+        <span class="kicker">1. Intent</span>
+        <h3>Household Need</h3>
+        <p>Buy tea, detergent, or coffee under exact rules: country, max price, category, delivery window, approval threshold.</p>
+      </article>
+      <article class="node">
+        <span class="kicker">2. Registry</span>
+        <h3>Find Shops</h3>
+        <p>Read public merchant records and <code>/.well-known/agentcart.json</code>. No demand is published onchain.</p>
+      </article>
+      <article class="node">
+        <span class="kicker">3. Catalog</span>
+        <h3>Filter Products</h3>
+        <p>Only shops that ship to the target country and expose matching categories enter the quote round.</p>
+      </article>
+      <article class="node private">
+        <span class="kicker">4. Quote</span>
+        <h3>Private Competition</h3>
+        <p>Selected shops return final signed quotes: total price, VAT, shipping, stock, merchant of record, ETA.</p>
+      </article>
+      <article class="node good">
+        <span class="kicker">5. Rank</span>
+        <h3>User Policy Wins</h3>
+        <p>The agent ranks locally by user policy. Cheapest is not always best; local/trusted/faster can win.</p>
+      </article>
+      <article class="node">
+        <span class="kicker">6. Pay</span>
+        <h3>MPP / x402</h3>
+        <p>Payment proof is bound to quote hash, merchant, amount, currency, network, and recipient.</p>
+      </article>
+      <article class="node">
+        <span class="kicker">7. Order</span>
+        <h3>Merchant Order</h3>
+        <p>WooCommerce creates the order. Status/tracking stays with the merchant and is exposed back to the agent.</p>
+      </article>
+    </section>
+
+    <h2>MEV / Intent Similarity</h2>
+    <section class="compare">
+      <article class="panel">
+        <h3>Similar Pattern</h3>
+        <ul>
+          <li>User expresses an outcome, not every execution step.</li>
+          <li>Solver/searcher/merchant side competes to satisfy exact constraints.</li>
+          <li>The final execution should be bound to the signed intent/quote.</li>
+          <li>Replay protection and transparent settlement proof matter.</li>
+        </ul>
+      </article>
+      <article class="panel">
+        <h3>Important Difference</h3>
+        <ul>
+          <li>This is consumer commerce, so privacy, returns, VAT, delivery, and consent matter.</li>
+          <li>Ranking must not be controlled by whoever pays most for attention.</li>
+          <li>Household demand should not be broadcast publicly.</li>
+          <li>Merchant of record stays responsible for fulfillment and support.</li>
+        </ul>
+      </article>
+    </section>
+
+    <h2>Registry Design</h2>
+    <section class="registry">
+      <article class="box">
+        <h3>Onchain Anchor</h3>
+        <p>Domain, merchant id, manifest URL, manifest hash, supported protocol versions, payment network, recipient address.</p>
+      </article>
+      <article class="box">
+        <h3>Offchain Manifest</h3>
+        <p>Catalog endpoint, quote endpoint, order endpoint, shipping countries, public support contact, policy capabilities.</p>
+      </article>
+      <article class="box">
+        <h3>Private Quote Request</h3>
+        <p>Destination country/postcode, quantity, timing, preferences, and household policy stay client-side or relay-private.</p>
+      </article>
+    </section>
+    <p class="caption">The registry proves where to ask. It must not decide who wins.</p>
+
+    <h2>Market Rules</h2>
+    <section class="rule-grid">
+      <article class="rule good">
+        <h3>Compete On Quotes</h3>
+        <p>Merchants compete on final price, shipping, stock, ETA, and trust. This is useful competition.</p>
+      </article>
+      <article class="rule warn">
+        <h3>No Paid Ranking</h3>
+        <p>Do not let shops buy top placement for generic searches. That turns the system into an ad network.</p>
+      </article>
+      <article class="rule good">
+        <h3>User-Owned Ranking</h3>
+        <p>The household agent explains why a quote won: total cost, delivery, verified merchant, local preference, policy fit.</p>
+      </article>
+      <article class="rule warn">
+        <h3>No Public Demand Leak</h3>
+        <p>Do not broadcast “this household needs detergent in this area.” Ask only selected merchants or privacy-preserving relays.</p>
+      </article>
+      <article class="rule good">
+        <h3>Small Shop Counterweights</h3>
+        <p>Expose local, independent, pickup, sustainability, and trust signals so small shops can win on more than price.</p>
+      </article>
+      <article class="rule warn">
+        <h3>Verifier Is Required</h3>
+        <p>x402 or MPP pays; it does not by itself solve catalog discovery, VAT quote, delivery terms, approval, or order tracking.</p>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

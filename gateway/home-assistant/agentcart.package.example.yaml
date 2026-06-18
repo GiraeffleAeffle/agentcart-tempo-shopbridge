@@ -1,0 +1,91 @@
+# AgentCart Home Assistant package.
+# Add `agentcart_authorization: "Bearer <AGENTCART_TOKEN>"` to secrets.yaml.
+
+input_button:
+  agentcart_tea_stock_low:
+    name: AgentCart tea stock low
+    icon: mdi:tea
+
+command_line:
+  - binary_sensor:
+      name: AgentCart online
+      unique_id: agentcart_online
+      device_class: connectivity
+      command: >-
+        curl -fsS --max-time 5 http://192.168.178.146:8099/health
+        | grep -q '"ok": true'
+        && echo ON || echo OFF
+      payload_on: "ON"
+      payload_off: "OFF"
+      scan_interval: 60
+
+rest_command:
+  agentcart_trigger_low_tea:
+    url: http://192.168.178.146:8099/demo/trigger-low-tea
+    method: POST
+    timeout: 30
+    content_type: application/json
+    headers:
+      authorization: !secret agentcart_authorization
+    payload: "{}"
+
+  agentcart_approval_decision:
+    url: "http://192.168.178.146:8099/v1/approvals/{{ approval_id }}/decision"
+    method: POST
+    timeout: 30
+    content_type: application/json
+    headers:
+      authorization: !secret agentcart_authorization
+    payload: >-
+      {
+        "decision": {{ decision | tojson }},
+        "token": {{ token | tojson }},
+        "approver": "home-assistant"
+      }
+
+automation:
+  - id: agentcart_manual_tea_stock_low
+    alias: AgentCart manual tea stock low
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_button.agentcart_tea_stock_low
+    actions:
+      - action: homeassistant.update_entity
+        target:
+          entity_id: binary_sensor.agentcart_online
+      - condition: state
+        entity_id: binary_sensor.agentcart_online
+        state: "on"
+      - action: rest_command.agentcart_trigger_low_tea
+
+  - id: agentcart_mobile_approval_action
+    alias: AgentCart mobile approval action
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: mobile_app_notification_action
+    actions:
+      - variables:
+          agentcart_action: >-
+            {{ trigger.event.data.action | default(trigger.event.data.actionName, true) }}
+      - condition: template
+        value_template: >-
+          {{ agentcart_action is string and agentcart_action.startswith('AGENTCART_') }}
+      - variables:
+          action_parts: "{{ agentcart_action.split(':') }}"
+          action_name: "{{ action_parts[0] }}"
+          approval_id: "{{ action_parts[1] if action_parts | length > 1 else '' }}"
+          approval_token: "{{ action_parts[2] if action_parts | length > 2 else '' }}"
+          decision: >-
+            {{ 'approved' if action_name == 'AGENTCART_APPROVE' else 'rejected' }}
+      - condition: template
+        value_template: >-
+          {{ action_name in ['AGENTCART_APPROVE', 'AGENTCART_REJECT']
+             and approval_id | length > 0
+             and approval_token | length > 0 }}
+      - action: rest_command.agentcart_approval_decision
+        data:
+          approval_id: "{{ approval_id }}"
+          token: "{{ approval_token }}"
+          decision: "{{ decision }}"

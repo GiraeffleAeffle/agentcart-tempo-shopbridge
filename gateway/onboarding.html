@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart Onboarding Flow</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172027;
+      --muted: #5e6a66;
+      --line: #cbd8d4;
+      --soft: #f4f7f6;
+      --panel: #ffffff;
+      --agent: #176c5f;
+      --merchant: #8b5a1d;
+      --payment: #6b4d8d;
+      --stripe: #635bff;
+      --risk: #9b3333;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: #fff; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+    header { padding: 28px 32px 22px; background: var(--soft); border-bottom: 1px solid var(--line); }
+    main { max-width: 1220px; margin: 0 auto; padding: 24px 24px 46px; }
+    h1 { margin: 0 0 8px; font-size: 32px; letter-spacing: 0; }
+    h2 { margin: 26px 0 12px; font-size: 20px; letter-spacing: 0; }
+    h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0; }
+    p { margin: 0; }
+    .lead { max-width: 980px; color: var(--muted); font-size: 16px; }
+    a { color: var(--agent); }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    .button { border: 1px solid var(--agent); background: var(--agent); color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 650; text-decoration: none; }
+    .secondary { background: #fff; color: var(--agent); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 16px; min-height: 150px; }
+    .card strong { display: block; margin-bottom: 8px; font-size: 17px; }
+    .card p, li { color: var(--muted); }
+    ol, ul { margin: 0; padding-left: 20px; }
+    li { margin: 7px 0; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+    .step { border: 1px solid var(--line); border-top: 5px solid var(--agent); border-radius: 8px; padding: 13px; min-height: 120px; background: #fff; }
+    .step:nth-child(2) { border-top-color: var(--merchant); }
+    .step:nth-child(3) { border-top-color: var(--payment); }
+    .step:nth-child(4) { border-top-color: var(--stripe); }
+    .step:nth-child(5) { border-top-color: var(--risk); }
+    .step b { display: block; margin-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; vertical-align: top; padding: 10px 11px; border-bottom: 1px solid var(--line); }
+    th { background: var(--soft); color: #33423e; font-size: 12px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    code { background: #edf3f1; border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px; font-size: .92em; }
+    .tag { display: inline-block; border-radius: 999px; padding: 3px 8px; color: #fff; font-size: 12px; font-weight: 700; }
+    .demo { background: var(--merchant); }
+    .prod { background: var(--agent); }
+    .muted { color: var(--muted); }
+    @media (max-width: 920px) {
+      header { padding: 22px 20px 18px; }
+      main { padding: 18px 16px 36px; }
+      .grid, .three, .flow { grid-template-columns: 1fr; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AgentCart Onboarding Flow</h1>
+    <p class="lead">The demo needs two onboarding stories: a household user gives an agent spending authority under policy, and a WooCommerce shop opts in by exposing products, quotes, payment rails, order status, and refund metadata.</p>
+    <div class="actions">
+      <a class="button secondary" href="/">Dashboard</a>
+      <a class="button secondary" href="/presentation.html">Presentation</a>
+      <a class="button secondary" href="/payment-options.html">Payments</a>
+      <a class="button secondary" href="/protocol-fields.html">Field Map</a>
+      <a class="button" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344">Two-Shop Demo</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="grid">
+      <div class="card">
+        <strong>Household User Onboarding</strong>
+        <ol>
+          <li>Install or connect an agent that can call AgentCart/ShopBridge APIs.</li>
+          <li>Add delivery address, preferred merchants, blocked categories, and budgets.</li>
+          <li>Connect an approval channel: chat, Home Assistant, Telegram, Signal, or another signed decision API.</li>
+          <li>Choose payment credential source: Tempo MPP wallet/account or Stripe/card SPT flow.</li>
+          <li>Require explicit approval for final quote, delivery window, merchant, and rail before checkout.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <strong>WooCommerce Shop Onboarding</strong>
+        <ol>
+          <li>Install WooCommerce and configure products, stock, tax, shipping countries, terms, and returns.</li>
+          <li>Install AgentCart ShopBridge.</li>
+          <li>Configure support email, Tempo recipient, optional Stripe profile/network id, verifier URL, and merchant token.</li>
+          <li>Publish <code>/.well-known/agentcart.json</code> and optionally register its hash.</li>
+          <li>Run sandbox quote, paid order, status, and refund checks.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section>
+      <h2>Buyer Journey</h2>
+      <div class="flow">
+        <div class="step"><b>1. Intent</b>User says: buy my favorite tea.</div>
+        <div class="step"><b>2. Discovery</b>Agent finds opt-in merchants and quote endpoints.</div>
+        <div class="step"><b>3. Quote</b>Agent gets final EUR totals, VAT, shipping, ETA, refund policy.</div>
+        <div class="step"><b>4. Approval</b>User approves exact quote and payment rail.</div>
+        <div class="step"><b>5. Order</b>Payment proof creates Woo order, task, calendar event, and audit record.</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Shop Owner Journey</h2>
+      <table>
+        <thead><tr><th>Step</th><th>Shop admin sees</th><th>Agent sees</th><th>Production requirement</th></tr></thead>
+        <tbody>
+          <tr><td>Install</td><td>WooCommerce -> AgentCart settings page</td><td>Manifest URL</td><td>Plugin activated and public HTTPS domain</td></tr>
+          <tr><td>Products</td><td>Normal Woo products, images, stock, tax</td><td>Machine-readable catalog</td><td>Per-product opt-in/limits later</td></tr>
+          <tr><td>Quote</td><td>Woo tax/shipping source of truth</td><td>Quote hash, VAT, shipping, ETA, MoR, refund policy</td><td>Real shipping/tax configuration</td></tr>
+          <tr><td>Payment</td><td>Tempo recipient and/or Stripe profile readiness</td><td>Available MPP rails and setup flags</td><td>Verifier binds quote, amount, rail, recipient/profile, receipt</td></tr>
+          <tr><td>Refund</td><td>Woo refund record and AgentCart refund endpoint</td><td>Refund state and whether rail refund was verified</td><td>Stripe refund API or Tempo/stablecoin refund verifier</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Refund Flow</h2>
+      <div class="grid three">
+        <div class="card">
+          <span class="tag demo">Demo</span>
+          <strong>Woo refund record</strong>
+          <p>AgentCart calls ShopBridge, which creates a WooCommerce refund record with <code>real_refund_verified=false</code>. This proves order-system integration only.</p>
+        </div>
+        <div class="card">
+          <span class="tag prod">Stripe/card</span>
+          <strong>Card refund</strong>
+          <p>The verifier calls Stripe refund APIs, returns a refund reference, then ShopBridge records the Woo refund and audit metadata.</p>
+        </div>
+        <div class="card">
+          <span class="tag prod">Tempo</span>
+          <strong>Stablecoin refund</strong>
+          <p>The verifier creates or verifies a rail-specific refund transfer back to the source wallet, then returns the refund transaction reference.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Live Demo Script</h2>
+      <ol>
+        <li>Open the WooCommerce admin AgentCart settings page and show manifest, catalog, quote, payment verifier, Tempo recipient, and Stripe profile readiness.</li>
+        <li>Open the <a href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344">two-shop quote tournament</a> and show Woo wins on final price.</li>
+        <li>Ask the household chat to buy Hazel's Chocolate Tea, approve the quote, and open the generated order proof page.</li>
+        <li>Open the Woo order in admin and show the paid order line items.</li>
+        <li>On the AgentCart proof page, click "Record Demo Refund" and show the Woo refund record plus AgentCart audit row.</li>
+      </ol>
+      <p class="muted">Do not say the demo refund moved money. Say production uses the same endpoint shape but requires Stripe or Tempo verifier confirmation first.</p>
+    </section>
+  </main>
+</body>
+</html>

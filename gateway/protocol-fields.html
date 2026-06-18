@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart Protocol Field Map</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172027;
+      --muted: #5e6a66;
+      --line: #cbd8d4;
+      --soft: #f4f7f6;
+      --panel: #ffffff;
+      --mpp: #6b4d8d;
+      --commerce: #176c5f;
+      --home: #2d5d93;
+      --optional: #8b5a1d;
+      --risk: #9b3333;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #fff;
+      color: var(--ink);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    header {
+      padding: 28px 32px 22px;
+      background: var(--soft);
+      border-bottom: 1px solid var(--line);
+    }
+    main { max-width: 1240px; margin: 0 auto; padding: 24px 24px 46px; }
+    h1 { margin: 0 0 8px; font-size: 32px; letter-spacing: 0; }
+    h2 { margin: 26px 0 12px; font-size: 20px; letter-spacing: 0; }
+    h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0; }
+    p { margin: 0; }
+    .lead { max-width: 980px; color: var(--muted); font-size: 16px; }
+    a { color: var(--commerce); }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    .button {
+      border: 1px solid var(--commerce);
+      background: var(--commerce);
+      color: #fff;
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+    .secondary { background: #fff; color: var(--commerce); }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .lane {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      min-height: 360px;
+      overflow: hidden;
+    }
+    .lane h3 {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      color: #fff;
+      background: var(--commerce);
+    }
+    .lane.mpp h3 { background: var(--mpp); }
+    .lane.home h3 { background: var(--home); }
+    .lane.optional h3 { background: var(--optional); }
+    .lane .body { display: grid; gap: 12px; padding: 14px; }
+    .field {
+      border-left: 4px solid var(--commerce);
+      background: #fbfdfc;
+      padding: 10px 11px;
+      border-radius: 6px;
+    }
+    .mpp .field { border-left-color: var(--mpp); }
+    .home .field { border-left-color: var(--home); }
+    .optional .field { border-left-color: var(--optional); }
+    .field b { display: block; margin-bottom: 5px; }
+    .field p { color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; vertical-align: top; padding: 10px 11px; border-bottom: 1px solid var(--line); }
+    th { background: var(--soft); color: #33423e; font-size: 12px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    code { background: #edf3f1; border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px; font-size: .92em; }
+    .muted { color: var(--muted); }
+    .risk { color: var(--risk); font-weight: 650; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+    .step {
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--commerce);
+      border-radius: 8px;
+      padding: 13px;
+      background: #fff;
+      min-height: 115px;
+    }
+    .step:nth-child(4) { border-top-color: var(--mpp); }
+    .step b { display: block; margin-bottom: 6px; }
+    @media (max-width: 980px) {
+      header { padding: 22px 20px 18px; }
+      main { padding: 18px 16px 36px; }
+      .grid, .flow { grid-template-columns: 1fr; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AgentCart Protocol Field Map</h1>
+    <p class="lead">MPP is the payment boundary. AgentCart ShopBridge is the commerce and household-safety profile around it. This page shows which fields are official MPP concepts, which are required for merchant checkout, and which are optional local integrations.</p>
+    <div class="actions">
+      <a class="button secondary" href="/">Dashboard</a>
+      <a class="button secondary" href="/presentation.html">Presentation</a>
+      <a class="button secondary" href="/architecture.html">Architecture</a>
+      <a class="button secondary" href="/payment-options.html">Payments</a>
+      <a class="button secondary" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344">Two-Shop Quote Tournament</a>
+      <a class="button" href="/openapi.json">OpenAPI JSON</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="grid">
+      <div class="lane mpp">
+        <h3>1. Official MPP Payment Layer</h3>
+        <div class="body">
+          <div class="field"><b>Discovery</b><p><code>x-payment-info.offers[]</code> with <code>amount</code>, <code>currency</code>, <code>intent</code>, and <code>method</code>. Runtime <code>402</code> remains authoritative.</p></div>
+          <div class="field"><b>Challenge</b><p><code>402 Payment Required</code> plus <code>WWW-Authenticate: Payment</code>. Carries <code>id</code>, <code>realm</code>, <code>method</code>, <code>intent</code>, encoded <code>request</code>, expiry, and method-specific fields.</p></div>
+          <div class="field"><b>Credential</b><p>Client retries with <code>Authorization: Payment</code>. Payload is method-specific, for example Tempo transaction/hash/proof or Stripe SPT.</p></div>
+          <div class="field"><b>Receipt</b><p>Server returns <code>Payment-Receipt</code> after verification. It may include method, status, reference, timestamp, and delivery confirmation metadata.</p></div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <h3>2. ShopBridge Commerce Profile</h3>
+        <div class="body">
+          <div class="field"><b>Merchant Manifest</b><p><code>merchant_id</code>, <code>domain</code>, <code>manifest_url</code>, <code>manifest_hash</code>, supported protocols, ship-to countries, terms, returns, and merchant-of-record.</p></div>
+          <div class="field"><b>Product</b><p><code>product_id</code>, <code>sku</code>, <code>title</code>, <code>description</code>, <code>category</code>, <code>brand</code>, <code>unit_size</code>, images, price hint, stock, availability, delivery countries.</p></div>
+          <div class="field"><b>Quote</b><p>Final quote with items, subtotal, shipping, VAT lines, total, currency, stock hold, delivery window, quote hash, expiry, and payment requirements.</p></div>
+          <div class="field"><b>Order</b><p>Merchant order id, order URL, status URL, status token, fulfillment state, delivery estimate, tracking placeholders, and receipt references.</p></div>
+        </div>
+      </div>
+
+      <div class="lane home">
+        <h3>3. Household Safety Profile</h3>
+        <div class="body">
+          <div class="field"><b>Policy</b><p>Budget ceilings, approval thresholds, allowed/blocked categories, allowed countries, merchant allowlist/blocklist, and max quantity.</p></div>
+          <div class="field"><b>Approval</b><p>Consent request, approval id, one-time decision token, expiry, decision API, approver, channel, and decision reason.</p></div>
+          <div class="field"><b>Audit</b><p>Intent, sensor/task context, selected quote, rejected candidates, policy result, approval, payment receipt, order, and delivery state.</p></div>
+          <div class="field"><b>Replay Protection</b><p>Quote hash, idempotency key, challenge id, request digest, expiry, receipt reference, and merchant order correlation.</p></div>
+        </div>
+      </div>
+
+      <div class="lane optional">
+        <h3>4. Optional Local Interfaces</h3>
+        <div class="body">
+          <div class="field"><b>Home Assistant</b><p>Sensor trigger, phone/watch notification, calendar write, and energy telemetry. Optional adapter, not required by ShopBridge.</p></div>
+          <div class="field"><b>OpenClaw / LLM</b><p>Intent parsing and tool use. The API is deterministic, so another agent can use the same endpoints.</p></div>
+          <div class="field"><b>Vikunja</b><p>Task lookup, task update, and due-date creation. Optional household aftercare.</p></div>
+          <div class="field"><b>Telegram / Signal / Email</b><p>Alternative approval delivery channels if they can render the consent request and call the signed decision API.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Field Boundary</h2>
+      <table>
+        <thead>
+          <tr><th>Question</th><th>Answer</th><th>Why it matters</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Do we need to extend core MPP for products?</td>
+            <td>No.</td>
+            <td>MPP is intentionally payment-method agnostic. Products, VAT, delivery, approval, and orders should stay in a commerce profile around MPP.</td>
+          </tr>
+          <tr>
+            <td>When would we extend MPP?</td>
+            <td>Only for a new payment rail, new intent, escrow/refund primitive, or quote-bound FX settlement requirement.</td>
+            <td>Those are payment semantics. Catalog and household policy are application semantics.</td>
+          </tr>
+          <tr>
+            <td>Can the WooCommerce plugin support Stripe/card settlement?</td>
+            <td>Yes, by advertising another MPP payment method and verifying a Stripe/card credential before creating the Woo order.</td>
+            <td>Stripe/card gives EUR merchants a production path for payouts, reporting, refunds, disputes, and cardholder protections.</td>
+          </tr>
+          <tr>
+            <td>Should refunds be in the profile?</td>
+            <td>Yes, as a production requirement and quote/order capability field.</td>
+            <td>WooCommerce can record refunds, but AgentCart must bind real refunds to the original payment rail before claiming funds moved.</td>
+          </tr>
+          <tr>
+            <td>What is the pathUSD problem?</td>
+            <td>Tempo testnet uses pathUSD, while the shop quote is EUR.</td>
+            <td>The demo must say this clearly. Production needs merchant acceptance of USD stablecoin, quote-bound FX, Stripe/card settlement, or an EUR-compatible MPP rail.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Quote Tournament Demo</h2>
+      <div class="flow">
+        <div class="step"><b>1. Intent</b>Household agent receives "buy Hazel's Chocolate tea".</div>
+        <div class="step"><b>2. Discovery</b>Registry points to opt-in shop manifests. No hidden scraping.</div>
+        <div class="step"><b>3. RFQ</b>AgentCart asks matching shops for final quote-bound totals.</div>
+        <div class="step"><b>4. Payment</b>Selected order goes through the MPP-shaped checkout and attached Tempo proof.</div>
+        <div class="step"><b>5. Aftercare</b>Woo order, Vikunja task, delivery calendar, and audit log are linked.</div>
+      </div>
+      <p class="muted" style="margin-top:12px">Live comparison: <a href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344">run the two-shop quote tournament</a>.</p>
+    </section>
+
+    <section>
+      <h2>Data Types To Present</h2>
+      <table>
+        <thead>
+          <tr><th>Object</th><th>Required fields</th><th>Optional/local fields</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>Product</code></td><td><code>product_id: string</code>, <code>title: string</code>, <code>category: string</code>, <code>price_cents: integer</code>, <code>currency: string</code>, <code>stock: integer</code>, <code>shipping_regions: string[]</code></td><td><code>image_urls</code>, <code>brand</code>, <code>unit_size</code>, <code>dietary_tags</code>, <code>subscription_eligible</code></td></tr>
+          <tr><td><code>Quote</code></td><td><code>quote_id</code>, <code>items[]</code>, <code>subtotal_cents</code>, <code>shipping</code>, <code>vat_lines[]</code>, <code>total_cents</code>, <code>currency</code>, <code>delivery_window</code>, <code>merchant_of_record</code>, <code>quote_hash</code>, <code>expires_at</code>, <code>payment_requirements</code></td><td><code>stock_reservation</code>, <code>discounts</code>, <code>terms_url</code>, <code>returns_url</code>, <code>settlement_asset</code></td></tr>
+          <tr><td><code>Policy</code></td><td><code>max_order_cents</code>, <code>monthly_budget_cents</code>, <code>approval_threshold_cents</code>, <code>allowed_categories</code>, <code>blocked_categories</code></td><td><code>preferred_merchants</code>, <code>blocked_merchants</code>, <code>ship_to_countries</code>, <code>quiet_hours</code></td></tr>
+          <tr><td><code>Approval</code></td><td><code>approval_id</code>, <code>quote_id</code>, <code>state</code>, <code>decision_token</code>, <code>expires_at</code>, <code>decision_api</code></td><td><code>channel</code>, <code>delivery_channels</code>, <code>home_assistant_context</code>, <code>telegram_chat_id</code>, <code>signal_recipient</code></td></tr>
+          <tr><td><code>PaymentReceipt</code></td><td><code>receipt_id</code>, <code>provider</code>, <code>method</code>, <code>status</code>, <code>reference</code>, <code>amount</code>, <code>currency_or_asset</code>, <code>created_at</code></td><td><code>explorer_url</code>, <code>stripe_payment_intent</code>, <code>fx_rate</code>, <code>receipt_header</code></td></tr>
+          <tr><td><code>Order</code></td><td><code>order_id</code>, <code>merchant_order_id</code>, <code>quote_id</code>, <code>payment_receipt_id</code>, <code>state</code>, <code>status_url</code>, <code>delivery_window</code></td><td><code>tracking_number</code>, <code>carrier</code>, <code>calendar_event</code>, <code>vikunja_task</code></td></tr>
+          <tr><td><code>AuditLog</code></td><td><code>event_id</code>, <code>event_type</code>, <code>actor</code>, <code>timestamp</code>, <code>refs</code>, <code>reason</code></td><td><code>policy_snapshot</code>, <code>model_trace_id</code>, <code>home_sensor_snapshot</code>, <code>redactions</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Claim To Make</h2>
+      <p class="lead">AgentCart does not replace MPP. It defines the missing opt-in merchant and household safety layer that lets an agent compare products, get final quotes, ask for consent, pay with an MPP-compatible method, and leave a clear order/audit trail.</p>
+      <p class="muted" style="margin-top:10px">Sources checked: <a href="https://mpp.dev/llms-full.txt">MPP llms-full.txt</a>, <a href="https://mpp.dev/protocol/">MPP protocol overview</a>, <a href="https://mpp.dev/advanced/discovery">MPP discovery</a>, and <a href="https://mpp.dev/payment-methods/stripe/">MPP Stripe method</a>.</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "agentcart",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Household-safe commerce bridge demo with optional Tempo MPP smoke tooling.",
+  "scripts": {
+    "mpp:server": "node scripts/mpp-smoke-server.mjs",
+    "mpp:account:create": "mppx account create --network testnet --account agentcart-test",
+    "mpp:account:fund": "mppx account fund --network testnet --account agentcart-test",
+    "mpp:account:view": "mppx account view --network testnet --account agentcart-test",
+    "mpp:pay": "mppx http://127.0.0.1:4250/paid --network testnet --account agentcart-test --include"
+  },
+  "dependencies": {
+    "mppx": "^0.7.0",
+    "stripe": "^22.2.1"
+  },
+  "overrides": {
+    "ws": "^8.21.0"
+  }
+}

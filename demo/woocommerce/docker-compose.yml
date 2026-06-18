@@ -1,0 +1,67 @@
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+      MARIADB_ROOT_PASSWORD: wordpress-root
+    volumes:
+      - woo_db:/var/lib/mysql
+
+  wordpress:
+    image: wordpress:php8.2-apache
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "${WOO_HOST_BIND:-0.0.0.0}:${WOO_HOST_PORT:-8098}:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_CONFIG_EXTRA: |
+        define('AGENTCART_SHOPBRIDGE_TOKEN', getenv('AGENTCART_SHOPBRIDGE_TOKEN') ?: 'agentcart-woo-demo-token');
+        define('AGENTCART_MERCHANT_ID', getenv('AGENTCART_MERCHANT_ID') ?: 'woocommerce-demo-shop');
+        define('AGENTCART_TEMPO_NETWORK', getenv('AGENTCART_TEMPO_NETWORK') ?: 'testnet');
+        define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', getenv('AGENTCART_TEMPO_RECIPIENT_ADDRESS') ?: '');
+        define('AGENTCART_STRIPE_PROFILE_ID', getenv('AGENTCART_STRIPE_PROFILE_ID') ?: '');
+        define('AGENTCART_PAYMENT_VERIFIER_URL', getenv('AGENTCART_PAYMENT_VERIFIER_URL') ?: '');
+      AGENTCART_SHOPBRIDGE_TOKEN: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}
+      AGENTCART_MERCHANT_ID: ${AGENTCART_MERCHANT_ID:-woocommerce-demo-shop}
+      AGENTCART_TEMPO_NETWORK: ${AGENTCART_TEMPO_NETWORK:-testnet}
+      AGENTCART_TEMPO_RECIPIENT_ADDRESS: ${AGENTCART_TEMPO_RECIPIENT_ADDRESS:-}
+      AGENTCART_STRIPE_PROFILE_ID: ${AGENTCART_STRIPE_PROFILE_ID:-}
+      AGENTCART_PAYMENT_VERIFIER_URL: ${AGENTCART_PAYMENT_VERIFIER_URL:-}
+    volumes:
+      - woo_wp:/var/www/html
+      - ../woocommerce-plugin/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+
+  wpcli:
+    image: wordpress:cli-php8.2
+    user: "0:0"
+    depends_on:
+      - wordpress
+      - db
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+      WOO_PUBLIC_URL: ${WOO_PUBLIC_URL:-http://127.0.0.1:8098}
+      WOO_ADMIN_USER: ${WOO_ADMIN_USER:-max}
+      WOO_ADMIN_PASSWORD: ${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}
+      WOO_ADMIN_EMAIL: ${WOO_ADMIN_EMAIL:-max@household.local}
+      AGENTCART_SHOPBRIDGE_TOKEN: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}
+    volumes:
+      - woo_wp:/var/www/html
+      - ../woocommerce-plugin/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+      - ./seed-products.sh:/seed-products.sh:ro
+      - ./woocommerce.latest-stable.zip:/tmp/woocommerce.latest-stable.zip:ro
+    entrypoint: ["bash", "/seed-products.sh"]
+
+volumes:
+  woo_db:
+  woo_wp:
