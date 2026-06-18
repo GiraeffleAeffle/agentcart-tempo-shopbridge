@@ -468,6 +468,18 @@ def catalog_query_for_intent(value: str) -> str:
     return value
 
 
+def product_price_hint_cents(product: dict[str, Any]) -> int:
+    price_hint = product.get("price_hint") if isinstance(product.get("price_hint"), dict) else {}
+    try:
+        return int(price_hint.get("amount_cents") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def product_title_key(product: dict[str, Any]) -> str:
+    return normalize_alias(str(product.get("title") or ""))
+
+
 def add_business_days(start: dt.date, days: int) -> dt.date:
     current = start
     remaining = max(days, 0)
@@ -2724,11 +2736,12 @@ separate human confirmation.
         return result
 
     def search_catalog(self, query: str) -> dict[str, Any]:
+        catalog_query = catalog_query_for_intent(query)
         with self.lock:
             products: list[dict[str, Any]] = []
             merchants = []
             for adapter in self.adapters.values():
-                adapter_products = adapter.search_products(query, self.state["stock"])
+                adapter_products = adapter.search_products(catalog_query, self.state["stock"])
                 if adapter_products:
                     merchants.append(adapter.merchant)
                     products.extend(adapter_products)
@@ -2739,10 +2752,38 @@ separate human confirmation.
                 products.insert(0, product)
                 if adapter.merchant["id"] not in {merchant["id"] for merchant in merchants}:
                     merchants.insert(0, adapter.merchant)
+            if alias_product_id and products:
+                intent_title = normalize_alias(catalog_query_for_intent(query))
+                products.sort(
+                    key=lambda product: (
+                        product.get("availability") != "in_stock",
+                        not bool(product.get("eligible_for_agent_checkout")),
+                        product_title_key(product) != intent_title,
+                        product_price_hint_cents(product),
+                        product.get("id") != alias_product_id,
+                        str(product.get("merchant_id") or ""),
+                    )
+                )
+                merchants_by_id = {str(merchant.get("id")): merchant for merchant in merchants}
+                ordered_merchants = []
+                seen_merchant_ids = set()
+                for product in products:
+                    merchant_id = str(product.get("merchant_id") or "")
+                    merchant = merchants_by_id.get(merchant_id) or product.get("merchant")
+                    if isinstance(merchant, dict) and merchant_id not in seen_merchant_ids:
+                        ordered_merchants.append(merchant)
+                        seen_merchant_ids.add(merchant_id)
+                for merchant in merchants:
+                    merchant_id = str(merchant.get("id") or "")
+                    if merchant_id not in seen_merchant_ids:
+                        ordered_merchants.append(merchant)
+                        seen_merchant_ids.add(merchant_id)
+                merchants = ordered_merchants
         return {
             "query": query,
+            "catalog_query": catalog_query,
             "products": products,
-            "merchant": merchants[0] if merchants else self.adapter.merchant,
+            "merchant": products[0].get("merchant", merchants[0]) if products and isinstance(products[0], dict) else merchants[0] if merchants else self.adapter.merchant,
             "merchants": merchants,
         }
 

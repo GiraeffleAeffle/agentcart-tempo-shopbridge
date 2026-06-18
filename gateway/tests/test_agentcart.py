@@ -336,17 +336,21 @@ class AgentCartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(pathlib.Path(raw_tmp))
             result = service.search_catalog("buy my favorite tea")
-            self.assertEqual(result["products"][0]["id"], "tea_hazels_chocolate_100g")
+            self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
+            self.assertEqual(result["products"][0]["id"], "woo_203")
+            self.assertEqual(result["products"][0]["merchant_id"], "woocommerce-demo-tea")
             quote = service.create_quote(
                 {
                     "agent_id": "test-agent",
                     "reason": "buy my favorite tea",
-                    "items": [{"product_id": "favorite_tea", "quantity": 1}],
+                    "items": [{"product_id": result["products"][0]["id"], "quantity": 1}],
                     "ship_to": {"country": "DE", "postal_code": "15344"},
                 }
             )
-            self.assertEqual(quote["items"][0]["product_id"], "tea_hazels_chocolate_100g")
+            self.assertEqual(quote["merchant_id"], "woocommerce-demo-tea")
+            self.assertEqual(quote["items"][0]["product_id"], "woo_203")
             self.assertEqual(quote["items"][0]["title"], "Hazel's Chocolate Tea")
+            self.assertEqual(quote["total_cents"], 1480)
 
     def test_quote_includes_shipping_vat_policy_and_merchant_of_record(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
