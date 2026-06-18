@@ -83,6 +83,14 @@ Use AgentCart to buy my favorite tea, Hazel's Chocolate. Discover matching
 shops, get the best final quote, and ask me for approval before ordering.
 ```
 
+For a deterministic WooCommerce-admin proof, keep the prompt explicit:
+
+```text
+Use AgentCart to buy Hazel's Chocolate Tea from the WooCommerce ShopBridge
+merchant. Compare the available shops, choose the best final quote, and ask me
+for approval before checkout.
+```
+
 Then approve from the same chat:
 
 ```text
@@ -103,6 +111,11 @@ Expected flow:
 9. WooCommerce admin shows the merchant order.
 10. Vikunja gets `Tea ordered: 1x Hazel's Chocolate Tea`.
 11. Delivery estimate is attached to the order and proof page.
+
+Fast sanity check during the demo: a merchant order id like `FTS-*` is the local
+Futura comparison merchant and will not appear in WooCommerce admin. A numeric
+merchant order id with a Woo admin link is the real WooCommerce order created by
+ShopBridge.
 
 ### Optional Refund Demo
 
@@ -196,6 +209,28 @@ JSON
 
 This returns the final order after approval. It is the best fallback because it
 still demonstrates the real human approval and checkout sequence.
+
+### Force The WooCommerce Merchant
+
+If a free-form prompt created an `FTS-*` local-demo order, use this deterministic
+WooCommerce path instead of spinning up another shop:
+
+```sh
+ssh pve 'pct exec 104 -- runuser -u openclaw -- bash -lc '"'"'
+cd /home/openclaw/workspace/skills/agentcart
+python3 scripts/agentcart-command.py << "JSON"
+{
+  "command": "demo_woo_tea",
+  "args": {}
+}
+JSON
+'"'"''
+```
+
+Then approve the Home Assistant notification and finish checkout from the
+approval page or by resuming checkout. This uses the same WooCommerce
+ShopBridge, Tempo proof, Vikunja sync, delivery estimate, and audit path as the
+chat demo.
 
 ## Phone And Apple Watch Approval
 

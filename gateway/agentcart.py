@@ -4803,6 +4803,51 @@ def link_or_text(url: Any, label: str | None = None) -> str:
     return f"<a href=\"{esc(url_text)}\" target=\"_blank\" rel=\"noreferrer\">{esc(label or url_text)}</a>"
 
 
+def merchant_order_data(order: dict[str, Any]) -> dict[str, Any]:
+    merchant_order = order.get("merchant_order")
+    return merchant_order if isinstance(merchant_order, dict) else {}
+
+
+def is_woocommerce_order(order: dict[str, Any]) -> bool:
+    merchant_order = merchant_order_data(order)
+    platform = str(merchant_order.get("platform") or "").lower()
+    merchant_id = str(order.get("merchant_id") or "").lower()
+    return platform.startswith("woocommerce") or "woocommerce" in merchant_id
+
+
+def merchant_platform_label(order: dict[str, Any]) -> str:
+    merchant_order = merchant_order_data(order)
+    platform = str(merchant_order.get("platform") or "").lower()
+    merchant_id = str(order.get("merchant_id") or "")
+    if platform == "woocommerce-agentcart-plugin":
+        return "WooCommerce ShopBridge"
+    if platform == "woocommerce":
+        return "WooCommerce REST"
+    if platform == "woocommerce-mock":
+        return "WooCommerce mock"
+    if platform == "demo-tea-shop" or merchant_id == "demo-tea-shop":
+        return "Futura Demo Tea Shop"
+    return str(merchant_order.get("platform") or merchant_id or "Merchant")
+
+
+def merchant_order_note(order: dict[str, Any]) -> str:
+    merchant_order = merchant_order_data(order)
+    if is_woocommerce_order(order):
+        if merchant_order.get("url"):
+            return "visible in WooCommerce admin"
+        return "WooCommerce adapter order; no admin URL stored"
+    if str(order.get("merchant_order_id") or "").startswith("FTS-"):
+        return "local comparison merchant; not visible in WooCommerce admin"
+    return ""
+
+
+def merchant_order_link_label(order: dict[str, Any]) -> str:
+    order_id = str(order.get("merchant_order_id") or "")
+    if is_woocommerce_order(order):
+        return f"Open Woo order {order_id}"
+    return f"Open merchant order {order_id}"
+
+
 def approval_notification_summary(approval: dict[str, Any]) -> str:
     notification = approval.get("notification") if isinstance(approval.get("notification"), dict) else {}
     state = str(notification.get("state") or "not_sent")
@@ -5066,10 +5111,24 @@ def render_dashboard(state: dict[str, Any]) -> str:
         f"<tr><td><a href=\"/approvals/{esc(approval['id'])}\">{esc(approval['id'])}</a></td><td>{esc(approval['quote_id'])}</td><td>{esc(approval['state'])}</td><td>{esc(approval.get('approver') or '')}</td></tr>"
         for approval in approvals[:8]
     )
-    order_rows = "\n".join(
-        f"<tr><td><a href=\"/orders/{esc(order['id'])}\">{esc(order['id'])}</a></td><td>{esc(order['merchant_order_id'])}</td><td>{esc(order['state'])}</td><td>{esc(money(order['total_cents'], order['currency']))}</td><td>{esc(proof_status_label(order))}</td><td>{esc(order.get('vikunja_task', {}).get('state', ''))}</td></tr>"
-        for order in orders[:8]
-    )
+    def render_order_row(order: dict[str, Any]) -> str:
+        merchant_order = merchant_order_data(order)
+        merchant_note = merchant_order_note(order)
+        merchant_note_html = f"<br><span class=\"muted\">{esc(merchant_note)}</span>" if merchant_note else ""
+        merchant_id_html = f"<br><span class=\"muted\">{esc(order.get('merchant_id') or '')}</span>"
+        merchant_order_link = link_or_text(merchant_order.get("url"), merchant_order_link_label(order))
+        merchant_order_id = str(order.get("merchant_order_id") or "")
+        return (
+            f"<tr><td><a href=\"/orders/{esc(order['id'])}\">{esc(order['id'])}</a></td>"
+            f"<td>{esc(merchant_platform_label(order))}{merchant_id_html}{merchant_note_html}</td>"
+            f"<td>{merchant_order_link or esc(merchant_order_id)}</td>"
+            f"<td>{esc(order['state'])}</td>"
+            f"<td>{esc(money(order['total_cents'], order['currency']))}</td>"
+            f"<td>{esc(proof_status_label(order))}</td>"
+            f"<td>{esc(order.get('vikunja_task', {}).get('state', ''))}</td></tr>"
+        )
+
+    order_rows = "\n".join(render_order_row(order) for order in orders[:8])
     energy_rows = "\n".join(
         f"<tr><td>{esc(offer['id'])}</td><td>{esc(offer['state'])}</td><td>{esc(offer.get('quantity_kwh'))} kWh</td><td>{esc(offer.get('price_cents_per_kwh'))} ct/kWh</td><td>{esc(money(int(offer.get('estimated_total_cents') or 0), offer.get('currency', 'EUR')))}</td><td>{esc(((offer.get('settlement') or {}).get('payment_receipt') or {}).get('status', ''))}</td></tr>"
         for offer in energy_offers[:8]
@@ -5107,6 +5166,7 @@ def render_dashboard(state: dict[str, Any]) -> str:
     th {{ background:var(--panel); color:#3d4951; font-size:12px; text-transform:uppercase; }}
     tr:last-child td {{ border-bottom:0; }}
     code {{ background:#eef1f3; padding:2px 5px; border-radius:4px; }}
+    .muted {{ color:var(--muted); font-size:12px; }}
     .two {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
     @media (max-width:800px) {{ .two {{ grid-template-columns:1fr; }} header {{ padding:22px 20px 16px; }} main {{ padding:0 16px 32px; }} }}
   </style>
@@ -5142,7 +5202,7 @@ def render_dashboard(state: dict[str, Any]) -> str:
       </div>
     </section>
     <h2>Orders</h2>
-    <table><thead><tr><th>ID</th><th>Merchant Order</th><th>State</th><th>Total</th><th>Payment Proof</th><th>Vikunja</th></tr></thead><tbody>{order_rows or '<tr><td colspan="6">No orders yet.</td></tr>'}</tbody></table>
+    <table><thead><tr><th>ID</th><th>Merchant</th><th>Merchant Order</th><th>State</th><th>Total</th><th>Payment Proof</th><th>Vikunja</th></tr></thead><tbody>{order_rows or '<tr><td colspan="7">No orders yet.</td></tr>'}</tbody></table>
     <h2>Energy Offers</h2>
     <table><thead><tr><th>ID</th><th>State</th><th>Quantity</th><th>Price</th><th>Total</th><th>Settlement</th></tr></thead><tbody>{energy_rows or '<tr><td colspan="6">No energy offers yet.</td></tr>'}</tbody></table>
     <h2>Audit Log</h2>
@@ -5460,12 +5520,17 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
         for refund in refunds
         if isinstance(refund, dict)
     )
+    refund_note = (
+        "This records a WooCommerce refund through ShopBridge. In demo mode it does not claim Stripe, card, Tempo, stablecoin, or EUR rail funds moved."
+        if is_woocommerce_order(order)
+        else "This records a local demo merchant refund only. It will not create a WooCommerce refund or claim Stripe, card, Tempo, stablecoin, or EUR rail funds moved."
+    )
     refund_action = (
         f"""
         <form method="post" action="/demo/orders/{esc(order['id'])}/refund" style="margin-top:10px">
           <button class="button" type="submit">Record Demo Refund</button>
         </form>
-        <p class="topline">This records a WooCommerce refund through ShopBridge. In demo mode it does not claim Stripe, card, Tempo, stablecoin, or EUR rail funds moved.</p>
+        <p class="topline">{esc(refund_note)}</p>
         """
         if not refunds
         else "<p class=\"topline\">Refund already recorded for this demo order.</p>"
@@ -5482,7 +5547,11 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
         if isinstance(result, dict):
             status = "sent" if result.get("ok") else "failed"
             notify_results += f"<li>{esc(result.get('service') or '')}: {esc(status)}{(' - ' + esc(result.get('error'))) if result.get('error') else ''}</li>"
-    merchant_link = link_or_text(merchant_order.get("url"), f"Open Woo order {order.get('merchant_order_id')}")
+    merchant_label = merchant_platform_label(order)
+    merchant_note = merchant_order_note(order)
+    merchant_note_html = f"<p>{esc(merchant_note)}</p>" if merchant_note else ""
+    merchant_card_title = "WooCommerce Order" if is_woocommerce_order(order) else "Merchant Order"
+    merchant_link = link_or_text(merchant_order.get("url"), merchant_order_link_label(order))
     tempo_link = link_or_text(explorer, "Open Tempo explorer")
     approval_link = f"<a href=\"/approvals/{esc(approval['id'])}\">Open approval record</a>"
     vikunja_link = link_or_text(task.get("url"), f"Open Vikunja task {task.get('task_id')}")
@@ -5538,7 +5607,7 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
 
     <h2>Presentation Links</h2>
     <section class="proof-grid">
-      <article class="proof-card"><h3>WooCommerce Order</h3>{merchant_link or esc(order.get('merchant_order_id') or '')}<p>Status: {esc(merchant_order.get('status') or merchant_order.get('state') or '')}</p></article>
+      <article class="proof-card"><h3>{esc(merchant_card_title)}</h3>{merchant_link or esc(order.get('merchant_order_id') or '')}<p>{esc(merchant_label)}</p><p>Status: {esc(merchant_order.get('status') or merchant_order.get('state') or '')}</p>{merchant_note_html}</article>
       <article class="proof-card"><h3>Tempo Transaction</h3>{tempo_link or esc(proof_status_label(order))}<p>{esc(proof.get('network') or '')} {esc(settlement_asset.get('asset') or '')} {esc(proof_reference(proof)[:18] + '...' if proof_reference(proof) else '')}</p></article>
       <article class="proof-card"><h3>Home Assistant Approval</h3>{approval_link}<p>{esc(approval.get('state'))} by {esc(approval.get('approver') or '')}</p><ul>{notify_results or '<li>notification not sent</li>'}</ul></article>
       <article class="proof-card"><h3>Vikunja Task</h3>{vikunja_link or esc(task.get('state') or '')}<p>{esc((task.get('matched_open_task') or {}).get('title') or '')}</p></article>
@@ -5561,6 +5630,7 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
     <h2>Order Integrations</h2>
     <table><tbody>
       <tr><td>Merchant of record</td><td>{esc((order.get('merchant_of_record') or {}).get('name', 'unknown'))}</td></tr>
+      <tr><td>Merchant platform</td><td>{esc(merchant_label)}{(': ' + esc(merchant_note)) if merchant_note else ''}</td></tr>
       <tr><td>Merchant order</td><td>{merchant_link or esc(order.get('merchant_order_id'))}</td></tr>
       <tr><td>Home Assistant approval</td><td>{esc(approval.get('state'))} by {esc(approval.get('approver') or '')}; {esc(approval_notification_summary(approval))}</td></tr>
       <tr><td>Vikunja task</td><td>{f"<a href='{esc(task.get('url'))}' target='_blank' rel='noreferrer'>{esc(task.get('url'))}</a>" if task.get('url') else esc(task.get('state') or '')}</td></tr>
