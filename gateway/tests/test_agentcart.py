@@ -352,6 +352,28 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(quote["items"][0]["title"], "Hazel's Chocolate Tea")
             self.assertEqual(quote["total_cents"], 1480)
 
+    def test_favourite_tea_and_direct_alias_resolve_to_best_hazel_offer(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+
+            result = service.search_catalog("Please buy my favourite tea")
+            self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
+            self.assertEqual(result["products"][0]["id"], "woo_203")
+            self.assertEqual(service.get_product("favorite_tea")["id"], "woo_203")
+            self.assertEqual(service.get_product("favourite_tea")["id"], "woo_203")
+
+            quote = service.create_quote(
+                {
+                    "agent_id": "test-agent",
+                    "reason": "direct favorite alias from tool call",
+                    "items": [{"product_id": "favorite_tea", "quantity": 1}],
+                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                }
+            )
+            self.assertEqual(quote["merchant_id"], "woocommerce-demo-tea")
+            self.assertEqual(quote["items"][0]["product_id"], "woo_203")
+            self.assertEqual(quote["total_cents"], 1480)
+
     def test_quote_includes_shipping_vat_policy_and_merchant_of_record(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(pathlib.Path(raw_tmp))

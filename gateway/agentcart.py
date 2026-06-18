@@ -441,6 +441,8 @@ def command_available(command: str) -> bool:
 PRODUCT_ALIASES = {
     "favorite_tea": "tea_hazels_chocolate_100g",
     "my_favorite_tea": "tea_hazels_chocolate_100g",
+    "favourite_tea": "tea_hazels_chocolate_100g",
+    "my_favourite_tea": "tea_hazels_chocolate_100g",
     "hazels_chocolate": "tea_hazels_chocolate_100g",
     "hazels_chocolate_tea": "tea_hazels_chocolate_100g",
 }
@@ -454,7 +456,7 @@ def resolve_product_alias(value: str) -> str | None:
     normalized = normalize_alias(value)
     if normalized in PRODUCT_ALIASES:
         return PRODUCT_ALIASES[normalized]
-    if "favorite" in normalized and "tea" in normalized:
+    if ("favorite" in normalized or "favourite" in normalized) and "tea" in normalized:
         return PRODUCT_ALIASES["favorite_tea"]
     if "hazel" in normalized and "chocolate" in normalized:
         return PRODUCT_ALIASES["hazels_chocolate"]
@@ -2789,12 +2791,30 @@ separate human confirmation.
 
     def get_product(self, product_id: str) -> dict[str, Any]:
         with self.lock:
-            resolved_product_id = self.canonical_product_id(product_id)
+            resolved_product_id = self.resolve_product_request_id(product_id)
             adapter = self.adapter_for_product(resolved_product_id)
             return adapter.get_product(resolved_product_id, self.state["stock"])
 
     def canonical_product_id(self, product_id: str) -> str:
         return resolve_product_alias(product_id) or product_id
+
+    def is_known_product_id(self, product_id: str) -> bool:
+        if product_id.startswith("woo_"):
+            return True
+        return any(product_id in getattr(adapter, "products", {}) for adapter in self.adapters.values())
+
+    def resolve_product_request_id(self, product_id: str) -> str:
+        if self.is_known_product_id(product_id):
+            return product_id
+        alias_product_id = resolve_product_alias(product_id)
+        if alias_product_id == "tea_hazels_chocolate_100g":
+            catalog = self.search_catalog(product_id)
+            products = catalog.get("products") if isinstance(catalog, dict) else []
+            if isinstance(products, list) and products:
+                selected = products[0]
+                if isinstance(selected, dict) and selected.get("id"):
+                    return str(selected["id"])
+        return alias_product_id or product_id
 
     def adapter_for_product(self, product_id: str) -> Any:
         product_id = self.canonical_product_id(product_id)
@@ -2848,7 +2868,7 @@ separate human confirmation.
             for raw_item in items:
                 if not isinstance(raw_item, dict):
                     raise BadRequest("each item must be an object")
-                product_id = self.canonical_product_id(str(raw_item.get("product_id") or ""))
+                product_id = self.resolve_product_request_id(str(raw_item.get("product_id") or ""))
                 quantity = safe_int(raw_item.get("quantity", 1), field="quantity", minimum=1, maximum=20)
                 adapter = self.adapter_for_product(product_id)
                 product = adapter.source_product(product_id)
@@ -2956,7 +2976,7 @@ separate human confirmation.
         for raw_item in raw_items:
             if not isinstance(raw_item, dict):
                 raise BadRequest("each item must be an object")
-            product_id = self.canonical_product_id(str(raw_item.get("product_id") or ""))
+            product_id = self.resolve_product_request_id(str(raw_item.get("product_id") or ""))
             quantity = safe_int(raw_item.get("quantity", 1), field="quantity", minimum=1, maximum=20)
             item_adapter = self.adapter_for_product(product_id)
             if getattr(item_adapter, "mode", "") != "plugin":
