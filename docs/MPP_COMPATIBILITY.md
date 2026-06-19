@@ -180,8 +180,8 @@ piece with an official payment method boundary:
 
 - official `mppx` Tempo/Stripe/Lightning/custom method or equivalent verifier
 - merchant-owned settlement recipient or PSP-managed payout account
-- verifier response bound to quote hash, amount, currency, recipient, network,
-  and transaction reference
+- verifier response bound to quote hash, amount, currency, selected rail,
+  rail-specific recipient/profile fields, and transaction reference
 - replay protection for transaction references
 - refund, chargeback, VAT, shipping, and consumer-rights handling in the
   merchant system

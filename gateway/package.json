@@ -9,7 +9,10 @@
     "mpp:account:create": "mppx account create --network testnet --account agentcart-test",
     "mpp:account:fund": "mppx account fund --network testnet --account agentcart-test",
     "mpp:account:view": "mppx account view --network testnet --account agentcart-test",
-    "mpp:pay": "mppx http://127.0.0.1:4250/paid --network testnet --account agentcart-test --include"
+    "mpp:pay": "mppx http://127.0.0.1:4250/paid --network testnet --account agentcart-test --include",
+    "stripe:mpp:verifier": "node scripts/stripe-mpp-verifier.mjs",
+    "stripe:mpp:check": "node --check scripts/stripe-mpp-verifier.mjs",
+    "stripe:link:smoke": "bash scripts/stripe-link-mpp-smoke.sh"
   },
   "dependencies": {
     "mppx": "^0.7.0",

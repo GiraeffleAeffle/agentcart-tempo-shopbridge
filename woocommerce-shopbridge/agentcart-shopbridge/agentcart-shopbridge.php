@@ -22,6 +22,7 @@ final class AgentCart_ShopBridge {
     const TEMPO_NETWORK_OPTION = 'agentcart_shopbridge_tempo_network';
     const STRIPE_PROFILE_ID_OPTION = 'agentcart_shopbridge_stripe_profile_id';
     const SUPPORT_EMAIL_OPTION = 'agentcart_shopbridge_support_email';
+    const PRODUCT_ENABLED_META = '_agentcart_enabled';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -29,6 +30,8 @@ final class AgentCart_ShopBridge {
         add_action('admin_init', [__CLASS__, 'ensure_token']);
         add_action('admin_init', [__CLASS__, 'register_settings']);
         add_action('parse_request', [__CLASS__, 'maybe_serve_well_known_manifest']);
+        add_action('woocommerce_product_options_general_product_data', [__CLASS__, 'render_product_agentcart_options']);
+        add_action('woocommerce_admin_process_product_object', [__CLASS__, 'save_product_agentcart_options']);
     }
 
     public static function ensure_token() {
@@ -129,6 +132,7 @@ final class AgentCart_ShopBridge {
             wp_die(esc_html__('You do not have permission to manage AgentCart ShopBridge.', 'agentcart-shopbridge'));
         }
         self::ensure_token();
+        $product_action_notice = self::maybe_handle_product_exposure_action();
         $manifest_url = home_url('/.well-known/agentcart.json');
         $catalog_url = rest_url(self::API_NAMESPACE . '/catalog');
         $quote_url = rest_url(self::API_NAMESPACE . '/quote');
@@ -141,6 +145,9 @@ final class AgentCart_ShopBridge {
         ?>
         <div class="wrap">
             <h1>AgentCart ShopBridge</h1>
+            <?php if ($product_action_notice !== null) : ?>
+                <div class="notice notice-success is-dismissible"><p><?php echo esc_html($product_action_notice); ?></p></div>
+            <?php endif; ?>
             <p>
                 Expose this WooCommerce store to household agents through machine-readable discovery,
                 catalog, quote, paid-order, and order-status endpoints. WooCommerce stays the source of
@@ -181,6 +188,11 @@ final class AgentCart_ShopBridge {
                         <td><?php echo self::admin_status_badge($support_email !== '', 'Configured', 'Missing'); ?></td>
                     </tr>
                     <tr>
+                        <th scope="row">AgentCart-enabled products</th>
+                        <td><?php echo esc_html((string) $readiness['agentcart_enabled_product_count']); ?> published simple products are explicitly opted in.</td>
+                        <td><?php echo self::admin_status_badge($readiness['agentcart_enabled_product_count'] > 0, 'Configured', 'None enabled'); ?></td>
+                    </tr>
+                    <tr>
                         <th scope="row">Demo readiness</th>
                         <td><?php echo esc_html(empty($readiness['missing_for_demo']) ? 'Ready for agent catalog, quote, order, and refund demo.' : implode(', ', $readiness['missing_for_demo'])); ?></td>
                         <td><?php echo self::admin_status_badge($readiness['demo_ready'], 'Demo ready', 'Needs setup'); ?></td>
@@ -218,15 +230,72 @@ final class AgentCart_ShopBridge {
                 <?php submit_button('Save AgentCart settings'); ?>
             </form>
 
+            <h2>Product Exposure</h2>
+            <p style="max-width: 760px;">
+                Products are private by default until the merchant explicitly enables AgentCart exposure.
+                Use the checkbox on individual products for fine-grained control, or bulk-enable the
+                current published simple-product catalog during onboarding.
+            </p>
+            <form method="post" style="display: inline-block; margin-right: 8px;">
+                <?php wp_nonce_field('agentcart_shopbridge_product_action'); ?>
+                <input type="hidden" name="agentcart_product_action" value="enable_all_published_simple" />
+                <?php submit_button('Enable all published simple products', 'secondary', 'submit', false); ?>
+            </form>
+            <form method="post" style="display: inline-block;">
+                <?php wp_nonce_field('agentcart_shopbridge_product_action'); ?>
+                <input type="hidden" name="agentcart_product_action" value="disable_all" />
+                <?php submit_button('Disable all AgentCart product exposure', 'secondary', 'submit', false); ?>
+            </form>
+
             <h2>Merchant Onboarding Checklist</h2>
             <ol>
                 <li>Add normal WooCommerce products, prices, stock, VAT/tax, and shipping countries.</li>
+                <li>Enable <strong>Expose through AgentCart</strong> on selected products, or bulk-enable the current published simple-product catalog above.</li>
                 <li>Configure this page with support, Tempo recipient, and payment verification settings.</li>
                 <li>Share the manifest URL or register its hash in an AgentCart discovery registry.</li>
                 <li>Run a sandbox quote and order test before allowing public agent checkout.</li>
             </ol>
         </div>
         <?php
+    }
+
+    private static function maybe_handle_product_exposure_action() {
+        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+            return null;
+        }
+        if (empty($_POST['agentcart_product_action'])) {
+            return null;
+        }
+        check_admin_referer('agentcart_shopbridge_product_action');
+        $action = sanitize_key((string) $_POST['agentcart_product_action']);
+        if ($action === 'enable_all_published_simple') {
+            $count = self::set_agentcart_exposure_for_published_simple_products('yes');
+            return sprintf('%d published simple products are now AgentCart-enabled.', $count);
+        }
+        if ($action === 'disable_all') {
+            $count = self::set_agentcart_exposure_for_published_simple_products('no');
+            return sprintf('%d published simple products are no longer exposed through AgentCart.', $count);
+        }
+        return null;
+    }
+
+    public static function render_product_agentcart_options() {
+        if (!function_exists('woocommerce_wp_checkbox')) {
+            return;
+        }
+        woocommerce_wp_checkbox([
+            'id' => self::PRODUCT_ENABLED_META,
+            'label' => __('Expose through AgentCart', 'agentcart-shopbridge'),
+            'description' => __('Allow this product to appear in AgentCart catalog and quote endpoints for agent checkout.', 'agentcart-shopbridge'),
+            'desc_tip' => true,
+        ]);
+    }
+
+    public static function save_product_agentcart_options($product) {
+        if (!$product instanceof WC_Product) {
+            return;
+        }
+        $product->update_meta_data(self::PRODUCT_ENABLED_META, isset($_POST[self::PRODUCT_ENABLED_META]) ? 'yes' : 'no');
     }
 
     public static function maybe_serve_well_known_manifest() {
@@ -335,6 +404,10 @@ final class AgentCart_ShopBridge {
         if (!self::shipping_countries()) {
             $missing_demo[] = 'shipping countries';
         }
+        $enabled_product_count = self::agentcart_enabled_product_count();
+        if ($enabled_product_count <= 0) {
+            $missing_demo[] = 'AgentCart-enabled product';
+        }
 
         $missing_production = [];
         if (!self::payment_verifier_url()) {
@@ -351,6 +424,7 @@ final class AgentCart_ShopBridge {
             'demo_ready' => empty($missing_demo),
             'production_ready' => empty($missing_production),
             'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token_demo',
+            'agentcart_enabled_product_count' => $enabled_product_count,
             'missing_for_demo' => $missing_demo,
             'missing_for_production' => $missing_production,
             'demo_note' => 'Demo readiness means an AgentCart gateway can create quote-bound WooCommerce orders after its own approval and payment proof flow.',
@@ -426,6 +500,7 @@ final class AgentCart_ShopBridge {
                 'merchant_of_record' => true,
                 'guest_checkout' => true,
                 'shipping_address_on_order' => true,
+                'per_product_agentcart_opt_in' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'agentcart_order_ip_minimized' => true,
@@ -481,6 +556,7 @@ final class AgentCart_ShopBridge {
             'type' => ['simple'],
             'limit' => $limit,
             'return' => 'objects',
+            'meta_query' => self::agentcart_enabled_meta_query(),
         ];
         if ($search !== '') {
             $query['s'] = $search;
@@ -496,6 +572,9 @@ final class AgentCart_ShopBridge {
         $product = wc_get_product(intval($request['id']));
         if (!$product || $product->get_status() !== 'publish') {
             return new WP_Error('agentcart_not_found', 'Product not found.', ['status' => 404]);
+        }
+        if (!self::is_product_agentcart_enabled($product)) {
+            return new WP_Error('agentcart_product_not_enabled', 'Product is not enabled for AgentCart checkout.', ['status' => 404]);
         }
         return self::serialize_product($product);
     }
@@ -520,6 +599,9 @@ final class AgentCart_ShopBridge {
             $product = wc_get_product($product_id);
             if (!$product || $product->get_status() !== 'publish') {
                 return new WP_Error('agentcart_product_missing', 'Product not found: ' . $product_id, ['status' => 404]);
+            }
+            if (!self::is_product_agentcart_enabled($product)) {
+                return new WP_Error('agentcart_product_not_enabled', 'Product is not enabled for AgentCart checkout: ' . $product_id, ['status' => 403]);
             }
             if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
                 return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
@@ -645,6 +727,9 @@ final class AgentCart_ShopBridge {
             if (!$product || $product->get_status() !== 'publish') {
                 return new WP_Error('agentcart_product_missing', 'Product not found: ' . $product_id, ['status' => 404]);
             }
+            if (!self::is_product_agentcart_enabled($product)) {
+                return new WP_Error('agentcart_product_not_enabled', 'Product is no longer enabled for AgentCart checkout: ' . $product_id, ['status' => 403]);
+            }
             if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
                 return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
             }
@@ -684,13 +769,18 @@ final class AgentCart_ShopBridge {
         $order->set_address($ship_to, 'shipping');
         $order->set_address($bill_to, 'billing');
         self::minimize_order_network_metadata($order);
-        $order->set_payment_method('tempo_mpp');
-        $order->set_payment_method_title('Tempo MPP via AgentCart');
+        $payment_rail = self::payment_rail_from_receipt($receipt, $body);
+        if (is_array($payment_verification) && !empty($payment_verification['rail'])) {
+            $payment_rail = self::normalize_payment_rail((string) $payment_verification['rail']);
+        }
+        $order->set_payment_method(self::woo_payment_method_for_rail($payment_rail));
+        $order->set_payment_method_title(self::payment_method_title_for_rail($payment_rail));
         $order->set_transaction_id(sanitize_text_field((string) $receipt['id']));
         $order->update_meta_data('_agentcart_order_id', $agentcart_order_id);
         $order->update_meta_data('_agentcart_quote_id', sanitize_text_field((string) ($body['agentcart_quote_id'] ?? '')));
         $order->update_meta_data('_agentcart_merchant_quote_id', sanitize_text_field((string) ($body['merchant_quote_id'] ?? '')));
         $order->update_meta_data('_agentcart_payment_receipt_id', sanitize_text_field((string) $receipt['id']));
+        $order->update_meta_data('_agentcart_payment_rail', $payment_rail);
         $order->update_meta_data('_agentcart_reason', sanitize_text_field((string) ($body['reason'] ?? '')));
         $order->update_meta_data('_agentcart_quote_hash', $expected_quote_hash);
         $order->update_meta_data('_agentcart_payment_verification', wp_json_encode($payment_verification));
@@ -879,12 +969,14 @@ final class AgentCart_ShopBridge {
             'real_settlement_verified' => false,
             'amount_cents' => $expected_amount,
             'currency' => $expected_currency,
+            'rail' => self::payment_rail_from_receipt($receipt, $body),
             'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
             'note' => 'Merchant token authenticated AgentCart. Configure a payment verifier before production use.',
         ];
     }
 
     private static function call_payment_verifier($verifier_url, $quote, $receipt, $body) {
+        $rail = self::payment_rail_from_receipt($receipt, $body);
         $payload = [
             'operation' => 'payment',
             'quote' => $quote,
@@ -895,8 +987,10 @@ final class AgentCart_ShopBridge {
                 'amount_cents' => intval($quote['total_cents'] ?? 0),
                 'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
                 'merchant_id' => self::merchant()['id'],
+                'rail' => $rail,
                 'tempo_network' => self::tempo_network(),
                 'tempo_recipient' => self::tempo_recipient(),
+                'stripe_profile_id' => self::stripe_profile_id(),
             ],
         ];
         $headers = ['Content-Type' => 'application/json'];
@@ -927,6 +1021,9 @@ final class AgentCart_ShopBridge {
         $expected_network = self::tempo_network();
         $verified_recipient = strtolower((string) ($decoded['recipient'] ?? ''));
         $expected_recipient = strtolower(self::tempo_recipient());
+        $verified_rail = self::normalize_payment_rail((string) ($decoded['rail'] ?? ''));
+        $verified_stripe_profile_id = sanitize_text_field((string) ($decoded['stripe_profile_id'] ?? ''));
+        $expected_stripe_profile_id = self::stripe_profile_id();
         $transaction_reference = sanitize_text_field((string) ($decoded['transaction_reference'] ?? ''));
         if (
             $verified_quote_hash === ''
@@ -936,11 +1033,17 @@ final class AgentCart_ShopBridge {
         ) {
             return new WP_Error('agentcart_payment_verifier_mismatch', 'External payment verifier response does not match the quote.', ['status' => 402]);
         }
-        if ($expected_network !== '' && $verified_network !== '' && $verified_network !== $expected_network) {
+        if ($verified_rail === '' || $verified_rail !== $rail) {
+            return new WP_Error('agentcart_payment_rail_mismatch', 'External payment verifier returned the wrong payment rail.', ['status' => 402]);
+        }
+        if ($rail === 'tempo-mpp' && $expected_network !== '' && $verified_network !== $expected_network) {
             return new WP_Error('agentcart_payment_network_mismatch', 'External payment verifier returned the wrong network.', ['status' => 402]);
         }
-        if ($expected_recipient !== '' && $verified_recipient !== '' && $verified_recipient !== $expected_recipient) {
+        if ($rail === 'tempo-mpp' && $expected_recipient !== '' && $verified_recipient !== $expected_recipient) {
             return new WP_Error('agentcart_payment_recipient_mismatch', 'External payment verifier returned the wrong recipient.', ['status' => 402]);
+        }
+        if ($rail === 'stripe-card-mpp' && $expected_stripe_profile_id !== '' && $verified_stripe_profile_id !== $expected_stripe_profile_id) {
+            return new WP_Error('agentcart_payment_stripe_profile_mismatch', 'External payment verifier returned the wrong Stripe profile.', ['status' => 402]);
         }
         if ($transaction_reference === '') {
             return new WP_Error('agentcart_payment_reference_required', 'External payment verifier must return a transaction_reference.', ['status' => 402]);
@@ -960,8 +1063,10 @@ final class AgentCart_ShopBridge {
             'real_settlement_verified' => !empty($decoded['real_settlement_verified']),
             'amount_cents' => $verified_amount,
             'currency' => $expected_currency,
+            'rail' => $verified_rail,
             'network' => $verified_network ?: $expected_network,
             'recipient' => $verified_recipient ?: $expected_recipient,
+            'stripe_profile_id' => $verified_stripe_profile_id ?: $expected_stripe_profile_id,
             'transaction_reference' => $transaction_reference,
             'quote_hash' => $expected_quote_hash,
         ];
@@ -1067,9 +1172,21 @@ final class AgentCart_ShopBridge {
         }
         $verified_amount = intval($decoded['amount_cents'] ?? -1);
         $verified_currency = strtoupper((string) ($decoded['currency'] ?? ''));
+        $verified_quote_hash = (string) ($decoded['quote_hash'] ?? '');
+        $verified_original_reference = sanitize_text_field((string) ($decoded['original_transaction_reference'] ?? ''));
+        $verified_rail = sanitize_key((string) ($decoded['rail'] ?? ''));
         $refund_reference = sanitize_text_field((string) ($decoded['refund_reference'] ?? $decoded['refund_id'] ?? $decoded['transaction_reference'] ?? ''));
         if ($verified_amount !== intval($amount_cents) || $verified_currency !== strtoupper($currency)) {
             return new WP_Error('agentcart_refund_verifier_mismatch', 'External refund verifier response does not match the refund amount or currency.', ['status' => 402]);
+        }
+        if ($quote_hash !== '' && ($verified_quote_hash === '' || !hash_equals($quote_hash, $verified_quote_hash))) {
+            return new WP_Error('agentcart_refund_quote_mismatch', 'External refund verifier response does not match the original quote hash.', ['status' => 402]);
+        }
+        if ($transaction_reference !== '' && ($verified_original_reference === '' || !hash_equals($transaction_reference, $verified_original_reference))) {
+            return new WP_Error('agentcart_refund_original_reference_mismatch', 'External refund verifier response does not match the original payment reference.', ['status' => 402]);
+        }
+        if ($verified_rail === '' || $verified_rail !== $rail) {
+            return new WP_Error('agentcart_refund_rail_mismatch', 'External refund verifier response does not match the refund rail.', ['status' => 402]);
         }
         if ($refund_reference === '') {
             return new WP_Error('agentcart_refund_reference_required', 'External refund verifier must return a refund_reference.', ['status' => 402]);
@@ -1077,7 +1194,7 @@ final class AgentCart_ShopBridge {
         return [
             'state' => 'rail_refund_verified',
             'mode' => 'external_verifier',
-            'rail' => sanitize_key((string) ($decoded['rail'] ?? $rail)),
+            'rail' => $verified_rail,
             'real_refund_verified' => !empty($decoded['real_refund_verified']),
             'amount_cents' => $verified_amount,
             'currency' => $currency,
@@ -1141,6 +1258,10 @@ final class AgentCart_ShopBridge {
     }
 
     private static function payment_rail_from_order(WC_Order $order) {
+        $stored = self::normalize_payment_rail((string) $order->get_meta('_agentcart_payment_rail', true));
+        if ($stored !== '') {
+            return $stored;
+        }
         $method = $order->get_payment_method();
         if (strpos($method, 'stripe') !== false) {
             return 'stripe-card-mpp';
@@ -1149,6 +1270,49 @@ final class AgentCart_ShopBridge {
             return 'tempo-mpp';
         }
         return $method ?: 'agentcart-demo';
+    }
+
+    private static function payment_rail_from_receipt($receipt, $body) {
+        $rail = '';
+        if (is_array($body)) {
+            $rail = (string) ($body['rail'] ?? '');
+        }
+        if ($rail === '' && is_array($receipt)) {
+            $rail = (string) ($receipt['rail'] ?? $receipt['method'] ?? $receipt['provider'] ?? '');
+        }
+        $normalized = self::normalize_payment_rail($rail);
+        return $normalized !== '' ? $normalized : 'tempo-mpp';
+    }
+
+    private static function normalize_payment_rail($rail) {
+        $rail = str_replace('_', '-', sanitize_key((string) $rail));
+        if ($rail === 'tempo' || $rail === 'tempo-mpp' || $rail === 'mpp' || $rail === 'mpp-shaped-demo' || $rail === 'demo-payment-proof') {
+            return 'tempo-mpp';
+        }
+        if ($rail === 'stripe' || $rail === 'stripe-card' || $rail === 'stripe-card-mpp') {
+            return 'stripe-card-mpp';
+        }
+        return $rail;
+    }
+
+    private static function woo_payment_method_for_rail($rail) {
+        if ($rail === 'stripe-card-mpp') {
+            return 'stripe_card_mpp';
+        }
+        if ($rail === 'tempo-mpp') {
+            return 'tempo_mpp';
+        }
+        return 'agentcart_mpp';
+    }
+
+    private static function payment_method_title_for_rail($rail) {
+        if ($rail === 'stripe-card-mpp') {
+            return 'Stripe/Card MPP via AgentCart';
+        }
+        if ($rail === 'tempo-mpp') {
+            return 'Tempo MPP via AgentCart';
+        }
+        return 'AgentCart MPP';
     }
 
     private static function serialize_fulfillment(WC_Order $order) {
@@ -1213,6 +1377,12 @@ final class AgentCart_ShopBridge {
             'total_cents' => intval($quote['total_cents'] ?? 0),
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
             'expires_at' => (string) ($quote['expires_at'] ?? ''),
+            'payment_profile' => [
+                'verification_mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
+                'tempo_network' => self::tempo_network(),
+                'tempo_recipient' => self::tempo_recipient(),
+                'stripe_profile_id' => self::stripe_profile_id(),
+            ],
         ];
     }
 
@@ -1420,6 +1590,53 @@ final class AgentCart_ShopBridge {
         ];
     }
 
+    private static function agentcart_enabled_meta_query() {
+        return [
+            [
+                'key' => self::PRODUCT_ENABLED_META,
+                'value' => 'yes',
+                'compare' => '=',
+            ],
+        ];
+    }
+
+    private static function is_product_agentcart_enabled(WC_Product $product) {
+        return $product->get_meta(self::PRODUCT_ENABLED_META, true) === 'yes';
+    }
+
+    private static function agentcart_enabled_product_count() {
+        if (!function_exists('wc_get_products')) {
+            return 0;
+        }
+        $products = wc_get_products([
+            'status' => 'publish',
+            'type' => ['simple'],
+            'limit' => -1,
+            'return' => 'ids',
+            'meta_query' => self::agentcart_enabled_meta_query(),
+        ]);
+        return count($products);
+    }
+
+    private static function set_agentcart_exposure_for_published_simple_products($enabled) {
+        if (!function_exists('wc_get_products')) {
+            return 0;
+        }
+        $products = wc_get_products([
+            'status' => 'publish',
+            'type' => ['simple'],
+            'limit' => -1,
+            'return' => 'objects',
+        ]);
+        foreach ($products as $product) {
+            if ($product instanceof WC_Product) {
+                $product->update_meta_data(self::PRODUCT_ENABLED_META, $enabled === 'yes' ? 'yes' : 'no');
+                $product->save();
+            }
+        }
+        return count($products);
+    }
+
     private static function serialize_product(WC_Product $product) {
         $category = 'household.supplies';
         $category_ids = $product->get_category_ids();
@@ -1455,7 +1672,7 @@ final class AgentCart_ShopBridge {
             'stock' => $product->managing_stock() && $product->get_stock_quantity() !== null ? intval($product->get_stock_quantity()) : 999,
             'availability' => $product->is_in_stock() ? 'in_stock' : 'out_of_stock',
             'shipping_regions' => self::shipping_countries(),
-            'eligible_for_agent_checkout' => true,
+            'eligible_for_agent_checkout' => self::is_product_agentcart_enabled($product),
         ];
     }
 

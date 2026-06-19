@@ -1,11 +1,9 @@
-version: "2.4"
-
 services:
   agentcart:
     build: .
     restart: unless-stopped
     ports:
-      - "${AGENTCART_HOST_BIND:-0.0.0.0}:${AGENTCART_HOST_PORT:-8099}:8099"
+      - "${AGENTCART_HOST_BIND:-127.0.0.1}:${AGENTCART_HOST_PORT:-8099}:8099"
     environment:
       AGENTCART_BIND: 0.0.0.0
       AGENTCART_PORT: 8099

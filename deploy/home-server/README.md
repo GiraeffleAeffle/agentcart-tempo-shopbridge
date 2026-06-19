@@ -27,11 +27,16 @@ docker-compose up -d --build
 
 Then open:
 
-- AgentCart: `http://localhost:8099`
+- AgentCart: `http://localhost:8099/?token=replace-with-random-agentcart-token`
+- Demo cockpit: `http://localhost:8099/demo?token=replace-with-random-agentcart-token`
 - Household OS: `http://localhost:8088/chat`
 - Vikunja: `http://localhost:3456`
 - optional Home Assistant: `http://localhost:8123`
 - optional Woo demo: `http://localhost:8098`
+
+The AgentCart token value is `AGENTCART_TOKEN` from `.env`. Open AgentCart with
+`?token=...` once; the gateway stores it in a local same-origin cookie for the
+browser demo pages.
 
 Start optional services with profiles:
 
@@ -40,11 +45,15 @@ perl -0pi -e 's/WOOCOMMERCE_MODE=disabled/WOOCOMMERCE_MODE=plugin/' .env
 docker-compose --profile homeassistant --profile woocommerce-demo up -d --build
 ```
 
-After starting the Woo demo, seed demo products from the repo root:
+After starting the Woo demo, install WooCommerce, activate ShopBridge, and seed
+demo products through the bundled `wpcli` service:
 
 ```sh
-demo/woocommerce/seed-products.sh
+docker-compose --profile woocommerce-demo run --rm woocommerce-seed
 ```
+
+WooCommerce admin defaults come from `.env`: `WOO_ADMIN_USER` and
+`WOO_ADMIN_PASSWORD`.
 
 ## Files Expected In Repo Root
 
@@ -56,8 +65,9 @@ woocommerce-shopbridge/
 deploy/home-server/
 ```
 
-If `household-os/` is not present yet, copy it from your private source tree before
-publishing the clean repo.
+For LAN, homelab, or Tailscale exposure, set the relevant `*_HOST_BIND` values
+to `0.0.0.0` or a specific interface in `.env`. The defaults bind to
+`127.0.0.1` so a clean local judging run is not accidentally exposed.
 
 ## Production Caveat
 

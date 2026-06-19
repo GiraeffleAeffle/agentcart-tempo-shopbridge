@@ -87,7 +87,7 @@
           <tr><th>1. Install</th><td>WordPress admin -> <a href="http://localhost:8098/wp-admin/plugin-install.php?tab=upload" target="_blank">Add New -> Upload Plugin</a> -> upload <code>agentcart-shopbridge.zip</code> -> activate.</td></tr>
           <tr><th>2. Configure</th><td><a href="http://localhost:8098/wp-admin/admin.php?page=agentcart-shopbridge" target="_blank">WooCommerce -> AgentCart</a> shows manifest, catalog, quote, order, payment verifier, recipient, and readiness.</td></tr>
           <tr><th>3. Add products</th><td>Normal <a href="http://localhost:8098/wp-admin/edit.php?post_type=product" target="_blank">WooCommerce products</a> provide name, SKU, price, stock, category, image, description, and tax/shipping context.</td></tr>
-          <tr><th>4. Expose to agents</th><td><a href="http://localhost:8098/.well-known/agentcart.json" target="_blank">Manifest</a> advertises endpoints; <a href="http://localhost:8098/wp-json/agentcart/v1/catalog" target="_blank">Catalog</a> lists published products automatically.</td></tr>
+          <tr><th>4. Expose to agents</th><td>Merchant enables <code>Expose through AgentCart</code> per product or bulk-enables the current catalog. <a href="http://localhost:8098/.well-known/agentcart.json" target="_blank">Manifest</a> advertises endpoints; <a href="http://localhost:8098/wp-json/agentcart/v1/catalog" target="_blank">Catalog</a> lists only enabled products.</td></tr>
         </table>
       </article>
       <article class="card prompt">

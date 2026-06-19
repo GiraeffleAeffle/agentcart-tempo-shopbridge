@@ -5,18 +5,18 @@ services:
     depends_on:
       - vikunja
     ports:
-      - "0.0.0.0:${AGENTCART_HOST_PORT:-8099}:8099"
+      - "${AGENTCART_HOST_BIND:-127.0.0.1}:${AGENTCART_HOST_PORT:-8099}:8099"
     environment:
       AGENTCART_BIND: 0.0.0.0
       AGENTCART_PORT: 8099
       AGENTCART_PUBLIC_URL: ${AGENTCART_PUBLIC_URL:-http://localhost:8099}
       AGENTCART_TIMEZONE: ${AGENTCART_TIMEZONE:-Europe/Berlin}
-      AGENTCART_TOKEN: ${AGENTCART_TOKEN}
+      AGENTCART_TOKEN: ${AGENTCART_TOKEN:?set AGENTCART_TOKEN}
       AGENTCART_DATA_DIR: /data
       AGENTCART_DEFAULT_SHIP_COUNTRY: ${AGENTCART_DEFAULT_SHIP_COUNTRY:-DE}
       AGENTCART_DEFAULT_SHIP_POSTAL_CODE: ${AGENTCART_DEFAULT_SHIP_POSTAL_CODE:-10115}
       AGENTCART_DELIVERY_CALENDAR_ENABLED: ${AGENTCART_DELIVERY_CALENDAR_ENABLED:-true}
-      AGENTCART_DELIVERY_CALENDAR_TOKEN: ${AGENTCART_DELIVERY_CALENDAR_TOKEN}
+      AGENTCART_DELIVERY_CALENDAR_TOKEN: ${AGENTCART_DELIVERY_CALENDAR_TOKEN:?set AGENTCART_DELIVERY_CALENDAR_TOKEN}
       WOOCOMMERCE_MODE: ${WOOCOMMERCE_MODE:-disabled}
       WOOCOMMERCE_BASE_URL: ${WOOCOMMERCE_BASE_URL:-}
       WOOCOMMERCE_AGENTCART_TOKEN: ${WOOCOMMERCE_AGENTCART_TOKEN:-}
@@ -39,11 +39,11 @@ services:
       - vikunja
       - agentcart
     ports:
-      - "0.0.0.0:${HOUSEHOLD_OS_HOST_PORT:-8088}:8088"
+      - "${HOUSEHOLD_OS_HOST_BIND:-127.0.0.1}:${HOUSEHOLD_OS_HOST_PORT:-8088}:8088"
     environment:
       HOUSEHOLD_OS_BIND: 0.0.0.0
       HOUSEHOLD_OS_PORT: 8088
-      HOUSEHOLD_OS_TOKEN: ${HOUSEHOLD_OS_TOKEN}
+      HOUSEHOLD_OS_TOKEN: ${HOUSEHOLD_OS_TOKEN:?set HOUSEHOLD_OS_TOKEN}
       AUDIT_LOG_PATH: /data/audit.jsonl
       CHAT_HISTORY_PATH: /data/chat.jsonl
       SESSION_PATH: /data/sessions.json
@@ -56,7 +56,7 @@ services:
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       AGENTCART_URL: http://agentcart:8099
-      AGENTCART_TOKEN: ${AGENTCART_TOKEN}
+      AGENTCART_TOKEN: ${AGENTCART_TOKEN:?set AGENTCART_TOKEN}
       HA_NOTIFY_SERVICES: ${HA_NOTIFY_SERVICES:-}
     volumes:
       - household_os_data:/data
@@ -67,7 +67,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-vikunja}
       POSTGRES_USER: ${POSTGRES_USER:-vikunja}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - vikunja_db:/var/lib/postgresql/data
 
@@ -77,17 +77,17 @@ services:
     depends_on:
       - vikunja-db
     ports:
-      - "0.0.0.0:${VIKUNJA_HOST_PORT:-3456}:3456"
+      - "${VIKUNJA_HOST_BIND:-127.0.0.1}:${VIKUNJA_HOST_PORT:-3456}:3456"
     environment:
       VIKUNJA_SERVICE_PUBLICURL: ${VIKUNJA_SERVICE_PUBLICURL:-http://localhost:3456}
-      VIKUNJA_SERVICE_SECRET: ${VIKUNJA_SERVICE_SECRET}
+      VIKUNJA_SERVICE_SECRET: ${VIKUNJA_SERVICE_SECRET:?set VIKUNJA_SERVICE_SECRET}
       VIKUNJA_SERVICE_TIMEZONE: ${AGENTCART_TIMEZONE:-Europe/Berlin}
       VIKUNJA_SERVICE_ENABLEREGISTRATION: "false"
       VIKUNJA_DATABASE_TYPE: postgres
       VIKUNJA_DATABASE_HOST: vikunja-db
       VIKUNJA_DATABASE_DATABASE: ${POSTGRES_DB:-vikunja}
       VIKUNJA_DATABASE_USER: ${POSTGRES_USER:-vikunja}
-      VIKUNJA_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      VIKUNJA_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - vikunja_files:/app/vikunja/files
 
@@ -96,7 +96,7 @@ services:
     profiles: ["homeassistant"]
     restart: unless-stopped
     ports:
-      - "0.0.0.0:${HOME_ASSISTANT_HOST_PORT:-8123}:8123"
+      - "${HOME_ASSISTANT_HOST_BIND:-127.0.0.1}:${HOME_ASSISTANT_HOST_PORT:-8123}:8123"
     environment:
       TZ: ${AGENTCART_TIMEZONE:-Europe/Berlin}
     volumes:
@@ -109,7 +109,7 @@ services:
     environment:
       MYSQL_DATABASE: wordpress
       MYSQL_USER: wordpress
-      MYSQL_PASSWORD: ${WOO_DB_PASSWORD}
+      MYSQL_PASSWORD: ${WOO_DB_PASSWORD:?set WOO_DB_PASSWORD}
       MYSQL_RANDOM_ROOT_PASSWORD: "1"
     volumes:
       - woocommerce_db:/var/lib/mysql
@@ -121,19 +121,54 @@ services:
     depends_on:
       - woocommerce-db
     ports:
-      - "0.0.0.0:${WOO_HOST_PORT:-8098}:80"
+      - "${WOO_HOST_BIND:-127.0.0.1}:${WOO_HOST_PORT:-8098}:80"
     environment:
       WORDPRESS_DB_HOST: woocommerce-db:3306
       WORDPRESS_DB_USER: wordpress
-      WORDPRESS_DB_PASSWORD: ${WOO_DB_PASSWORD}
+      WORDPRESS_DB_PASSWORD: ${WOO_DB_PASSWORD:?set WOO_DB_PASSWORD}
       WORDPRESS_DB_NAME: wordpress
-      AGENTCART_SHOPBRIDGE_TOKEN: ${WOOCOMMERCE_AGENTCART_TOKEN}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('AGENTCART_SHOPBRIDGE_TOKEN', getenv('AGENTCART_SHOPBRIDGE_TOKEN') ?: '');
+        define('AGENTCART_MERCHANT_ID', getenv('AGENTCART_MERCHANT_ID') ?: 'woocommerce-demo-shop');
+        define('AGENTCART_TEMPO_NETWORK', getenv('AGENTCART_TEMPO_NETWORK') ?: 'testnet');
+        define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', getenv('AGENTCART_TEMPO_RECIPIENT_ADDRESS') ?: '');
+        define('AGENTCART_STRIPE_PROFILE_ID', getenv('AGENTCART_STRIPE_PROFILE_ID') ?: '');
+        define('AGENTCART_PAYMENT_VERIFIER_URL', getenv('AGENTCART_PAYMENT_VERIFIER_URL') ?: '');
+        define('AGENTCART_SUPPORT_EMAIL', getenv('AGENTCART_SUPPORT_EMAIL') ?: '');
+      AGENTCART_SHOPBRIDGE_TOKEN: ${WOOCOMMERCE_AGENTCART_TOKEN:?set WOOCOMMERCE_AGENTCART_TOKEN}
       AGENTCART_MERCHANT_ID: ${WOOCOMMERCE_MERCHANT_ID:-woocommerce-demo-shop}
       AGENTCART_MERCHANT_NAME: ${WOOCOMMERCE_MERCHANT_NAME:-AgentCart Demo Shop}
       AGENTCART_SUPPORT_EMAIL: ${WOO_ADMIN_EMAIL:-merchant@example.com}
+      AGENTCART_TEMPO_NETWORK: ${AGENTCART_TEMPO_MPP_NETWORK:-testnet}
+      AGENTCART_TEMPO_RECIPIENT_ADDRESS: ${AGENTCART_TEMPO_RECIPIENT_ADDRESS:-}
+      AGENTCART_STRIPE_PROFILE_ID: ${AGENTCART_STRIPE_PROFILE_ID:-}
+      AGENTCART_PAYMENT_VERIFIER_URL: ${AGENTCART_PAYMENT_VERIFIER_URL:-}
     volumes:
       - woocommerce_data:/var/www/html
       - ../../woocommerce-shopbridge/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+
+  woocommerce-seed:
+    image: wordpress:cli-php8.2
+    profiles: ["woocommerce-demo"]
+    user: "0:0"
+    depends_on:
+      - woocommerce
+      - woocommerce-db
+    environment:
+      WORDPRESS_DB_HOST: woocommerce-db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${WOO_DB_PASSWORD:?set WOO_DB_PASSWORD}
+      WORDPRESS_DB_NAME: wordpress
+      WOO_PUBLIC_URL: ${WOO_PUBLIC_URL:-http://localhost:8098}
+      WOO_ADMIN_USER: ${WOO_ADMIN_USER:-agentcart}
+      WOO_ADMIN_PASSWORD: ${WOO_ADMIN_PASSWORD:?set WOO_ADMIN_PASSWORD}
+      WOO_ADMIN_EMAIL: ${WOO_ADMIN_EMAIL:-merchant@example.com}
+      AGENTCART_SHOPBRIDGE_TOKEN: ${WOOCOMMERCE_AGENTCART_TOKEN:?set WOOCOMMERCE_AGENTCART_TOKEN}
+    volumes:
+      - woocommerce_data:/var/www/html
+      - ../../woocommerce-shopbridge/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+      - ../../demo/woocommerce/seed-products.sh:/seed-products.sh:ro
+    entrypoint: ["bash", "/seed-products.sh"]
 
 volumes:
   agentcart_data:

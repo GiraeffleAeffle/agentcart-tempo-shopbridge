@@ -16,7 +16,7 @@ services:
     depends_on:
       - db
     ports:
-      - "${WOO_HOST_BIND:-0.0.0.0}:${WOO_HOST_PORT:-8098}:80"
+      - "${WOO_HOST_BIND:-127.0.0.1}:${WOO_HOST_PORT:-8098}:80"
     environment:
       WORDPRESS_DB_HOST: db:3306
       WORDPRESS_DB_USER: wordpress
@@ -29,15 +29,19 @@ services:
         define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', getenv('AGENTCART_TEMPO_RECIPIENT_ADDRESS') ?: '');
         define('AGENTCART_STRIPE_PROFILE_ID', getenv('AGENTCART_STRIPE_PROFILE_ID') ?: '');
         define('AGENTCART_PAYMENT_VERIFIER_URL', getenv('AGENTCART_PAYMENT_VERIFIER_URL') ?: '');
+        define('AGENTCART_PAYMENT_VERIFIER_TOKEN', getenv('AGENTCART_PAYMENT_VERIFIER_TOKEN') ?: '');
+        define('AGENTCART_SUPPORT_EMAIL', getenv('AGENTCART_SUPPORT_EMAIL') ?: '');
       AGENTCART_SHOPBRIDGE_TOKEN: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}
       AGENTCART_MERCHANT_ID: ${AGENTCART_MERCHANT_ID:-woocommerce-demo-shop}
       AGENTCART_TEMPO_NETWORK: ${AGENTCART_TEMPO_NETWORK:-testnet}
       AGENTCART_TEMPO_RECIPIENT_ADDRESS: ${AGENTCART_TEMPO_RECIPIENT_ADDRESS:-}
       AGENTCART_STRIPE_PROFILE_ID: ${AGENTCART_STRIPE_PROFILE_ID:-}
       AGENTCART_PAYMENT_VERIFIER_URL: ${AGENTCART_PAYMENT_VERIFIER_URL:-}
+      AGENTCART_PAYMENT_VERIFIER_TOKEN: ${AGENTCART_PAYMENT_VERIFIER_TOKEN:-}
+      AGENTCART_SUPPORT_EMAIL: ${WOO_ADMIN_EMAIL:-merchant@example.test}
     volumes:
       - woo_wp:/var/www/html
-      - ../woocommerce-plugin/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+      - ../../woocommerce-shopbridge/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
 
   wpcli:
     image: wordpress:cli-php8.2
@@ -57,7 +61,7 @@ services:
       AGENTCART_SHOPBRIDGE_TOKEN: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}
     volumes:
       - woo_wp:/var/www/html
-      - ../woocommerce-plugin/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+      - ../../woocommerce-shopbridge/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
       - ./seed-products.sh:/seed-products.sh:ro
       - ./woocommerce.latest-stable.zip:/tmp/woocommerce.latest-stable.zip:ro
     entrypoint: ["bash", "/seed-products.sh"]

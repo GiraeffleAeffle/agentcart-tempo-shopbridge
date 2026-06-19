@@ -2,8 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 COPY agentcart.py /app/agentcart.py
-COPY agent.html /app/agent.html
-COPY architecture.html /app/architecture.html
+COPY *.html /app/
 COPY config /app/config
 COPY scripts /app/scripts
 

@@ -17,18 +17,26 @@ commerce layer around payment for normal small shops and household agents:
 
 ## Demo Surfaces
 
-Replace the hostnames with your local machine or compose network names:
+Default local judging URLs:
 
-- AgentCart dashboard: `http://agentcart.local:8099/`
-- Pitch deck: `http://agentcart.local:8099/presentation.html`
-- Architecture: `http://agentcart.local:8099/architecture.html`
-- Buyer/shop onboarding: `http://agentcart.local:8099/onboarding.html`
-- Protocol field map: `http://agentcart.local:8099/protocol-fields.html`
-- Payment/refund options: `http://agentcart.local:8099/payment-options.html`
-- Two-shop quote tournament: `http://agentcart.local:8099/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115`
-- Agent console fallback: `http://agentcart.local:8099/agent`
-- Household OS chat: `http://household-os.local:8088/chat`
-- WooCommerce admin: `http://localhost:8081/wp-admin/` when running `demo/woocommerce`
+- AgentCart dashboard: `http://localhost:8099/`
+- Demo cockpit: `http://localhost:8099/demo`
+- Pitch deck: `http://localhost:8099/presentation.html`
+- Architecture: `http://localhost:8099/architecture.html`
+- Buyer/shop onboarding: `http://localhost:8099/onboarding.html`
+- Protocol field map: `http://localhost:8099/protocol-fields.html`
+- Payment/refund options: `http://localhost:8099/payment-options.html`
+- Two-shop quote tournament: `http://localhost:8099/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115`
+- Agent console fallback: `http://localhost:8099/agent`
+- Household OS chat: `http://localhost:8088/chat`
+- WooCommerce admin: `http://localhost:8098/wp-admin/` when running `demo/woocommerce`
+
+If `AGENTCART_TOKEN` is configured, open AgentCart browser pages once with the
+token from `.env`, for example:
+
+```text
+http://localhost:8099/demo?token=replace-with-random-agentcart-token
+```
 
 ## Preflight
 
@@ -44,7 +52,13 @@ docker-compose --env-file .env.example config
 ```
 
 For a local recording, start the gateway and optional WooCommerce demo shop with
-the README commands, then open the pages above.
+the README commands. If using the home-server Woo profile, seed it with:
+
+```sh
+docker-compose --profile woocommerce-demo run --rm woocommerce-seed
+```
+
+Then open the pages above.
 
 ## Primary Prompt
 
@@ -79,7 +93,8 @@ Show `WooCommerce -> AgentCart` and explain the shop setup:
 3. Configure support contact, merchant identity, shipping countries, Tempo
    recipient or verifier settings, and optional Stripe/card profile.
 4. Add normal WooCommerce products, stock, VAT/tax, and shipping rules.
-5. The plugin exposes `/.well-known/agentcart.json`, catalog, quote, order,
+5. Enable `Expose through AgentCart` only on products agents may discover and buy, or use the settings-page bulk action for the current published simple-product catalog.
+6. The plugin exposes `/.well-known/agentcart.json`, catalog, quote, order,
    status, and refund endpoints for agents.
 
 The merchant remains merchant of record. AgentCart should never scrape or proxy

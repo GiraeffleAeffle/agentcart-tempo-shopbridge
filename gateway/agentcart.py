@@ -8,6 +8,7 @@ import difflib
 import hashlib
 import html
 import hmac
+import http.cookies
 import json
 import os
 import pathlib
@@ -933,7 +934,7 @@ class WooCommerceAdapter:
             "stock": int(raw.get("stock") if raw.get("stock") is not None else 999),
             "availability": str(raw.get("availability") or "in_stock"),
             "shipping_regions": raw.get("shipping_regions") if isinstance(raw.get("shipping_regions"), list) else ["DE"],
-            "eligible_for_agent_checkout": bool(raw.get("eligible_for_agent_checkout", True)),
+            "eligible_for_agent_checkout": bool(raw.get("eligible_for_agent_checkout", False)),
         }
 
     def fetch_rest_product(self, product_id: str) -> dict[str, Any]:
@@ -4565,6 +4566,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             self.send_html(agent_path.read_text())
             return
         if path == "/judge":
+            self.require_auth_if_configured()
             self.send_html(render_judge_view(self.service))
             return
         if path == "/registry":
@@ -4578,13 +4580,16 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/energy":
+            self.require_auth_if_configured()
             self.send_html(render_energy_page(self.service, first_query(query, "error")))
             return
         if path == "/":
+            self.require_auth_if_configured()
             self.send_html(render_dashboard(self.service.dashboard_state()))
             return
         order_page_match = ORDER_PAGE_ROUTE.match(path)
         if order_page_match:
+            self.require_auth_if_configured()
             self.send_html(render_order_proof_page(self.service, order_page_match.group(1)))
             return
         if path == "/v1/catalog/search":
@@ -4683,14 +4688,17 @@ class AgentCartHandler(BaseHTTPRequestHandler):
 
     def route_post(self, path: str, _parsed: urllib.parse.ParseResult) -> None:
         if path == "/demo/trigger-low-tea":
+            self.require_auth_if_configured()
             result = self.service.demo_trigger_low_tea()
             self.redirect(f"/approvals/{result['approval']['id']}?token={urllib.parse.quote(result['approval']['decision_token'])}")
             return
         if path == "/demo/trigger-woo-tea":
+            self.require_auth_if_configured()
             result = self.service.demo_trigger_woo_tea()
             self.redirect(f"/approvals/{result['approval']['id']}?token={urllib.parse.quote(result['approval']['decision_token'])}")
             return
         if path == "/demo/energy-offer":
+            self.require_auth_if_configured()
             try:
                 self.service.create_energy_offer({})
             except AgentCartError as exc:
@@ -4700,6 +4708,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             return
         demo_energy_accept_match = DEMO_ENERGY_OFFER_ACCEPT_ROUTE.match(path)
         if demo_energy_accept_match:
+            self.require_auth_if_configured()
             try:
                 self.service.accept_energy_offer(demo_energy_accept_match.group(1), {})
             except AgentCartError as exc:
@@ -4709,6 +4718,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             return
         demo_checkout_match = DEMO_CHECKOUT_ROUTE.match(path)
         if demo_checkout_match:
+            form = self.read_form()
+            approval = self.service.get_approval(demo_checkout_match.group(1))
+            self.service.verify_approval_token(approval, form.get("token", ""))
             result = self.service.demo_finish_checkout(demo_checkout_match.group(1))
             order = result.get("order") or {}
             quote_id = order.get("quote_id", "")
@@ -4716,6 +4728,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             return
         demo_refund_match = DEMO_ORDER_REFUND_ROUTE.match(path)
         if demo_refund_match:
+            self.require_auth_if_configured()
             self.service.refund_order(
                 demo_refund_match.group(1),
                 {"reason": "Hackathon demo: merchant records a refund through WooCommerce ShopBridge"},
@@ -4787,21 +4800,59 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         token = self.service.config.agentcart_token
         if not token:
             return
-        header_token = self.headers.get("X-AgentCart-Token", "").strip()
-        if header_token and hmac.compare_digest(header_token, token):
+        supplied = self.supplied_auth_token()
+        if supplied and hmac.compare_digest(supplied, token):
             return
-        auth = self.headers.get("Authorization", "")
-        if not auth.startswith("Bearer "):
-            raise Unauthorized("Bearer authorization or X-AgentCart-Token is required")
-        supplied = auth[len("Bearer ") :].strip()
-        if not hmac.compare_digest(supplied, token):
+        if supplied:
             raise Forbidden("invalid AgentCart token")
+        raise Unauthorized("Bearer authorization, X-AgentCart-Token, or token query parameter is required")
+
+    def supplied_auth_token(self) -> str:
+        header_token = self.headers.get("X-AgentCart-Token", "").strip()
+        if header_token:
+            return header_token
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            return auth[len("Bearer ") :].strip()
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        query_token = first_query(query, "token")
+        configured = self.service.config.agentcart_token
+        if query_token and (not configured or hmac.compare_digest(query_token, configured)):
+            return query_token
+        cookie_header = self.headers.get("Cookie", "")
+        if cookie_header:
+            try:
+                cookies = http.cookies.SimpleCookie(cookie_header)
+                morsel = cookies.get("agentcart_token")
+                if morsel:
+                    return str(morsel.value)
+            except http.cookies.CookieError:
+                return ""
+        if query_token:
+            return query_token
+        return ""
+
+    def maybe_set_auth_cookie(self) -> None:
+        token = self.service.config.agentcart_token
+        if not token:
+            return
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        supplied = first_query(query, "token")
+        if not supplied or not hmac.compare_digest(supplied, token):
+            return
+        cookie = http.cookies.SimpleCookie()
+        cookie["agentcart_token"] = supplied
+        cookie["agentcart_token"]["path"] = "/"
+        cookie["agentcart_token"]["httponly"] = True
+        cookie["agentcart_token"]["samesite"] = "Lax"
+        self.send_header("Set-Cookie", cookie.output(header="").strip())
 
     def send_json(self, payload: Any, *, status: int = 200, headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload, indent=2, sort_keys=True, default=json_default).encode()
         self.send_response(status)
         self.send_header("Content-Type", JSON_MIME)
         self.send_header("Content-Length", str(len(body)))
+        self.maybe_set_auth_cookie()
         for key, value in (headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -4812,6 +4863,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", HTML_MIME)
         self.send_header("Content-Length", str(len(body)))
+        self.maybe_set_auth_cookie()
         self.end_headers()
         self.wfile.write(body)
 
@@ -4820,6 +4872,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", TEXT_MIME)
         self.send_header("Content-Length", str(len(body)))
+        self.maybe_set_auth_cookie()
         self.end_headers()
         self.wfile.write(body)
 
@@ -4836,6 +4889,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         self.send_response(303)
         self.send_header("Location", location)
         self.send_header("Content-Length", "0")
+        self.maybe_set_auth_cookie()
         self.end_headers()
 
     def send_error_json(self, status: int, message: str, *, detail: Any | None = None) -> None:
@@ -5776,7 +5830,7 @@ def render_approval_page(service: AgentCartService, approval_id: str, token: str
     approved = approval["state"] == "approved"
     rejected = approval["state"] == "rejected"
     finish_button = (
-        f"""<form method="post" action="/demo/checkout/{esc(approval_id)}"><button type="submit">Finish MPP Demo Checkout</button></form>"""
+        f"""<form method="post" action="/demo/checkout/{esc(approval_id)}"><input type="hidden" name="token" value="{esc(token)}"><button type="submit">Finish MPP Demo Checkout</button></form>"""
         if approved
         else ""
     )

@@ -16,6 +16,10 @@ deploy/home-server/       NUC/home-server compose package
 docs/                     Hackathon story, 3-minute runbook, roadmap, protocol notes
 ```
 
+For judge setup and independent local testing, start with `JUDGES.md`.
+For the production payment/refund verifier seam, see
+`docs/VERIFIER_CONTRACT.md`.
+
 ## Demo Flow
 
 1. Household agent receives: "Please buy my favourite tea".
@@ -72,11 +76,22 @@ Optional profiles:
 
 ```sh
 docker-compose --profile homeassistant --profile woocommerce-demo up -d --build
+docker-compose --profile woocommerce-demo run --rm woocommerce-seed
 ```
 
 This starts AgentCart, Household OS, Vikunja, and optional Home Assistant /
 WooCommerce demo services. OpenClaw is expected to run separately or on the same
 network with the provided skills installed.
+
+When `AGENTCART_TOKEN` is set, open protected browser pages with the token once:
+
+```text
+http://localhost:8099/?token=replace-with-random-agentcart-token
+http://localhost:8099/demo?token=replace-with-random-agentcart-token
+```
+
+The query token is stored as a same-origin local demo cookie so linked pages and
+browser fetches can read the protected local APIs.
 
 ## WooCommerce Plugin
 
@@ -123,6 +138,14 @@ The plugin exposes:
 These documents are roadmap/specification notes, not finished production features. They define the concrete work required to move from hackathon demo to production candidate.
 
 ## Verification
+
+Run the full local pipeline:
+
+```sh
+bash scripts/verify.sh
+```
+
+Or run the Python tests directly:
 
 ```sh
 cd gateway

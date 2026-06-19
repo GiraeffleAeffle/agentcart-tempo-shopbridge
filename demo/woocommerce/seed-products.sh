@@ -42,6 +42,11 @@ wp option update woocommerce_currency "EUR" --allow-root
 wp option update woocommerce_prices_include_tax "yes" --allow-root
 wp option update woocommerce_calc_taxes "yes" --allow-root
 wp option update woocommerce_store_postcode "10115" --allow-root
+AGENTCART_DEMO_COUNTRIES_JSON='["DE","AT","CH","NL","BE","LU","FR","PL","CZ","DK"]'
+wp option update woocommerce_allowed_countries "specific" --allow-root
+wp option update woocommerce_specific_allowed_countries "$AGENTCART_DEMO_COUNTRIES_JSON" --format=json --allow-root
+wp option update woocommerce_ship_to_countries "specific" --allow-root
+wp option update woocommerce_specific_ship_to_countries "$AGENTCART_DEMO_COUNTRIES_JSON" --format=json --allow-root
 wp option update woocommerce_coming_soon "no" --allow-root
 wp option update woocommerce_cod_settings \
   '{"enabled":"yes","title":"Manual demo checkout","description":"Browser-only fallback for the fake shop. AgentCart orders use household approval and Tempo MPP proof instead of this checkout.","instructions":"For the hackathon demo, use the AgentCart household-agent flow for payment proof."}' \
@@ -238,6 +243,7 @@ ensure_product() {
       --categories="[{\"id\":${category_id}}]" \
       --allow-root >/dev/null
   fi
+  wp post meta update "$product_id" _agentcart_enabled yes --allow-root >/dev/null
   ensure_featured_image "$product_id" "$image_file" "$name"
 }
 

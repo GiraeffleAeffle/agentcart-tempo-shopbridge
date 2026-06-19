@@ -24,7 +24,8 @@ The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_suppo
 2. In WordPress admin, open `Plugins -> Add New -> Upload Plugin`.
 3. Select the ZIP, install, and activate `AgentCart ShopBridge for WooCommerce`.
 4. Open `WooCommerce -> AgentCart` and configure support, Tempo, verifier, and gateway settings.
-5. Add or edit normal WooCommerce products. Published products are exposed automatically through the catalog endpoint.
+5. Add or edit normal WooCommerce products.
+6. Enable `Expose through AgentCart` on selected products, or bulk-enable the current published simple-product catalog from the ShopBridge settings page.
 
 To rebuild the ZIP from source:
 
@@ -51,7 +52,7 @@ define('AGENTCART_MERCHANT_ID', 'my-shop');
 define('AGENTCART_SHOPBRIDGE_TOKEN', 'replace-with-random-shared-secret');
 define('AGENTCART_TEMPO_NETWORK', 'testnet');
 define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', '0x...');
-define('AGENTCART_STRIPE_PROFILE_ID', 'bn_...');
+define('AGENTCART_STRIPE_PROFILE_ID', 'profile_test_...');
 define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/agentcart/tempo');
 define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
 define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
@@ -80,7 +81,11 @@ The settings page also shows:
 
 ## Product Exposure
 
-All published WooCommerce simple products are exposed by default. The plugin maps Woo fields into an agent-readable product schema:
+Products are not exposed just because they are published in WooCommerce. The
+merchant must explicitly enable AgentCart exposure. This can be done per product
+with `Expose through AgentCart`, or in one onboarding step by bulk-enabling the
+current published simple-product catalog from `WooCommerce -> AgentCart`. The
+plugin maps enabled Woo fields into an agent-readable product schema:
 
 - stable `product_id` and Woo `source_product_id`
 - SKU, title, description, category, brand, unit size
@@ -90,7 +95,8 @@ All published WooCommerce simple products are exposed by default. The plugin map
 - shipping regions from WooCommerce's configured shipping countries
 - `eligible_for_agent_checkout`
 
-Future hardening should add per-product opt-in/opt-out metadata, category allowlists, and merchant-side policy controls.
+Future hardening can add category rules, quantity limits, and richer
+merchant-side policies, but the default product seam remains explicit opt-in.
 
 ## Quote Binding
 
@@ -114,7 +120,9 @@ There are two modes:
 - `trusted_agentcart_token`: hackathon/demo mode. The merchant token authenticates the gateway, and the plugin checks receipt amount/currency against the stored quote. This is not sufficient for production settlement.
 - `external_verifier`: production shape. The plugin POSTs quote, quote hash, expected amount/currency/merchant, and receipt to `AGENTCART_PAYMENT_VERIFIER_URL`. Only verifier responses with `ok: true` create a paid WooCommerce order.
 
-The verifier response must bind the payment to the exact quote and transaction:
+The verifier response must bind the payment to the exact quote and transaction.
+See `../docs/VERIFIER_CONTRACT.md` for the production verifier contract. Minimal
+success response:
 
 ```json
 {
@@ -122,6 +130,7 @@ The verifier response must bind the payment to the exact quote and transaction:
   "quote_hash": "sha256...",
   "amount_cents": 1840,
   "currency": "EUR",
+  "rail": "tempo-mpp",
   "network": "testnet",
   "recipient": "0x...",
   "transaction_reference": "0x...",
@@ -129,7 +138,7 @@ The verifier response must bind the payment to the exact quote and transaction:
 }
 ```
 
-The plugin rejects mismatched quote hash, amount, currency, network, recipient, and reused transaction references.
+The plugin rejects mismatched quote hash, amount, currency, rail, Tempo network/recipient for Tempo payments, Stripe profile for Stripe/card payments, and reused transaction references.
 
 If using direct Tempo MPP/stablecoin settlement, the merchant needs a Tempo-compatible recipient account/address or a provider that holds/settles on its behalf. Tempo's documented defaults are USD-stablecoin assets: USDC.e on mainnet and pathUSD on testnet. WooCommerce may still quote in EUR; in that case the external verifier/payment provider must bind FX conversion and settlement terms to the quote before creating a paid order. If using a PSP/custodial setup, the merchant can avoid managing raw keys directly, but still needs onboarding/KYC/payout configuration with that provider.
 
@@ -170,6 +179,8 @@ verify the rail refund and return:
   "ok": true,
   "amount_cents": 1480,
   "currency": "EUR",
+  "quote_hash": "sha256...",
+  "original_transaction_reference": "0x...",
   "rail": "stripe-card-mpp",
   "refund_reference": "re_...",
   "real_refund_verified": true
