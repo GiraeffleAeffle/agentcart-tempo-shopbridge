@@ -18,11 +18,33 @@ The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_suppo
 
 ## Merchant Setup
 
-1. Install WooCommerce and add normal simple products.
-2. Copy `agentcart-shopbridge` into `wp-content/plugins/`.
-3. Activate the plugin in WordPress.
+### Install From ZIP
+
+1. Download or build `dist/agentcart-shopbridge.zip`.
+2. In WordPress admin, open `Plugins -> Add New -> Upload Plugin`.
+3. Select the ZIP, install, and activate `AgentCart ShopBridge for WooCommerce`.
 4. Open `WooCommerce -> AgentCart` and configure support, Tempo, verifier, and gateway settings.
-5. Configure merchant/payment constants in `wp-config.php` or equivalent deployment config when you want deployment-managed values:
+5. Add or edit normal WooCommerce products. Published products are exposed automatically through the catalog endpoint.
+
+To rebuild the ZIP from source:
+
+```sh
+./scripts/package-woocommerce-plugin.sh
+```
+
+### Manual Install
+
+Copy `woocommerce-shopbridge/agentcart-shopbridge` into:
+
+```text
+wp-content/plugins/agentcart-shopbridge
+```
+
+Then activate the plugin in WordPress and open `WooCommerce -> AgentCart`.
+
+### Deployment Configuration
+
+Configure merchant/payment constants in `wp-config.php` or equivalent deployment config when you want deployment-managed values:
 
 ```php
 define('AGENTCART_MERCHANT_ID', 'my-shop');
@@ -36,6 +58,12 @@ define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
 ```
 
 Constants override values saved from the WordPress admin settings page.
+
+### WordPress Plugin Directory
+
+The ZIP works with WordPress admin's `Upload Plugin` flow today. It will not appear in the searchable `Plugins -> Add New` directory until it is submitted to and approved by the WordPress.org plugin directory. That production publication path requires WordPress.org plugin guidelines compliance, a `readme.txt`, licensing review, assets/screenshots, an SVN-based plugin repository, and ongoing update/security maintenance.
+
+For private merchant onboarding before WordPress.org approval, distribute the ZIP from a GitHub release or direct download page. Native update notifications require either WordPress.org hosting, a custom update server, or an updater mechanism; GitHub alone is not enough for standard WordPress plugin search/update discovery.
 
 For the hackathon demo, `AGENTCART_SHOPBRIDGE_TOKEN` lets a trusted AgentCart gateway create orders after its own approval and payment proof flow.
 

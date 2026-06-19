@@ -61,6 +61,7 @@
       <a class="button secondary" href="http://localhost:8088/chat" target="_blank">OpenClaw Chat</a>
       <a class="button secondary" href="/agent" target="_blank">AgentCart Fallback</a>
       <a class="button secondary" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115" target="_blank">Quote Tournament</a>
+      <a class="button secondary" href="http://localhost:8098/wp-admin/plugin-install.php?tab=upload" target="_blank">Upload Plugin</a>
       <a class="button secondary" href="http://localhost:8098/wp-admin/plugins.php" target="_blank">WP Plugins</a>
       <a class="button secondary" href="http://localhost:8098/wp-admin/admin.php?page=agentcart-shopbridge" target="_blank">Woo Plugin Settings</a>
       <a class="button secondary" href="http://localhost:8098/wp-admin/edit.php?post_type=product" target="_blank">Woo Products</a>
@@ -73,7 +74,7 @@
   <main>
     <section class="grid">
       <article class="card step"><h3>0:00 - Pitch</h3><p>Show <a href="/presentation.html" target="_blank">the deck</a>. Say: MPP handles machine payment, AgentCart handles the missing merchant and household context.</p></article>
-      <article class="card step"><h3>0:45 - Shop</h3><p>Show <a href="/shopbridge-stack.html" target="_blank">the modular stack</a>, then <a href="http://localhost:8098/wp-admin/plugins.php" target="_blank">Plugins</a>, <a href="http://localhost:8098/wp-admin/admin.php?page=agentcart-shopbridge" target="_blank">ShopBridge settings</a>, <a href="http://localhost:8098/wp-admin/edit.php?post_type=product" target="_blank">Products</a>, and <a href="http://localhost:8098/wp-json/agentcart/v1/catalog" target="_blank">Catalog JSON</a>.</p></article>
+      <article class="card step"><h3>0:45 - Shop</h3><p>Show <a href="/shopbridge-stack.html" target="_blank">the modular stack</a>, then <a href="http://localhost:8098/wp-admin/plugin-install.php?tab=upload" target="_blank">Upload Plugin</a>, <a href="http://localhost:8098/wp-admin/admin.php?page=agentcart-shopbridge" target="_blank">ShopBridge settings</a>, <a href="http://localhost:8098/wp-admin/edit.php?post_type=product" target="_blank">Products</a>, and <a href="http://localhost:8098/wp-json/agentcart/v1/catalog" target="_blank">Catalog JSON</a>.</p></article>
       <article class="card step"><h3>1:15 - Agent</h3><p>Open <a href="http://localhost:8088/chat" target="_blank">OpenClaw chat</a>, ask it to buy the favourite tea, and show the selected final quote.</p></article>
       <article class="card step"><h3>1:50 - Approval</h3><p>Approve in chat, Home Assistant phone/watch, or the approval page. The point is explicit consent before checkout.</p></article>
       <article class="card step"><h3>2:20 - Proof</h3><p>Show latest AgentCart proof and WooCommerce order. Close with demo limits: testnet proof, production verifier needed.</p></article>
@@ -83,7 +84,7 @@
       <article class="card">
         <h2>Merchant Onboarding Shot</h2>
         <table>
-          <tr><th>1. Install</th><td>WordPress admin -> <a href="http://localhost:8098/wp-admin/plugins.php" target="_blank">Plugins</a> -> AgentCart ShopBridge active.</td></tr>
+          <tr><th>1. Install</th><td>WordPress admin -> <a href="http://localhost:8098/wp-admin/plugin-install.php?tab=upload" target="_blank">Add New -> Upload Plugin</a> -> upload <code>agentcart-shopbridge.zip</code> -> activate.</td></tr>
           <tr><th>2. Configure</th><td><a href="http://localhost:8098/wp-admin/admin.php?page=agentcart-shopbridge" target="_blank">WooCommerce -> AgentCart</a> shows manifest, catalog, quote, order, payment verifier, recipient, and readiness.</td></tr>
           <tr><th>3. Add products</th><td>Normal <a href="http://localhost:8098/wp-admin/edit.php?post_type=product" target="_blank">WooCommerce products</a> provide name, SKU, price, stock, category, image, description, and tax/shipping context.</td></tr>
           <tr><th>4. Expose to agents</th><td><a href="http://localhost:8098/.well-known/agentcart.json" target="_blank">Manifest</a> advertises endpoints; <a href="http://localhost:8098/wp-json/agentcart/v1/catalog" target="_blank">Catalog</a> lists published products automatically.</td></tr>

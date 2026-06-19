@@ -80,13 +80,27 @@ network with the provided skills installed.
 
 ## WooCommerce Plugin
 
-Install `woocommerce-shopbridge/agentcart-shopbridge` into:
+For a normal WordPress admin install, use the packaged plugin ZIP:
+
+```text
+dist/agentcart-shopbridge.zip
+```
+
+In WordPress, open `Plugins -> Add New -> Upload Plugin`, select the ZIP, install, activate, then open `WooCommerce -> AgentCart`.
+
+To rebuild the ZIP from source:
+
+```sh
+./scripts/package-woocommerce-plugin.sh
+```
+
+For a manual server install, copy `woocommerce-shopbridge/agentcart-shopbridge` into:
 
 ```text
 wp-content/plugins/agentcart-shopbridge
 ```
 
-Then activate it in WordPress and open `WooCommerce -> AgentCart`.
+A GitHub repo or ZIP does not make the plugin appear in WordPress plugin search. The searchable `Plugins -> Add New` directory is WordPress.org's plugin directory and requires a separate submission/review process. For the hackathon and private installs, use `Upload Plugin` with the ZIP.
 
 The plugin exposes:
 
