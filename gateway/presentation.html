@@ -3,181 +3,136 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentCart Hackathon Pitch</title>
+  <title>AgentCart - Tempo MPP ShopBridge</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f4f7f6;
+      --bg: #f4f1ea;
       --ink: #17211f;
-      --muted: #5e6a66;
-      --line: #cbd8d4;
-      --panel: #ffffff;
-      --agent: #176c5f;
+      --muted: #59645e;
+      --line: #d9d3c4;
+      --panel: #fffdf8;
+      --accent: #2d6f5a;
+      --tempo: #5c6df0;
+      --merchant: #b85935;
       --home: #2d5d93;
-      --merchant: #8b5a1d;
-      --payment: #6b4d8d;
-      --risk: #9b3333;
+      --warn: #8f5d1f;
     }
-
     * { box-sizing: border-box; }
     html { scroll-snap-type: y mandatory; }
     body {
       margin: 0;
-      background: var(--bg);
+      font: 18px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
-      font: 18px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: 0;
+      background: var(--bg);
     }
     nav {
       position: fixed;
-      inset: 0 0 auto;
-      z-index: 2;
+      z-index: 10;
+      top: 0;
+      left: 0;
+      right: 0;
       display: flex;
       justify-content: space-between;
+      gap: 18px;
       align-items: center;
-      gap: 16px;
-      padding: 12px 24px;
-      background: rgba(244, 247, 246, .92);
-      border-bottom: 1px solid var(--line);
-      backdrop-filter: blur(8px);
+      padding: 14px 22px;
+      background: rgba(244, 241, 234, .92);
+      border-bottom: 1px solid rgba(23, 33, 31, .08);
+      backdrop-filter: blur(14px);
       font-size: 14px;
     }
-    a { color: var(--agent); }
-    nav a { text-decoration: none; font-weight: 650; }
-    .deck { width: 100%; }
+    nav a { color: var(--ink); text-decoration: none; }
+    nav a:hover { color: var(--accent); }
     section {
       min-height: 100vh;
       scroll-snap-align: start;
       display: grid;
-      align-content: center;
-      padding: 88px min(7vw, 88px) 48px;
-      border-bottom: 1px solid var(--line);
+      place-items: center;
+      padding: 88px 28px 38px;
     }
-    .slide {
-      width: min(1180px, 100%);
-      margin: 0 auto;
-      display: grid;
-      gap: 24px;
-    }
+    .slide { width: min(1180px, 100%); }
     .kicker {
-      color: var(--agent);
-      font-size: 14px;
-      font-weight: 750;
+      color: var(--accent);
+      font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: .08em;
+      letter-spacing: .12em;
+      font-size: 13px;
+      margin-bottom: 14px;
     }
-    h1, h2 {
-      margin: 0;
-      line-height: 1.05;
-      letter-spacing: 0;
-    }
-    h1 { max-width: 980px; font-size: clamp(48px, 7vw, 96px); }
-    h2 { max-width: 980px; font-size: clamp(38px, 5vw, 72px); }
+    h1, h2 { margin: 0; line-height: .98; letter-spacing: 0; max-width: 1000px; }
+    h1 { font-size: clamp(54px, 9vw, 116px); }
+    h2 { font-size: clamp(42px, 6.2vw, 78px); }
     h3 { margin: 0 0 8px; font-size: 22px; letter-spacing: 0; }
-    p { margin: 0; color: var(--muted); max-width: 780px; }
-    .lede { font-size: clamp(22px, 2.4vw, 34px); color: #31413d; max-width: 980px; }
-    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    p { margin: 0; color: var(--muted); max-width: 820px; }
+    .lede { font-size: clamp(23px, 2.6vw, 34px); color: #31413d; max-width: 980px; margin-top: 18px; }
+    .quote {
+      margin-top: 34px;
+      padding: 24px;
+      border-left: 6px solid var(--accent);
+      background: var(--panel);
+      border-radius: 8px;
+      max-width: 1040px;
+      box-shadow: 0 18px 45px rgba(23, 33, 31, .08);
+      font-size: clamp(22px, 2.4vw, 32px);
+      line-height: 1.25;
+    }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 28px; }
     .two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .card {
+    .card, .step, .lane {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 20px;
-      min-height: 150px;
+      box-shadow: 0 14px 36px rgba(23, 33, 31, .06);
     }
-    .card strong { display: block; margin-bottom: 8px; font-size: 20px; color: var(--ink); }
-    .card p, li { color: var(--muted); }
-    ul, ol { margin: 0; padding-left: 22px; }
-    li { margin: 8px 0; }
-    .flow {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 10px;
-      align-items: stretch;
+    .card strong, .step b { display: block; font-size: 19px; margin-bottom: 8px; color: var(--ink); }
+    .metric { font-size: clamp(38px, 5vw, 64px); line-height: 1; font-weight: 850; color: var(--merchant); margin-bottom: 12px; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 28px; }
+    .step { border-top: 5px solid var(--accent); min-height: 158px; }
+    .step:nth-child(2) { border-top-color: var(--merchant); }
+    .step:nth-child(3) { border-top-color: var(--home); }
+    .step:nth-child(4) { border-top-color: var(--tempo); }
+    .step:nth-child(5) { border-top-color: var(--warn); }
+    code {
+      background: #ede7d8;
+      border: 1px solid #d4cbb7;
+      border-radius: 5px;
+      padding: 2px 5px;
+      font-size: .9em;
+      color: #27312f;
     }
-    .step {
-      border: 1px solid var(--line);
-      border-top: 5px solid var(--agent);
-      background: #fff;
-      border-radius: 8px;
-      padding: 16px;
-      min-height: 130px;
-    }
-    .step:nth-child(2) { border-top-color: var(--home); }
-    .step:nth-child(3) { border-top-color: var(--merchant); }
-    .step:nth-child(4) { border-top-color: var(--payment); }
-    .step:nth-child(5) { border-top-color: var(--risk); }
-    .step b { display: block; margin-bottom: 6px; font-size: 16px; }
-    .diagram {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 14px;
-      align-items: center;
-    }
-    .lane {
-      min-height: 340px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #fff;
-      padding: 18px;
-      display: grid;
-      gap: 12px;
-      align-content: start;
-    }
+    .small { margin-top: 16px; font-size: 14px; color: var(--muted); }
+    .small a { color: var(--accent); }
+    .diagram { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 28px; }
+    .lane { min-height: 320px; }
+    .lane h3 { color: var(--accent); }
     .node {
-      border: 1px solid var(--line);
-      border-left: 5px solid var(--agent);
-      border-radius: 7px;
+      margin-top: 10px;
       padding: 12px;
-      background: #fdfefe;
-      font-size: 15px;
+      background: #f5efe4;
+      border: 1px solid #dfd5bf;
+      border-radius: 7px;
+      font-weight: 700;
     }
-    .home .node { border-left-color: var(--home); }
-    .merchant .node { border-left-color: var(--merchant); }
-    .payment .node { border-left-color: var(--payment); }
-    .quote {
-      border-left: 5px solid var(--payment);
-      background: #fff;
+    .home h3 { color: var(--home); }
+    .merchant h3 { color: var(--merchant); }
+    .prompt {
+      margin-top: 24px;
+      background: #17211f;
+      color: #f7f4ec;
       border-radius: 8px;
       padding: 22px;
-      max-width: 780px;
-      box-shadow: 0 14px 36px rgba(23, 33, 31, .08);
+      font-size: clamp(22px, 2.5vw, 34px);
+      line-height: 1.25;
+      max-width: 1100px;
     }
-    code {
-      background: #edf3f1;
-      border: 1px solid var(--line);
-      border-radius: 5px;
-      padding: 2px 6px;
-      font-size: .9em;
-    }
-    .demo {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      align-items: start;
-    }
-    .prompt {
-      background: #17211f;
-      color: #eef5f2;
-      border-radius: 8px;
-      padding: 18px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 15px;
-      white-space: pre-wrap;
-    }
-    .prompt span { color: #8fd8c2; }
-    .small { font-size: 14px; color: var(--muted); }
-    .metric {
-      font-size: 34px;
-      line-height: 1;
-      font-weight: 800;
-      color: var(--ink);
-      margin-bottom: 10px;
-    }
-    @media (max-width: 860px) {
-      section { padding: 80px 18px 40px; }
-      .grid, .two, .flow, .diagram, .demo { grid-template-columns: 1fr; }
+    .tag { display:inline-block; border-radius:999px; padding:5px 10px; background:#e6eee8; color:#244f41; font-size:13px; font-weight:800; margin-right:6px; }
+    @media (max-width: 900px) {
       html { scroll-snap-type: none; }
+      .grid, .two, .flow, .diagram { grid-template-columns: 1fr; }
+      nav { position: static; flex-direction: column; align-items: flex-start; }
+      section { min-height: auto; padding-top: 36px; }
     }
   </style>
 </head>
@@ -185,79 +140,45 @@
   <nav>
     <strong>AgentCart</strong>
     <span>
-      <a href="/">Dashboard</a> ·
+      <a href="/demo">Demo Cockpit</a> ·
+      <a href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115">Quote Tournament</a> ·
+      <a href="/shopbridge-stack.html">Modular Stack</a> ·
       <a href="/architecture.html">Architecture</a> ·
-      <a href="/onboarding.html">Onboarding</a> ·
-      <a href="/protocol-fields.html">Field Map</a> ·
-      <a href="/payment-options.html">Payments</a> ·
-      <a href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344">Quote Tournament</a> ·
-      <a href="http://192.168.178.150:8088/chat">Chat Demo</a>
+      <a href="http://localhost:8088/chat">OpenClaw Chat</a>
     </span>
   </nav>
   <main class="deck">
     <section>
       <div class="slide">
-        <div class="kicker">MPP Hackathon · Futura Camp 2026</div>
+        <div class="kicker">Tempo MPP Hackathon · Futura Camp 2026</div>
         <h1>AgentCart</h1>
-        <p class="lede">A household-safe bridge between personal agents and opt-in merchants.</p>
-        <div class="quote">
-          The problem is not only "can an agent pay?" MPP answers that. The missing layer is how a normal shop exposes enough product, quote, policy, approval, order, delivery, and audit information for a household agent to buy safely.
-        </div>
+        <p class="lede">A WooCommerce ShopBridge that lets household agents safely buy from opt-in merchants with Tempo MPP payment proof.</p>
+        <div class="quote">MPP can answer "can an agent pay?" AgentCart answers the missing merchant question: how does a normal shop expose products, final quotes, approval, orders, delivery, refunds, and audit data to agents?</div>
       </div>
     </section>
 
     <section>
       <div class="slide">
-        <div class="kicker">Gap</div>
-        <h2>Payments are not the whole checkout.</h2>
+        <div class="kicker">Problem</div>
+        <h2>Payment is only one part of checkout.</h2>
         <div class="grid">
-          <div class="card"><strong>MPP/x402</strong><p>Handles machine-readable payment challenges and receipts.</p></div>
-          <div class="card"><strong>Commerce systems</strong><p>Know catalog, tax, stock, shipping, returns, and merchant-of-record details.</p></div>
-          <div class="card"><strong>Household agents</strong><p>Need budgets, consent, delivery visibility, and an audit trail.</p></div>
+          <div class="card"><strong>Tempo MPP</strong><p>Gives machine-readable payment challenges, authorization, and receipts.</p></div>
+          <div class="card"><strong>Small shops</strong><p>Need catalog, VAT, stock, shipping, merchant-of-record, refund, and fulfillment data exposed safely.</p></div>
+          <div class="card"><strong>Household agents</strong><p>Need budgets, category rules, explicit consent, delivery visibility, and an audit trail.</p></div>
         </div>
       </div>
     </section>
 
     <section>
       <div class="slide">
-        <div class="kicker">Protocol Boundary</div>
-        <h2>MPP handles payment. AgentCart handles commerce context.</h2>
-        <div class="grid two">
-          <div class="card">
-            <strong>Official MPP fields</strong>
-            <p><code>402</code>, <code>WWW-Authenticate: Payment</code>, <code>Authorization: Payment</code>, <code>Payment-Receipt</code>, <code>intent</code>, <code>method</code>, <code>amount</code>, <code>currency</code>, challenge expiry, request binding, and payment-method payloads.</p>
-          </div>
-          <div class="card">
-            <strong>AgentCart ShopBridge fields</strong>
-            <p>Product, final quote, VAT, shipping, delivery country, merchant-of-record, policy result, human approval, Woo order, delivery status, Vikunja task, and audit log.</p>
-          </div>
-        </div>
-        <p class="small">Conclusion: no core MPP extension is needed for product discovery. New payment rails, FX, escrow, or refund semantics would be MPP method/intent work.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Merchant Wedge</div>
-        <h2>WooCommerce is a practical first adapter.</h2>
+        <div class="kicker">Market Wedge</div>
+        <h2>WooCommerce is the practical first adapter.</h2>
         <div class="grid">
-          <div class="card">
-            <div class="metric">41.5%</div>
-            <strong>WordPress reach</strong>
-            <p>W3Techs reports WordPress on 41.5% of all websites and 59.3% of known-CMS websites.</p>
-          </div>
-          <div class="card">
-            <div class="metric">48.6%</div>
-            <strong>WooCommerce ecommerce share</strong>
-            <p>W3Techs reports WooCommerce as 48.6% of known ecommerce systems in its survey.</p>
-          </div>
-          <div class="card">
-            <div class="metric">66k</div>
-            <strong>German Woo checkout sites</strong>
-            <p>BuiltWith lists 66,000 current WooCommerce Checkout customers in Germany.</p>
-          </div>
+          <div class="card"><div class="metric">41.5%</div><strong>WordPress reach</strong><p>W3Techs reports WordPress on 41.5% of all websites and 59.3% of known-CMS websites.</p></div>
+          <div class="card"><div class="metric">48.6%</div><strong>WooCommerce ecommerce share</strong><p>W3Techs reports WooCommerce as 48.6% of known ecommerce systems.</p></div>
+          <div class="card"><div class="metric">66k</div><strong>German Woo checkout sites</strong><p>BuiltWith lists 66,000 current WooCommerce Checkout customers in Germany.</p></div>
         </div>
-        <p class="small">Sources: <a href="https://w3techs.com/technologies/details/cm-wordpress">W3Techs WordPress</a>, <a href="https://w3techs.com/technologies/details/cm-woocommerce">W3Techs WooCommerce</a>, <a href="https://trends.builtwith.com/websitelist/WooCommerce-Checkout/Germany">BuiltWith Germany</a>. These are directional market signals, not an exact merchant count.</p>
+        <p class="small">Directional market signals, not exact TAM: W3Techs WordPress/WooCommerce and BuiltWith Germany.</p>
       </div>
     </section>
 
@@ -266,190 +187,52 @@
         <div class="kicker">ShopBridge Plugin</div>
         <h2>A normal WooCommerce shop can opt in without scraping.</h2>
         <div class="flow">
-          <div class="step"><b>1. Manifest</b><code>/.well-known/agentcart.json</code> advertises capability and endpoints.</div>
-          <div class="step"><b>2. Catalog</b><code>/catalog</code> exposes product, price hint, stock, images, category, and delivery countries.</div>
-          <div class="step"><b>3. Quote</b><code>/quote</code> returns final VAT, shipping, total, delivery window, merchant of record, and quote hash.</div>
-          <div class="step"><b>4. Paid order</b><code>/orders</code> creates a Woo order only after quote-bound payment verification.</div>
-          <div class="step"><b>5. Status</b><code>/orders/{id}/status</code> returns Woo status, delivery estimate, and tracking metadata when present.</div>
+          <div class="step"><b>1. Install</b>Upload/activate AgentCart ShopBridge like a normal WordPress plugin.</div>
+          <div class="step"><b>2. Add products</b>Use standard WooCommerce products, stock, prices, images, tax, and shipping.</div>
+          <div class="step"><b>3. Expose</b><code>/.well-known/agentcart.json</code> advertises endpoints; <code>/catalog</code> lists published products.</div>
+          <div class="step"><b>4. Pay proof</b>AgentCart completes MPP-shaped checkout and attaches Tempo testnet proof.</div>
+          <div class="step"><b>5. Order</b>WooCommerce receives a paid <code>Processing</code> order the merchant can fulfill.</div>
         </div>
-        <p class="small">WooCommerce remains the source of truth for tax, stock, shipping, fulfillment, refunds, support, and customer rights.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Merchant Onboarding</div>
-        <h2>The store owner path should fit into WordPress admin.</h2>
-        <div class="grid">
-          <div class="card"><strong>Install</strong><p>Install WooCommerce, add products as usual, then activate AgentCart ShopBridge.</p></div>
-          <div class="card"><strong>Configure</strong><p>Set support email, shipping countries, Tempo recipient, payment verifier URL, and gateway token in WooCommerce -> AgentCart.</p></div>
-          <div class="card"><strong>Publish</strong><p>Publish the manifest URL and optionally anchor merchant identity plus manifest hash in a registry.</p></div>
-          <div class="card"><strong>Test</strong><p>Run sandbox catalog, quote, approval, MPP payment proof, Woo order, and status retrieval.</p></div>
-          <div class="card"><strong>Operate</strong><p>Fulfill orders in WooCommerce, add tracking through normal shipment plugins, handle refunds in the existing store flow.</p></div>
-          <div class="card"><strong>Target first</strong><p>Local tea and coffee shops, refill stores, farm shops, club merch, and niche D2C stores already running WordPress.</p></div>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">User Onboarding</div>
-        <h2>The buyer gives an agent authority, not a blank cheque.</h2>
-        <div class="grid">
-          <div class="card"><strong>Profile</strong><p>Delivery address, preferred merchants, blocked categories, monthly budget, and approval threshold.</p></div>
-          <div class="card"><strong>Approval channel</strong><p>Chat, Home Assistant, Telegram, Signal, or any UI that can render the consent request and call the signed decision API.</p></div>
-          <div class="card"><strong>Payment credential</strong><p>Tempo MPP wallet for stablecoin-capable users, or Stripe/card SPT flow for normal card users and EUR merchants.</p></div>
-        </div>
-        <p class="small">Live page: <a href="/onboarding.html">buyer and shop onboarding flow</a>.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Discovery And Competition</div>
-        <h2>Agents need fair quote discovery, not ad-driven browsing.</h2>
-        <div class="grid two">
-          <div class="card">
-            <strong>Registry as identity anchor</strong>
-            <p>Keep public records small: domain, merchant id, manifest URL, manifest hash, payment network, recipient, and version. Keep catalog, stock, customer data, and prices offchain.</p>
-          </div>
-          <div class="card">
-            <strong>Private quote tournament</strong>
-            <p>The household agent sends exact terms to matching merchants. Merchants return final quotes. The policy engine chooses by total price, delivery country, category, trust, and consent rules.</p>
-          </div>
-        </div>
-        <p class="small">This has intent-market similarities, so the MVP avoids public bidding wars. No hidden scraping, no pay-to-rank ads, and no order without quote-bound approval.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Live Comparison</div>
-        <h2>Two shops can answer the same household intent.</h2>
-        <div class="grid two">
-          <div class="card">
-            <strong>Winner: AgentCart Demo Shop</strong>
-            <div class="metric">14.80 EUR</div>
-            <p>WooCommerce ShopBridge quote for Hazel's Chocolate Tea. The Woo order is created only after approval and quote-bound payment verification.</p>
-          </div>
-          <div class="card">
-            <strong>Second: Futura Demo Tea Shop</strong>
-            <div class="metric">15.80 EUR</div>
-            <p>Same product intent, different final quote. AgentCart ranks by final price, policy, delivery window, stock, and manifest integrity.</p>
-          </div>
-        </div>
-        <p class="small">Live surface: <a href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344">run the quote tournament</a>. The current Tempo proof is pathUSD testnet value transfer; the product quote remains EUR.</p>
+        <p class="small">In the demo: Plugins -> AgentCart ShopBridge, Products -> four Woo products, Manifest/Catalog JSON -> agent-readable product feed.</p>
+        <p class="small">Visual explainer: <a href="/shopbridge-stack.html">modular WordPress, WooCommerce, ShopBridge, and Tempo stack</a>.</p>
       </div>
     </section>
 
     <section>
       <div class="slide">
         <div class="kicker">Architecture</div>
-        <h2>AgentCart sits between the home and the merchant.</h2>
+        <h2>AgentCart bridges home context and merchant systems.</h2>
         <div class="diagram">
-          <div class="lane home">
-            <h3>Household</h3>
-            <div class="node">Household OS chat</div>
-            <div class="node">OpenClaw / local model</div>
-            <div class="node">Home Assistant approval</div>
-            <div class="node">Vikunja task state</div>
-            <div class="node">Energy telemetry</div>
-          </div>
-          <div class="lane">
-            <h3>AgentCart</h3>
-            <div class="node">Catalog search</div>
-            <div class="node">Final quote</div>
-            <div class="node">Policy engine</div>
-            <div class="node">MPP HTTP-auth-shaped checkout</div>
-            <div class="node">Audit and delivery feed</div>
-          </div>
-          <div class="lane merchant payment">
-            <h3>Merchant / Payment</h3>
-            <div class="node">WooCommerce ShopBridge plugin</div>
-            <div class="node">Merchant of record</div>
-            <div class="node">Order creation</div>
-            <div class="node">Tempo MPP testnet proof</div>
-            <div class="node">Shipment placeholder</div>
-          </div>
+          <div class="lane home"><h3>Household</h3><div class="node">OpenClaw chat</div><div class="node">Home Assistant approval</div><div class="node">Vikunja tasks</div></div>
+          <div class="lane"><h3>AgentCart</h3><div class="node">Discovery and quote tournament</div><div class="node">Policy and consent</div><div class="node">Payment proof and audit</div></div>
+          <div class="lane merchant"><h3>Merchant</h3><div class="node">WooCommerce ShopBridge</div><div class="node">Merchant of record</div><div class="node">Paid order and delivery ETA</div></div>
         </div>
       </div>
     </section>
 
     <section>
       <div class="slide">
-        <div class="kicker">Demo Flow</div>
-        <h2>Buy tea without hiding the risk.</h2>
-        <div class="flow">
-          <div class="step"><b>1. Intent</b>Chat asks for favorite tea and current household context.</div>
-          <div class="step"><b>2. Discover</b>AgentCart finds opt-in shops and compares quote-bound final prices.</div>
-          <div class="step"><b>3. Consent</b>Approval can happen in chat or through Home Assistant phone/watch.</div>
-          <div class="step"><b>4. Checkout</b>HTTP 402 Payment flow completes and Tempo MPP testnet proof is attached.</div>
-          <div class="step"><b>5. Aftercare</b>Woo order, Vikunja task, delivery calendar, status URL, audit log.</div>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Live Prompts</div>
-        <h2>Run it from Household OS Chat.</h2>
-        <div class="demo">
-          <div class="prompt"><span>Prompt 1</span>
-Use AgentCart. List our open shopping tasks and check whether we currently have excess energy to sell. Do not buy anything.</div>
-          <div class="prompt"><span>Prompt 2</span>
-Use AgentCart to buy my favorite tea, Hazel's Chocolate. Discover matching shops, get the best final quote, and ask me for approval before ordering.</div>
-          <div class="prompt"><span>Prompt 3</span>
-Approve it and continue checkout.</div>
-        </div>
-        <p class="small">Primary chat surface: <code>http://192.168.178.150:8088/chat</code>. For the phone/watch variant, ask it to wait for Home Assistant approval.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Safety</div>
-        <h2>The demo is intentionally constrained.</h2>
-        <div class="grid">
-          <div class="card"><strong>No scraping</strong><p>No browser automation against real shops. The merchant is opt-in and fake for the hackathon.</p></div>
-          <div class="card"><strong>No silent spend</strong><p>Household policy requires approval. Budgets and categories are enforced before checkout.</p></div>
-          <div class="card"><strong>No fake settlement claims</strong><p>WooCommerce quotes in EUR. The Tempo MPP proof is pathUSD testnet value transfer, not EUR settlement of the tea order.</p></div>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Payment Rails</div>
-        <h2>Small shops need a choice: wallet-native or Stripe-native.</h2>
-        <div class="grid">
-          <div class="card"><strong>Tempo MPP</strong><p>Best for agent-native stablecoin settlement. Buyer needs an MPP-capable funded wallet; merchant needs recipient address, verifier, accounting, and refund handling.</p></div>
-          <div class="card"><strong>Stripe/card MPP</strong><p>Best for normal users and EUR shops. Buyer uses a Shared Payment Token or Link/card flow; merchant uses Stripe profile, reporting, payouts, refunds, and disputes.</p></div>
-          <div class="card"><strong>Refunds</strong><p>WooCommerce can show the refund workflow, but production must execute the refund through the original rail before claiming funds moved.</p></div>
-        </div>
-        <p class="small">Hackathon claim: we support the interface shape and Woo order surface. Real Stripe/card and rail-bound refunds require merchant credentials and verifier implementation.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Extension</div>
-        <h2>AgentWatt is the same pattern, not a separate pitch.</h2>
-        <p class="lede">The home can also expose resources it provides, such as energy telemetry. Today the demo only reads solar, battery, grid import/export, and house output to decide whether surplus is offerable.</p>
+        <div class="kicker">Live Demo</div>
+        <h2>Ask the agent to buy the favorite tea.</h2>
+        <div class="prompt">Please buy my favourite tea. Discover shops, choose the best final quote, and ask me for approval before checkout.</div>
         <div class="grid two">
-          <div class="card"><strong>Now</strong><p>Read-only surplus detection from Home Assistant. No sale, settlement, or neighbor contract.</p></div>
-          <div class="card"><strong>Future</strong><p>An opt-in local energy marketplace would need metering, pricing, regulation, consent, settlement, and dispute handling.</p></div>
+          <div class="card"><strong>Show buyer side</strong><p>OpenClaw chat, two merchant quotes, exact approval request, checkout summary, delivery ETA.</p></div>
+          <div class="card"><strong>Show merchant side</strong><p>WooCommerce admin order marked paid via Tempo MPP via AgentCart.</p></div>
         </div>
+        <p class="small">Use <a href="/demo">/demo</a> as the recording cockpit and <a href="/shopbridge-stack.html">/shopbridge-stack.html</a> for the plugin architecture visual.</p>
       </div>
     </section>
 
     <section>
       <div class="slide">
-        <div class="kicker">Ask</div>
-        <h2>Make merchant checkout agent-readable, not agent-magical.</h2>
-        <div class="grid two">
-          <div class="card"><strong>What we built</strong><p>A practical bridge for quote, consent, payment proof, order, task, delivery, and audit.</p></div>
-          <div class="card"><strong>What we need</strong><p>Opt-in merchant adapters and an MPP-aware quote/order profile that small shops can implement around official payment methods.</p></div>
+        <div class="kicker">Boundaries</div>
+        <h2>Practical bridge, not agent magic.</h2>
+        <div class="grid">
+          <div class="card"><strong>No scraping</strong><p>Only opt-in merchants. No browser automation against real shops.</p></div>
+          <div class="card"><strong>No silent spend</strong><p>Budget, category policy, idempotency, replay protection, and explicit approval happen before checkout.</p></div>
+          <div class="card"><strong>No fake EUR settlement claim</strong><p>The demo uses EUR quotes plus Tempo testnet/pathUSD proof. Production needs verifier-backed settlement and refunds.</p></div>
         </div>
+        <p class="lede">Ask: make merchant checkout agent-readable around official MPP payment methods.</p>
       </div>
     </section>
   </main>

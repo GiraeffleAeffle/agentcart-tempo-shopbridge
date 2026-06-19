@@ -96,7 +96,7 @@ class HouseholdOsTests(unittest.TestCase):
 
     def test_description_to_vikunja_html(self) -> None:
         html = household_os.description_to_vikunja_html(
-            "**Owners:** max\n\n## Notes\n\nDo the thing.\n\n## Checklist\n\n- [ ] First\n- [x] Done"
+            "**Owners:** demo\n\n## Notes\n\nDo the thing.\n\n## Checklist\n\n- [ ] First\n- [x] Done"
         )
         self.assertIn("<strong>Owners:</strong>", html)
         self.assertIn("<h3>Notes</h3>", html)
@@ -362,7 +362,7 @@ class HouseholdOsTests(unittest.TestCase):
                 "done": False,
                 "due_date": "2026-06-05T18:00:00+02:00",
                 "labels": [{"title": "shopping"}],
-                "assignees": [{"username": "max"}],
+                "assignees": [{"username": "demo"}],
                 "description": "<p>Print the card.</p>",
             },
             {

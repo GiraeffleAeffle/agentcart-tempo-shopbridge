@@ -1,5 +1,8 @@
 # Delivery Tracking And Refund Verification
 
+> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
+
+
 The hackathon demo exposes a merchant-estimated delivery window. Production
 should distinguish that from real carrier tracking.
 

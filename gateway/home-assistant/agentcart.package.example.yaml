@@ -12,7 +12,7 @@ command_line:
       unique_id: agentcart_online
       device_class: connectivity
       command: >-
-        curl -fsS --max-time 5 http://192.168.178.146:8099/health
+        curl -fsS --max-time 5 http://agentcart.local:8099/health
         | grep -q '"ok": true'
         && echo ON || echo OFF
       payload_on: "ON"
@@ -21,7 +21,7 @@ command_line:
 
 rest_command:
   agentcart_trigger_low_tea:
-    url: http://192.168.178.146:8099/demo/trigger-low-tea
+    url: http://agentcart.local:8099/demo/trigger-low-tea
     method: POST
     timeout: 30
     content_type: application/json
@@ -30,7 +30,7 @@ rest_command:
     payload: "{}"
 
   agentcart_approval_decision:
-    url: "http://192.168.178.146:8099/v1/approvals/{{ approval_id }}/decision"
+    url: "http://agentcart.local:8099/v1/approvals/{{ approval_id }}/decision"
     method: POST
     timeout: 30
     content_type: application/json

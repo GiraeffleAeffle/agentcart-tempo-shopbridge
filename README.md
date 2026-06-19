@@ -1,4 +1,4 @@
-# AgentCart Hackathon
+# AgentCart ShopBridge for Tempo MPP
 
 AgentCart is a household-safe bridge between personal agents and opt-in
 WooCommerce merchants. It demonstrates the missing commerce layer around MPP:
@@ -13,7 +13,7 @@ household-os/             Home Assistant / Vikunja / OpenClaw chat bridge
 woocommerce-shopbridge/   WordPress/WooCommerce plugin
 demo/woocommerce/         Local WooCommerce demo shop compose files and seed script
 deploy/home-server/       NUC/home-server compose package
-docs/                     Hackathon story, runbook, production tracks, protocol notes
+docs/                     Hackathon story, 3-minute runbook, roadmap, protocol notes
 ```
 
 ## Demo Flow
@@ -55,8 +55,9 @@ Open:
 
 ```text
 http://127.0.0.1:8099/presentation.html
+http://127.0.0.1:8099/demo
 http://127.0.0.1:8099/onboarding.html
-http://127.0.0.1:8099/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344
+http://127.0.0.1:8099/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115
 ```
 
 ## Home-Server Package
@@ -96,16 +97,16 @@ The plugin exposes:
 - `/wp-json/agentcart/v1/orders/{id}/status`
 - `/wp-json/agentcart/v1/orders/{id}/refunds`
 
-## Production Tracks
+## Production Roadmap
 
+- `docs/DEMO_RECORDING_PLAN.md`
 - `docs/PRODUCTION_NEXT_STEPS.md`
 - `docs/WOOCOMMERCE_PRODUCTION_HARDENING.md`
 - `docs/SETTLEMENT_OPTIONS.md`
 - `docs/MERCHANT_REGISTRY.md`
 - `docs/DELIVERY_AND_REFUNDS.md`
 
-These are not marketing placeholders. They define the concrete work required to
-move from hackathon demo to production candidate.
+These documents are roadmap/specification notes, not finished production features. They define the concrete work required to move from hackathon demo to production candidate.
 
 ## Verification
 

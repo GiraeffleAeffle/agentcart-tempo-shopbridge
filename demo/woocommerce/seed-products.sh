@@ -10,9 +10,9 @@ for _ in $(seq 1 60); do
   if wp core install \
     --url="${WOO_PUBLIC_URL:-http://127.0.0.1:8098}" \
     --title="AgentCart Demo Shop" \
-    --admin_user="${WOO_ADMIN_USER:-max}" \
+    --admin_user="${WOO_ADMIN_USER:-merchant}" \
     --admin_password="${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}" \
-    --admin_email="${WOO_ADMIN_EMAIL:-max@household.local}" \
+    --admin_email="${WOO_ADMIN_EMAIL:-merchant@example.test}" \
     --skip-email \
     --allow-root >/dev/null 2>&1; then
     break
@@ -36,12 +36,12 @@ wp plugin activate agentcart-shopbridge --allow-root
 wp option update blogname "AgentCart Demo Shop" --allow-root
 wp option update home "${WOO_PUBLIC_URL:-http://127.0.0.1:8098}" --allow-root
 wp option update siteurl "${WOO_PUBLIC_URL:-http://127.0.0.1:8098}" --allow-root
-wp option update woocommerce_store_address "Futura Camp Demo Street 1" --allow-root
+wp option update woocommerce_store_address "Demo Street 1" --allow-root
 wp option update woocommerce_default_country "DE:BB" --allow-root
 wp option update woocommerce_currency "EUR" --allow-root
 wp option update woocommerce_prices_include_tax "yes" --allow-root
 wp option update woocommerce_calc_taxes "yes" --allow-root
-wp option update woocommerce_store_postcode "15344" --allow-root
+wp option update woocommerce_store_postcode "10115" --allow-root
 wp option update woocommerce_coming_soon "no" --allow-root
 wp option update woocommerce_cod_settings \
   '{"enabled":"yes","title":"Manual demo checkout","description":"Browser-only fallback for the fake shop. AgentCart orders use household approval and Tempo MPP proof instead of this checkout.","instructions":"For the hackathon demo, use the AgentCart household-agent flow for payment proof."}' \
@@ -209,10 +209,10 @@ ensure_product() {
   local description
   description="$(product_description "$sku")"
   local product_id
-  product_id="$(wp wc product list --sku="$sku" --user="${WOO_ADMIN_USER:-max}" --allow-root --format=ids | head -n 1 || true)"
+  product_id="$(wp wc product list --sku="$sku" --user="${WOO_ADMIN_USER:-merchant}" --allow-root --format=ids | head -n 1 || true)"
   if [ -z "$product_id" ]; then
     wp wc product create \
-      --user="${WOO_ADMIN_USER:-max}" \
+      --user="${WOO_ADMIN_USER:-merchant}" \
       --name="$name" \
       --type=simple \
       --regular_price="$price" \
@@ -224,10 +224,10 @@ ensure_product() {
       --description="$description" \
       --categories="[{\"id\":${category_id}}]" \
       --allow-root >/dev/null
-    product_id="$(wp wc product list --sku="$sku" --user="${WOO_ADMIN_USER:-max}" --allow-root --format=ids | head -n 1)"
+    product_id="$(wp wc product list --sku="$sku" --user="${WOO_ADMIN_USER:-merchant}" --allow-root --format=ids | head -n 1)"
   else
     wp wc product update "$product_id" \
-      --user="${WOO_ADMIN_USER:-max}" \
+      --user="${WOO_ADMIN_USER:-merchant}" \
       --name="$name" \
       --regular_price="$price" \
       --manage_stock=true \
@@ -322,5 +322,5 @@ wp option update show_on_front page --allow-root
 wp option update page_on_front "$home_page_id" --allow-root
 
 echo "AgentCart WooCommerce demo shop is ready."
-echo "Admin: ${WOO_ADMIN_USER:-max} / ${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}"
+echo "Admin: ${WOO_ADMIN_USER:-merchant} / ${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}"
 echo "ShopBridge token: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}"

@@ -4,7 +4,7 @@
 
 AgentCart came from a real household setup: Home Assistant already knows when
 something in the home needs attention, Vikunja already has our open shopping
-tasks, and OpenClaw/local agents can already run inside the homelab. The missing
+tasks, and OpenClaw/local agents can already run inside a home lab. The missing
 piece was commerce.
 
 If my household agent knows that tea is running low, it should not need browser

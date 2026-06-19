@@ -12,8 +12,8 @@ protocol boundary, and demonstrates a real gap for household agents buying from
 opt-in merchants.
 
 Primary local repo paths:
-- /Users/max/Code/homelab/home-ops/agentcart
-- /Users/max/Code/homelab/home-ops/agentcart/woocommerce-plugin
+- <private-source-repo>/agentcart
+- <private-source-repo>/woocommerce-plugin
 
 Official protocol sources to check:
 - https://mpp.dev/llms-full.txt
@@ -72,7 +72,7 @@ Review questions:
 
 7. Repo hygiene:
    - Are secrets, local passwords, tokens, private IP assumptions, and unrelated
-     homelab files excluded from any public repo?
+     private infrastructure files excluded from any public repo?
    - Should this be a monorepo for the hackathon or split into:
      a) agentcart gateway/demo
      b) agentcart-shopbridge-woocommerce plugin?

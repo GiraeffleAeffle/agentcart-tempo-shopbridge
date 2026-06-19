@@ -31,7 +31,7 @@ CHAT_JOB_EVENTS_ROUTE = re.compile(r"^/api/openclaw/chat/jobs/([A-Za-z0-9_-]+)/e
 ENTITY_ID = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 SESSION_COOKIE = "household_session"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
-LOGIN_USERS = {"max", "ana"}
+LOGIN_USERS = {"demo"}
 CHAT_JOB_RETENTION_SECONDS = 60 * 30
 HTML_BLOCK_RE = re.compile(r"<(p|h[1-6]|ul|ol|li|blockquote|div|table|strong|em|br|span|a)\b", re.IGNORECASE)
 URL_RE = re.compile(r"https?://[^\s<]+")
@@ -388,7 +388,7 @@ def cycle_support_events(
                 "planning",
                 cycle_start + dt.timedelta(days=period_days),
                 cycle_start + dt.timedelta(days=13),
-                "Good window for plans, errands, and household momentum if Ana feels up for it.",
+                "Good window for plans, errands, and household momentum when the household wants support.",
             ),
             (
                 "ovulation",
@@ -1205,7 +1205,7 @@ class AgentCartClient:
         return self.request(
             "GET",
             "/v1/quote-tournament",
-            query={"q": query, "country": "DE", "postal_code": "15344", "quantity": quantity},
+            query={"q": query, "country": "DE", "postal_code": "10115", "quantity": quantity},
             timeout=60,
         )[2]
 
@@ -1235,7 +1235,7 @@ class AgentCartClient:
             "agent_id": "household-os-chat",
             "reason": reason,
             "items": [{"product_id": product_id, "quantity": quantity}],
-            "ship_to": {"country": "DE", "postal_code": "15344"},
+            "ship_to": {"country": "DE", "postal_code": "10115"},
         }
         return self.request("POST", "/v1/quotes", payload, timeout=30)[2]
 
@@ -1338,7 +1338,7 @@ def compact_states(states: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 HOUSEHOLD_TEA_PREFERENCE_WORDS = {"fav", "favorite", "favourite", "preferred", "usual", "regular", "normal", "standard"}
-HOUSEHOLD_TEA_CONTEXT_WORDS = {"my", "our", "max", "household"}
+HOUSEHOLD_TEA_CONTEXT_WORDS = {"my", "our", "household"}
 
 
 def close_to_any(value: str, expected: set[str], *, threshold: float = 0.82) -> bool:
@@ -1939,13 +1939,13 @@ class HouseholdServer(ThreadingHTTPServer):
         system = {
             "role": "system",
             "content": (
-                "You are the private Household OS assistant for Max and Ana. "
+                "You are the private Household OS assistant for the demo household. "
                 "Use the household-os-vikunja skill for household tasks, weekly planning, shopping, "
                 "reminders, ventilation checks, and safe Home Assistant actions. "
                 "For planning, inspect calendar_context and live Vikunja tasks before suggesting a schedule. "
                 "When asked how to solve tasks, inspect the live tasks first, then suggest practical next actions. "
                 "Treat due dates as planning markers unless the task says it is a fixed appointment. "
-                "Use cycle-support context only as a gentle aid and do not assume Ana's mood or needs. "
+                "Use cycle-support context only as a gentle aid and do not assume another household member's mood or needs. "
                 "Ask for confirmation before completing tasks or triggering safe Home Assistant scripts."
             ),
         }
@@ -2216,7 +2216,7 @@ class HouseholdHandler(BaseHTTPRequestHandler):
             },
             "cycle_support": cycle_calendar_context(config),
             "planning_note": (
-                "Use calendar context as a gentle planning aid. Confirm with Ana before making assumptions "
+                "Use calendar context as a gentle planning aid. Confirm with the household member before making assumptions "
                 "from cycle-support windows, and use Vikunja due dates as task deadlines rather than fixed time blocks."
             ),
         }
@@ -2306,7 +2306,7 @@ class HouseholdHandler(BaseHTTPRequestHandler):
         username = str(payload.get("username", "")).strip().lower()
         password = str(payload.get("password", ""))
         if username not in LOGIN_USERS:
-            raise Forbidden("Only Max and Ana can log in to Household OS")
+            raise Forbidden("Only configured household users can log in to Household OS")
         if not password:
             raise BadRequest("password is required")
         try:
@@ -2646,7 +2646,7 @@ def index_html() -> str:
     <section class="surface" id="login">
       <form id="login-form">
         <label>Username
-          <input id="username" placeholder="max or ana" autocomplete="username">
+          <input id="username" placeholder="demo" autocomplete="username">
         </label>
         <label>Vikunja password
           <input id="password" type="password" autocomplete="current-password">
@@ -2814,7 +2814,7 @@ def chat_html() -> str:
     <section id="login">
       <form id="login-form">
         <div class="row">
-          <input id="username" placeholder="max or ana" autocomplete="username">
+          <input id="username" placeholder="demo" autocomplete="username">
           <input id="password" type="password" placeholder="Vikunja password" autocomplete="current-password">
         </div>
         <button type="submit">Log in</button>

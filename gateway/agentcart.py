@@ -195,7 +195,7 @@ class Config:
             vikunja_token=os.getenv("VIKUNJA_TOKEN", ""),
             vikunja_project_id=int(project_id) if project_id else None,
             default_ship_country=os.getenv("AGENTCART_DEFAULT_SHIP_COUNTRY", "DE"),
-            default_ship_postal_code=os.getenv("AGENTCART_DEFAULT_SHIP_POSTAL_CODE", "15344"),
+            default_ship_postal_code=os.getenv("AGENTCART_DEFAULT_SHIP_POSTAL_CODE", "10115"),
             woocommerce_mode=os.getenv("WOOCOMMERCE_MODE", "mock").strip().lower(),
             woocommerce_base_url=os.getenv("WOOCOMMERCE_BASE_URL", "").rstrip("/"),
             woocommerce_consumer_key=os.getenv("WOOCOMMERCE_CONSUMER_KEY", ""),
@@ -440,36 +440,36 @@ def command_available(command: str) -> bool:
 
 
 HOUSEHOLD_PRODUCT_PREFERENCES = {
-    "max.favorite_tea": {
-        "id": "max.favorite_tea",
-        "owner": "Max",
+    "household.favorite_tea": {
+        "id": "household.favorite_tea",
+        "owner": "Demo Household",
         "kind": "household_product_preference",
         "canonical_name": "Hazel's Chocolate Tea",
         "canonical_query": "Hazel's Chocolate Tea",
         "fallback_product_id": "tea_hazels_chocolate_100g",
         "category": "grocery.tea",
         "context_sources": ["Vikunja shopping tasks", "Home Assistant stock automation", "OpenClaw household profile"],
-        "reason": "Max's household profile maps favourite/favorite/usual tea to Hazel's Chocolate Tea.",
+        "reason": "The household preference profile maps favourite/favorite/usual tea to Hazel's Chocolate Tea.",
     }
 }
 
 PRODUCT_ALIASES = {
-    "favorite_tea": "max.favorite_tea",
-    "my_favorite_tea": "max.favorite_tea",
-    "favourite_tea": "max.favorite_tea",
-    "my_favourite_tea": "max.favorite_tea",
-    "fav_tea": "max.favorite_tea",
-    "my_fav_tea": "max.favorite_tea",
-    "usual_tea": "max.favorite_tea",
-    "my_usual_tea": "max.favorite_tea",
-    "regular_tea": "max.favorite_tea",
-    "go_to_tea": "max.favorite_tea",
-    "hazels_chocolate": "max.favorite_tea",
-    "hazels_chocolate_tea": "max.favorite_tea",
+    "favorite_tea": "household.favorite_tea",
+    "my_favorite_tea": "household.favorite_tea",
+    "favourite_tea": "household.favorite_tea",
+    "my_favourite_tea": "household.favorite_tea",
+    "fav_tea": "household.favorite_tea",
+    "my_fav_tea": "household.favorite_tea",
+    "usual_tea": "household.favorite_tea",
+    "my_usual_tea": "household.favorite_tea",
+    "regular_tea": "household.favorite_tea",
+    "go_to_tea": "household.favorite_tea",
+    "hazels_chocolate": "household.favorite_tea",
+    "hazels_chocolate_tea": "household.favorite_tea",
 }
 
 HOUSEHOLD_PREFERENCE_WORDS = {"fav", "favorite", "favourite", "preferred", "usual", "regular", "normal", "standard"}
-HOUSEHOLD_CONTEXT_WORDS = {"my", "our", "max", "household"}
+HOUSEHOLD_CONTEXT_WORDS = {"my", "our", "household"}
 
 
 def normalize_alias(value: str) -> str:
@@ -489,11 +489,11 @@ def household_preference_for_intent(value: str) -> dict[str, Any] | None:
     tokens = normalized.split("_") if normalized else []
     token_set = set(tokens)
     if "hazel" in token_set and "chocolate" in token_set:
-        return HOUSEHOLD_PRODUCT_PREFERENCES["max.favorite_tea"]
+        return HOUSEHOLD_PRODUCT_PREFERENCES["household.favorite_tea"]
     if "tea" in token_set and (
         any(preference_word_match(token) for token in tokens) or bool(token_set & HOUSEHOLD_CONTEXT_WORDS)
     ):
-        return HOUSEHOLD_PRODUCT_PREFERENCES["max.favorite_tea"]
+        return HOUSEHOLD_PRODUCT_PREFERENCES["household.favorite_tea"]
     return None
 
 
@@ -1420,7 +1420,7 @@ class DeferredPaymentProvider(PaymentProvider):
 
 
 DEFAULT_POLICY = {
-    "household_id": "max-household-demo",
+    "household_id": "demo-household",
     "max_order_total_cents": 2500,
     "monthly_budget_cents": 5000,
     "auto_approve_below_cents": 0,
@@ -3612,7 +3612,7 @@ separate human confirmation.
         offer = {
             "id": offer_id,
             "state": "open",
-            "seller_household_id": str(request.get("seller_household_id") or "max-household-demo"),
+            "seller_household_id": str(request.get("seller_household_id") or "demo-household"),
             "buyer_scope": str(request.get("buyer_scope") or "neighbor-demo"),
             "commodity": "electricity",
             "source": "home_assistant_energy_surplus",
@@ -4522,6 +4522,18 @@ class AgentCartHandler(BaseHTTPRequestHandler):
                 raise NotFound("presentation file not found")
             self.send_html(presentation_path.read_text())
             return
+        if path in {"/demo", "/demo.html"}:
+            demo_path = pathlib.Path(__file__).with_name("demo.html")
+            if not demo_path.exists():
+                raise NotFound("demo file not found")
+            self.send_html(demo_path.read_text())
+            return
+        if path == "/shopbridge-stack.html":
+            stack_path = pathlib.Path(__file__).with_name("shopbridge-stack.html")
+            if not stack_path.exists():
+                raise NotFound("shopbridge stack file not found")
+            self.send_html(stack_path.read_text())
+            return
         if path == "/intent-auction-overview.html":
             intent_path = pathlib.Path(__file__).with_name("intent-auction-overview.html")
             if not intent_path.exists():
@@ -5151,7 +5163,7 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>
       <a class="button secondary" href="/protocol-fields.html">Field Map</a>
       <a class="button secondary" href="/v1/registry">Registry JSON</a>
-      <a class="button" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=15344">Hazel Comparison</a>
+      <a class="button" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115">Hazel Comparison</a>
     </div>
     <form method="get" action="/registry">
       <label>Product intent <input name="q" value="{esc(normalized_query)}" placeholder="Hazel's Chocolate Tea"></label>
@@ -5286,7 +5298,9 @@ def render_dashboard(state: dict[str, Any]) -> str:
       <a class="button secondary" href="/agent">Agent Console</a>
       <a class="button secondary" href="/.well-known/agentcart.json">Capability Document</a>
       <a class="button secondary" href="/architecture.html">Architecture</a>
+      <a class="button secondary" href="/shopbridge-stack.html">Modular Stack</a>
       <a class="button secondary" href="/presentation.html">Presentation</a>
+      <a class="button secondary" href="/demo">Demo Cockpit</a>
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>
       <a class="button secondary" href="/registry?q=sencha">Registry</a>
       <a class="button secondary" href="/judge">Judge View</a>
@@ -5419,7 +5433,9 @@ def render_judge_view(service: AgentCartService) -> str:
       <a class="button" href="/">Dashboard</a>
       <a class="button secondary" href="/energy">Energy Market</a>
       <a class="button secondary" href="/architecture.html">Architecture</a>
+      <a class="button secondary" href="/shopbridge-stack.html">Modular Stack</a>
       <a class="button secondary" href="/presentation.html">Presentation</a>
+      <a class="button secondary" href="/demo">Demo Cockpit</a>
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>
       <a class="button secondary" href="/registry?q=sencha">Registry</a>
     </div>

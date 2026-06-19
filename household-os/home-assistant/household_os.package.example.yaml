@@ -5,8 +5,8 @@ notify:
   - name: household
     platform: group
     services:
-      - action: mobile_app_maximilians_iphone
-      - action: mobile_app_iphone_paula
+      - action: mobile_app_demo_phone
+      - action: mobile_app_partner_phone
 
 script:
   household_lueften_reminder:

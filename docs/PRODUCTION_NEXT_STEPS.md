@@ -1,5 +1,8 @@
 # AgentCart Production Tracks
 
+> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
+
+
 This file turns the hackathon "what's next" list into concrete engineering
 tracks. The current repository is still a prototype; production use requires
 the items below.
@@ -12,7 +15,7 @@ the items below.
 | Stripe/card and EUR settlement | Plugin advertises `stripe-card-mpp` only when Stripe profile + verifier are configured | External verifier can validate Stripe/card credentials, execute EUR settlement/refunds, and bind result to quote hash | Define verifier contract and sample request/response fixtures |
 | Merchant discovery registry | Gateway exposes local registry page/document with manifest hashes | Public identity/integrity registry with no private demand or catalog data on-chain | Specify registry record, signing, update, revocation, and ranking rules |
 | Delivery tracking/refunds | Woo status endpoint returns merchant-estimated delivery and known tracking metadata; refund endpoint records/verifies via external verifier | Carrier tracking adapters and rail-specific refund execution/verification | Define tracking adapter interface and refund state machine |
-| Home-server package | Homelab-specific deployment exists; clean repo has gateway + plugin | Self-hostable NUC/Dappnode-style stack for AgentCart, Household OS, Vikunja, Home Assistant integration, optional Woo demo | Add `deploy/home-server` compose package and onboarding docs |
+| Home-server package | Single-household deployment exists; clean repo has gateway + plugin | Self-hostable NUC/Dappnode-style stack for AgentCart, Household OS, Vikunja, Home Assistant integration, optional Woo demo | Add `deploy/home-server` compose package and onboarding docs |
 
 ## Non-Negotiables
 

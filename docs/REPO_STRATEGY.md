@@ -5,8 +5,8 @@
 Use a clean public monorepo for the hackathon, then split if the plugin survives
 the event.
 
-Do not publish `/Users/max/Code/homelab` directly. It contains unrelated
-homelab state, local topology, and potentially sensitive operational context.
+Do not publish `<private-source-repo>` directly. It contains unrelated
+private infrastructure state, local topology, and potentially sensitive operational context.
 
 ## Hackathon Monorepo
 
@@ -67,5 +67,5 @@ to call the same merchant profile.
 - Home Assistant long-lived access tokens;
 - Vikunja tokens;
 - local order/customer data;
-- unrelated homelab dashboards, validator files, or personal automations;
+- unrelated infrastructure dashboards, validator files, or personal automations;
 - demo state files with real addresses or phone identifiers.

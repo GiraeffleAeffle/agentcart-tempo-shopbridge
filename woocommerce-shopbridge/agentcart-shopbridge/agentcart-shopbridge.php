@@ -3,7 +3,7 @@
  * Plugin Name: AgentCart ShopBridge for WooCommerce
  * Description: Exposes opt-in WooCommerce catalog, quote, and paid-order endpoints for AgentCart household agents.
  * Version: 0.1.0
- * Author: AgentCart Hackathon
+ * Author: AgentCart
  * Requires Plugins: woocommerce
  */
 
@@ -137,6 +137,7 @@ final class AgentCart_ShopBridge {
         $tempo_recipient = self::tempo_recipient();
         $stripe_profile_id = self::stripe_profile_id();
         $support_email = self::support_email();
+        $readiness = self::readiness();
         ?>
         <div class="wrap">
             <h1>AgentCart ShopBridge</h1>
@@ -178,6 +179,16 @@ final class AgentCart_ShopBridge {
                         <th scope="row">Support email</th>
                         <td><code><?php echo esc_html($support_email ?: 'not published'); ?></code></td>
                         <td><?php echo self::admin_status_badge($support_email !== '', 'Configured', 'Missing'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Demo readiness</th>
+                        <td><?php echo esc_html(empty($readiness['missing_for_demo']) ? 'Ready for agent catalog, quote, order, and refund demo.' : implode(', ', $readiness['missing_for_demo'])); ?></td>
+                        <td><?php echo self::admin_status_badge($readiness['demo_ready'], 'Demo ready', 'Needs setup'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Production readiness</th>
+                        <td><?php echo esc_html(empty($readiness['missing_for_production']) ? 'External payment verifier and merchant rail settings are configured.' : implode(', ', $readiness['missing_for_production'])); ?></td>
+                        <td><?php echo self::admin_status_badge($readiness['production_ready'], 'Production-shaped', 'Roadmap'); ?></td>
                     </tr>
                 </tbody>
             </table>
@@ -313,6 +324,40 @@ final class AgentCart_ShopBridge {
         return '<span style="display:inline-block;padding:3px 8px;border-radius:999px;background:' . esc_attr($background) . ';color:' . esc_attr($color) . ';font-weight:600;">' . esc_html($label) . '</span>';
     }
 
+    private static function readiness() {
+        $missing_demo = [];
+        if (!self::merchant_token_value()) {
+            $missing_demo[] = 'merchant token';
+        }
+        if (!self::support_email()) {
+            $missing_demo[] = 'support email';
+        }
+        if (!self::shipping_countries()) {
+            $missing_demo[] = 'shipping countries';
+        }
+
+        $missing_production = [];
+        if (!self::payment_verifier_url()) {
+            $missing_production[] = 'external payment verifier';
+        }
+        if (self::tempo_recipient() === '' && self::stripe_profile_id() === '') {
+            $missing_production[] = 'Tempo recipient or Stripe profile';
+        }
+        if (!self::support_email()) {
+            $missing_production[] = 'support email';
+        }
+
+        return [
+            'demo_ready' => empty($missing_demo),
+            'production_ready' => empty($missing_production),
+            'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token_demo',
+            'missing_for_demo' => $missing_demo,
+            'missing_for_production' => $missing_production,
+            'demo_note' => 'Demo readiness means an AgentCart gateway can create quote-bound WooCommerce orders after its own approval and payment proof flow.',
+            'production_note' => 'Production readiness requires rail-bound payment/refund verification, legal terms, fulfillment operations, and merchant compliance beyond this plugin status.',
+        ];
+    }
+
     private static function render_text_setting_row($label, $option, $value, $constant, $description) {
         self::render_setting_row('text', $label, $option, $value, $constant, $description);
     }
@@ -353,6 +398,7 @@ final class AgentCart_ShopBridge {
             'version' => '0.1.0',
             'merchant' => self::merchant(),
             'manifest_url' => home_url('/.well-known/agentcart.json'),
+            'readiness' => self::readiness(),
             'protocols' => [
                 [
                     'id' => 'agentcart-shopbridge',
@@ -1428,11 +1474,11 @@ final class AgentCart_ShopBridge {
             'first_name' => sanitize_text_field((string) ($raw['first_name'] ?? 'AgentCart')),
             'last_name' => sanitize_text_field((string) ($raw['last_name'] ?? 'Household')),
             'company' => sanitize_text_field((string) ($raw['company'] ?? '')),
-            'address_1' => sanitize_text_field((string) ($raw['address_1'] ?? 'Futura Camp Demo Street 1')),
+            'address_1' => sanitize_text_field((string) ($raw['address_1'] ?? 'Demo Street 1')),
             'address_2' => sanitize_text_field((string) ($raw['address_2'] ?? '')),
-            'city' => sanitize_text_field((string) ($raw['city'] ?? 'Strausberg')),
+            'city' => sanitize_text_field((string) ($raw['city'] ?? 'Berlin')),
             'state' => sanitize_text_field((string) ($raw['state'] ?? 'BB')),
-            'postcode' => sanitize_text_field((string) ($raw['postcode'] ?? $raw['postal_code'] ?? '15344')),
+            'postcode' => sanitize_text_field((string) ($raw['postcode'] ?? $raw['postal_code'] ?? '10115')),
             'country' => $country ?: 'DE',
             'email' => sanitize_email((string) ($raw['email'] ?? get_option('admin_email'))),
             'phone' => sanitize_text_field((string) ($raw['phone'] ?? '')),

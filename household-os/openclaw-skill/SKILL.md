@@ -10,7 +10,7 @@ metadata:
 
 # Household OS Vikunja Skill
 
-Use this skill when Max or Ana asks about household tasks, weekly planning,
+Use this skill when a household user asks about household tasks, weekly planning,
 shopping, reminders, Lüften checks, or safe home scripts.
 
 Always call the Household OS bridge instead of calling Vikunja or Home Assistant
@@ -55,14 +55,14 @@ Available commands:
 
 Suggestion workflow:
 
-- When Max or Ana asks "what should we do", "how do we solve this", "weekend
+- When a household user asks "what should we do", "how do we solve this", "weekend
   plan", "what is next", or "what is due today", call `calendar_context` plus
   `daily_summary`, `weekly_summary`, or `list_tasks` first.
 - Give concrete next actions, not just a restatement of the task title.
 - Treat Vikunja due dates as deadlines or planning markers, not guaranteed fixed
   appointment blocks unless the task description says it is an appointment.
 - Use cycle-support context only as a gentle planning aid. Do not make medical
-  claims, do not assume Ana's mood or needs, and remind Max to confirm with Ana.
+  claims, do not assume another household member's mood or needs, and remind the user to confirm with the household.
 - For buying tasks, suggest a short decision checklist and the smallest useful
   first purchase or research step.
 - For life-admin tasks, identify the missing documents, the authority or portal
@@ -78,7 +78,7 @@ Suggestion workflow:
 Safety rules:
 
 - Do not delete tasks, projects, comments, or Home Assistant entities.
-- Ask Max or Ana for confirmation before marking a task complete when the command
+- Ask a household user for confirmation before marking a task complete when the command
   could plausibly refer to more than one task.
 - For Home Assistant, trigger only `trigger_safe_script`, `notify`,
   `add_shopping_item`, and `ventilation_status`.

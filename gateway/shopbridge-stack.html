@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart ShopBridge Stack</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f2ea;
+      --panel: #fffdf8;
+      --ink: #17211f;
+      --muted: #5f6d66;
+      --line: #d8d1c1;
+      --wp: #22577a;
+      --woo: #7a3eb1;
+      --bridge: #b85935;
+      --agent: #2d6f5a;
+      --tempo: #5c6df0;
+      --risk: #8f5d1f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    header {
+      padding: 24px;
+      background: rgba(255, 253, 248, .9);
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      backdrop-filter: blur(12px);
+    }
+    main { max-width: 1240px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: 0; line-height: 1; }
+    h2 { margin: 0 0 12px; font-size: 24px; letter-spacing: 0; }
+    h3 { margin: 0 0 6px; font-size: 18px; letter-spacing: 0; }
+    p { margin: 0; color: var(--muted); }
+    a { color: var(--agent); }
+    code {
+      background: #efe8d8;
+      border: 1px solid #d9ceb8;
+      border-radius: 5px;
+      padding: 2px 5px;
+      color: #27312f;
+      font-size: .92em;
+    }
+    .top {
+      display: flex;
+      gap: 18px;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+    .links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .button {
+      border: 1px solid var(--agent);
+      background: var(--agent);
+      color: #fff;
+      text-decoration: none;
+      border-radius: 7px;
+      padding: 9px 12px;
+      font-weight: 750;
+    }
+    .button.secondary { background: transparent; color: var(--ink); border-color: var(--line); }
+    .stack {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+      align-items: stretch;
+    }
+    .module {
+      position: relative;
+      min-height: 210px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-top: 6px solid var(--agent);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 12px 28px rgba(23, 33, 31, .06);
+    }
+    .module:after {
+      content: "->";
+      position: absolute;
+      right: -18px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-weight: 850;
+      z-index: 2;
+    }
+    .module:last-child:after { content: ""; }
+    .wp { border-top-color: var(--wp); }
+    .woo { border-top-color: var(--woo); }
+    .bridge { border-top-color: var(--bridge); }
+    .agent { border-top-color: var(--agent); }
+    .tempo { border-top-color: var(--tempo); }
+    .risk { border-top-color: var(--risk); }
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 800;
+      color: #fff;
+      background: var(--agent);
+      margin-bottom: 12px;
+    }
+    .wp .tag { background: var(--wp); }
+    .woo .tag { background: var(--woo); }
+    .bridge .tag { background: var(--bridge); }
+    .tempo .tag { background: var(--tempo); }
+    .risk .tag { background: var(--risk); }
+    ul { margin: 12px 0 0; padding-left: 18px; color: var(--muted); }
+    li { margin: 5px 0; }
+    .section { margin-top: 22px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 12px 28px rgba(23, 33, 31, .06);
+    }
+    .rail {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+    .rail .card:first-child { border-top: 6px solid var(--tempo); }
+    .rail .card:last-child { border-top: 6px solid var(--bridge); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 9px 6px; vertical-align: top; }
+    th { color: var(--muted); font-size: 13px; }
+    .note {
+      border-left: 5px solid var(--risk);
+      background: #fff8e8;
+      padding: 14px;
+      border-radius: 8px;
+      margin-top: 18px;
+    }
+    @media (max-width: 1040px) {
+      .stack, .grid, .rail { grid-template-columns: 1fr; }
+      .module { min-height: auto; }
+      .module:after { content: ""; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="top">
+      <div>
+        <h1>Modular ShopBridge Stack</h1>
+        <p>How WordPress, WooCommerce, AgentCart ShopBridge, and Tempo MPP fit together without turning the plugin into a payment processor.</p>
+      </div>
+      <div class="links">
+        <a class="button" href="/demo">Demo Cockpit</a>
+        <a class="button secondary" href="/presentation.html">Deck</a>
+        <a class="button secondary" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115">Quote Tournament</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="stack" aria-label="modular commerce stack">
+      <article class="module wp">
+        <span class="tag">WordPress</span>
+        <h3>Site shell</h3>
+        <p>Admin UI, users, plugin system, pages, hosting, updates.</p>
+        <ul>
+          <li>Store owner already knows this</li>
+          <li>Plugin installs like normal WordPress software</li>
+        </ul>
+      </article>
+      <article class="module woo">
+        <span class="tag">WooCommerce</span>
+        <h3>Commerce source of truth</h3>
+        <p>Products, stock, VAT/tax, shipping, orders, refunds, and fulfillment.</p>
+        <ul>
+          <li>Merchant remains merchant of record</li>
+          <li>Normal order admin still works</li>
+        </ul>
+      </article>
+      <article class="module bridge">
+        <span class="tag">ShopBridge</span>
+        <h3>Agent-readable adapter</h3>
+        <p>Machine-readable manifest, catalog, quote, paid-order, status, and refund endpoints.</p>
+        <ul>
+          <li>No scraping or browser automation</li>
+          <li>Quote hash binds final terms</li>
+        </ul>
+      </article>
+      <article class="module agent">
+        <span class="tag">AgentCart</span>
+        <h3>Buyer-side safety</h3>
+        <p>Discovery, quote comparison, household policy, approval, audit, delivery calendar, and task sync.</p>
+        <ul>
+          <li>Approval before checkout</li>
+          <li>Chooses by final quote, not ads</li>
+        </ul>
+      </article>
+      <article class="module tempo">
+        <span class="tag">Tempo MPP</span>
+        <h3>Payment proof rail</h3>
+        <p>HTTP 402-style payment challenge, payment authorization, and receipt/proof.</p>
+        <ul>
+          <li>Demo uses testnet proof</li>
+          <li>Production needs verifier-backed settlement</li>
+        </ul>
+      </article>
+      <article class="module risk">
+        <span class="tag">Operations</span>
+        <h3>Production controls</h3>
+        <p>FX, disputes, refunds, carrier tracking, KYC/payouts, terms, privacy, and consumer rights.</p>
+        <ul>
+          <li>Not hidden by the prototype</li>
+          <li>Handled by merchant + PSP/verifier</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="section rail">
+      <article class="card">
+        <h2>What Tempo MPP does</h2>
+        <table>
+          <tr><th>Payment challenge</th><td><code>WWW-Authenticate: Payment</code> / HTTP 402-shaped request.</td></tr>
+          <tr><th>Payment credential</th><td>Agent presents an MPP-compatible authorization.</td></tr>
+          <tr><th>Receipt/proof</th><td>AgentCart stores the receipt and explorer/proof reference when available.</td></tr>
+        </table>
+      </article>
+      <article class="card">
+        <h2>What ShopBridge adds around it</h2>
+        <table>
+          <tr><th>Before payment</th><td>Product, stock, final price, VAT, shipping, delivery estimate, merchant of record, quote hash.</td></tr>
+          <tr><th>After payment</th><td>WooCommerce paid order, order status URL, refund metadata, delivery/status handoff.</td></tr>
+          <tr><th>Safety</th><td>Household budget, category policy, explicit approval, idempotency, replay protection, audit log.</td></tr>
+        </table>
+      </article>
+    </section>
+
+    <section class="section grid">
+      <article class="card">
+        <h2>Merchant setup</h2>
+        <p>Install the plugin through WordPress, configure support contact, shipping countries, payment verifier/recipient, then add products in WooCommerce as usual. The manifest advertises endpoints; the catalog endpoint exposes published products automatically.</p>
+      </article>
+      <article class="card">
+        <h2>Agent flow</h2>
+        <p>Intent -> merchant discovery -> private quote tournament -> policy check -> approval -> MPP proof -> Woo order -> audit and delivery ETA.</p>
+      </article>
+      <article class="card">
+        <h2>Why modular</h2>
+        <p>WooCommerce keeps merchant operations. Tempo keeps payment semantics. AgentCart connects agents to both without requiring a new storefront.</p>
+      </article>
+    </section>
+
+    <div class="note">
+      <strong>Demo boundary:</strong> the hackathon demo shows a real WooCommerce order surface and Tempo testnet proof. It does not claim real EUR settlement, carrier tracking, or production refunds unless a payment verifier and merchant operations are configured.
+    </div>
+  </main>
+</body>
+</html>

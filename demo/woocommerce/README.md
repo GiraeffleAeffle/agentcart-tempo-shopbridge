@@ -16,7 +16,7 @@ shop and does not bypass WooCommerce order handling.
 ## Run Locally
 
 ```sh
-cd home-ops/agentcart/woocommerce-demo
+cd demo/woocommerce
 cp .env.example .env
 curl -fL -o woocommerce.latest-stable.zip https://downloads.wordpress.org/plugin/woocommerce.latest-stable.zip
 docker compose up -d wordpress db
@@ -33,7 +33,7 @@ http://127.0.0.1:8098/wp-admin
 Default demo admin:
 
 ```text
-max / agentcart-demo-admin
+merchant / agentcart-demo-admin
 ```
 
 ## Point AgentCart At The Plugin
@@ -62,7 +62,7 @@ After approval and MPP proof, the WooCommerce admin should show a paid
 
 ## Plugin API
 
-All endpoints require:
+Public discovery, catalog, product, and quote endpoints do not require the merchant token. Paid order creation and refunds require:
 
 ```http
 X-AgentCart-Merchant-Token: agentcart-woo-demo-token

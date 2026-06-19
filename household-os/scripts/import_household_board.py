@@ -190,277 +190,33 @@ def berlin_time(date_text: str, hour: int = 9, minute: int = 0) -> str:
 
 TASKS: list[dict[str, Any]] = [
     {
-        "project": "Today / Recurring",
-        "title": "Lüften!!",
-        "owners": ["max"],
-        "labels": ["daily", "home-assistant", "recurring"],
-        "due_date": berlin_time("2026-05-31", 18, 30),
-        "repeat_after": 86400,
-        "repeat_mode": 0,
-        "reminders": [{"reminder": berlin_time("2026-05-31", 18, 30)}],
-        "description": "Ventilate the flat every day. Later this should be automated with Home Assistant, ideally based on CO2, humidity, temperature, and/or window sensors."
-        + checklist([
-            ("Decide which rooms need Lüften reminders", False),
-            ("Check available CO2 / humidity sensors", False),
-            ("Define threshold for notification", False),
-            ("Create Home Assistant automation", False),
-            ("Disable manual daily reminder once automation works", False),
-        ]),
-    },
-    {
-        "project": "Today / Recurring",
-        "title": "Check HelloFresh code",
-        "owners": ["max", "ana"],
-        "labels": ["recurring", "food", "shopping"],
-        "due_date": berlin_time("2026-06-07", 10, 0),
-        "repeat_after": 1209600,
-        "repeat_mode": 0,
-        "reminders": [{"reminder": berlin_time("2026-06-07", 10, 0)}],
-        "description": "Check whether there is a usable HelloFresh code. If yes, decide meals. If no, skip.",
-    },
-    {
-        "project": "This Week / Active",
-        "title": "Plan holidays year",
-        "owners": ["max", "ana"],
-        "labels": ["planning", "life-admin"],
-        "due_date": berlin_time("2026-06-07", 18, 0),
-        "reminders": [{"reminder": berlin_time("2026-06-07", 10, 0)}],
-        "description": "Plan possible holiday periods for the year."
-        + checklist([
-            ("Check work calendars / possible vacation windows", False),
-            ("Decide rough budget", False),
-            ("Collect destination ideas", False),
-            ("Decide first concrete holiday block", False),
-            ("Add dates to calendar", False),
-        ]),
-    },
-    {
-        "project": "This Week / Active",
-        "title": "Check if study time can count toward pension",
-        "owners": ["max", "ana"],
-        "labels": ["pension", "life-admin", "Germany"],
-        "due_date": berlin_time("2026-06-05", 18, 0),
-        "reminders": [{"reminder": berlin_time("2026-06-05", 9, 0)}],
-        "description": "Check whether study time can count toward pension records. We read that up to 8 years may be counted. Relevant for both Max and Ana."
-        + checklist([
-            ("Max: collect study periods with dates", False),
-            ("Ana: collect study periods with dates", False),
-            ("Collect proof documents if available", False),
-            ("Check DRV / Kontenklärung / V0100 process", False),
-            ("Decide whether to book a Deutsche Rentenversicherung appointment", False),
-        ]),
-    },
-    {
-        "project": "This Week / Active",
-        "title": "Decide what to do with old broken Putzi",
-        "owners": ["max"],
-        "labels": ["cleaning-robot", "e-waste", "home"],
-        "due_date": berlin_time("2026-06-03", 18, 0),
-        "reminders": [{"reminder": berlin_time("2026-06-03", 9, 0)}],
-        "description": "Find out how to properly dispose of the old broken cleaning robot before replacing it."
-        + checklist([
-            ("Check whether battery needs to be removed", False),
-            ("Check Wertstoffhof / recycling option", False),
-            ("Check whether shop accepts old electronics", False),
-            ("Remove old robot from app / Home Assistant", False),
-            ("Dispose of old Putzi", False),
-        ]),
-    },
-    {
-        "project": "This Week / Active",
-        "title": "Decide first room for light automation",
-        "owners": ["max"],
-        "labels": ["home-automation", "lights"],
-        "due_date": berlin_time("2026-06-02", 18, 0),
-        "reminders": [{"reminder": berlin_time("2026-06-02", 9, 0)}],
-        "description": "Choose one room for the first light automation test. Do not start with the whole flat."
-        + checklist([
-            ("Choose first room: bedroom, kitchen, hallway, or living room", False),
-            ("List existing lights in that room", False),
-            ("Decide whether motion sensor or presence sensor is needed", False),
-            ("Define desired behavior", False),
-            ("Create first test automation", False),
-        ]),
+        "project": "To Buy",
+        "title": "Buy Hazel's Chocolate tea",
+        "owners": ["demo"],
+        "labels": ["shopping", "food"],
+        "description": "Demo shopping task used by AgentCart to show household-agent purchasing.",
     },
     {
         "project": "To Buy",
-        "title": "Clothes for us",
-        "owners": ["max", "ana"],
-        "labels": ["shopping", "clothes"],
-        "description": "General clothes shopping for both of us."
-        + checklist([
-            ("Trousers", False),
-            ("Jogginghose", False),
-            ("Wedding Lukas & Oanh", True),
-            ("Jeans Ana", True),
-        ]),
-    },
-    {"project": "To Buy", "title": "Trousers", "owners": ["max", "ana"], "labels": ["shopping", "clothes"], "description": "Buy trousers."},
-    {
-        "project": "To Buy",
-        "title": "Diffuser for nice scent",
-        "owners": ["max", "ana"],
+        "title": "Buy laundry detergent",
+        "owners": ["demo"],
         "labels": ["shopping", "home"],
-        "description": "Get something that makes the flat smell nice."
-        + checklist([
-            ("Decide: diffuser, reed diffuser, room spray, candle, or smart diffuser", False),
-            ("Choose scent style", False),
-            ("Buy one small option first", False),
-        ]),
-    },
-    {
-        "project": "To Buy",
-        "title": "Proper shaver",
-        "owners": ["max"],
-        "labels": ["shopping", "personal-care"],
-        "description": "Get a proper shaver."
-        + checklist([
-            ("Decide if it should be for face only or body + face", False),
-            ("Decide wet/dry or electric only", False),
-            ("Define budget", False),
-            ("Compare options", False),
-            ("Buy one", False),
-        ]),
-    },
-    {
-        "project": "To Buy",
-        "title": "New Putzi 2.0",
-        "owners": ["max"],
-        "labels": ["shopping", "cleaning-robot", "home-automation"],
-        "description": "Get a new cleaning robot to replace the old broken one. Roborock is one option."
-        + checklist([
-            ("Define requirements", False),
-            ("Decide vacuum only or vacuum + mop", False),
-            ("Decide Home Assistant integration importance", False),
-            ("Compare Roborock options", False),
-            ("Buy new robot", False),
-        ]),
-    },
-    {"project": "To Buy", "title": "Tea cup", "owners": ["max", "ana"], "labels": ["shopping", "quick-win"], "description": "Buy a tea cup."},
-    {"project": "To Buy", "title": "Jogginghose", "owners": ["max", "ana"], "labels": ["shopping", "clothes"], "description": "Buy jogging pants."},
-    {
-        "project": "To Buy",
-        "title": "Fenster Lichtabdeckung Schlafzimmer",
-        "owners": ["max", "ana"],
-        "labels": ["shopping", "home"],
-        "description": "Get light cover / curtain / blind solution for the bedroom window."
-        + checklist([
-            ("Measure bedroom window", False),
-            ("Decide type: curtain, blind, blackout, privacy film", False),
-            ("Buy solution", False),
-            ("Install", False),
-        ]),
-    },
-    {
-        "project": "To Buy",
-        "title": "Fenster Lichtabdeckung Küche",
-        "owners": ["max", "ana"],
-        "labels": ["shopping", "home"],
-        "description": "Get light cover / curtain / blind solution for the kitchen window."
-        + checklist([
-            ("Measure kitchen window", False),
-            ("Decide type: curtain, blind, privacy film", False),
-            ("Buy solution", False),
-            ("Install", False),
-        ]),
-    },
-    {
-        "project": "To Buy",
-        "title": "Bewegungssensoren",
-        "owners": ["max"],
-        "labels": ["shopping", "home-automation", "lights"],
-        "description": "Buy motion sensors for the first light automation test."
-        + checklist([
-            ("Decide room first", False),
-            ("Check Home Assistant compatibility", False),
-            ("Buy only 1-2 sensors for testing", False),
-        ]),
-    },
-    {
-        "project": "To Buy",
-        "title": "Aufenthaltssensoren",
-        "owners": ["max"],
-        "labels": ["shopping", "home-automation", "lights"],
-        "description": "Buy presence sensors for rooms where motion sensors are not enough."
-        + checklist([
-            ("Decide where presence detection is actually needed", False),
-            ("Compare mmWave / presence sensor options", False),
-            ("Buy one for testing first", False),
-        ]),
-    },
-    {
-        "project": "To Buy",
-        "title": "Verschiedene Lichter",
-        "owners": ["max", "ana"],
-        "labels": ["shopping", "home-automation", "lights"],
-        "description": "Buy lights needed for automation or better room lighting."
-        + checklist([
-            ("Decide first room", False),
-            ("Check existing lights", False),
-            ("Decide what is missing", False),
-            ("Buy lights only for the first test room", False),
-        ]),
+        "description": "Example household supply task for agent-readable product discovery.",
     },
     {
         "project": "Home Automation",
-        "title": "Automate Lüften with Home Assistant",
-        "owners": ["max"],
-        "labels": ["home-assistant", "automation", "air-quality"],
-        "description": "Replace manual Lüften reminder with a Home Assistant automation."
-        + checklist([
-            ("Check CO2 sensor availability", False),
-            ("Check humidity sensors", False),
-            ("Check temperature sensors", False),
-            ("Decide notification logic", False),
-            ("Add notification to Max and Ana", False),
-            ("Test for one week", False),
-            ("Tune threshold", False),
-        ]),
+        "title": "Check pantry low-stock sensor",
+        "owners": ["demo"],
+        "labels": ["home-assistant", "automation"],
+        "description": "Example task showing how Home Assistant context can trigger a safe shopping flow.",
     },
     {
-        "project": "Home Automation",
-        "title": "Lichtautomatisierung",
-        "owners": ["max"],
-        "labels": ["home-assistant", "automation", "lights"],
-        "description": "Create useful light automation in the flat."
-        + checklist([
-            ("Decide first room", False),
-            ("Buy/test Bewegungssensoren", False),
-            ("Buy/test Aufenthaltssensoren if needed", False),
-            ("Decide which lights should be automated", False),
-            ("Create first Home Assistant automation", False),
-            ("Test for one week", False),
-            ("Tune behavior", False),
-            ("Expand to second room only after first room works", False),
-        ]),
+        "project": "This Week / Active",
+        "title": "Review AgentCart demo order",
+        "owners": ["demo"],
+        "labels": ["planning"],
+        "description": "Open the order proof page and verify quote, approval, payment proof, WooCommerce order, delivery estimate, and audit log.",
     },
-    {"project": "Home Automation", "title": "Bewegungssensoren setup", "owners": ["max"], "labels": ["home-assistant", "automation", "lights"], "description": "Set up motion sensors after buying the first test devices. Linked to the To Buy item."},
-    {"project": "Home Automation", "title": "Aufenthaltssensoren setup", "owners": ["max"], "labels": ["home-assistant", "automation", "lights"], "description": "Set up presence sensors after buying the first test device. Linked to the To Buy item."},
-    {"project": "Home Automation", "title": "Verschiedene Lichter setup", "owners": ["max"], "labels": ["home-assistant", "automation", "lights"], "description": "Set up the selected lights after the first test room is defined. Linked to the To Buy item."},
-    {
-        "project": "Waiting / Scheduled",
-        "title": "Ana femtoLASIK",
-        "owners": ["ana"],
-        "labels": ["health", "scheduled"],
-        "due_date": berlin_time("2026-06-08", 9, 0),
-        "reminders": [{"reminder": berlin_time("2026-06-07", 18, 0)}],
-        "description": "Ana has femtoLASIK planned on 08.06.2026.",
-    },
-    {
-        "project": "Waiting / Scheduled",
-        "title": "Glasses Ana",
-        "owners": ["ana"],
-        "labels": ["glasses", "health", "waiting", "shopping"],
-        "reminders": [{"reminder": berlin_time("2026-06-22", 10, 0)}],
-        "description": "Wait with new glasses decision because Ana will have femtoLASIK on 08.06.2026."
-        + checklist([
-            ("Wait for LASIK", False),
-            ("Wait for follow-up / stable vision", False),
-            ("Decide whether glasses are still needed", False),
-        ]),
-    },
-    {"project": "Done / Archive", "title": "Wedding Lukas & Oanh clothes", "owners": ["max", "ana"], "labels": ["shopping", "clothes", "done"], "done": True, "description": "Done."},
-    {"project": "Done / Archive", "title": "Jeans Ana", "owners": ["ana"], "labels": ["shopping", "clothes", "done"], "done": True, "description": "Done."},
 ]
 
 
@@ -561,10 +317,10 @@ def ensure_household_team(api: Vikunja) -> int:
             team_id = int(team["id"])
             break
     else:
-        team = api.request("PUT", "/teams", {"name": "Household", "description": "Shared Max/Ana household planning team."})
+        team = api.request("PUT", "/teams", {"name": "Household", "description": "Shared demo household planning team."})
         team_id = int(team["id"])
 
-    for username, admin in (("max", True), ("ana", True), ("household-assistant", True)):
+    for username, admin in (("demo", True), ("household-assistant", True)):
         try:
             api.request("PUT", f"/teams/{team_id}/members", {"username": username, "admin": admin})
         except RuntimeError as error:
@@ -585,12 +341,12 @@ def ensure_project_shares(api: Vikunja, projects: dict[str, int], team_id: int) 
 
 def user_ids(api: Vikunja) -> dict[str, int]:
     ids: dict[str, int] = {}
-    for username in ("max", "ana"):
+    for username in ("demo",):
         matches = api.request("GET", "/users", query={"s": username})
         for user in matches:
             if user.get("username") == username:
                 ids[username] = int(user["id"])
-    missing = {"max", "ana"} - set(ids)
+    missing = {"demo"} - set(ids)
     if missing:
         raise RuntimeError(f"Missing Vikunja users: {', '.join(sorted(missing))}")
     return ids

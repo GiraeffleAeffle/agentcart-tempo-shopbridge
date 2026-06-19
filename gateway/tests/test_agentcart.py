@@ -44,7 +44,7 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         vikunja_token="",
         vikunja_project_id=None,
         default_ship_country="DE",
-        default_ship_postal_code="15344",
+        default_ship_postal_code="10115",
         woocommerce_mode="mock",
         woocommerce_base_url="",
         woocommerce_consumer_key="",
@@ -127,7 +127,7 @@ class AgentCartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(pathlib.Path(raw_tmp))
 
-            result = service.quote_tournament({"q": "sencha", "country": "DE", "postal_code": "15344"})
+            result = service.quote_tournament({"q": "sencha", "country": "DE", "postal_code": "10115"})
 
             self.assertEqual(result["market_design"]["registry_role"], "public identity anchor")
             self.assertEqual(result["market_design"]["ranking"], "local user policy, total price, delivery window; no paid placement")
@@ -147,7 +147,7 @@ class AgentCartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(pathlib.Path(raw_tmp))
 
-            result = service.quote_tournament({"q": "buy my favorite tea", "country": "DE", "postal_code": "15344"})
+            result = service.quote_tournament({"q": "buy my favorite tea", "country": "DE", "postal_code": "10115"})
 
             self.assertEqual(result["query"], "buy my favorite tea")
             self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
@@ -174,7 +174,7 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "buy via chat approval",
                     "items": [{"product_id": "woo_203", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
 
@@ -337,7 +337,7 @@ class AgentCartTests(unittest.TestCase):
             service = make_service(pathlib.Path(raw_tmp))
             result = service.search_catalog("buy my favorite tea")
             self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
-            self.assertEqual(result["preference_context"]["id"], "max.favorite_tea")
+            self.assertEqual(result["preference_context"]["id"], "household.favorite_tea")
             self.assertEqual(result["products"][0]["id"], "woo_203")
             self.assertEqual(result["products"][0]["merchant_id"], "woocommerce-demo-tea")
             quote = service.create_quote(
@@ -345,7 +345,7 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "buy my favorite tea",
                     "items": [{"product_id": result["products"][0]["id"], "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             self.assertEqual(quote["merchant_id"], "woocommerce-demo-tea")
@@ -359,7 +359,7 @@ class AgentCartTests(unittest.TestCase):
 
             result = service.search_catalog("Please buy my favourite tea")
             self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
-            self.assertEqual(result["preference_context"]["id"], "max.favorite_tea")
+            self.assertEqual(result["preference_context"]["id"], "household.favorite_tea")
             self.assertEqual(result["products"][0]["id"], "woo_203")
             self.assertEqual(service.get_product("favorite_tea")["id"], "woo_203")
             self.assertEqual(service.get_product("favourite_tea")["id"], "woo_203")
@@ -371,7 +371,7 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "direct favorite alias from tool call",
                     "items": [{"product_id": "favorite_tea", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             self.assertEqual(quote["merchant_id"], "woocommerce-demo-tea")
@@ -386,9 +386,9 @@ class AgentCartTests(unittest.TestCase):
                 with self.subTest(query=query):
                     result = service.search_catalog(query)
                     self.assertEqual(result["catalog_query"], "Hazel's Chocolate Tea")
-                    self.assertEqual(result["preference_context"]["id"], "max.favorite_tea")
+                    self.assertEqual(result["preference_context"]["id"], "household.favorite_tea")
                     self.assertEqual(result["products"][0]["id"], "woo_203")
-                    tournament = service.quote_tournament({"q": query, "country": "DE", "postal_code": "15344"})
+                    tournament = service.quote_tournament({"q": query, "country": "DE", "postal_code": "10115"})
                     self.assertEqual(tournament["winner"]["merchant_id"], "woocommerce-demo-tea")
                     self.assertEqual(tournament["winner"]["total_cents"], 1480)
 
@@ -400,7 +400,7 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "tea stock is low",
                     "items": [{"product_id": "tea_sencha_100g", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             self.assertEqual(quote["subtotal_cents"], 849)
@@ -421,7 +421,7 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "buy from opt-in Woo tea shop",
                     "items": [{"product_id": "woo_201", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             self.assertEqual(quote["merchant_id"], "woocommerce-demo-tea")
@@ -438,7 +438,7 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "oversized order",
                     "items": [{"product_id": "tea_assam_250g", "quantity": 3}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             self.assertEqual(quote["policy_result"]["decision"], "deny")
@@ -453,13 +453,13 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "tea stock is low",
                     "items": [{"product_id": "tea_sencha_100g", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             approval = service.create_approval({"quote_id": quote["id"]})
             service.decide_approval(
                 approval["id"],
-                {"decision": "approved", "token": approval["decision_token"], "approver": "max"},
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
 
             payload = {
@@ -509,13 +509,13 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "tea stock is low",
                     "items": [{"product_id": "tea_sencha_100g", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             approval = service.create_approval({"quote_id": quote["id"]})
             service.decide_approval(
                 approval["id"],
-                {"decision": "approved", "token": approval["decision_token"], "approver": "max"},
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
             payload = {
                 "quote_id": quote["id"],
@@ -554,13 +554,13 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "tea stock is low",
                     "items": [{"product_id": "tea_sencha_100g", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             approval = service.create_approval({"quote_id": quote["id"]})
             service.decide_approval(
                 approval["id"],
-                {"decision": "approved", "token": approval["decision_token"], "approver": "max"},
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
             payload = {
                 "quote_id": quote["id"],
@@ -603,13 +603,13 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "tea stock is low",
                     "items": [{"product_id": "tea_sencha_100g", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             approval = service.create_approval({"quote_id": quote["id"]})
             service.decide_approval(
                 approval["id"],
-                {"decision": "approved", "token": approval["decision_token"], "approver": "max"},
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
             payload = {
                 "quote_id": quote["id"],
@@ -712,13 +712,13 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "tea stock is low",
                     "items": [{"product_id": "tea_sencha_100g", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             approval = service.create_approval({"quote_id": quote["id"]})
             service.decide_approval(
                 approval["id"],
-                {"decision": "approved", "token": approval["decision_token"], "approver": "max"},
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
             payload = {
                 "quote_id": quote["id"],
@@ -749,13 +749,13 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "tea stock is low",
                     "items": [{"product_id": "tea_sencha_100g", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             approval = service.create_approval({"quote_id": quote["id"]})
             service.decide_approval(
                 approval["id"],
-                {"decision": "approved", "token": approval["decision_token"], "approver": "max"},
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
             payload = {
                 "quote_id": quote["id"],
@@ -775,13 +775,13 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "tea stock is low",
                     "items": [{"product_id": "woo_201", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             approval = service.create_approval({"quote_id": quote["id"]})
             service.decide_approval(
                 approval["id"],
-                {"decision": "approved", "token": approval["decision_token"], "approver": "max"},
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
 
             payload = {
@@ -923,7 +923,7 @@ class AgentCartTests(unittest.TestCase):
                     "agent_id": "test-agent",
                     "reason": "buy a shaver from the opt-in WooCommerce demo shop",
                     "items": [{"product_id": "woo_701", "quantity": 1}],
-                    "ship_to": {"country": "DE", "postal_code": "15344"},
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
                 }
             )
             self.assertEqual(quote["merchant_quote_id"], "woo_quote_701")
@@ -935,7 +935,7 @@ class AgentCartTests(unittest.TestCase):
             approval = service.create_approval({"quote_id": quote["id"]})
             service.decide_approval(
                 approval["id"],
-                {"decision": "approved", "token": approval["decision_token"], "approver": "max"},
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
             payload = {
                 "quote_id": quote["id"],
@@ -974,7 +974,7 @@ class AgentCartTests(unittest.TestCase):
             with self.assertRaises(agentcart.Forbidden):
                 service.decide_approval(
                     approval["id"],
-                    {"decision": "approved", "token": "wrong", "approver": "max"},
+                    {"decision": "approved", "token": "wrong", "approver": "household-user"},
                 )
 
     def test_dashboard_marks_stale_pending_approvals_expired(self) -> None:

@@ -10,7 +10,7 @@ metadata:
 
 # AgentCart Skill
 
-Use this skill when Max asks the household agent to search for household goods,
+Use this skill when the household user asks the household agent to search for household goods,
 quote a small opt-in merchant purchase, check policy, request approval, or
 complete an AgentCart demo checkout.
 
@@ -40,7 +40,7 @@ Available commands:
 - `search_catalog` with optional `q`.
 - `registry` with `{}` to list opt-in merchant manifest anchors.
 - `quote_tournament` with optional `q`, `country`, `postal_code`, and
-  `quantity`. Use this before purchase when Max asks for the best price or
+  `quantity`. Use this before purchase when the household user asks for the best price or
   asks to buy a product by intent.
 - `get_product` with `product_id`.
 - `get_quote` with `quote_id`.
@@ -51,12 +51,12 @@ Available commands:
   or use `decision_url` for web/mobile/Home Assistant approval.
 - `approval_status` with `approval_id`.
 - `approve_purchase` with `approval_url`, or with `approval_id` and
-  `token`/`decision_token`. Use only after Max explicitly approves in chat.
+  `token`/`decision_token`. Use only after the household user explicitly approves in chat.
 - `reject_purchase` with `approval_url`, or with `approval_id` and
-  `token`/`decision_token`. Use only after Max explicitly rejects in chat.
+  `token`/`decision_token`. Use only after the household user explicitly rejects in chat.
 - `approve_and_checkout` with `approval_url`, or with `approval_id` and
   `token`/`decision_token`. This records the human approval and then runs the
-  demo HTTP 402 payment-auth checkout. Use only when Max explicitly asks to approve and
+  demo HTTP 402 payment-auth checkout. Use only when the household user explicitly asks to approve and
   continue checkout.
 - `checkout` with `quote_id`, `approval_id`, optional `idempotency_key`, and
   optional `simulate_payment`. If `simulate_payment` is true, the helper follows
@@ -99,7 +99,7 @@ python3 {baseDir}/scripts/agentcart-command.py <<'JSON'
 JSON
 ```
 
-If Max approves over chat instead, use the approval URL/token from the pending
+If the household user approves over chat instead, use the approval URL/token from the pending
 request:
 
 ```sh

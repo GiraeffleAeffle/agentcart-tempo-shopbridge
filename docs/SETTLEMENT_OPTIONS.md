@@ -1,5 +1,8 @@
 # Settlement Options
 
+> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
+
+
 AgentCart separates quote/order semantics from the payment rail. The merchant
 quotes in the store currency, while the verifier proves that the payment rail
 settled or authorized the exact quote.

@@ -1,5 +1,8 @@
 # WooCommerce Plugin Production Hardening
 
+> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
+
+
 The ShopBridge plugin is demo-capable, but production merchant onboarding needs
 the controls below.
 

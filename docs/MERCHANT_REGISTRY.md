@@ -1,5 +1,8 @@
 # Merchant Registry And Discovery
 
+> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
+
+
 AgentCart's registry should be an identity and integrity anchor, not an ad
 marketplace and not a product catalog.
 

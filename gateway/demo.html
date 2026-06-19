@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart Demo Cockpit</title>
+  <style>
+    :root { color-scheme: light; --bg:#f5f2ea; --panel:#fffdf8; --ink:#17211f; --muted:#607067; --line:#d8d1c1; --accent:#2d6f5a; --tempo:#5c6df0; --merchant:#b85935; --warn:#8f5d1f; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:16px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); }
+    header { padding:24px; border-bottom:1px solid var(--line); background:rgba(255,253,248,.88); position:sticky; top:0; z-index:3; backdrop-filter:blur(12px); }
+    main { max-width:1220px; margin:0 auto; padding:22px 24px 48px; }
+    h1 { margin:0; font-size:34px; letter-spacing:0; }
+    h2 { margin:0 0 12px; font-size:24px; letter-spacing:0; }
+    h3 { margin:0 0 8px; font-size:18px; letter-spacing:0; }
+    p { margin:0; color:var(--muted); }
+    a { color:var(--accent); }
+    .top { display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+    .pill { border:1px solid var(--line); border-radius:999px; padding:6px 10px; background:#fff; font-weight:750; color:var(--muted); }
+    .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-top:16px; }
+    .two { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; box-shadow:0 12px 28px rgba(23,33,31,.06); }
+    .step { border-top:5px solid var(--accent); min-height:178px; }
+    .step:nth-child(2) { border-top-color:var(--merchant); }
+    .step:nth-child(3) { border-top-color:var(--tempo); }
+    .step:nth-child(4) { border-top-color:var(--warn); }
+    .step:nth-child(5) { border-top-color:#2d5d93; }
+    .links { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .button, button { appearance:none; border:1px solid var(--accent); background:var(--accent); color:white; text-decoration:none; border-radius:7px; padding:9px 12px; font:inherit; font-weight:750; cursor:pointer; }
+    .button.secondary, button.secondary { background:transparent; color:var(--ink); border-color:var(--line); }
+    code, pre { background:#efe8d8; border:1px solid #d9ceb8; border-radius:6px; color:#27312f; }
+    code { padding:2px 5px; }
+    pre { white-space:pre-wrap; padding:12px; margin:10px 0 0; font-size:14px; }
+    .prompt { background:#17211f; color:#f7f4ec; border-color:#17211f; }
+    .prompt pre { background:#0f1715; color:#f7f4ec; border-color:#33413d; }
+    .status { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+    .metric { font-size:13px; color:var(--muted); }
+    .value { font-size:18px; font-weight:800; margin-top:3px; overflow-wrap:anywhere; }
+    .ok { color:#237342; }
+    .warn { color:#9b621a; }
+    .muted { color:var(--muted); }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { text-align:left; border-bottom:1px solid var(--line); padding:9px 6px; vertical-align:top; }
+    th { color:var(--muted); font-size:13px; }
+    .section { margin-top:20px; }
+    @media (max-width:920px) { .grid, .two, .status { grid-template-columns:1fr; } header { position:static; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="top">
+      <div>
+        <h1>AgentCart Demo Cockpit</h1>
+        <p>Use this page while recording. It keeps the OpenClaw chat, approval, proof page, and WooCommerce admin path in one place.</p>
+      </div>
+      <span class="pill">3 minutes maximum</span>
+    </div>
+    <div class="links">
+      <a class="button" href="/presentation.html" target="_blank">Open Deck</a>
+      <a class="button secondary" href="/shopbridge-stack.html" target="_blank">Modular Stack</a>
+      <a class="button secondary" href="http://localhost:8088/chat" target="_blank">OpenClaw Chat</a>
+      <a class="button secondary" href="/agent" target="_blank">AgentCart Fallback</a>
+      <a class="button secondary" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115" target="_blank">Quote Tournament</a>
+      <a class="button secondary" href="http://localhost:8098/wp-admin/plugins.php" target="_blank">WP Plugins</a>
+      <a class="button secondary" href="http://localhost:8098/wp-admin/admin.php?page=agentcart-shopbridge" target="_blank">Woo Plugin Settings</a>
+      <a class="button secondary" href="http://localhost:8098/wp-admin/edit.php?post_type=product" target="_blank">Woo Products</a>
+      <a class="button secondary" href="http://localhost:8098/wp-admin/edit.php?post_type=shop_order" target="_blank">Woo Orders</a>
+      <a class="button secondary" href="http://localhost:8098/.well-known/agentcart.json" target="_blank">Manifest JSON</a>
+      <a class="button secondary" href="http://localhost:8098/wp-json/agentcart/v1/catalog" target="_blank">Catalog JSON</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="grid">
+      <article class="card step"><h3>0:00 - Pitch</h3><p>Show <a href="/presentation.html" target="_blank">the deck</a>. Say: MPP handles machine payment, AgentCart handles the missing merchant and household context.</p></article>
+      <article class="card step"><h3>0:45 - Shop</h3><p>Show <a href="/shopbridge-stack.html" target="_blank">the modular stack</a>, then <a href="http://localhost:8098/wp-admin/plugins.php" target="_blank">Plugins</a>, <a href="http://localhost:8098/wp-admin/admin.php?page=agentcart-shopbridge" target="_blank">ShopBridge settings</a>, <a href="http://localhost:8098/wp-admin/edit.php?post_type=product" target="_blank">Products</a>, and <a href="http://localhost:8098/wp-json/agentcart/v1/catalog" target="_blank">Catalog JSON</a>.</p></article>
+      <article class="card step"><h3>1:15 - Agent</h3><p>Open <a href="http://localhost:8088/chat" target="_blank">OpenClaw chat</a>, ask it to buy the favourite tea, and show the selected final quote.</p></article>
+      <article class="card step"><h3>1:50 - Approval</h3><p>Approve in chat, Home Assistant phone/watch, or the approval page. The point is explicit consent before checkout.</p></article>
+      <article class="card step"><h3>2:20 - Proof</h3><p>Show latest AgentCart proof and WooCommerce order. Close with demo limits: testnet proof, production verifier needed.</p></article>
+    </section>
+
+    <section class="section grid two">
+      <article class="card">
+        <h2>Merchant Onboarding Shot</h2>
+        <table>
+          <tr><th>1. Install</th><td>WordPress admin -> <a href="http://localhost:8098/wp-admin/plugins.php" target="_blank">Plugins</a> -> AgentCart ShopBridge active.</td></tr>
+          <tr><th>2. Configure</th><td><a href="http://localhost:8098/wp-admin/admin.php?page=agentcart-shopbridge" target="_blank">WooCommerce -> AgentCart</a> shows manifest, catalog, quote, order, payment verifier, recipient, and readiness.</td></tr>
+          <tr><th>3. Add products</th><td>Normal <a href="http://localhost:8098/wp-admin/edit.php?post_type=product" target="_blank">WooCommerce products</a> provide name, SKU, price, stock, category, image, description, and tax/shipping context.</td></tr>
+          <tr><th>4. Expose to agents</th><td><a href="http://localhost:8098/.well-known/agentcart.json" target="_blank">Manifest</a> advertises endpoints; <a href="http://localhost:8098/wp-json/agentcart/v1/catalog" target="_blank">Catalog</a> lists published products automatically.</td></tr>
+        </table>
+      </article>
+      <article class="card prompt">
+        <h2>Main Prompt</h2>
+        <p class="muted">Use this in OpenClaw chat. If the model is unstable, paste it into the AgentCart fallback page.</p>
+        <pre id="mainPrompt">Please buy my favourite tea. Discover shops, choose the best final quote, and ask me for approval before checkout.</pre>
+        <div class="links"><button data-copy="mainPrompt">Copy prompt</button></div>
+      </article>
+    </section>
+
+    <section class="section grid two">
+      <article class="card prompt">
+        <h2>Approval Prompt</h2>
+        <p class="muted">Use this if the approval is handled in chat instead of phone/watch.</p>
+        <pre id="approvalPrompt">Approve it and continue checkout.</pre>
+        <div class="links"><button data-copy="approvalPrompt">Copy approval</button></div>
+      </article>
+      <article class="card">
+        <h2>Woo Order State</h2>
+        <p><code>Processing</code> is the expected WooCommerce status after AgentCart checkout for physical products. It means the order is paid, stock was reduced, and the merchant still needs to pack, ship, or mark it completed.</p>
+        <div class="links"><a class="button secondary" href="http://localhost:8098/wp-admin/edit.php?post_type=shop_order" target="_blank">Open Woo orders</a></div>
+      </article>
+    </section>
+
+    <section class="section card">
+      <div class="top">
+        <div><h2>Live Proof Status</h2><p>Reads the latest AgentCart order from <code>/v1/dashboard/state</code>.</p></div>
+        <button class="secondary" id="refresh">Refresh</button>
+      </div>
+      <div class="status" id="status">
+        <div><div class="metric">Latest order</div><div class="value muted">loading</div></div>
+        <div><div class="metric">Merchant order</div><div class="value muted">loading</div></div>
+        <div><div class="metric">Payment proof</div><div class="value muted">loading</div></div>
+        <div><div class="metric">Delivery</div><div class="value muted">loading</div></div>
+      </div>
+      <div class="links" id="liveLinks"></div>
+      <table id="proofTable" aria-label="latest order proof table"></table>
+    </section>
+
+    <section class="section grid two">
+      <article class="card">
+        <h2>What Judges Should See</h2>
+        <table>
+          <tr><th>Buyer side</th><td>OpenClaw intent, two-shop comparison, exact approval, payment proof, delivery ETA.</td></tr>
+          <tr><th>Merchant side</th><td>WooCommerce order exists, paid via <code>Tempo MPP via AgentCart</code>, product/shipping/total visible.</td></tr>
+          <tr><th>Order state</th><td><code>Processing</code> is correct for physical goods: payment received, stock reduced, awaiting fulfillment/shipping by the merchant.</td></tr>
+          <tr><th>Plugin side</th><td><a href="/shopbridge-stack.html" target="_blank">Modular stack page</a> shows what WordPress, WooCommerce, ShopBridge, AgentCart, and Tempo each own.</td></tr>
+          <tr><th>Safety</th><td>No scraping, no silent spend, quote-bound approval, audit trail, testnet settlement clearly labeled.</td></tr>
+        </table>
+      </article>
+      <article class="card">
+        <h2>Fallback If Chat Fails</h2>
+        <p>Use <a href="/agent" target="_blank">AgentCart Fallback</a> to run the same API flow. It still demonstrates discovery, quote, approval, MPP-shaped checkout, Woo order, Vikunja, delivery, and audit.</p>
+        <div class="links"><a class="button" href="/agent" target="_blank">Open fallback</a><a class="button secondary" href="/" target="_blank">Open dashboard</a></div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    function money(cents, currency) {
+      const value = Number(cents || 0) / 100;
+      return value.toFixed(2) + " " + (currency || "EUR");
+    }
+    function proofReference(order) {
+      const proof = order?.payment_receipt?.external_value_proof || {};
+      return proof.explorer_url || proof.transaction_reference || proof.reference || order?.payment_receipt?.id || "";
+    }
+    function latest(items) {
+      return Array.isArray(items) && items.length ? items[items.length - 1] : null;
+    }
+    function link(href, label, primary = false) {
+      if (!href) return "";
+      return `<a class="button ${primary ? "" : "secondary"}" href="${href}" target="_blank" rel="noreferrer">${label}</a>`;
+    }
+    async function loadState() {
+      const status = document.getElementById("status");
+      const links = document.getElementById("liveLinks");
+      const table = document.getElementById("proofTable");
+      try {
+        const res = await fetch("/v1/dashboard/state", {headers: {"Accept": "application/json"}});
+        if (!res.ok) throw new Error("AgentCart returned " + res.status);
+        const state = await res.json();
+        const order = latest(state.orders);
+        const approval = latest((state.approvals || []).filter(item => item.state === "pending" || item.decision === "pending"));
+        if (!order) {
+          status.innerHTML = `<div><div class="metric">Latest order</div><div class="value warn">No order yet</div></div><div><div class="metric">Merchant order</div><div class="value muted">-</div></div><div><div class="metric">Payment proof</div><div class="value muted">-</div></div><div><div class="metric">Delivery</div><div class="value muted">-</div></div>`;
+          links.innerHTML = link("/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115", "Run quote tournament", true) + link("/agent", "Use fallback");
+          table.innerHTML = "";
+          return;
+        }
+        const merchantOrder = order.merchant_order || {};
+        const receipt = order.payment_receipt || {};
+        const proof = receipt.external_value_proof || {};
+        const delivery = order.delivery_window || order.delivery_estimate || {};
+        const shipment = order.shipment || {};
+        const itemTitle = (order.items || []).map(item => `${item.quantity || 1}x ${item.title || item.product_id}`).join(", ");
+        const proofUrl = proof.explorer_url || "";
+        status.innerHTML = `
+          <div><div class="metric">Latest order</div><div class="value ok">${order.id}</div></div>
+          <div><div class="metric">Merchant order</div><div class="value ok">${order.merchant_order_id || merchantOrder.id || "created"}</div></div>
+          <div><div class="metric">Payment proof</div><div class="value ${proofUrl ? "ok" : "warn"}">${proof.status || proof.state || receipt.status || receipt.method || "recorded"}</div></div>
+          <div><div class="metric">Delivery</div><div class="value ok">${delivery.latest_date || shipment.estimated_delivery || delivery.label || "merchant estimate"}</div></div>`;
+        links.innerHTML = [
+          link(`/orders/${order.id}`, "Open AgentCart proof", true),
+          link(merchantOrder.url, "Open Woo order", true),
+          link(proofUrl, "Open Tempo explorer"),
+          approval ? link(`/approvals/${approval.id}?token=${encodeURIComponent(approval.decision_token || approval.token || "")}`, "Open pending approval") : "",
+          link("http://localhost:8098/wp-admin/edit.php?post_type=shop_order", "Woo order list")
+        ].join("");
+        table.innerHTML = `<tbody>
+          <tr><th>Product</th><td>${itemTitle || "-"}</td></tr>
+          <tr><th>Total</th><td>${money(order.total_cents, order.currency)}</td></tr>
+          <tr><th>Merchant</th><td>${order.merchant_of_record?.name || order.merchant_id || "-"}</td></tr>
+          <tr><th>Approval</th><td>${order.approval_id || "-"}</td></tr>
+          <tr><th>Receipt</th><td>${receipt.id || "-"}</td></tr>
+          <tr><th>Proof reference</th><td>${proofReference(order) || "-"}</td></tr>
+          <tr><th>Vikunja</th><td>${order.vikunja_task?.url ? `<a href="${order.vikunja_task.url}" target="_blank" rel="noreferrer">${order.vikunja_task.url}</a>` : (order.vikunja_task?.state || "-")}</td></tr>
+        </tbody>`;
+      } catch (error) {
+        status.innerHTML = `<div><div class="metric">AgentCart state</div><div class="value warn">${String(error.message || error)}</div></div>`;
+        links.innerHTML = link("/", "Open dashboard", true);
+        table.innerHTML = "";
+      }
+    }
+    document.querySelectorAll("button[data-copy]").forEach(button => {
+      button.addEventListener("click", async () => {
+        const id = button.getAttribute("data-copy");
+        const text = document.getElementById(id)?.textContent || "";
+        try { await navigator.clipboard.writeText(text); button.textContent = "Copied"; }
+        catch { button.textContent = "Select and copy manually"; }
+        setTimeout(() => { button.textContent = id === "mainPrompt" ? "Copy prompt" : "Copy approval"; }, 1400);
+      });
+    });
+    document.getElementById("refresh").addEventListener("click", loadState);
+    loadState();
+  </script>
+</body>
+</html>

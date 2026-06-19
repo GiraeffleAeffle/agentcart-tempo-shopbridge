@@ -153,7 +153,7 @@ def start_demo_purchase(args: dict[str, Any]) -> dict[str, Any]:
     query = args.get("q") or args.get("query") or "buy woo tea"
     quantity = int(args.get("quantity") or 1)
     reason = args.get("reason") or "Household agent was asked to buy tea for low stock"
-    ship_to = args.get("ship_to", {"country": "DE", "postal_code": "15344"})
+    ship_to = args.get("ship_to", {"country": "DE", "postal_code": "10115"})
     use_tournament = bool(args.get("use_tournament", not args.get("product_id")))
     tournament: dict[str, Any] | None = None
     product: dict[str, Any] | None = None
@@ -163,7 +163,7 @@ def start_demo_purchase(args: dict[str, Any]) -> dict[str, Any]:
             {
                 "q": query,
                 "country": ship_to.get("country", "DE") if isinstance(ship_to, dict) else "DE",
-                "postal_code": ship_to.get("postal_code", "15344") if isinstance(ship_to, dict) else "15344",
+                "postal_code": ship_to.get("postal_code", "10115") if isinstance(ship_to, dict) else "10115",
                 "quantity": quantity,
             },
         )
@@ -252,7 +252,7 @@ def run(command: str, args: dict[str, Any]) -> Any:
             {
                 "q": args.get("q") or args.get("query") or "tea",
                 "country": args.get("country") or "DE",
-                "postal_code": args.get("postal_code") or "15344",
+                "postal_code": args.get("postal_code") or "10115",
                 "quantity": args.get("quantity") or 1,
             }
         )
@@ -297,7 +297,7 @@ def run(command: str, args: dict[str, Any]) -> Any:
             {
                 **args,
                 "q": args.get("q") or "buy my favorite tea",
-                "reason": args.get("reason") or "Household agent was asked to buy Max's favorite tea",
+                "reason": args.get("reason") or "Household agent was asked to buy the household user's favorite tea",
                 "use_tournament": args.get("use_tournament", not args.get("product_id")),
                 "channel": args.get("channel", "agent_chat"),
                 "delivery_channels": args.get("delivery_channels", ["chat", "home_assistant", "web", "api"]),

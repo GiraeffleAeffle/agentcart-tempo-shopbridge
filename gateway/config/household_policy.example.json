@@ -1,5 +1,5 @@
 {
-  "household_id": "max-household-demo",
+  "household_id": "demo-household",
   "max_order_total_cents": 2500,
   "monthly_budget_cents": 5000,
   "auto_approve_below_cents": 0,

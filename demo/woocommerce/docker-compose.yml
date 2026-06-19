@@ -51,9 +51,9 @@ services:
       WORDPRESS_DB_PASSWORD: wordpress
       WORDPRESS_DB_NAME: wordpress
       WOO_PUBLIC_URL: ${WOO_PUBLIC_URL:-http://127.0.0.1:8098}
-      WOO_ADMIN_USER: ${WOO_ADMIN_USER:-max}
+      WOO_ADMIN_USER: ${WOO_ADMIN_USER:-merchant}
       WOO_ADMIN_PASSWORD: ${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}
-      WOO_ADMIN_EMAIL: ${WOO_ADMIN_EMAIL:-max@household.local}
+      WOO_ADMIN_EMAIL: ${WOO_ADMIN_EMAIL:-merchant@example.test}
       AGENTCART_SHOPBRIDGE_TOKEN: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}
     volumes:
       - woo_wp:/var/www/html

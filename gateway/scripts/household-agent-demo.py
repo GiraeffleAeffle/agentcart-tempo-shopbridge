@@ -96,7 +96,7 @@ def main() -> int:
         "agent_id": "household-agent-demo",
         "reason": args.reason,
         "items": [{"product_id": product["id"], "quantity": args.quantity}],
-        "ship_to": {"country": "DE", "postal_code": "15344"},
+        "ship_to": {"country": "DE", "postal_code": "10115"},
     }
     status, _headers, quote = request_json(base_url, "POST", "/v1/quotes", token=args.token, payload=quote_payload)
     if status != 201:

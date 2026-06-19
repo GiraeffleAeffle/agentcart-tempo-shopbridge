@@ -56,7 +56,7 @@ woocommerce-shopbridge/
 deploy/home-server/
 ```
 
-If `household-os/` is not present yet, copy it from the homelab source before
+If `household-os/` is not present yet, copy it from your private source tree before
 publishing the clean repo.
 
 ## Production Caveat

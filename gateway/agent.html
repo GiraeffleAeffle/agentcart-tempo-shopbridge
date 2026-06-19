@@ -427,7 +427,7 @@
         agent_id: "agent-console",
         reason: els.reason.value || "household agent requested purchase",
         items: [{ product_id: product.id, quantity: Number(els.quantity.value || 1) }],
-        ship_to: { country: "DE", postal_code: "15344" },
+        ship_to: { country: "DE", postal_code: "10115" },
       };
       log("Agent requests final quote.", payload);
       const { body } = await api("/v1/quotes", {
