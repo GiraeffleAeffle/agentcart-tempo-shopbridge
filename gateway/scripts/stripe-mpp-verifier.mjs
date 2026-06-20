@@ -126,6 +126,8 @@ function expectedFromPayload(payload) {
   const merchantId = String(expected.merchant_id || quote.merchant_id || receipt.merchant_id || "");
   const rail = normalizeRail(expected.rail || receipt.rail || receipt.method || receipt.provider || payload.rail);
   const profileId = String(expected.stripe_profile_id || stripeProfileId);
+  const tempoNetwork = String(expected.tempo_network || "").trim();
+  const tempoRecipient = String(expected.tempo_recipient || "").trim().toLowerCase();
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
     throw Object.assign(new Error("expected.amount_cents must be a positive integer."), { status: 400 });
   }
@@ -135,13 +137,38 @@ function expectedFromPayload(payload) {
   if (!quoteHash) {
     throw Object.assign(new Error("quote_hash is required."), { status: 400 });
   }
-  if (rail !== "stripe-card-mpp") {
+  if (!["stripe-card-mpp", "tempo-mpp"].includes(rail)) {
     throw Object.assign(new Error(`Unsupported rail for this verifier: ${rail}`), { status: 400 });
   }
-  if (profileId !== stripeProfileId) {
+  if (rail === "stripe-card-mpp" && profileId !== stripeProfileId) {
     throw Object.assign(new Error("Stripe profile id does not match verifier configuration."), { status: 400 });
   }
-  return { amountCents, currency, merchantId, profileId, quoteHash, rail };
+  return { amountCents, currency, merchantId, profileId, quoteHash, rail, tempoNetwork, tempoRecipient };
+}
+
+function decimalAmountToCents(value) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/^(\d+)(?:\.(\d{1,6}))?$/);
+  if (!match) return NaN;
+  const whole = Number(match[1]);
+  const fraction = (match[2] || "").padEnd(2, "0").slice(0, 2);
+  return whole * 100 + Number(fraction);
+}
+
+function centsToDecimal(cents) {
+  return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
+}
+
+function tempoProofFromReceipt(receipt) {
+  if (!receipt || typeof receipt !== "object") return {};
+  const proof =
+    receipt.external_value_proof && typeof receipt.external_value_proof === "object"
+      ? receipt.external_value_proof
+      : receipt;
+  const body = proof.body && typeof proof.body === "object" ? proof.body : {};
+  const proofReceipt =
+    proof.payment_receipt && typeof proof.payment_receipt === "object" ? proof.payment_receipt : {};
+  return { proof, body, proofReceipt };
 }
 
 function chargeOptions(expected) {
@@ -215,6 +242,9 @@ async function verifyPayment(payload) {
   const expected = expectedFromPayload(payload);
   const receipt =
     payload.payment_receipt && typeof payload.payment_receipt === "object" ? payload.payment_receipt : {};
+  if (expected.rail === "tempo-mpp") {
+    return verifyTempoFxPayment(receipt, expected);
+  }
   const authorization = credentialFromReceipt(receipt);
   if (!authorization) {
     return jsonResponse(
@@ -238,6 +268,69 @@ async function verifyPayment(payload) {
     transaction_reference: mppReceipt.reference,
     mpp_receipt: mppReceipt,
     real_settlement_verified: true,
+  });
+}
+
+async function verifyTempoFxPayment(receipt, expected) {
+  const { proof, body, proofReceipt } = tempoProofFromReceipt(receipt);
+  const provider = String(proof.provider || body.provider || receipt.provider || "").trim();
+  const state = String(proof.state || body.state || "").trim();
+  if (provider !== "tempo_mpp") {
+    return jsonResponse({ ok: false, error: "Tempo proof is required for tempo-mpp verification." }, 400);
+  }
+  if (state && state !== "succeeded") {
+    return jsonResponse({ ok: false, error: `Tempo proof state is ${state}.` }, 400);
+  }
+  const settlementAmount = body.amount ?? proof.amount ?? proof.receipt?.amount;
+  const settlementAmountCents = decimalAmountToCents(settlementAmount);
+  if (settlementAmountCents !== expected.amountCents) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo proof amount does not match the demo FX policy.",
+        expected_settlement_amount: centsToDecimal(expected.amountCents),
+        actual_settlement_amount: settlementAmount || null,
+      },
+      400,
+    );
+  }
+  const network = String(proof.network || body.network || proofReceipt.network || expected.tempoNetwork || "");
+  if (expected.tempoNetwork && network && network !== expected.tempoNetwork) {
+    return jsonResponse({ ok: false, error: "Tempo proof network does not match merchant configuration." }, 400);
+  }
+  const recipient = String(body.recipient || proof.recipient || "").trim().toLowerCase();
+  if (expected.tempoRecipient && recipient && recipient !== expected.tempoRecipient) {
+    return jsonResponse({ ok: false, error: "Tempo proof recipient does not match merchant configuration." }, 400);
+  }
+  const transactionReference = String(
+    proof.transaction_reference ||
+      proof.reference ||
+      proofReceipt.reference ||
+      body.transaction_reference ||
+      body.reference ||
+      "",
+  ).trim();
+  if (!transactionReference) {
+    return jsonResponse({ ok: false, error: "Tempo proof transaction reference is required." }, 400);
+  }
+  return jsonResponse({
+    ok: true,
+    provider: "tempo_mpp",
+    rail: "tempo-mpp",
+    amount_cents: expected.amountCents,
+    currency: expected.currency.toUpperCase(),
+    quote_hash: expected.quoteHash,
+    network: expected.tempoNetwork || network,
+    recipient: expected.tempoRecipient || recipient,
+    transaction_reference: transactionReference,
+    real_settlement_verified: false,
+    fx: {
+      mode: "demo_fixed_1_1",
+      quote_currency: expected.currency.toUpperCase(),
+      settlement_asset: "pathUSD",
+      settlement_amount: centsToDecimal(expected.amountCents),
+      note: "Hackathon demo verifier: numeric 1:1 EUR-to-pathUSD testnet binding, not production FX settlement.",
+    },
   });
 }
 
@@ -299,6 +392,9 @@ async function paid(request, payload) {
   const ready = requireReady();
   if (ready) return ready;
   const expected = expectedFromPayload(payload);
+  if (expected.rail !== "stripe-card-mpp") {
+    return jsonResponse({ ok: false, error: `Unsupported paid endpoint rail: ${expected.rail}` }, 400);
+  }
   const mppx = createMppx(expected);
   const result = await mppx.compose([
     "stripe/charge",

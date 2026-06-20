@@ -1278,7 +1278,13 @@ final class AgentCart_ShopBridge {
             $rail = (string) ($body['rail'] ?? '');
         }
         if ($rail === '' && is_array($receipt)) {
-            $rail = (string) ($receipt['rail'] ?? $receipt['method'] ?? $receipt['provider'] ?? '');
+            $proof = isset($receipt['external_value_proof']) && is_array($receipt['external_value_proof']) ? $receipt['external_value_proof'] : [];
+            $proof_provider = (string) ($proof['provider'] ?? '');
+            if ($proof_provider === 'tempo_mpp') {
+                $rail = 'tempo-mpp';
+            } else {
+                $rail = (string) ($receipt['rail'] ?? $receipt['method'] ?? $receipt['provider'] ?? '');
+            }
         }
         $normalized = self::normalize_payment_rail($rail);
         return $normalized !== '' ? $normalized : 'tempo-mpp';
