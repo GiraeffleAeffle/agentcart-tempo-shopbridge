@@ -94,6 +94,7 @@
     .step:nth-child(3) { border-top-color: var(--home); }
     .step:nth-child(4) { border-top-color: var(--tempo); }
     .step:nth-child(5) { border-top-color: var(--warn); }
+    .step.focus { background: #fff7e5; border-color: #d5a84d; box-shadow: 0 20px 50px rgba(143, 93, 31, .13); }
     code {
       background: #ede7d8;
       border: 1px solid #d4cbb7;
@@ -139,100 +140,47 @@
 <body>
   <nav>
     <strong>AgentCart</strong>
-    <span>
-      <a href="/demo">Demo Cockpit</a> ·
-      <a href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115">Quote Tournament</a> ·
-      <a href="/shopbridge-stack.html">Modular Stack</a> ·
-      <a href="/architecture.html">Architecture</a> ·
-      <a href="http://localhost:8088/chat">OpenClaw Chat</a>
-    </span>
+    <span>WooCommerce ShopBridge for Tempo MPP</span>
   </nav>
   <main class="deck">
     <section>
       <div class="slide">
         <div class="kicker">Tempo MPP Hackathon · Futura Camp 2026</div>
         <h1>AgentCart</h1>
-        <p class="lede">A WooCommerce ShopBridge that lets household agents safely buy from opt-in merchants with Tempo MPP payment proof.</p>
-        <div class="quote">MPP can answer "can an agent pay?" AgentCart answers the missing merchant question: how does a normal shop expose products, final quotes, approval, orders, delivery, refunds, and audit data to agents?</div>
+        <p class="lede">WooCommerce checkout for AI agents.</p>
+        <div class="quote">Catalog -> final quote -> human approval -> Tempo MPP proof -> paid WooCommerce order.</div>
       </div>
     </section>
 
     <section>
       <div class="slide">
-        <div class="kicker">Problem</div>
-        <h2>Payment is only one part of checkout.</h2>
+        <div class="kicker">Core Idea</div>
+        <h2>MPP proves payment. ShopBridge proves the order.</h2>
         <div class="grid">
-          <div class="card"><strong>Tempo MPP</strong><p>Gives machine-readable payment challenges, authorization, and receipts.</p></div>
-          <div class="card"><strong>Small shops</strong><p>Need catalog, VAT, stock, shipping, merchant-of-record, refund, and fulfillment data exposed safely.</p></div>
-          <div class="card"><strong>Household agents</strong><p>Need budgets, category rules, explicit consent, delivery visibility, and an audit trail.</p></div>
+          <div class="card"><strong>ShopBridge</strong><p>WooCommerce products, stock, tax, shipping, quotes, orders.</p></div>
+          <div class="card"><strong>AgentCart</strong><p>Quote comparison, policy, approval, audit.</p></div>
+          <div class="card"><strong>Tempo MPP</strong><p>Quote-bound payment proof.</p></div>
         </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Market Wedge</div>
-        <h2>WooCommerce is the practical first adapter.</h2>
-        <div class="grid">
-          <div class="card"><div class="metric">41.5%</div><strong>WordPress reach</strong><p>W3Techs reports WordPress on 41.5% of all websites and 59.3% of known-CMS websites.</p></div>
-          <div class="card"><div class="metric">48.6%</div><strong>WooCommerce ecommerce share</strong><p>W3Techs reports WooCommerce as 48.6% of known ecommerce systems.</p></div>
-          <div class="card"><div class="metric">66k</div><strong>German Woo checkout sites</strong><p>BuiltWith lists 66,000 current WooCommerce Checkout customers in Germany.</p></div>
-        </div>
-        <p class="small">Directional market signals, not exact TAM: W3Techs WordPress/WooCommerce and BuiltWith Germany.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">ShopBridge Plugin</div>
-        <h2>A normal WooCommerce shop can opt in without scraping.</h2>
-        <div class="flow">
-          <div class="step"><b>1. Install</b>Upload/activate AgentCart ShopBridge like a normal WordPress plugin.</div>
-          <div class="step"><b>2. Add products</b>Use standard WooCommerce products, stock, prices, images, tax, and shipping.</div>
-          <div class="step"><b>3. Expose</b><code>/.well-known/agentcart.json</code> advertises endpoints; <code>/catalog</code> lists only AgentCart-enabled products.</div>
-          <div class="step"><b>4. Pay proof</b>AgentCart completes MPP-shaped checkout and attaches Tempo testnet proof.</div>
-          <div class="step"><b>5. Order</b>WooCommerce receives a paid <code>Processing</code> order the merchant can fulfill.</div>
-        </div>
-        <p class="small">In the demo: Plugins -> AgentCart ShopBridge, Products -> four Woo products, Manifest/Catalog JSON -> agent-readable product feed.</p>
-        <p class="small">Visual explainer: <a href="/shopbridge-stack.html">modular WordPress, WooCommerce, ShopBridge, and Tempo stack</a>.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Architecture</div>
-        <h2>AgentCart bridges home context and merchant systems.</h2>
-        <div class="diagram">
-          <div class="lane home"><h3>Household</h3><div class="node">OpenClaw chat</div><div class="node">Home Assistant approval</div><div class="node">Vikunja tasks</div></div>
-          <div class="lane"><h3>AgentCart</h3><div class="node">Discovery and quote tournament</div><div class="node">Policy and consent</div><div class="node">Payment proof and audit</div></div>
-          <div class="lane merchant"><h3>Merchant</h3><div class="node">WooCommerce ShopBridge</div><div class="node">Merchant of record</div><div class="node">Paid order and delivery ETA</div></div>
-        </div>
+        <p class="lede">The merchant keeps WooCommerce. The agent gets machine-readable checkout.</p>
       </div>
     </section>
 
     <section>
       <div class="slide">
         <div class="kicker">Live Demo</div>
-        <h2>Ask the agent to buy the favorite tea.</h2>
-        <div class="prompt">Please buy my favourite tea. Discover shops, choose the best final quote, and ask me for approval before checkout.</div>
+        <h2>Agent checkout, end to end.</h2>
+        <div class="flow">
+          <div class="step"><b>1. Merchant</b>Plugin, settings, enabled products.</div>
+          <div class="step"><b>2. Catalog</b>Agent-readable products, no scraping.</div>
+          <div class="step"><b>3. Quote</b>Total includes VAT and shipping.</div>
+          <div class="step focus"><b>4. Approval</b>No silent spend.</div>
+          <div class="step focus"><b>5. Order</b>Tempo proof creates Woo order.</div>
+        </div>
         <div class="grid two">
-          <div class="card"><strong>Show buyer side</strong><p>OpenClaw chat, two merchant quotes, exact approval request, checkout summary, delivery ETA.</p></div>
-          <div class="card"><strong>Show merchant side</strong><p>WooCommerce admin order marked paid via Tempo MPP via AgentCart.</p></div>
+          <div class="card"><strong>Buyer side</strong><p>Approval, checkout summary, audit.</p></div>
+          <div class="card"><strong>Merchant side</strong><p>Paid WooCommerce <code>Processing</code> order.</p></div>
         </div>
-        <p class="small">Use <a href="/demo">/demo</a> as the recording cockpit and <a href="/shopbridge-stack.html">/shopbridge-stack.html</a> for the plugin architecture visual.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="slide">
-        <div class="kicker">Boundaries</div>
-        <h2>Practical bridge, not agent magic.</h2>
-        <div class="grid">
-          <div class="card"><strong>No scraping</strong><p>Only opt-in merchants. No browser automation against real shops.</p></div>
-          <div class="card"><strong>No silent spend</strong><p>Budget, category policy, idempotency, replay protection, and explicit approval happen before checkout.</p></div>
-          <div class="card"><strong>No fake EUR settlement claim</strong><p>The demo uses EUR quotes plus Tempo testnet/pathUSD proof. Production needs verifier-backed settlement and refunds.</p></div>
-        </div>
-        <p class="lede">Ask: make merchant checkout agent-readable around official MPP payment methods.</p>
+        <p class="small"><span class="tag">No scraping</span><span class="tag">No silent spend</span><span class="tag">Tempo testnet proof</span></p>
       </div>
     </section>
   </main>

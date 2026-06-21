@@ -23,6 +23,15 @@ docker compose up -d wordpress db
 docker compose run --rm wpcli
 ```
 
+The seed script configures the demo shop with:
+
+- EUR pricing with tax calculation enabled;
+- Germany plus nearby EU countries as the allowed shipping set;
+- VAT rates for those demo countries;
+- a taxable `Tracked parcel` flat-rate shipping method at `4.90 EUR`;
+- terms and returns pages used by the ShopBridge manifest;
+- demo tracking metadata for existing AgentCart-created Woo orders.
+
 Open:
 
 ```text
@@ -58,7 +67,9 @@ coffee
 ```
 
 After approval and MPP proof, the WooCommerce admin should show a paid
-`processing` order with AgentCart metadata.
+`processing` order with AgentCart metadata. If you rerun the seeder after an
+order exists, it attaches demo carrier/tracking fields so the ShopBridge order
+status endpoint can expose them to AgentCart.
 
 ## Plugin API
 

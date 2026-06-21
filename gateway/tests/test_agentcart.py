@@ -636,6 +636,76 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(payload_sent["entity_id"], "calendar.household_deliveries")
             self.assertEqual(payload_sent["summary"], "Delivery: 1x Sencha Daily Green Tea")
 
+    def test_refresh_order_status_updates_tracking_for_delivery_calendar(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                delivery_calendar_enabled=True,
+                delivery_calendar_token="calendar-token",
+            )
+            order_id = "order_tracking_1"
+            service.state["orders"] = {
+                order_id: {
+                    "id": order_id,
+                    "merchant_order_id": "9001",
+                    "quote_id": "quote_tracking_1",
+                    "state": "accepted",
+                    "items": [{"quantity": 1, "title": "Hazel's Chocolate Tea"}],
+                    "total_cents": 1480,
+                    "currency": "EUR",
+                    "delivery_estimate": {"label": "2-4 business days"},
+                    "delivery_window": {
+                        "earliest_date": "2026-06-23",
+                        "latest_date": "2026-06-25",
+                        "label": "2-4 business days",
+                    },
+                    "shipment": {
+                        "carrier": None,
+                        "tracking_number": None,
+                        "tracking_url": None,
+                        "status": "not_shipped",
+                        "source": "merchant_demo",
+                    },
+                    "merchant_order": {
+                        "status_url": "http://woo.test/wp-json/agentcart/v1/orders/9001/status",
+                        "status_token": "status-token",
+                    },
+                }
+            }
+
+            calls = []
+
+            def fake_http_json(url: str, **kwargs: object) -> object:
+                calls.append({"url": url, **kwargs})
+                self.assertEqual(kwargs["headers_extra"], {"X-AgentCart-Order-Token": "status-token"})
+                return {
+                    "status": "processing",
+                    "payment_status": "paid",
+                    "fulfillment": {
+                        "state": "shipped",
+                        "carrier": "AgentCart Demo Parcel",
+                        "tracking_number": "AC-DEMO-9001",
+                        "tracking_url": "http://woo.test/?agentcart_demo_tracking=AC-DEMO-9001",
+                        "source": "woocommerce_order_meta",
+                        "note": "Carrier tracking metadata was read from WooCommerce order meta.",
+                    },
+                }
+
+            service.http_json = fake_http_json  # type: ignore[method-assign]
+
+            result = service.refresh_order_status(order_id)
+
+            self.assertEqual(result["refresh"]["state"], "updated")
+            self.assertEqual(calls[0]["url"], "http://woo.test/wp-json/agentcart/v1/orders/9001/status")
+            shipment = result["order"]["shipment"]
+            self.assertEqual(shipment["status"], "shipped")
+            self.assertEqual(shipment["tracking_number"], "AC-DEMO-9001")
+            calendar = service.render_delivery_calendar()
+            self.assertIn("SUMMARY:Delivery: 1x Hazel's Chocolate Tea", calendar)
+            self.assertIn("Carrier:", calendar)
+            self.assertIn("AgentCart Demo Parcel", calendar)
+            self.assertIn("Tracking number: AC-DEMO-9001", calendar)
+
     def test_list_open_vikunja_tasks_filters_done_and_adds_links(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(

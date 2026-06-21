@@ -37,6 +37,7 @@ APPROVAL_DECISION_ROUTE = re.compile(r"^/v1/approvals/([A-Za-z0-9_-]+)/decision$
 APPROVAL_PAGE_ROUTE = re.compile(r"^/approvals/([A-Za-z0-9_-]+)$")
 APPROVAL_PAGE_ACTION_ROUTE = re.compile(r"^/approvals/([A-Za-z0-9_-]+)/(approve|reject)$")
 ORDER_ROUTE = re.compile(r"^/v1/orders/([A-Za-z0-9_-]+)$")
+ORDER_REFRESH_ROUTE = re.compile(r"^/v1/orders/([A-Za-z0-9_-]+)/refresh$")
 ORDER_REFUND_ROUTE = re.compile(r"^/v1/orders/([A-Za-z0-9_-]+)/refunds$")
 ORDER_PAGE_ROUTE = re.compile(r"^/orders/([A-Za-z0-9_-]+)$")
 AUDIT_ROUTE = re.compile(r"^/v1/audit/([A-Za-z0-9_-]+)$")
@@ -2091,6 +2092,14 @@ class AgentCartService:
                         "responses": {"200": {"description": "Order"}},
                     }
                 },
+                "/v1/orders/{order_id}/refresh": {
+                    "post": {
+                        "operationId": "refreshOrder",
+                        "summary": "Refresh merchant order status and tracking metadata",
+                        "parameters": [{"name": "order_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Updated order and merchant status"}},
+                    }
+                },
                 "/v1/audit/{purchase_id}": {
                     "get": {
                         "operationId": "getAuditLog",
@@ -3788,12 +3797,15 @@ separate human confirmation.
         method: str,
         token: str,
         payload: dict[str, Any] | None = None,
+        headers_extra: dict[str, str] | None = None,
         timeout: int = 10,
     ) -> Any:
         body = None
         headers = {"Accept": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        if headers_extra:
+            headers.update(headers_extra)
         if payload is not None:
             body = json.dumps(payload, default=json_default).encode()
             headers["Content-Type"] = "application/json"
@@ -4271,6 +4283,71 @@ separate human confirmation.
             raise NotFound(f"Unknown order: {order_id}")
         return order
 
+    def refresh_order_status(self, order_id: str) -> dict[str, Any]:
+        with self.lock:
+            order = json.loads(json.dumps(self.get_order(order_id), default=json_default))
+        merchant_order = order.get("merchant_order") if isinstance(order.get("merchant_order"), dict) else {}
+        status_url = str(merchant_order.get("status_url") or "")
+        status_token = str(merchant_order.get("status_token") or "")
+        if not status_url or not status_token:
+            return {
+                "order": order,
+                "refresh": {
+                    "state": "skipped",
+                    "reason": "merchant order status URL or status token is missing",
+                },
+            }
+        status = self.http_json(
+            status_url,
+            method="GET",
+            token="",
+            headers_extra={"X-AgentCart-Order-Token": status_token},
+            timeout=10,
+        )
+        if not isinstance(status, dict):
+            raise UpstreamError("merchant order status response was not an object")
+
+        with self.lock:
+            current = self.get_order(order_id)
+            current_merchant_order = current.setdefault("merchant_order", {})
+            if isinstance(current_merchant_order, dict):
+                current_merchant_order["status"] = status.get("status") or current_merchant_order.get("status")
+                current_merchant_order["payment_status"] = status.get("payment_status") or current_merchant_order.get("payment_status")
+                current_merchant_order["fulfillment"] = status.get("fulfillment") if isinstance(status.get("fulfillment"), dict) else current_merchant_order.get("fulfillment")
+                current_merchant_order["refunds"] = status.get("refunds") if isinstance(status.get("refunds"), list) else current_merchant_order.get("refunds", [])
+                current_merchant_order["last_status_refresh_at"] = isoformat(utcnow())
+            fulfillment = status.get("fulfillment") if isinstance(status.get("fulfillment"), dict) else {}
+            if fulfillment:
+                current.setdefault("shipment", {}).update(
+                    {
+                        "carrier": fulfillment.get("carrier"),
+                        "tracking_number": fulfillment.get("tracking_number"),
+                        "tracking_url": fulfillment.get("tracking_url"),
+                        "status": fulfillment.get("state") or current.get("shipment", {}).get("status", "not_shipped"),
+                        "source": fulfillment.get("source") or current.get("shipment", {}).get("source", "merchant_status"),
+                        "note": fulfillment.get("note") or current.get("shipment", {}).get("note", ""),
+                        "last_checked_at": isoformat(utcnow()),
+                    }
+                )
+                if current["shipment"].get("tracking_number") and current["shipment"].get("status") == "preparing":
+                    current["shipment"]["status"] = "shipped"
+            current["updated_at"] = isoformat(utcnow())
+            self.save_state()
+            updated = json.loads(json.dumps(current, default=json_default))
+
+        self.audit(
+            "order.status_refreshed",
+            actor="agentcart",
+            reason="merchant order status refreshed",
+            purchase_id=str(updated.get("quote_id") or ""),
+            refs={
+                "order_id": order_id,
+                "merchant_order_id": updated.get("merchant_order_id"),
+                "tracking_number": updated.get("shipment", {}).get("tracking_number"),
+            },
+        )
+        return {"order": updated, "merchant_status": status, "refresh": {"state": "updated"}}
+
     def refund_order(self, order_id: str, request: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
             order = json.loads(json.dumps(self.get_order(order_id), default=json_default))
@@ -4358,12 +4435,21 @@ separate human confirmation.
                 continue
             product_summary = ", ".join(f"{item['quantity']}x {item['title']}" for item in order.get("items", []))
             summary = f"Delivery: {product_summary or order.get('merchant_order_id', order.get('id', 'AgentCart order'))}"
+            shipment = order.get("shipment", {}) if isinstance(order.get("shipment"), dict) else {}
+            tracking = ""
+            if shipment.get("tracking_number"):
+                tracking = (
+                    f"\nCarrier: {shipment.get('carrier') or 'unknown'}"
+                    f"\nTracking number: {shipment.get('tracking_number')}"
+                    f"\nTracking URL: {shipment.get('tracking_url') or ''}"
+                )
             description = (
                 f"Order: {order.get('id')}\n"
                 f"Merchant order: {order.get('merchant_order_id')}\n"
                 f"Total: {money(int(order.get('total_cents', 0)), str(order.get('currency', 'EUR')))}\n"
                 f"Delivery estimate: {window.get('label', order.get('delivery_estimate', {}).get('label', 'estimated'))}\n"
-                f"Shipment status: {order.get('shipment', {}).get('status', 'not_shipped')}"
+                f"Shipment status: {shipment.get('status', 'not_shipped')}"
+                f"{tracking}"
             )
             lines.extend(
                 [
@@ -4761,6 +4847,10 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         energy_offer_accept_match = ENERGY_OFFER_ACCEPT_ROUTE.match(path)
         if energy_offer_accept_match:
             self.send_json(self.service.accept_energy_offer(energy_offer_accept_match.group(1), payload))
+            return
+        order_refresh_match = ORDER_REFRESH_ROUTE.match(path)
+        if order_refresh_match:
+            self.send_json(self.service.refresh_order_status(order_refresh_match.group(1)))
             return
         if path == "/v1/quotes":
             self.send_json(self.service.create_quote(payload), status=201)

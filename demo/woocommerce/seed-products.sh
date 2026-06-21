@@ -42,7 +42,7 @@ wp option update woocommerce_currency "EUR" --allow-root
 wp option update woocommerce_prices_include_tax "yes" --allow-root
 wp option update woocommerce_calc_taxes "yes" --allow-root
 wp option update woocommerce_store_postcode "10115" --allow-root
-AGENTCART_DEMO_COUNTRIES_JSON='["DE","AT","CH","NL","BE","LU","FR","PL","CZ","DK"]'
+AGENTCART_DEMO_COUNTRIES_JSON='["DE","AT","NL","BE","LU","FR"]'
 wp option update woocommerce_allowed_countries "specific" --allow-root
 wp option update woocommerce_specific_allowed_countries "$AGENTCART_DEMO_COUNTRIES_JSON" --format=json --allow-root
 wp option update woocommerce_ship_to_countries "specific" --allow-root
@@ -54,6 +54,111 @@ wp option update woocommerce_cod_settings \
   --allow-root
 wp rewrite structure '/%postname%/' --allow-root
 wp rewrite flush --hard --allow-root
+
+configure_demo_tax_shipping() {
+  wp eval "$(cat <<'PHP'
+if (!class_exists('WooCommerce')) {
+    return;
+}
+
+update_option('woocommerce_calc_taxes', 'yes');
+update_option('woocommerce_prices_include_tax', 'yes');
+update_option('woocommerce_tax_based_on', 'shipping');
+update_option('woocommerce_shipping_tax_class', 'inherit');
+update_option('woocommerce_default_customer_address', 'base');
+
+$countries = ['DE', 'AT', 'NL', 'BE', 'LU', 'FR'];
+update_option('woocommerce_allowed_countries', 'specific');
+update_option('woocommerce_specific_allowed_countries', $countries);
+update_option('woocommerce_ship_to_countries', 'specific');
+update_option('woocommerce_specific_ship_to_countries', $countries);
+
+function agentcart_upsert_tax_rate($country, $rate) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'woocommerce_tax_rates';
+    $rate_id = $wpdb->get_var($wpdb->prepare(
+        "SELECT tax_rate_id FROM {$table} WHERE tax_rate_country = %s AND tax_rate_class = '' LIMIT 1",
+        $country
+    ));
+    $payload = [
+        'tax_rate_country' => $country,
+        'tax_rate_state' => '',
+        'tax_rate' => number_format((float) $rate, 4, '.', ''),
+        'tax_rate_name' => 'VAT',
+        'tax_rate_priority' => 1,
+        'tax_rate_compound' => 0,
+        'tax_rate_shipping' => 1,
+        'tax_rate_order' => 0,
+        'tax_rate_class' => '',
+    ];
+    if ($rate_id) {
+        $wpdb->update($table, $payload, ['tax_rate_id' => (int) $rate_id]);
+    } else {
+        $wpdb->insert($table, $payload);
+        $rate_id = $wpdb->insert_id;
+    }
+    WC_Cache_Helper::incr_cache_prefix('taxes');
+    return (int) $rate_id;
+}
+
+foreach (['DE' => 19.0, 'AT' => 20.0, 'NL' => 21.0, 'BE' => 21.0, 'LU' => 17.0, 'FR' => 20.0] as $country => $rate) {
+    agentcart_upsert_tax_rate($country, $rate);
+}
+
+$zone = null;
+foreach (WC_Shipping_Zones::get_zones() as $zone_data) {
+    $candidate = new WC_Shipping_Zone((int) $zone_data['zone_id']);
+    if ($candidate->get_zone_name() === 'AgentCart EU Demo') {
+        $zone = $candidate;
+        break;
+    }
+}
+if (!$zone) {
+    $zone = new WC_Shipping_Zone();
+    $zone->set_zone_name('AgentCart EU Demo');
+    $zone->set_zone_order(0);
+    $zone->save();
+}
+$zone->clear_locations();
+foreach ($countries as $country) {
+    $zone->add_location($country, 'country');
+}
+$zone->save();
+
+$flat_rate = null;
+foreach ($zone->get_shipping_methods(false) as $method) {
+    if ($method->id === 'flat_rate') {
+        $flat_rate = $method;
+        break;
+    }
+}
+if (!$flat_rate) {
+    $instance_id = $zone->add_shipping_method('flat_rate');
+    $methods = $zone->get_shipping_methods(false);
+    $flat_rate = $methods[$instance_id] ?? null;
+}
+if ($flat_rate) {
+    update_option($flat_rate->get_instance_option_key(), [
+        'title' => 'Tracked parcel',
+        'tax_status' => 'taxable',
+        'cost' => '4.117647',
+        'class_costs' => '',
+        'type' => 'class',
+    ]);
+    update_option('woocommerce_' . $flat_rate->id . '_' . $flat_rate->instance_id . '_settings', [
+        'title' => 'Tracked parcel',
+        'tax_status' => 'taxable',
+        'cost' => '4.117647',
+        'class_costs' => '',
+        'type' => 'class',
+    ]);
+}
+WC_Cache_Helper::get_transient_version('shipping', true);
+PHP
+)" --allow-root
+}
+
+configure_demo_tax_shipping
 
 generate_product_images() {
   mkdir -p /tmp/agentcart-product-images
@@ -324,8 +429,27 @@ ensure_page() {
 }
 
 home_page_id="$(ensure_page agentcart-products "AgentCart Demo Shop" '[products columns="4" limit="12" orderby="title"]')"
+terms_page_id="$(ensure_page terms "Terms" '<p>AgentCart demo terms for quote-bound household-agent checkout. The WooCommerce merchant remains merchant of record and fulfills physical orders after payment verification.</p>')"
+returns_page_id="$(ensure_page returns "Returns and Refunds" '<p>Demo returns page. Real production merchants must publish their own return, refund, cancellation, and support policies. AgentCart refund records can be created through WooCommerce after merchant approval.</p>')"
 wp option update show_on_front page --allow-root
 wp option update page_on_front "$home_page_id" --allow-root
+wp option update woocommerce_terms_page_id "$terms_page_id" --allow-root
+
+wp eval "$(cat <<'PHP'
+if (class_exists('WooCommerce')) {
+    foreach (wc_get_orders(['limit' => 20, 'return' => 'objects', 'meta_key' => '_agentcart_order_id']) as $order) {
+        if (!$order->get_meta('_tracking_number', true)) {
+            $tracking_number = 'AC-DEMO-' . $order->get_order_number();
+            $order->update_meta_data('_tracking_provider', 'AgentCart Demo Parcel');
+            $order->update_meta_data('_tracking_number', $tracking_number);
+            $order->update_meta_data('_tracking_url', home_url('/?agentcart_demo_tracking=' . rawurlencode($tracking_number)));
+            $order->add_order_note('AgentCart demo tracking metadata attached by the seed script.');
+            $order->save();
+        }
+    }
+}
+PHP
+)" --allow-root
 
 echo "AgentCart WooCommerce demo shop is ready."
 echo "Admin: ${WOO_ADMIN_USER:-merchant} / ${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}"

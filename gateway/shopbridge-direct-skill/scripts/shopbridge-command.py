@@ -1,0 +1,593 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import base64
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from typing import Any
+
+
+BASE_URL = os.getenv("SHOPBRIDGE_BASE_URL", "http://127.0.0.1:8098").rstrip("/")
+MPP_PROOF_URL = os.getenv("SHOPBRIDGE_MPP_PROOF_URL", "").strip()
+MPP_COMMAND = os.getenv("SHOPBRIDGE_MPP_COMMAND", "npx mppx").strip()
+MPP_NETWORK = os.getenv("SHOPBRIDGE_MPP_NETWORK", "testnet").strip()
+MPP_ACCOUNT = os.getenv("SHOPBRIDGE_MPP_ACCOUNT", "agentcart-test").strip()
+
+
+def request_json(
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    data = json.dumps(payload).encode() if payload is not None else None
+    request_headers = {"Accept": "application/json", **(headers or {})}
+    if data is not None:
+        request_headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(f"{BASE_URL}{path}", data=data, headers=request_headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        try:
+            detail: Any = json.loads(body)
+        except json.JSONDecodeError:
+            detail = body
+        raise SystemExit(json.dumps({"error": {"status": exc.code, "detail": detail}}, indent=2))
+
+
+def money(cents: int, currency: str) -> str:
+    return f"{cents / 100:.2f} {currency}"
+
+
+def canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def sha256_hex(value: Any) -> str:
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+def parse_time(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        parsed = dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def scalar(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def toon_value(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    text = str(value)
+    if any(ch in text for ch in [",", "\n", "{", "}", "[", "]", ":"]):
+        return json.dumps(text, ensure_ascii=False)
+    return text
+
+
+def to_toon(value: Any, *, name: str = "result", indent: int = 0) -> str:
+    pad = "  " * indent
+    if scalar(value):
+        return f"{pad}{name}: {toon_value(value)}"
+    if isinstance(value, dict):
+        lines = [f"{pad}{name}:"]
+        for key, child in value.items():
+            lines.append(to_toon(child, name=str(key), indent=indent + 1))
+        return "\n".join(lines)
+    if isinstance(value, list):
+        if not value:
+            return f"{pad}{name}[0]:"
+        if all(isinstance(item, dict) for item in value):
+            keys = []
+            for item in value:
+                for key, child in item.items():
+                    if key not in keys and scalar(child):
+                        keys.append(key)
+            if keys:
+                rows = [f"{pad}{name}[{len(value)}]{{{','.join(keys)}}}:"]
+                for item in value:
+                    rows.append(f"{pad}{','.join(toon_value(item.get(key)) for key in keys)}")
+                return "\n".join(rows)
+        lines = [f"{pad}{name}[{len(value)}]:"]
+        for index, child in enumerate(value, 1):
+            lines.append(to_toon(child, name=str(index), indent=indent + 1))
+        return "\n".join(lines)
+    return f"{pad}{name}: {toon_value(value)}"
+
+
+def compact_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "merchant": (catalog.get("merchant") or {}).get("name"),
+        "products": [
+            {
+                "id": product.get("id") or product.get("product_id"),
+                "title": product.get("title"),
+                "price": money(int(product.get("price_cents") or 0), product.get("currency", "EUR")),
+                "stock": product.get("stock"),
+                "eligible": product.get("eligible_for_agent_checkout"),
+            }
+            for product in catalog.get("products", [])
+            if isinstance(product, dict)
+        ],
+    }
+
+
+def compact_quote(quote: dict[str, Any]) -> dict[str, Any]:
+    merchant = quote.get("merchant") or {}
+    items = [item for item in quote.get("items", []) if isinstance(item, dict)]
+    shipping = quote.get("shipping") or {}
+    payment = quote.get("payment_requirements") or {}
+    protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
+    return {
+        "quote_id": quote.get("id"),
+        "merchant": merchant.get("name"),
+        "items": [
+            {
+                "product_id": item.get("product_id"),
+                "title": item.get("title"),
+                "quantity": item.get("quantity"),
+                "line_total": money(int(item.get("line_total_cents") or 0), quote.get("currency", "EUR")),
+            }
+            for item in items
+        ],
+        "subtotal": money(int(quote.get("subtotal_cents") or 0), quote.get("currency", "EUR")),
+        "shipping": money(int(shipping.get("amount_cents") or 0), quote.get("currency", "EUR")),
+        "total": money(int(quote.get("total_cents") or 0), quote.get("currency", "EUR")),
+        "delivery": (quote.get("delivery_estimate") or {}).get("label"),
+        "quote_hash": quote.get("quote_hash"),
+        "payment_methods": [protocol.get("id") for protocol in protocols if isinstance(protocol, dict)],
+    }
+
+
+def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -> dict[str, Any]:
+    merchant = quote.get("merchant") or {}
+    shipping = quote.get("shipping") or {}
+    delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
+    payment = quote.get("payment_requirements") or {}
+    protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
+    selected_rail = payment_rail or (protocols[0].get("id") if protocols and isinstance(protocols[0], dict) else None)
+    material = {
+        "merchant": {
+            "id": merchant.get("id"),
+            "name": merchant.get("name"),
+        },
+        "items": [
+            {
+                "product_id": item.get("product_id"),
+                "title": item.get("title"),
+                "quantity": item.get("quantity"),
+                "line_total_cents": item.get("line_total_cents"),
+            }
+            for item in quote.get("items", [])
+            if isinstance(item, dict)
+        ],
+        "subtotal_cents": quote.get("subtotal_cents"),
+        "shipping_cents": shipping.get("amount_cents"),
+        "total_cents": quote.get("total_cents"),
+        "currency": quote.get("currency"),
+        "delivery": delivery,
+        "quote_hash": quote.get("quote_hash"),
+        "expires_at": quote.get("expires_at"),
+        "payment_rail": selected_rail,
+        "payment_methods": [protocol.get("id") for protocol in protocols if isinstance(protocol, dict)],
+    }
+    approval_hash = sha256_hex(material)
+    compact = compact_quote(quote)
+    return {
+        "approval_hash": approval_hash,
+        "approval_material": material,
+        "summary": f"Approve {quote_title(quote)} from {compact['merchant']} for {compact['total']}?",
+        "quote": compact,
+        "approval_in_skill_only_mode": "Human approval happens in the agent chat; no AgentCart service policy or durable approval record is used.",
+    }
+
+
+def quote_title(quote: dict[str, Any]) -> str:
+    items = [item for item in quote.get("items", []) if isinstance(item, dict)]
+    if not items:
+        return "the quote"
+    if len(items) == 1:
+        return str(items[0].get("title") or items[0].get("product_id") or "the item")
+    first = str(items[0].get("title") or items[0].get("product_id") or "item")
+    return f"{len(items)} items including {first}"
+
+
+def proof_url_for_quote(quote: dict[str, Any]) -> str:
+    if not MPP_PROOF_URL:
+        raise SystemExit("SHOPBRIDGE_MPP_PROOF_URL is required for demo checkout")
+    amount = f"{int(quote['total_cents']) // 100}.{int(quote['total_cents']) % 100:02d}"
+    parts = urllib.parse.urlsplit(MPP_PROOF_URL)
+    query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    query = [(key, value) for key, value in query if key != "amount"]
+    query.append(("amount", amount))
+    query.append(("currency", str(quote.get("currency") or "")))
+    query.append(("quote_hash", str(quote.get("quote_hash") or "")))
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(query), parts.fragment))
+
+
+def b64url_json(value: str) -> Any:
+    padding = "=" * (-len(value) % 4)
+    decoded = base64.urlsafe_b64decode((value + padding).encode())
+    return json.loads(decoded)
+
+
+def parse_mppx_output(output: str) -> dict[str, Any]:
+    body_match = re.search(r'\n(\{\s*"ok"\s*:\s*true.*\})\s*$', output, flags=re.S)
+    body = json.loads(body_match.group(1)) if body_match else {}
+    receipt_match = re.search(r"(?im)^payment-receipt:\s*(.+)$", output)
+    receipt_header = receipt_match.group(1).strip() if receipt_match else ""
+    receipt: dict[str, Any] = {}
+    if receipt_header:
+        try:
+            decoded = b64url_json(receipt_header)
+            receipt = decoded if isinstance(decoded, dict) else {}
+        except (ValueError, json.JSONDecodeError):
+            receipt = {}
+    reference_match = re.search(r'"reference"\s*:\s*"([^"]+)"', output)
+    reference = str(receipt.get("reference") or (reference_match.group(1) if reference_match else ""))
+    if not receipt_header or not reference:
+        raise SystemExit(
+            json.dumps(
+                {
+                    "error": "mppx payment did not return a usable Payment-Receipt reference",
+                    "has_payment_receipt_header": bool(receipt_header),
+                    "raw_tail": output[-3000:],
+                },
+                indent=2,
+            )
+        )
+    return {
+        "body": body,
+        "payment_receipt_header": receipt_header,
+        "payment_receipt": receipt,
+        "reference": reference,
+        "raw_tail": output[-3000:],
+    }
+
+
+def create_tempo_demo_proof(quote: dict[str, Any]) -> dict[str, Any]:
+    command = shlex.split(MPP_COMMAND)
+    full_command = [*command, proof_url_for_quote(quote)]
+    if MPP_NETWORK:
+        full_command.extend(["--network", MPP_NETWORK])
+    if MPP_ACCOUNT:
+        full_command.extend(["--account", MPP_ACCOUNT])
+    if "--include" not in full_command and "-i" not in full_command:
+        full_command.append("--include")
+    completed = subprocess.run(full_command, check=False, capture_output=True, text=True, timeout=90)
+    output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
+    if completed.returncode != 0:
+        raise SystemExit(json.dumps({"error": "mppx payment failed", "output": output[-3000:]}, indent=2))
+    parsed = parse_mppx_output(output)
+    return {
+        "state": "succeeded",
+        "provider": "tempo_mpp",
+        "mode": "mppx-cli",
+        "network": MPP_NETWORK,
+        "quote_currency": quote.get("currency"),
+        "quote_total_cents": quote.get("total_cents"),
+        "body": parsed["body"],
+        "payment_receipt": {
+            "method": "tempo",
+            "status": "success",
+            "reference": parsed["reference"],
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        },
+        "payment_receipt_header": parsed["payment_receipt_header"],
+        "transaction_reference": parsed["reference"],
+        "real_settlement": False,
+        "value_transfer": True,
+        "raw_tail": parsed["raw_tail"],
+    }
+
+
+def quote_items_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_items = args.get("items")
+    if isinstance(raw_items, list) and raw_items:
+        items = raw_items
+    else:
+        items = [{"product_id": args["product_id"], "quantity": args.get("quantity") or 1}]
+    normalized = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("product_id"):
+            raise SystemExit("Each quote item must include product_id")
+        normalized.append({"product_id": item["product_id"], "quantity": int(item.get("quantity") or 1)})
+    return normalized
+
+
+def quote_ship_to_from_args(args: dict[str, Any]) -> dict[str, Any]:
+    ship_to = args.get("ship_to") if isinstance(args.get("ship_to"), dict) else {}
+    normalized = dict(ship_to)
+    normalized.update(
+        {
+        "country": ship_to.get("country") or args.get("country") or "DE",
+        "postal_code": (
+            ship_to.get("postal_code")
+            or ship_to.get("postcode")
+            or args.get("postal_code")
+            or args.get("postcode")
+            or "10115"
+        ),
+        }
+    )
+    return normalized
+
+
+def command_catalog(args: dict[str, Any]) -> dict[str, Any]:
+    query = urllib.parse.urlencode(
+        {
+            "search": args.get("search") or args.get("q") or "",
+            "limit": args.get("limit") or 12,
+        }
+    )
+    return request_json(f"/wp-json/agentcart/v1/catalog?{query}")
+
+
+def command_manifest(_args: dict[str, Any]) -> dict[str, Any]:
+    return request_json("/.well-known/agentcart.json")
+
+
+def command_capability(_args: dict[str, Any]) -> dict[str, Any]:
+    return request_json("/wp-json/agentcart/v1/capability")
+
+
+def command_readiness(args: dict[str, Any]) -> dict[str, Any]:
+    manifest: dict[str, Any] | None = None
+    capability: dict[str, Any] | None = None
+    errors: list[dict[str, Any]] = []
+    for name, fn in [("manifest", command_manifest), ("capability", command_capability)]:
+        try:
+            result = fn(args)
+            if name == "manifest":
+                manifest = result
+            else:
+                capability = result
+        except SystemExit as exc:
+            errors.append({"check": name, "error": str(exc)})
+    payment = capability.get("payment") if isinstance(capability, dict) else {}
+    verification = (
+        capability.get("payment_verification")
+        if isinstance(capability, dict) and isinstance(capability.get("payment_verification"), dict)
+        else payment.get("verification")
+        if isinstance(payment, dict)
+        else {}
+    )
+    protocols = (
+        capability.get("protocols")
+        if isinstance(capability, dict) and isinstance(capability.get("protocols"), list)
+        else payment.get("protocols")
+        if isinstance(payment, dict)
+        else None
+    )
+    return {
+        "base_url": BASE_URL,
+        "merchant": (manifest or {}).get("merchant") or (capability or {}).get("merchant"),
+        "manifest_ok": manifest is not None,
+        "capability_ok": capability is not None,
+        "external_verifier_configured": bool(
+            verification.get("external_verifier_configured") if isinstance(verification, dict) else False
+        ),
+        "payment_rails": protocols,
+        "errors": errors,
+    }
+
+
+def command_product(args: dict[str, Any]) -> dict[str, Any]:
+    product_id = str(args.get("product_id") or args.get("id") or "").removeprefix("woo_")
+    if not product_id:
+        raise SystemExit("product_id is required")
+    return request_json(f"/wp-json/agentcart/v1/products/{urllib.parse.quote(product_id)}")
+
+
+def command_quote(args: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "items": quote_items_from_args(args),
+        "ship_to": quote_ship_to_from_args(args),
+    }
+    return request_json("/wp-json/agentcart/v1/quote", method="POST", payload=payload)
+
+
+def command_approval_summary(args: dict[str, Any]) -> dict[str, Any]:
+    packet = approval_packet(args["quote"], payment_rail=args.get("payment_rail"))
+    return {"approval_required": True, **packet}
+
+
+def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
+    quote = args["quote"]
+    approval = approval_packet(quote, payment_rail=args.get("payment_rail"))
+    expires_at = parse_time(quote.get("expires_at"))
+    now = dt.datetime.now(dt.timezone.utc)
+    payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+    verification = payment.get("verification") if isinstance(payment.get("verification"), dict) else {}
+    protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
+    available_protocols = [
+        protocol.get("id")
+        for protocol in protocols
+        if isinstance(protocol, dict) and protocol.get("available", True) is not False
+    ]
+    issues = []
+    if expires_at and expires_at <= now:
+        issues.append("quote_expired")
+    if not quote.get("quote_hash"):
+        issues.append("missing_quote_hash")
+    if not verification.get("external_verifier_configured"):
+        issues.append("external_verifier_required_for_public_checkout")
+    payment_rail = args.get("payment_rail")
+    if payment_rail and payment_rail not in available_protocols:
+        issues.append("payment_rail_unavailable")
+    max_total_cents = args.get("max_total_cents")
+    if max_total_cents is not None and int(quote.get("total_cents") or 0) > int(max_total_cents):
+        issues.append("over_buyer_limit")
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "approval_hash": approval["approval_hash"],
+        "approval_summary": approval["summary"],
+        "available_payment_methods": available_protocols,
+        "external_verifier_configured": bool(verification.get("external_verifier_configured")),
+    }
+
+
+def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    receipt = args.get("payment_receipt")
+    if not isinstance(receipt, dict):
+        raise SystemExit("payment_receipt is required unless use_tempo_demo_proof=true")
+    expected_amount = int(quote["total_cents"])
+    expected_currency = str(quote["currency"]).upper()
+    supplied_amount = receipt.get("amount_cents")
+    supplied_currency = str(receipt.get("currency") or expected_currency).upper()
+    supplied_hash = str(receipt.get("quote_hash") or quote["quote_hash"])
+    if supplied_amount is not None and int(supplied_amount) != expected_amount:
+        raise SystemExit("payment_receipt.amount_cents does not match quote.total_cents")
+    if supplied_currency != expected_currency:
+        raise SystemExit("payment_receipt.currency does not match quote.currency")
+    if supplied_hash != str(quote["quote_hash"]):
+        raise SystemExit("payment_receipt.quote_hash does not match quote.quote_hash")
+    return {
+        **receipt,
+        "id": receipt.get("id") or f"skill_payrcpt_{uuid.uuid4().hex[:12]}",
+        "status": receipt.get("status") or "succeeded",
+        "amount_cents": expected_amount,
+        "currency": expected_currency,
+        "quote_hash": quote["quote_hash"],
+    }
+
+
+def demo_payment_receipt(quote: dict[str, Any]) -> dict[str, Any]:
+    proof = create_tempo_demo_proof(quote)
+    return {
+        "id": f"skill_demo_payrcpt_{uuid.uuid4().hex[:12]}",
+        "protocol": "mpp-shaped-tempo-demo",
+        "method": "demo",
+        "status": "succeeded",
+        "amount_cents": quote["total_cents"],
+        "currency": quote["currency"],
+        "quote_hash": quote["quote_hash"],
+        "real_settlement": False,
+        "external_value_proof": proof,
+    }
+
+
+def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
+    if not args.get("approved"):
+        raise SystemExit("approved=true is required before checkout")
+    quote = args["quote"]
+    expected_approval_hash = approval_packet(quote, payment_rail=args.get("payment_rail"))["approval_hash"]
+    supplied_approval_hash = str(args.get("approval_hash") or "")
+    if supplied_approval_hash != expected_approval_hash:
+        raise SystemExit("approval_hash does not match the current quote approval packet")
+    if args.get("use_tempo_demo_proof"):
+        receipt = demo_payment_receipt(quote)
+    else:
+        receipt = supplied_payment_receipt(quote, args)
+    stable_order_id = f"skill_{expected_approval_hash[:24]}"
+    return {
+        "agentcart_order_id": args.get("agentcart_order_id") or args.get("idempotency_key") or stable_order_id,
+        "merchant_quote_id": quote["id"],
+        "quote_hash": quote["quote_hash"],
+        "quote": quote,
+        "reason": args.get("reason") or "Skill-only ShopBridge agent checkout",
+        "payment_receipt": receipt,
+    }
+
+
+def command_checkout(args: dict[str, Any]) -> dict[str, Any]:
+    payload = checkout_payload(args)
+    return request_json("/wp-json/agentcart/v1/orders", method="POST", payload=payload)
+
+
+def command_order_status(args: dict[str, Any]) -> dict[str, Any]:
+    status_url = str(args.get("status_url") or "")
+    if status_url:
+        parsed = urllib.parse.urlsplit(status_url)
+        path = parsed.path
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        token = args.get("status_token") or args.get("token")
+        headers = {"X-AgentCart-Order-Token": str(token)} if token else None
+        return request_json(path, headers=headers)
+    order_id = str(args.get("order_id") or args.get("id") or "")
+    if not order_id:
+        raise SystemExit("order_id or status_url is required")
+    token = args.get("status_token") or args.get("token")
+    headers = {"X-AgentCart-Order-Token": str(token)} if token else None
+    return request_json(f"/wp-json/agentcart/v1/orders/{urllib.parse.quote(order_id)}/status", headers=headers)
+
+
+def main() -> None:
+    request = json.load(sys.stdin)
+    command = request.get("command")
+    args = request.get("args") or {}
+    if command == "manifest":
+        result = command_manifest(args)
+        compact = result
+    elif command == "capability":
+        result = command_capability(args)
+        compact = result
+    elif command == "readiness":
+        compact = command_readiness(args)
+    elif command == "catalog":
+        result = command_catalog(args)
+        compact = compact_catalog(result) if args.get("compact", True) else result
+    elif command == "product":
+        result = command_product(args)
+        compact = result
+    elif command == "quote":
+        result = command_quote(args)
+        compact = compact_quote(result) if args.get("compact") or args.get("format") == "toon" else result
+    elif command == "approval_summary":
+        compact = command_approval_summary(args)
+    elif command == "approval_packet":
+        compact = approval_packet(args["quote"], payment_rail=args.get("payment_rail"))
+    elif command == "checkout_preflight":
+        compact = command_checkout_preflight(args)
+    elif command == "checkout":
+        result = command_checkout(args)
+        compact = result
+    elif command == "checkout_with_tempo_demo_proof":
+        args["use_tempo_demo_proof"] = True
+        result = command_checkout(args)
+        compact = result
+    elif command == "checkout_payload":
+        compact = checkout_payload(args)
+    elif command == "order_status":
+        result = command_order_status(args)
+        compact = result
+    else:
+        raise SystemExit(f"Unknown command: {command}")
+
+    if args.get("format") == "toon":
+        print(to_toon(compact, name=command or "result"))
+    else:
+        print(json.dumps(compact, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

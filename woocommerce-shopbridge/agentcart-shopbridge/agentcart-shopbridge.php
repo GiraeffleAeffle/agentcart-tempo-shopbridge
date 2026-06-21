@@ -16,6 +16,9 @@ final class AgentCart_ShopBridge {
     const TOKEN_OPTION = 'agentcart_shopbridge_token';
     const QUOTE_TRANSIENT_PREFIX = 'agentcart_shopbridge_quote_';
     const STATUS_TOKEN_META = '_agentcart_order_status_token';
+    const IDEMPOTENCY_KEY_META = '_agentcart_idempotency_key';
+    const CHECKOUT_LOCK_PREFIX = 'agentcart_shopbridge_checkout_lock_';
+    const CHECKOUT_LOCK_TTL_SECONDS = 120;
     const PAYMENT_VERIFIER_URL_OPTION = 'agentcart_shopbridge_payment_verifier_url';
     const PAYMENT_VERIFIER_TOKEN_OPTION = 'agentcart_shopbridge_payment_verifier_token';
     const TEMPO_RECIPIENT_OPTION = 'agentcart_shopbridge_tempo_recipient';
@@ -186,6 +189,21 @@ final class AgentCart_ShopBridge {
                         <th scope="row">Support email</th>
                         <td><code><?php echo esc_html($support_email ?: 'not published'); ?></code></td>
                         <td><?php echo self::admin_status_badge($support_email !== '', 'Configured', 'Missing'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Public origin</th>
+                        <td><code><?php echo esc_html(home_url('/')); ?></code></td>
+                        <td><?php echo self::admin_status_badge(self::public_origin_is_https(), 'HTTPS', 'Needs HTTPS'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Legal pages</th>
+                        <td><?php echo esc_html(self::legal_pages_configured() ? 'Terms and returns pages are configured.' : 'Terms and returns pages need review.'); ?></td>
+                        <td><?php echo self::admin_status_badge(self::legal_pages_configured(), 'Configured', 'Missing'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Tax and shipping</th>
+                        <td><?php echo esc_html(self::tax_and_shipping_configured() ? 'WooCommerce tax and shipping countries are configured.' : 'Review WooCommerce tax and shipping setup before production.'); ?></td>
+                        <td><?php echo self::admin_status_badge(self::tax_and_shipping_configured(), 'Configured', 'Needs setup'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">AgentCart-enabled products</th>
@@ -410,14 +428,32 @@ final class AgentCart_ShopBridge {
         }
 
         $missing_production = [];
+        if (!self::public_origin_is_https()) {
+            $missing_production[] = 'public HTTPS origin';
+        }
+        if (!self::stable_merchant_id_configured()) {
+            $missing_production[] = 'stable merchant id';
+        }
         if (!self::payment_verifier_url()) {
             $missing_production[] = 'external payment verifier';
+        }
+        if (self::payment_verifier_url() && !self::payment_verifier_token()) {
+            $missing_production[] = 'payment verifier token';
         }
         if (self::tempo_recipient() === '' && self::stripe_profile_id() === '') {
             $missing_production[] = 'Tempo recipient or Stripe profile';
         }
         if (!self::support_email()) {
             $missing_production[] = 'support email';
+        }
+        if (!self::legal_pages_configured()) {
+            $missing_production[] = 'terms and returns pages';
+        }
+        if (!self::tax_and_shipping_configured()) {
+            $missing_production[] = 'WooCommerce tax and shipping setup';
+        }
+        if ($enabled_product_count <= 0) {
+            $missing_production[] = 'AgentCart-enabled product';
         }
 
         return [
@@ -430,6 +466,57 @@ final class AgentCart_ShopBridge {
             'demo_note' => 'Demo readiness means an AgentCart gateway can create quote-bound WooCommerce orders after its own approval and payment proof flow.',
             'production_note' => 'Production readiness requires rail-bound payment/refund verification, legal terms, fulfillment operations, and merchant compliance beyond this plugin status.',
         ];
+    }
+
+    private static function public_origin_is_https() {
+        return strpos(home_url('/'), 'https://') === 0;
+    }
+
+    private static function stable_merchant_id_configured() {
+        if (!defined('AGENTCART_MERCHANT_ID')) {
+            return false;
+        }
+        $merchant_id = sanitize_key((string) AGENTCART_MERCHANT_ID);
+        return $merchant_id !== '' && $merchant_id !== 'woocommerce-demo-shop';
+    }
+
+    private static function legal_pages_configured() {
+        $terms_id = function_exists('wc_get_page_id') ? intval(wc_get_page_id('terms')) : 0;
+        $terms_ok = $terms_id > 0 && get_post_status($terms_id) === 'publish';
+        $returns_page = get_page_by_path('returns');
+        $returns_ok = $returns_page && get_post_status($returns_page) === 'publish';
+        return $terms_ok && $returns_ok;
+    }
+
+    private static function tax_and_shipping_configured() {
+        return self::tax_rates_configured() && count(self::shipping_countries()) > 0 && self::shipping_methods_configured();
+    }
+
+    private static function tax_rates_configured() {
+        if (!function_exists('wc_tax_enabled') || !wc_tax_enabled() || !class_exists('WC_Tax')) {
+            return false;
+        }
+        if (method_exists('WC_Tax', 'get_rates_for_tax_class')) {
+            return count(WC_Tax::get_rates_for_tax_class('')) > 0;
+        }
+        return count(WC_Tax::get_rates('')) > 0;
+    }
+
+    private static function shipping_methods_configured() {
+        if (!class_exists('WC_Shipping_Zones')) {
+            return false;
+        }
+        $zones = WC_Shipping_Zones::get_zones();
+        $zones[] = ['zone_id' => 0];
+        foreach ($zones as $zone_data) {
+            $zone = new WC_Shipping_Zone(intval($zone_data['zone_id'] ?? 0));
+            foreach ($zone->get_shipping_methods(true) as $method) {
+                if ($method && isset($method->enabled) && $method->enabled === 'yes') {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static function render_text_setting_row($label, $option, $value, $constant, $description) {
@@ -497,6 +584,8 @@ final class AgentCart_ShopBridge {
                 'quote' => true,
                 'server_side_quote_binding' => true,
                 'paid_order_creation' => true,
+                'idempotent_order_creation' => true,
+                'checkout_replay_conflict_detection' => true,
                 'merchant_of_record' => true,
                 'guest_checkout' => true,
                 'shipping_address_on_order' => true,
@@ -585,13 +674,18 @@ final class AgentCart_ShopBridge {
         if (!$items) {
             return new WP_Error('agentcart_bad_request', 'items are required.', ['status' => 400]);
         }
-        $serialized_items = [];
-        $subtotal = 0;
-        $tax_buckets = [];
         $ship_to = self::normalize_address($body['ship_to'] ?? ['country' => WC()->countries->get_base_country() ?: 'DE']);
+        $address_error = self::validate_quote_address($ship_to);
+        if (is_wp_error($address_error)) {
+            return $address_error;
+        }
         $shipping_countries = self::shipping_countries();
         if ($shipping_countries && !in_array($ship_to['country'], $shipping_countries, true)) {
             return new WP_Error('agentcart_shipping_country_unsupported', 'Shop does not ship to country: ' . $ship_to['country'], ['status' => 400]);
+        }
+        $cart = self::prepare_quote_cart($ship_to);
+        if (is_wp_error($cart)) {
+            return $cart;
         }
         foreach ($items as $item) {
             $product_id = self::source_product_id($item);
@@ -606,28 +700,22 @@ final class AgentCart_ShopBridge {
             if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
                 return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
             }
-            $unit = self::cents((float) wc_get_price_including_tax($product, ['qty' => 1]));
-            $line = $unit * $quantity;
-            $subtotal += $line;
-            $rate_bps = self::vat_rate_bps($product);
-            $tax_buckets[$rate_bps] = ($tax_buckets[$rate_bps] ?? 0) + $line;
-            $serialized = self::serialize_product($product);
-            $serialized_items[] = [
-                'product_id' => $serialized['product_id'],
-                'source_product_id' => $product_id,
-                'sku' => $serialized['sku'],
-                'title' => $serialized['title'],
-                'quantity' => $quantity,
-                'unit_price_cents' => $unit,
-                'line_total_cents' => $line,
-                'currency' => get_woocommerce_currency(),
-                'category' => $serialized['category'],
-                'vat_rate_bps' => $rate_bps,
-            ];
+            $cart_item_key = $cart->add_to_cart($product_id, $quantity);
+            if (!$cart_item_key) {
+                return new WP_Error('agentcart_cart_rejected_product', 'WooCommerce cart rejected product: ' . $product_id, ['status' => 409]);
+            }
         }
-        $shipping = $subtotal >= 3500 ? 0 : 490;
-        if ($shipping > 0) {
-            $tax_buckets[1900] = ($tax_buckets[1900] ?? 0) + $shipping;
+        $cart->calculate_shipping();
+        $shipping_selection = self::select_shipping_rates_for_cart($cart);
+        if (is_wp_error($shipping_selection)) {
+            $cart->empty_cart();
+            return $shipping_selection;
+        }
+        $cart->calculate_shipping();
+        $cart->calculate_totals();
+        $cart_quote = self::quote_from_cart($cart);
+        if (is_wp_error($cart_quote)) {
+            return $cart_quote;
         }
         $now = time();
         $quote_id = 'woo_quote_' . wp_generate_uuid4();
@@ -635,21 +723,16 @@ final class AgentCart_ShopBridge {
             'id' => $quote_id,
             'merchant' => self::merchant(),
             'merchant_of_record' => self::merchant()['merchant_of_record'],
-            'items' => $serialized_items,
+            'items' => $cart_quote['items'],
             'ship_to' => $ship_to,
             'delivery_requirements' => [
                 'ship_to_country' => $ship_to['country'],
                 'supported_countries' => $shipping_countries,
             ],
-            'subtotal_cents' => $subtotal,
-            'shipping' => [
-                'amount_cents' => $shipping,
-                'currency' => get_woocommerce_currency(),
-                'method' => 'woocommerce-demo-standard',
-                'vat_rate_bps' => 1900,
-            ],
-            'vat_lines' => self::vat_lines($tax_buckets),
-            'total_cents' => $subtotal + $shipping,
+            'subtotal_cents' => $cart_quote['subtotal_cents'],
+            'shipping' => $cart_quote['shipping'],
+            'vat_lines' => $cart_quote['vat_lines'],
+            'total_cents' => $cart_quote['total_cents'],
             'currency' => get_woocommerce_currency(),
             'delivery_estimate' => [
                 'min_days' => 2,
@@ -671,6 +754,7 @@ final class AgentCart_ShopBridge {
         $quote['payment_requirements'] = self::payment_requirements($quote);
         $quote['refund_policy'] = self::quote_refund_policy();
         set_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id, $quote, 15 * MINUTE_IN_SECONDS);
+        $cart->empty_cart();
         return $quote;
     }
 
@@ -681,17 +765,42 @@ final class AgentCart_ShopBridge {
             return new WP_Error('agentcart_bad_request', 'payment_receipt.id is required.', ['status' => 400]);
         }
         $agentcart_order_id = sanitize_text_field((string) ($body['agentcart_order_id'] ?? ''));
-        if ($agentcart_order_id !== '') {
-            $existing_orders = wc_get_orders([
-                'limit' => 1,
-                'return' => 'objects',
-                'meta_key' => '_agentcart_order_id',
-                'meta_value' => $agentcart_order_id,
-            ]);
-            if (!empty($existing_orders)) {
-                return self::serialize_order_response($existing_orders[0], 'existing');
-            }
+        $idempotency_key = self::checkout_idempotency_key($body, $request);
+        if (is_wp_error($idempotency_key)) {
+            return $idempotency_key;
         }
+        if ($agentcart_order_id === '' && $idempotency_key !== '') {
+            $agentcart_order_id = $idempotency_key;
+        }
+        if ($idempotency_key === '' && $agentcart_order_id !== '') {
+            $idempotency_key = $agentcart_order_id;
+        }
+        if ($idempotency_key === '') {
+            return new WP_Error('agentcart_idempotency_key_required', 'agentcart_order_id, idempotency_key, or Idempotency-Key header is required.', ['status' => 400]);
+        }
+
+        $existing_order = self::find_existing_checkout_order($agentcart_order_id, $idempotency_key);
+        if ($existing_order) {
+            $replay_error = self::validate_existing_order_replay($existing_order, $body, $receipt, $agentcart_order_id, $idempotency_key);
+            if (is_wp_error($replay_error)) {
+                return $replay_error;
+            }
+            return self::serialize_order_response($existing_order, 'idempotent_replay');
+        }
+
+        $lock = self::acquire_checkout_lock($idempotency_key);
+        if (is_wp_error($lock)) {
+            return $lock;
+        }
+        try {
+            $existing_order = self::find_existing_checkout_order($agentcart_order_id, $idempotency_key);
+            if ($existing_order) {
+                $replay_error = self::validate_existing_order_replay($existing_order, $body, $receipt, $agentcart_order_id, $idempotency_key);
+                if (is_wp_error($replay_error)) {
+                    return $replay_error;
+                }
+                return self::serialize_order_response($existing_order, 'idempotent_replay');
+            }
 
         $merchant_quote_id = self::merchant_quote_id_from_body($body);
         if ($merchant_quote_id === '') {
@@ -777,6 +886,7 @@ final class AgentCart_ShopBridge {
         $order->set_payment_method_title(self::payment_method_title_for_rail($payment_rail));
         $order->set_transaction_id(sanitize_text_field((string) $receipt['id']));
         $order->update_meta_data('_agentcart_order_id', $agentcart_order_id);
+        $order->update_meta_data(self::IDEMPOTENCY_KEY_META, $idempotency_key);
         $order->update_meta_data('_agentcart_quote_id', sanitize_text_field((string) ($body['agentcart_quote_id'] ?? '')));
         $order->update_meta_data('_agentcart_merchant_quote_id', sanitize_text_field((string) ($body['merchant_quote_id'] ?? '')));
         $order->update_meta_data('_agentcart_payment_receipt_id', sanitize_text_field((string) $receipt['id']));
@@ -796,6 +906,9 @@ final class AgentCart_ShopBridge {
         $order->save();
         delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
         return self::serialize_order_response($order, 'created', $payment_verification);
+        } finally {
+            self::release_checkout_lock($idempotency_key);
+        }
     }
 
     public static function order_status(WP_REST_Request $request) {
@@ -931,6 +1044,114 @@ final class AgentCart_ShopBridge {
             ?? $quote['id']
             ?? ''
         ));
+    }
+
+    private static function checkout_idempotency_key($body, WP_REST_Request $request) {
+        $body_key = sanitize_text_field((string) ($body['idempotency_key'] ?? ''));
+        $header_key = sanitize_text_field((string) $request->get_header('idempotency-key'));
+        if ($body_key !== '' && $header_key !== '' && !hash_equals($body_key, $header_key)) {
+            return new WP_Error('agentcart_idempotency_key_mismatch', 'idempotency_key does not match the Idempotency-Key header.', ['status' => 409]);
+        }
+        if ($body_key !== '') {
+            return $body_key;
+        }
+        if ($header_key !== '') {
+            return $header_key;
+        }
+        return sanitize_text_field((string) ($body['agentcart_order_id'] ?? ''));
+    }
+
+    private static function find_existing_checkout_order($agentcart_order_id, $idempotency_key) {
+        $lookups = [
+            ['_agentcart_order_id', sanitize_text_field((string) $agentcart_order_id)],
+            [self::IDEMPOTENCY_KEY_META, sanitize_text_field((string) $idempotency_key)],
+        ];
+        foreach ($lookups as $lookup) {
+            [$meta_key, $meta_value] = $lookup;
+            if ($meta_value === '') {
+                continue;
+            }
+            $existing_orders = wc_get_orders([
+                'limit' => 1,
+                'return' => 'objects',
+                'meta_key' => $meta_key,
+                'meta_value' => $meta_value,
+            ]);
+            if (!empty($existing_orders)) {
+                return $existing_orders[0];
+            }
+        }
+        return null;
+    }
+
+    private static function validate_existing_order_replay(WC_Order $order, $body, $receipt, $agentcart_order_id, $idempotency_key) {
+        $stored_agentcart_order_id = (string) $order->get_meta('_agentcart_order_id', true);
+        if ($agentcart_order_id !== '' && $stored_agentcart_order_id !== '' && !hash_equals($stored_agentcart_order_id, $agentcart_order_id)) {
+            return new WP_Error('agentcart_idempotency_conflict', 'agentcart_order_id is already bound to a different order.', ['status' => 409]);
+        }
+
+        $stored_idempotency_key = (string) $order->get_meta(self::IDEMPOTENCY_KEY_META, true);
+        if ($idempotency_key !== '' && $stored_idempotency_key !== '' && !hash_equals($stored_idempotency_key, $idempotency_key)) {
+            return new WP_Error('agentcart_idempotency_conflict', 'Idempotency key is already bound to a different order.', ['status' => 409]);
+        }
+
+        $stored_quote_hash = (string) $order->get_meta('_agentcart_quote_hash', true);
+        $supplied_quote_hash = sanitize_text_field((string) ($body['quote_hash'] ?? ($body['quote']['quote_hash'] ?? '')));
+        if ($supplied_quote_hash !== '' && $stored_quote_hash !== '' && !hash_equals($stored_quote_hash, $supplied_quote_hash)) {
+            return new WP_Error('agentcart_idempotency_conflict', 'Replay quote_hash does not match the existing order.', ['status' => 409]);
+        }
+
+        $stored_merchant_quote_id = (string) $order->get_meta('_agentcart_merchant_quote_id', true);
+        $supplied_merchant_quote_id = self::merchant_quote_id_from_body($body);
+        if ($supplied_merchant_quote_id !== '' && $stored_merchant_quote_id !== '' && !hash_equals($stored_merchant_quote_id, $supplied_merchant_quote_id)) {
+            return new WP_Error('agentcart_idempotency_conflict', 'Replay merchant_quote_id does not match the existing order.', ['status' => 409]);
+        }
+
+        $stored_receipt_id = (string) $order->get_meta('_agentcart_payment_receipt_id', true);
+        $supplied_receipt_id = sanitize_text_field((string) ($receipt['id'] ?? ''));
+        if ($supplied_receipt_id !== '' && $stored_receipt_id !== '' && !hash_equals($stored_receipt_id, $supplied_receipt_id)) {
+            return new WP_Error('agentcart_idempotency_conflict', 'Replay payment_receipt.id does not match the existing order.', ['status' => 409]);
+        }
+
+        $receipt_amount = isset($receipt['amount_cents']) ? intval($receipt['amount_cents']) : null;
+        if ($receipt_amount !== null && $receipt_amount !== self::cents((float) $order->get_total())) {
+            return new WP_Error('agentcart_idempotency_conflict', 'Replay payment amount does not match the existing order.', ['status' => 409]);
+        }
+
+        $receipt_currency = strtoupper((string) ($receipt['currency'] ?? ''));
+        if ($receipt_currency !== '' && $receipt_currency !== strtoupper($order->get_currency())) {
+            return new WP_Error('agentcart_idempotency_conflict', 'Replay payment currency does not match the existing order.', ['status' => 409]);
+        }
+
+        $stored_rail = (string) $order->get_meta('_agentcart_payment_rail', true);
+        $supplied_rail = self::payment_rail_from_receipt($receipt, $body);
+        if ($supplied_rail !== '' && $stored_rail !== '' && $supplied_rail !== $stored_rail) {
+            return new WP_Error('agentcart_idempotency_conflict', 'Replay payment rail does not match the existing order.', ['status' => 409]);
+        }
+
+        return true;
+    }
+
+    private static function acquire_checkout_lock($idempotency_key) {
+        $option_name = self::checkout_lock_option_name($idempotency_key);
+        $now = time();
+        if (add_option($option_name, (string) $now, '', 'no')) {
+            return true;
+        }
+        $existing = intval(get_option($option_name, 0));
+        if ($existing > 0 && $existing < ($now - self::CHECKOUT_LOCK_TTL_SECONDS)) {
+            update_option($option_name, (string) $now, false);
+            return true;
+        }
+        return new WP_Error('agentcart_checkout_in_progress', 'A checkout with this idempotency key is already in progress.', ['status' => 409]);
+    }
+
+    private static function release_checkout_lock($idempotency_key) {
+        delete_option(self::checkout_lock_option_name($idempotency_key));
+    }
+
+    private static function checkout_lock_option_name($idempotency_key) {
+        return self::CHECKOUT_LOCK_PREFIX . hash('sha256', (string) $idempotency_key);
     }
 
     private static function verify_payment_receipt($quote, $receipt, $body, WP_REST_Request $request) {
@@ -1398,6 +1619,11 @@ final class AgentCart_ShopBridge {
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
             'quote_hash' => (string) ($quote['quote_hash'] ?? self::quote_hash($quote)),
             'checkout_endpoint' => rest_url(self::API_NAMESPACE . '/orders'),
+            'idempotency' => [
+                'required' => true,
+                'accepted_fields' => ['agentcart_order_id', 'idempotency_key', 'Idempotency-Key'],
+                'replay_state' => 'idempotent_replay',
+            ],
             'verification' => [
                 'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
                 'external_verifier_configured' => self::payment_verifier_url() !== '',
@@ -1643,6 +1869,206 @@ final class AgentCart_ShopBridge {
         return count($products);
     }
 
+    private static function prepare_quote_cart($ship_to) {
+        if (function_exists('wc_load_cart')) {
+            wc_load_cart();
+        }
+        if (!WC() || !WC()->cart) {
+            return new WP_Error('agentcart_cart_unavailable', 'WooCommerce cart is not available for quote calculation.', ['status' => 503]);
+        }
+        $cart = WC()->cart;
+        $cart->empty_cart();
+        if (WC()->customer) {
+            WC()->customer->set_shipping_country((string) ($ship_to['country'] ?? ''));
+            WC()->customer->set_shipping_state((string) ($ship_to['state'] ?? ''));
+            WC()->customer->set_shipping_postcode((string) ($ship_to['postcode'] ?? ''));
+            WC()->customer->set_shipping_city((string) ($ship_to['city'] ?? ''));
+            WC()->customer->set_shipping_address((string) ($ship_to['address_1'] ?? ''));
+            WC()->customer->set_shipping_address_2((string) ($ship_to['address_2'] ?? ''));
+            WC()->customer->set_billing_country((string) ($ship_to['country'] ?? ''));
+            WC()->customer->set_billing_state((string) ($ship_to['state'] ?? ''));
+            WC()->customer->set_billing_postcode((string) ($ship_to['postcode'] ?? ''));
+            WC()->customer->set_billing_city((string) ($ship_to['city'] ?? ''));
+            WC()->customer->set_calculated_shipping(true);
+        }
+        if (WC()->session) {
+            WC()->session->set('chosen_shipping_methods', []);
+        }
+        return $cart;
+    }
+
+    private static function select_shipping_rates_for_cart($cart) {
+        if (!$cart || !$cart->needs_shipping()) {
+            return true;
+        }
+        if (!WC()->shipping()) {
+            return new WP_Error('agentcart_shipping_unavailable', 'WooCommerce shipping is not available.', ['status' => 503]);
+        }
+        $packages = WC()->shipping()->get_packages();
+        if (!$packages) {
+            return new WP_Error('agentcart_no_shipping_package', 'WooCommerce did not create a shipping package for this quote.', ['status' => 409]);
+        }
+        $chosen = [];
+        foreach ($packages as $index => $package) {
+            $rates = isset($package['rates']) && is_array($package['rates']) ? $package['rates'] : [];
+            if (!$rates) {
+                return new WP_Error('agentcart_no_shipping_rate', 'No WooCommerce shipping rate is available for this basket and address.', ['status' => 409]);
+            }
+            $rate_ids = array_keys($rates);
+            $chosen[$index] = (string) reset($rate_ids);
+        }
+        if (WC()->session) {
+            WC()->session->set('chosen_shipping_methods', $chosen);
+        }
+        return true;
+    }
+
+    private static function quote_from_cart($cart) {
+        $selected_shipping = self::selected_shipping_summary();
+        $items = [];
+        $subtotal_cents = 0;
+        foreach ($cart->get_cart() as $cart_item) {
+            $product = isset($cart_item['data']) && $cart_item['data'] instanceof WC_Product ? $cart_item['data'] : null;
+            if (!$product) {
+                continue;
+            }
+            $quantity = max(1, intval($cart_item['quantity'] ?? 1));
+            $line_gross_cents = self::cents(floatval($cart_item['line_total'] ?? 0) + floatval($cart_item['line_tax'] ?? 0));
+            $unit_gross_cents = intval(round($line_gross_cents / $quantity));
+            $subtotal_cents += $line_gross_cents;
+            $serialized = self::serialize_product($product);
+            $items[] = [
+                'product_id' => $serialized['product_id'],
+                'source_product_id' => $product->get_id(),
+                'sku' => $serialized['sku'],
+                'title' => $serialized['title'],
+                'quantity' => $quantity,
+                'unit_price_cents' => $unit_gross_cents,
+                'line_total_cents' => $line_gross_cents,
+                'currency' => get_woocommerce_currency(),
+                'category' => $serialized['category'],
+                'vat_rate_bps' => self::vat_rate_bps($product),
+            ];
+        }
+        if (!$items) {
+            return new WP_Error('agentcart_empty_cart_quote', 'WooCommerce cart did not contain quoteable items.', ['status' => 409]);
+        }
+        $shipping_cents = self::cents(floatval($cart->get_shipping_total()) + floatval($cart->get_shipping_tax()));
+        $total_cents = self::cents(floatval($cart->get_total('edit')));
+        if ($total_cents <= 0) {
+            $totals = $cart->get_totals();
+            $total_cents = self::cents(floatval($totals['total'] ?? 0));
+        }
+        return [
+            'items' => $items,
+            'subtotal_cents' => $subtotal_cents,
+            'shipping' => [
+                'amount_cents' => $shipping_cents,
+                'currency' => get_woocommerce_currency(),
+                'method' => $selected_shipping['method_id'],
+                'label' => $selected_shipping['label'],
+                'source' => 'woocommerce_cart',
+            ],
+            'vat_lines' => self::vat_lines_from_cart($cart),
+            'total_cents' => $total_cents,
+        ];
+    }
+
+    private static function selected_shipping_summary() {
+        $labels = [];
+        $method_ids = [];
+        $chosen = WC()->session ? WC()->session->get('chosen_shipping_methods', []) : [];
+        $packages = WC()->shipping() ? WC()->shipping()->get_packages() : [];
+        foreach ($packages as $index => $package) {
+            $rates = isset($package['rates']) && is_array($package['rates']) ? $package['rates'] : [];
+            if (!$rates) {
+                continue;
+            }
+            $rate_id = isset($chosen[$index]) && isset($rates[$chosen[$index]]) ? $chosen[$index] : array_key_first($rates);
+            $rate = $rates[$rate_id] ?? null;
+            if ($rate && method_exists($rate, 'get_label')) {
+                $labels[] = $rate->get_label();
+            }
+            $method_ids[] = (string) $rate_id;
+        }
+        return [
+            'method_id' => $method_ids ? implode('+', $method_ids) : 'woocommerce',
+            'label' => $labels ? implode(' + ', $labels) : 'WooCommerce shipping',
+        ];
+    }
+
+    private static function vat_lines_from_cart($cart) {
+        $buckets = [];
+        foreach ($cart->get_cart() as $cart_item) {
+            $line_taxes = $cart_item['line_tax_data']['total'] ?? [];
+            $line_net = floatval($cart_item['line_total'] ?? 0);
+            foreach ((array) $line_taxes as $rate_id => $amount) {
+                $tax_amount = floatval($amount);
+                if ($tax_amount <= 0) {
+                    continue;
+                }
+                if (!isset($buckets[$rate_id])) {
+                    $buckets[$rate_id] = ['tax' => 0.0, 'gross' => 0.0];
+                }
+                $buckets[$rate_id]['tax'] += $tax_amount;
+                $buckets[$rate_id]['gross'] += $line_net + $tax_amount;
+            }
+        }
+        $shipping_net = floatval($cart->get_shipping_total());
+        foreach ((array) $cart->get_shipping_taxes() as $rate_id => $amount) {
+            $tax_amount = floatval($amount);
+            if ($tax_amount <= 0) {
+                continue;
+            }
+            if (!isset($buckets[$rate_id])) {
+                $buckets[$rate_id] = ['tax' => 0.0, 'gross' => 0.0];
+            }
+            $buckets[$rate_id]['tax'] += $tax_amount;
+            $buckets[$rate_id]['gross'] += $shipping_net + $tax_amount;
+        }
+        if (!$buckets) {
+            foreach ((array) $cart->get_taxes() as $rate_id => $amount) {
+                $tax_amount = floatval($amount);
+                if ($tax_amount <= 0) {
+                    continue;
+                }
+                $rate_bps = self::tax_rate_bps_from_rate_id($rate_id);
+                $buckets[$rate_id] = [
+                    'tax' => $tax_amount,
+                    'gross' => $rate_bps > 0 ? $tax_amount * (10000 + $rate_bps) / $rate_bps : $tax_amount,
+                ];
+            }
+        }
+        $lines = [];
+        ksort($buckets);
+        foreach ($buckets as $rate_id => $bucket) {
+            $tax_cents = self::cents(floatval($bucket['tax'] ?? 0));
+            if ($tax_cents <= 0) {
+                continue;
+            }
+            $rate_bps = self::tax_rate_bps_from_rate_id($rate_id);
+            $lines[] = [
+                'rate_bps' => $rate_bps,
+                'taxable_gross_cents' => self::cents(floatval($bucket['gross'] ?? 0)),
+                'vat_cents' => $tax_cents,
+                'currency' => get_woocommerce_currency(),
+                'included_in_price' => wc_prices_include_tax(),
+                'source' => 'woocommerce_cart',
+            ];
+        }
+        return $lines;
+    }
+
+    private static function tax_rate_bps_from_rate_id($rate_id) {
+        if (class_exists('WC_Tax') && method_exists('WC_Tax', 'get_rate_percent_value')) {
+            return intval(round(floatval(WC_Tax::get_rate_percent_value($rate_id)) * 100));
+        }
+        if (class_exists('WC_Tax') && method_exists('WC_Tax', 'get_rate_percent')) {
+            return intval(round(floatval(str_replace('%', '', WC_Tax::get_rate_percent($rate_id))) * 100));
+        }
+        return 0;
+    }
+
     private static function serialize_product(WC_Product $product) {
         $category = 'household.supplies';
         $category_ids = $product->get_category_ids();
@@ -1692,20 +2118,30 @@ final class AgentCart_ShopBridge {
 
     private static function normalize_address($raw) {
         $raw = is_array($raw) ? $raw : [];
-        $country = strtoupper(sanitize_text_field((string) ($raw['country'] ?? 'DE')));
+        $country = strtoupper(sanitize_text_field((string) ($raw['country'] ?? (WC()->countries->get_base_country() ?: 'DE'))));
         return [
-            'first_name' => sanitize_text_field((string) ($raw['first_name'] ?? 'AgentCart')),
-            'last_name' => sanitize_text_field((string) ($raw['last_name'] ?? 'Household')),
+            'first_name' => sanitize_text_field((string) ($raw['first_name'] ?? '')),
+            'last_name' => sanitize_text_field((string) ($raw['last_name'] ?? '')),
             'company' => sanitize_text_field((string) ($raw['company'] ?? '')),
-            'address_1' => sanitize_text_field((string) ($raw['address_1'] ?? 'Demo Street 1')),
+            'address_1' => sanitize_text_field((string) ($raw['address_1'] ?? '')),
             'address_2' => sanitize_text_field((string) ($raw['address_2'] ?? '')),
-            'city' => sanitize_text_field((string) ($raw['city'] ?? 'Berlin')),
-            'state' => sanitize_text_field((string) ($raw['state'] ?? 'BB')),
-            'postcode' => sanitize_text_field((string) ($raw['postcode'] ?? $raw['postal_code'] ?? '10115')),
+            'city' => sanitize_text_field((string) ($raw['city'] ?? '')),
+            'state' => sanitize_text_field((string) ($raw['state'] ?? '')),
+            'postcode' => sanitize_text_field((string) ($raw['postcode'] ?? $raw['postal_code'] ?? '')),
             'country' => $country ?: 'DE',
-            'email' => sanitize_email((string) ($raw['email'] ?? get_option('admin_email'))),
+            'email' => sanitize_email((string) ($raw['email'] ?? '')),
             'phone' => sanitize_text_field((string) ($raw['phone'] ?? '')),
         ];
+    }
+
+    private static function validate_quote_address($ship_to) {
+        if (empty($ship_to['country'])) {
+            return new WP_Error('agentcart_ship_to_country_required', 'ship_to.country is required for a final quote.', ['status' => 400]);
+        }
+        if (empty($ship_to['postcode'])) {
+            return new WP_Error('agentcart_ship_to_postcode_required', 'ship_to.postcode or ship_to.postal_code is required for a final quote.', ['status' => 400]);
+        }
+        return true;
     }
 
     private static function cents($amount) {
