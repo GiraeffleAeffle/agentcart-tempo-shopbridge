@@ -15,6 +15,11 @@ dist/agentcart-release.json
 dist/agentcart-release.sig   # optional, only when signing a release
 ```
 
+The WooCommerce ZIP includes the plugin entrypoint, WordPress `readme.txt`, and
+`uninstall.php`. Uninstall removes ShopBridge settings and ephemeral state, but
+preserves WooCommerce orders, refunds, cancellation history, payment
+verification metadata, and product-level AgentCart metadata for auditability.
+
 `agentcart-release.json` records:
 
 - gateway release version from `gateway/package.json`;

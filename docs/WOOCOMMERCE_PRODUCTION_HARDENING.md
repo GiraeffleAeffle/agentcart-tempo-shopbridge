@@ -102,8 +102,10 @@ harness for end-to-end endpoint behavior.
 
 For a real WordPress plugin release:
 
-- add plugin versioning and changelog;
-- add uninstall cleanup policy;
+- keep plugin versioning and changelog current in the plugin header and
+  WordPress `readme.txt`;
+- keep uninstall cleanup policy conservative: remove settings and ephemeral
+  state, preserve commerce audit metadata;
 - add PHPCS/WordPress coding standard checks;
 - add GitHub release zip build;
 - document required WooCommerce versions;

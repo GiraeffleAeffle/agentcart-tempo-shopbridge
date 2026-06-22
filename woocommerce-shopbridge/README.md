@@ -73,6 +73,13 @@ The ZIP works with WordPress admin's `Upload Plugin` flow today. It will not app
 
 For private merchant onboarding before WordPress.org approval, distribute the ZIP from a GitHub release or direct download page. Native update notifications require either WordPress.org hosting, a custom update server, or an updater mechanism; GitHub alone is not enough for standard WordPress plugin search/update discovery.
 
+The plugin package includes a WordPress-style `readme.txt` and an
+`uninstall.php` cleanup routine. Uninstall removes ShopBridge settings,
+ephemeral locks, stock-hold state, quote transients, and rate-limit transients.
+It intentionally preserves WooCommerce orders, refunds, cancellation events,
+payment verification metadata, and product-level AgentCart metadata so merchants
+retain their commerce audit trail.
+
 For the hackathon demo, `AGENTCART_SHOPBRIDGE_TOKEN` lets a trusted AgentCart gateway create orders after its own approval and payment proof flow.
 
 For production, configure `AGENTCART_PAYMENT_VERIFIER_URL`. Public agents can then create orders only when the verifier confirms the quote-bound receipt.

@@ -224,15 +224,16 @@ Definition of done:
 - releases have tests, versioning, and rollback/update guidance.
 
 Current alpha status: the repo packages the WooCommerce plugin ZIP and the
-skill-only buyer ZIP under `dist/`, verifies both artifacts in the main
-pipeline, generates `dist/agentcart-release.json` with component versions and
-artifact checksums, and documents skill-only plus home-server buyer setup and
-upgrade/rollback in `docs/BUYER_SETUP.md` and `docs/RELEASES.md`. A release
-verifier checks manifest schema, component versions, artifact sizes, SHA-256s,
-optional trusted manifest/source pins, and optional detached HMAC release
-signatures for private/self-hosted release channels. Production still needs
-public asymmetric release signing or a managed update channel, plus a
-non-technical setup wizard.
+skill-only buyer ZIP under `dist/`, includes WordPress release metadata
+(`readme.txt`) and conservative uninstall cleanup, verifies both artifacts in
+the main pipeline, generates `dist/agentcart-release.json` with component
+versions and artifact checksums, and documents skill-only plus home-server buyer
+setup and upgrade/rollback in `docs/BUYER_SETUP.md` and `docs/RELEASES.md`. A
+release verifier checks manifest schema, component versions, artifact sizes,
+SHA-256s, optional trusted manifest/source pins, and optional detached HMAC
+release signatures for private/self-hosted release channels. Production still
+needs PHPCS/WP integration tests, public asymmetric release signing or a managed
+update channel, plus a non-technical setup wizard.
 
 ### 7. Registry Alpha
 

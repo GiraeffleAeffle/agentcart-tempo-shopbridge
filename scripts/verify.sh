@@ -22,6 +22,7 @@ section "Python tests: household-os"
 section "WooCommerce plugin syntax"
 if command -v php >/dev/null 2>&1; then
   php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php"
+  php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/uninstall.php"
 else
   printf 'php not installed; skipping php -l\n'
 fi
@@ -52,6 +53,8 @@ section "Package WooCommerce plugin"
 "$ROOT_DIR/scripts/package-woocommerce-plugin.sh"
 zip_listing="$(unzip -l "$ROOT_DIR/dist/agentcart-shopbridge.zip")"
 grep -q "agentcart-shopbridge/agentcart-shopbridge.php" <<<"$zip_listing"
+grep -q "agentcart-shopbridge/readme.txt" <<<"$zip_listing"
+grep -q "agentcart-shopbridge/uninstall.php" <<<"$zip_listing"
 
 section "Package ShopBridge direct skill"
 bash -n "$ROOT_DIR/scripts/package-shopbridge-direct-skill.sh"

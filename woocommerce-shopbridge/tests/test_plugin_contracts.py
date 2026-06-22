@@ -6,7 +6,10 @@ import unittest
 
 
 PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "agentcart-shopbridge" / "agentcart-shopbridge.php"
+PLUGIN_DIR = PLUGIN.parent
 SOURCE = PLUGIN.read_text()
+README_TXT = PLUGIN_DIR / "readme.txt"
+UNINSTALL = PLUGIN_DIR / "uninstall.php"
 
 
 def function_body(name: str) -> str:
@@ -31,6 +34,52 @@ def function_body(name: str) -> str:
 
 
 class ShopBridgePluginContractTests(unittest.TestCase):
+    def test_wordpress_release_metadata_files_are_present(self) -> None:
+        self.assertTrue(README_TXT.exists(), "WordPress plugin readme.txt is required for release packaging")
+        self.assertTrue(UNINSTALL.exists(), "uninstall.php documents and enforces cleanup policy")
+
+        readme = README_TXT.read_text()
+        for field in [
+            "=== AgentCart ShopBridge for WooCommerce ===",
+            "Requires at least:",
+            "Requires PHP:",
+            "Requires Plugins: woocommerce",
+            "Stable tag: 0.1.0",
+            "License:",
+            "== Installation ==",
+            "== Changelog ==",
+        ]:
+            self.assertIn(field, readme)
+        for endpoint in [
+            "/.well-known/agentcart.json",
+            "/wp-json/agentcart/v1/catalog",
+            "/wp-json/agentcart/v1/quote",
+            "/wp-json/agentcart/v1/orders",
+            "/wp-json/agentcart/v1/orders/{id}/status",
+            "/wp-json/agentcart/v1/orders/{id}/refunds",
+            "/wp-json/agentcart/v1/orders/{id}/cancellations",
+        ]:
+            self.assertIn(endpoint, readme)
+
+    def test_uninstall_cleanup_preserves_commerce_audit_metadata(self) -> None:
+        uninstall = UNINSTALL.read_text()
+
+        self.assertIn("WP_UNINSTALL_PLUGIN", uninstall)
+        self.assertIn("agentcart_shopbridge_token", uninstall)
+        self.assertIn("agentcart_shopbridge_stock_holds", uninstall)
+        self.assertIn("agentcart_shopbridge_quote_", uninstall)
+        self.assertIn("agentcart_shopbridge_rate_", uninstall)
+        self.assertIn("preserves WooCommerce order, refund, cancellation, payment", uninstall)
+        for preserved_meta in [
+            "_agentcart_order_id",
+            "_agentcart_payment_verification",
+            "_agentcart_refunds",
+            "_agentcart_cancellations",
+            "_agentcart_enabled",
+            "_agentcart_checkout_blocked",
+        ]:
+            self.assertNotIn(preserved_meta, uninstall)
+
     def test_refund_endpoint_requires_idempotency_key(self) -> None:
         body = function_body("create_refund")
 
