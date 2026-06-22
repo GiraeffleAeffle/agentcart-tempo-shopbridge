@@ -1,0 +1,14 @@
+{
+  "case": "payment_amount_mismatch",
+  "should_reject": true,
+  "base_fixture": "payment-request.stripe-card-mpp.json",
+  "mutation": {
+    "path": "payment_receipt.amount_cents",
+    "value": 1839
+  },
+  "expected_rejection": {
+    "layer": "buyer_skill_or_shopbridge",
+    "status": 402,
+    "reason": "payment_receipt.amount_cents does not match quote.total_cents"
+  }
+}

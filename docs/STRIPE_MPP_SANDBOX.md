@@ -14,6 +14,7 @@ STRIPE_SANDBOX_SECRET_KEY=sk_test_...
 STRIPE_PROFILE_ID=profile_test_...
 MPP_SECRET_KEY=replace-with-random-32-byte-base64
 AGENTCART_PAYMENT_VERIFIER_TOKEN=replace-with-random-hex-token
+AGENTCART_VERIFIER_REPLAY_STORE_PATH=/tmp/agentcart-stripe-mpp-replay.json
 EOF
 ```
 
@@ -64,11 +65,14 @@ The verifier checks:
 - Stripe profile id
 - MPP challenge signature and expiry
 - Stripe SPT charge result
+- replayed payment, refund request, and refund references
 
 On success it returns the Stripe PaymentIntent id as `transaction_reference`.
 
 Refund requests use the same verifier URL with `operation: refund`; the
 verifier calls Stripe refunds against the original PaymentIntent reference.
+The refund `requested_reference` is passed to Stripe as the idempotency key and
+stored in the replay store after a successful refund response.
 
 ## Link CLI Smoke Test
 

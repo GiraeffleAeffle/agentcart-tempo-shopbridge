@@ -5,12 +5,14 @@ import json
 import pathlib
 import re
 import sys
+from copy import deepcopy
 from typing import Any
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIXTURE_DIR = ROOT / "docs" / "fixtures" / "verifier"
 PLUGIN = ROOT / "woocommerce-shopbridge" / "agentcart-shopbridge" / "agentcart-shopbridge.php"
+STRIPE_VERIFIER = ROOT / "gateway" / "scripts" / "stripe-mpp-verifier.mjs"
 
 
 def load_fixture(name: str) -> dict[str, Any]:
@@ -33,6 +35,17 @@ def path_value(data: dict[str, Any], dotted: str) -> Any:
         require(part in current, f"{dotted} is missing")
         current = current[part]
     return current
+
+
+def set_path_value(data: dict[str, Any], dotted: str, value: Any) -> None:
+    current: Any = data
+    parts = dotted.split(".")
+    for part in parts[:-1]:
+        require(isinstance(current, dict), f"{dotted} parent is not an object")
+        require(part in current, f"{dotted} parent is missing")
+        current = current[part]
+    require(isinstance(current, dict), f"{dotted} parent is not an object")
+    current[parts[-1]] = value
 
 
 def require_non_empty_string(data: dict[str, Any], dotted: str) -> str:
@@ -149,6 +162,87 @@ def verify_refund_success(payload: dict[str, Any], request: dict[str, Any]) -> N
     require(payload.get("real_refund_verified") is True, "refund success must represent real refund verification")
 
 
+def mutated_negative_payload(case: dict[str, Any]) -> dict[str, Any]:
+    base_name = require_non_empty_string(case, "base_fixture")
+    payload = deepcopy(load_fixture(base_name))
+    mutation = case.get("mutation")
+    if isinstance(mutation, dict):
+        set_path_value(payload, require_non_empty_string(mutation, "path"), mutation.get("value"))
+    return payload
+
+
+def verify_negative_fixture(path: pathlib.Path) -> None:
+    case = json.loads(path.read_text(encoding="utf-8"))
+    require(isinstance(case, dict), f"{path} must contain a JSON object")
+    require(case.get("should_reject") is True, f"{path.name} must set should_reject=true")
+    case_name = require_non_empty_string(case, "case")
+    expected_rejection = case.get("expected_rejection")
+    require(isinstance(expected_rejection, dict), f"{case_name} expected_rejection must be an object")
+    require_positive_int(case, "expected_rejection.status")
+    require_non_empty_string(case, "expected_rejection.reason")
+    payload = mutated_negative_payload(case)
+
+    if case_name == "payment_amount_mismatch":
+        require(
+            path_value(payload, "payment_receipt.amount_cents") != path_value(payload, "expected.amount_cents"),
+            f"{case_name} must mutate payment_receipt.amount_cents away from expected.amount_cents",
+        )
+    elif case_name == "payment_quote_hash_mismatch":
+        require_quote_hash(path_value(payload, "payment_receipt.quote_hash"), f"{case_name} mutated quote hash")
+        require(
+            path_value(payload, "payment_receipt.quote_hash") != path_value(payload, "quote_hash"),
+            f"{case_name} must mutate payment_receipt.quote_hash away from quote_hash",
+        )
+    elif case_name == "payment_stripe_profile_mismatch":
+        require(
+            path_value(payload, "payment_receipt.stripe_profile_id")
+            != path_value(payload, "expected.stripe_profile_id"),
+            f"{case_name} must mutate payment_receipt.stripe_profile_id away from expected.stripe_profile_id",
+        )
+    elif case_name == "payment_replay_reference":
+        require(case.get("replay_bucket") == "payments", f"{case_name} must replay the payments bucket")
+        require_non_empty_string(payload, str(case.get("reference_path") or "transaction_reference"))
+    elif case_name == "refund_original_reference_mismatch":
+        require(
+            path_value(payload, "expected.original_transaction_reference")
+            != path_value(payload, "order.transaction_reference"),
+            f"{case_name} must mutate expected.original_transaction_reference away from the order reference",
+        )
+    elif case_name == "refund_requested_reference_missing":
+        require(
+            str(path_value(payload, "refund.requested_reference")) == "",
+            f"{case_name} must remove refund.requested_reference",
+        )
+    elif case_name == "refund_replay_reference":
+        require(case.get("replay_bucket") == "refunds", f"{case_name} must replay the refunds bucket")
+        require_non_empty_string(payload, str(case.get("reference_path") or "refund_reference"))
+    else:
+        raise AssertionError(f"unknown negative fixture case: {case_name}")
+
+
+def verify_negative_fixtures() -> None:
+    paths = sorted((FIXTURE_DIR / "negative").glob("*.json"))
+    require(paths, "negative verifier fixtures are missing")
+    seen = set()
+    for path in paths:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        case_name = str(data.get("case") or "")
+        require(case_name not in seen, f"duplicate negative fixture case: {case_name}")
+        seen.add(case_name)
+        verify_negative_fixture(path)
+    required_cases = {
+        "payment_amount_mismatch",
+        "payment_quote_hash_mismatch",
+        "payment_stripe_profile_mismatch",
+        "payment_replay_reference",
+        "refund_original_reference_mismatch",
+        "refund_requested_reference_missing",
+        "refund_replay_reference",
+    }
+    missing = sorted(required_cases - seen)
+    require(not missing, f"missing negative verifier fixture cases: {', '.join(missing)}")
+
+
 def function_body(source: str, name: str) -> str:
     match = re.search(rf"private static function {re.escape(name)}\([^)]*\) \{{", source)
     if not match:
@@ -209,6 +303,21 @@ def verify_plugin_contract_fields() -> None:
         require(literal in refund_body, f"call_refund_verifier missing {literal}")
 
 
+def verify_stripe_verifier_replay_fields() -> None:
+    source = STRIPE_VERIFIER.read_text(encoding="utf-8")
+    for literal in [
+        "AGENTCART_VERIFIER_REPLAY_STORE_PATH",
+        "STRIPE_MPP_REPLAY_STORE_PATH",
+        "agentcart.verifierReplay.v1",
+        "claimReplayReference(\"payments\"",
+        "claimReplayReference(\"refund_requests\"",
+        "claimReplayReference(\"refunds\"",
+        "refund.requested_reference is required",
+        "idempotencyKey: requestedReference",
+    ]:
+        require(literal in source, f"stripe verifier missing replay guard: {literal}")
+
+
 def main() -> int:
     try:
         payment_request = load_fixture("payment-request.stripe-card-mpp.json")
@@ -219,7 +328,9 @@ def main() -> int:
         verify_payment_success(payment_success, payment_request)
         verify_refund_request(refund_request, payment_request, payment_success)
         verify_refund_success(refund_success, refund_request)
+        verify_negative_fixtures()
         verify_plugin_contract_fields()
+        verify_stripe_verifier_replay_fields()
     except (AssertionError, OSError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, indent=2), file=sys.stderr)
         return 1

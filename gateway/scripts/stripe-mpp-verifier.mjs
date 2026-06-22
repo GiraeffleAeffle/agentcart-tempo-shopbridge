@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
 
 import Stripe from "stripe";
 import { Challenge, Receipt } from "mppx";
@@ -16,6 +18,11 @@ const stripeSecretKey = (
 const stripeProfileId = (process.env.STRIPE_PROFILE_ID || process.env.AGENTCART_STRIPE_PROFILE_ID || "").trim();
 const mppSecretKey = (process.env.MPP_SECRET_KEY || "").trim();
 const verifierToken = (process.env.AGENTCART_PAYMENT_VERIFIER_TOKEN || "").trim();
+const replayStorePath = (
+  process.env.AGENTCART_VERIFIER_REPLAY_STORE_PATH ||
+  process.env.STRIPE_MPP_REPLAY_STORE_PATH ||
+  ""
+).trim();
 const defaultCurrency = (process.env.STRIPE_MPP_CURRENCY || "eur").trim().toLowerCase();
 const paymentMethodTypes = (process.env.STRIPE_MPP_PAYMENT_METHOD_TYPES || "card,link")
   .split(",")
@@ -25,6 +32,7 @@ const paymentMethodTypes = (process.env.STRIPE_MPP_PAYMENT_METHOD_TYPES || "card
 const stripeClient = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: "2026-02-25.preview" })
   : null;
+const memoryReplayStore = blankReplayStore();
 
 function jsonResponse(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body, null, 2) + "\n", {
@@ -62,6 +70,7 @@ function readiness() {
     default_currency: defaultCurrency,
     payment_method_types: paymentMethodTypes,
     token_required: verifierToken !== "",
+    replay_store: replayStorePath || "memory",
     missing,
   };
 }
@@ -113,6 +122,74 @@ function normalizeRail(value) {
   if (rail === "stripe" || rail === "stripe-card" || rail === "stripe-card-mpp") return "stripe-card-mpp";
   if (rail === "tempo" || rail === "tempo-mpp" || rail === "mpp") return "tempo-mpp";
   return rail || "stripe-card-mpp";
+}
+
+function blankReplayStore() {
+  return {
+    schema: "agentcart.verifierReplay.v1",
+    payments: {},
+    refund_requests: {},
+    refunds: {},
+  };
+}
+
+function normalizeReplayStore(raw) {
+  const store = raw && typeof raw === "object" ? raw : {};
+  return {
+    schema: "agentcart.verifierReplay.v1",
+    payments: store.payments && typeof store.payments === "object" ? store.payments : {},
+    refund_requests:
+      store.refund_requests && typeof store.refund_requests === "object" ? store.refund_requests : {},
+    refunds: store.refunds && typeof store.refunds === "object" ? store.refunds : {},
+  };
+}
+
+function loadReplayStore() {
+  if (!replayStorePath) return memoryReplayStore;
+  if (!fs.existsSync(replayStorePath)) return blankReplayStore();
+  try {
+    return normalizeReplayStore(JSON.parse(fs.readFileSync(replayStorePath, "utf8")));
+  } catch (error) {
+    throw Object.assign(new Error(`Could not read verifier replay store: ${error.message}`), { status: 500 });
+  }
+}
+
+function saveReplayStore(store) {
+  if (!replayStorePath) return;
+  const directory = path.dirname(replayStorePath);
+  fs.mkdirSync(directory, { recursive: true });
+  const tempPath = `${replayStorePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tempPath, replayStorePath);
+}
+
+function claimReplayReference(bucket, reference, metadata = {}) {
+  const key = String(reference || "").trim();
+  if (!key) {
+    return { ok: false, response: jsonResponse({ ok: false, error: "replay reference is required." }, 400) };
+  }
+  const store = loadReplayStore();
+  if (!store[bucket] || typeof store[bucket] !== "object") store[bucket] = {};
+  if (store[bucket][key]) {
+    return {
+      ok: false,
+      response: jsonResponse(
+        {
+          ok: false,
+          error: `${bucket.slice(0, -1).replace("_", " ")} reference has already been used.`,
+          replay_reference: key,
+          first_seen_at: store[bucket][key].first_seen_at || null,
+        },
+        409,
+      ),
+    };
+  }
+  store[bucket][key] = {
+    ...metadata,
+    first_seen_at: new Date().toISOString(),
+  };
+  saveReplayStore(store);
+  return { ok: true };
 }
 
 function expectedFromPayload(payload) {
@@ -257,6 +334,16 @@ async function verifyPayment(payload) {
   }
   const mppx = createMppx(expected);
   const mppReceipt = await mppx.verifyCredential(authorization, { request: chargeOptions(expected) });
+  const transactionReference = String(mppReceipt.reference || "").trim();
+  const replayClaim = claimReplayReference("payments", transactionReference, {
+    provider: "stripe",
+    rail: "stripe-card-mpp",
+    amount_cents: expected.amountCents,
+    currency: expected.currency.toUpperCase(),
+    quote_hash: expected.quoteHash,
+    stripe_profile_id: stripeProfileId,
+  });
+  if (!replayClaim.ok) return replayClaim.response;
   return jsonResponse({
     ok: true,
     provider: "stripe",
@@ -265,7 +352,7 @@ async function verifyPayment(payload) {
     currency: expected.currency.toUpperCase(),
     quote_hash: expected.quoteHash,
     stripe_profile_id: stripeProfileId,
-    transaction_reference: mppReceipt.reference,
+    transaction_reference: transactionReference,
     mpp_receipt: mppReceipt,
     real_settlement_verified: true,
   });
@@ -313,6 +400,16 @@ async function verifyTempoFxPayment(receipt, expected) {
   if (!transactionReference) {
     return jsonResponse({ ok: false, error: "Tempo proof transaction reference is required." }, 400);
   }
+  const replayClaim = claimReplayReference("payments", transactionReference, {
+    provider: "tempo_mpp",
+    rail: "tempo-mpp",
+    amount_cents: expected.amountCents,
+    currency: expected.currency.toUpperCase(),
+    quote_hash: expected.quoteHash,
+    network: expected.tempoNetwork || network,
+    recipient: expected.tempoRecipient || recipient,
+  });
+  if (!replayClaim.ok) return replayClaim.response;
   return jsonResponse({
     ok: true,
     provider: "tempo_mpp",
@@ -360,6 +457,10 @@ async function verifyRefund(payload) {
   if (!originalReference) {
     return jsonResponse({ ok: false, error: "original transaction reference is required." }, 400);
   }
+  const requestedReference = String(refund.requested_reference || payload.requested_reference || "").trim();
+  if (!requestedReference) {
+    return jsonResponse({ ok: false, error: "refund.requested_reference is required." }, 400);
+  }
   const refundResult = await stripeClient.refunds.create(
     {
       amount: amountCents,
@@ -371,9 +472,29 @@ async function verifyRefund(payload) {
       reason: "requested_by_customer",
     },
     {
-      idempotencyKey: `agentcart_refund_${originalReference}_${amountCents}_${quoteHash || "nohash"}`,
+      idempotencyKey: requestedReference,
     },
   );
+  const requestClaim = claimReplayReference("refund_requests", requestedReference, {
+    provider: "stripe",
+    rail,
+    amount_cents: amountCents,
+    currency,
+    quote_hash: quoteHash,
+    original_transaction_reference: originalReference,
+    refund_reference: refundResult.id,
+  });
+  if (!requestClaim.ok) return requestClaim.response;
+  const refundClaim = claimReplayReference("refunds", refundResult.id, {
+    provider: "stripe",
+    rail: "stripe-card-mpp",
+    amount_cents: amountCents,
+    currency,
+    quote_hash: quoteHash,
+    original_transaction_reference: originalReference,
+    requested_reference: requestedReference,
+  });
+  if (!refundClaim.ok) return refundClaim.response;
   return jsonResponse({
     ok: true,
     provider: "stripe",

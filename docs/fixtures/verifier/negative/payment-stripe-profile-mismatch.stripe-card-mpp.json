@@ -1,0 +1,14 @@
+{
+  "case": "payment_stripe_profile_mismatch",
+  "should_reject": true,
+  "base_fixture": "payment-request.stripe-card-mpp.json",
+  "mutation": {
+    "path": "payment_receipt.stripe_profile_id",
+    "value": "profile_wrong_shop"
+  },
+  "expected_rejection": {
+    "layer": "buyer_skill_or_shopbridge",
+    "status": 402,
+    "reason": "payment_receipt.stripe_profile_id does not match quote payment destination"
+  }
+}

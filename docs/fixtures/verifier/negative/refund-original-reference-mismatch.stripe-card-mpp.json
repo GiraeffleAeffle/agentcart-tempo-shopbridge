@@ -1,0 +1,14 @@
+{
+  "case": "refund_original_reference_mismatch",
+  "should_reject": true,
+  "base_fixture": "refund-request.stripe-card-mpp.json",
+  "mutation": {
+    "path": "expected.original_transaction_reference",
+    "value": "pi_wrong_payment_intent"
+  },
+  "expected_rejection": {
+    "layer": "shopbridge_or_external_verifier",
+    "status": 402,
+    "reason": "refund original transaction reference does not match the paid order"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "case": "refund_replay_reference",
+  "should_reject": true,
+  "base_fixture": "refund-success.stripe-card-mpp.json",
+  "replay_bucket": "refunds",
+  "reference_path": "refund_reference",
+  "expected_rejection": {
+    "layer": "external_verifier",
+    "status": 409,
+    "reason": "refund_reference has already been used"
+  }
+}

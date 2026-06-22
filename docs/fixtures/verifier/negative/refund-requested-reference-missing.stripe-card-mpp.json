@@ -1,0 +1,14 @@
+{
+  "case": "refund_requested_reference_missing",
+  "should_reject": true,
+  "base_fixture": "refund-request.stripe-card-mpp.json",
+  "mutation": {
+    "path": "refund.requested_reference",
+    "value": ""
+  },
+  "expected_rejection": {
+    "layer": "shopbridge_or_external_verifier",
+    "status": 400,
+    "reason": "refund.requested_reference is required"
+  }
+}

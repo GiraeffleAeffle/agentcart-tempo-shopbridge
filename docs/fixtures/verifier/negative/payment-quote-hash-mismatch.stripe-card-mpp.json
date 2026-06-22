@@ -1,0 +1,14 @@
+{
+  "case": "payment_quote_hash_mismatch",
+  "should_reject": true,
+  "base_fixture": "payment-request.stripe-card-mpp.json",
+  "mutation": {
+    "path": "payment_receipt.quote_hash",
+    "value": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  },
+  "expected_rejection": {
+    "layer": "buyer_skill_or_shopbridge",
+    "status": 402,
+    "reason": "payment_receipt.quote_hash does not match quote.quote_hash"
+  }
+}

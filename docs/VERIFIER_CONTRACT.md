@@ -127,6 +127,11 @@ return:
 The canonical Stripe/card MPP refund success fixture is checked in at
 `docs/fixtures/verifier/refund-success.stripe-card-mpp.json`.
 
+Negative contract fixtures are checked in at `docs/fixtures/verifier/negative/`.
+They cover amount mismatch, quote-hash mismatch, Stripe profile mismatch,
+payment reference replay, refund original-reference mismatch, missing refund
+requested reference, and refund reference replay.
+
 ShopBridge requires a refund idempotency key before calling the verifier. It
 rejects refund amounts above the remaining refundable amount, exact idempotent
 replays return the existing WooCommerce refund, and conflicting replays fail
@@ -149,3 +154,7 @@ Validate the checked-in fixtures and the WooCommerce plugin payload field names:
 ```sh
 python3 scripts/verify-verifier-fixtures.py
 ```
+
+The Stripe sandbox verifier supports file-backed replay protection with
+`AGENTCART_VERIFIER_REPLAY_STORE_PATH` or `STRIPE_MPP_REPLAY_STORE_PATH`. If no
+path is configured, it keeps an in-memory replay store for the running process.

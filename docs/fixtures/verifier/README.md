@@ -11,6 +11,8 @@ ShopBridge and a rail-specific verifier.
   recording a rail-verified refund.
 - `refund-success.stripe-card-mpp.json`: verifier response ShopBridge accepts
   for a Stripe/card MPP refund.
+- `negative/*.json`: mutation cases that must be rejected before a paid order
+  or rail refund is accepted.
 
 Validate them with:
 
@@ -19,4 +21,6 @@ python3 scripts/verify-verifier-fixtures.py
 ```
 
 The validator also checks that the WooCommerce plugin still builds verifier
-payloads with the required contract fields.
+payloads with the required contract fields and that the Stripe sandbox verifier
+keeps replay-protection hooks for payment, refund request, and refund
+references.

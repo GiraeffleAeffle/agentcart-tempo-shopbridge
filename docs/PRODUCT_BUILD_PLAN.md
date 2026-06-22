@@ -271,7 +271,8 @@ The code should move toward these deeper modules:
    - Files today: `gateway/scripts/stripe-mpp-verifier.mjs`,
      `docs/VERIFIER_CONTRACT.md`, `docs/fixtures/verifier/`, ShopBridge
      verifier calls.
-   - Owns: payment/refund verification, replay checks, rail-specific binding.
+   - Owns: payment/refund verification, replay checks, rail-specific binding,
+     provider error classification.
    - Benefit: settlement concerns stop leaking into catalog and order code.
 
 5. **Buyer Integration Module**
