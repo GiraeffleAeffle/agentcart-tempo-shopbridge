@@ -144,6 +144,37 @@ def signed_registry_record(
     return record
 
 
+def domain_proof_document(record: dict[str, object], *, record_hash: str | None = None) -> dict[str, object]:
+    return {
+        "merchant_id": record["merchant_id"],
+        "domain": record["domain"],
+        "manifest_url": record["manifest_url"],
+        "manifest_hash": record["manifest_hash"],
+        "payment_network": record["payment_network"],
+        "payment_recipient": record["payment_recipient"],
+        "updated_at": record["updated_at"],
+        "record_hash": record_hash or agentcart.registry_record_hash(record),
+    }
+
+
+def domain_proof_registry_record(
+    manifest: dict[str, object],
+    *,
+    proof_url: str = "https://signed.example/.well-known/agentcart-registry-proof.json",
+    record_hash: str | None = None,
+    **overrides: object,
+) -> dict[str, object]:
+    record = signed_registry_record(manifest, **overrides)
+    record["signature_alg"] = "https-domain-proof"
+    record["signature"] = ""
+    record["proof"] = {
+        "type": "https-well-known",
+        "url": proof_url,
+    }
+    record["proof_snapshot"] = domain_proof_document(record, record_hash=record_hash)
+    return record
+
+
 class AgentCartTests(unittest.TestCase):
     def test_catalog_search_returns_demo_tea_products(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -219,6 +250,97 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(entries["signed-tea-shop"]["verification"]["manifest_source"], "snapshot")
             self.assertIn("signed-tea-shop", service.adapters)
             self.assertEqual(service.adapters["signed-tea-shop"].adapter_type, "shopbridge-registry")
+
+    def test_domain_proof_registry_record_verifies_without_shared_hmac_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps({"entries": [domain_proof_registry_record(manifest)]}),
+                encoding="utf-8",
+            )
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertIn("signed-tea-shop", entries)
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["signature_alg"], "https-domain-proof")
+            self.assertIn("signed-tea-shop", service.adapters)
+
+    def test_domain_proof_rejects_wrong_record_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps({"entries": [domain_proof_registry_record(manifest, record_hash="0" * 64)]}),
+                encoding="utf-8",
+            )
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertIn("domain_proof_record_hash_mismatch", entries["signed-tea-shop"]["verification"]["errors"])
+            self.assertNotIn("signed-tea-shop", service.adapters)
+
+    def test_domain_proof_rejects_cross_domain_proof_url(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            domain_proof_registry_record(
+                                manifest,
+                                proof_url="https://evil.example/.well-known/agentcart-registry-proof.json",
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertIn("domain_proof_url_domain_mismatch", entries["signed-tea-shop"]["verification"]["errors"])
+            self.assertNotIn("signed-tea-shop", service.adapters)
+
+    def test_domain_proof_rejects_non_well_known_proof_url(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            domain_proof_registry_record(
+                                manifest,
+                                proof_url="https://signed.example/agentcart-registry-proof.json",
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertIn("domain_proof_url_requires_well_known_path", entries["signed-tea-shop"]["verification"]["errors"])
+            self.assertNotIn("signed-tea-shop", service.adapters)
 
     def test_registry_rejects_manifest_hash_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

@@ -294,8 +294,12 @@ def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in record.items()
-        if key not in {"signature", "verification", "manifest", "manifest_snapshot"}
+        if key not in {"signature", "verification", "manifest", "manifest_snapshot", "proof_snapshot"}
     }
+
+
+def registry_record_hash(record: dict[str, Any]) -> str:
+    return canonical_json_hash(registry_signature_payload(record))
 
 
 def hmac_registry_signature(record: dict[str, Any], secret: str) -> str:
@@ -1935,9 +1939,7 @@ class AgentCartService:
         if parsed.netloc and domain and not self.registry_domain_matches(domain, parsed):
             errors.append("manifest_domain_mismatch")
 
-        signature_error = self.verify_registry_signature(record)
-        if signature_error:
-            errors.append(signature_error)
+        errors.extend(self.verify_registry_signature(record))
 
         manifest_snapshot = record.get("manifest_snapshot")
         if isinstance(manifest_snapshot, dict):
@@ -1988,20 +1990,86 @@ class AgentCartService:
         }
         return self.registry_entry_from_record(record, manifest, verification)
 
-    def verify_registry_signature(self, record: dict[str, Any]) -> str | None:
+    def verify_registry_signature(self, record: dict[str, Any]) -> list[str]:
         signature_alg = str(record.get("signature_alg") or "").lower()
         signature = str(record.get("signature") or "")
         if signature_alg in {"", "none"} and not signature:
-            return "missing_signature"
+            return ["missing_signature"]
+        if signature_alg in {"https-domain-proof", "agentcart-domain-v1"}:
+            return self.verify_registry_domain_proof(record)
         if signature_alg != "hmac-sha256":
-            return "signature_alg_unsupported"
+            return ["signature_alg_unsupported"]
         if not self.config.merchant_registry_hmac_secret:
-            return "signature_secret_missing"
+            return ["signature_secret_missing"]
         expected = hmac_registry_signature(record, self.config.merchant_registry_hmac_secret)
         supplied = signature if signature.startswith("hmac-sha256:") else f"hmac-sha256:{signature}"
         if not hmac.compare_digest(expected, supplied):
-            return "signature_invalid"
-        return None
+            return ["signature_invalid"]
+        return []
+
+    def verify_registry_domain_proof(self, record: dict[str, Any]) -> list[str]:
+        errors: list[str] = []
+        proof = record.get("proof") if isinstance(record.get("proof"), dict) else {}
+        proof_type = str(proof.get("type") or "").lower()
+        proof_url = str(proof.get("url") or "")
+        domain = str(record.get("domain") or "")
+        if proof_type not in {"https-well-known", "agentcart-domain-v1"}:
+            errors.append("domain_proof_type_unsupported")
+        if not proof_url:
+            errors.append("domain_proof_url_missing")
+        parsed = urllib.parse.urlparse(proof_url)
+        if proof_url:
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                errors.append("domain_proof_url_invalid")
+            elif parsed.scheme != "https" and not self.is_local_registry_host(parsed.hostname or ""):
+                errors.append("domain_proof_url_requires_https")
+            if parsed.netloc and domain and not self.registry_domain_matches(domain, parsed):
+                errors.append("domain_proof_url_domain_mismatch")
+            if not parsed.path.startswith("/.well-known/"):
+                errors.append("domain_proof_url_requires_well_known_path")
+        if errors:
+            return errors
+
+        proof_snapshot = record.get("proof_snapshot")
+        proof_document: dict[str, Any] | None = None
+        if isinstance(proof_snapshot, dict):
+            proof_document = proof_snapshot
+        else:
+            try:
+                raw_proof = self.http_json(proof_url, method="GET", token="", timeout=10)
+                if isinstance(raw_proof, dict):
+                    proof_document = raw_proof
+                else:
+                    errors.append("domain_proof_not_object")
+            except AgentCartError:
+                errors.append("domain_proof_fetch_failed")
+        if proof_document is None:
+            return errors
+
+        expected_hash = registry_record_hash(record)
+        supplied_hash = str(proof_document.get("record_hash") or "")
+        if not supplied_hash:
+            errors.append("domain_proof_record_hash_missing")
+        elif not hmac.compare_digest(expected_hash, supplied_hash):
+            errors.append("domain_proof_record_hash_mismatch")
+
+        required_fields = [
+            "merchant_id",
+            "domain",
+            "manifest_url",
+            "manifest_hash",
+            "payment_network",
+            "payment_recipient",
+            "updated_at",
+        ]
+        for field in required_fields:
+            expected = str(record.get(field) or "")
+            supplied = str(proof_document.get(field) or "")
+            if expected and supplied and expected != supplied:
+                errors.append(f"domain_proof_{field}_mismatch")
+            elif expected and not supplied:
+                errors.append(f"domain_proof_{field}_missing")
+        return errors
 
     def verify_registry_payment_binding(self, record: dict[str, Any], manifest: dict[str, Any]) -> str | None:
         record_recipient = str(record.get("payment_recipient") or "").lower()

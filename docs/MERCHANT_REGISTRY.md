@@ -37,13 +37,11 @@ marketplace and not a product catalog.
   "updated_at": "2026-06-18T00:00:00Z",
   "revoked_at": null,
   "revocation_url": "https://shop.example/.well-known/agentcart-revocations.json",
-  "signature_alg": "hmac-sha256",
-  "signature": "hmac-sha256:...",
+  "signature_alg": "https-domain-proof",
+  "signature": "",
   "proof": {
-    "type": "onchain_registry_record",
-    "chain_id": "tempo-testnet",
-    "contract": "0x...",
-    "record_id": "tea-shop.example"
+    "type": "https-well-known",
+    "url": "https://shop.example/.well-known/agentcart-registry-proof.json"
   }
 }
 ```
@@ -87,15 +85,16 @@ eligible merchants, but final bidding should not leak household demand broadly.
 ## Integrity Flow
 
 1. Merchant publishes `/.well-known/agentcart.json`.
-2. Merchant signs or registers the canonical manifest hash.
+2. Merchant signs or publishes a proof for the canonical registry record and
+   manifest hash.
 3. Agent fetches the registry record from an allowlisted off-chain feed or
    onchain registry.
 4. Agent rejects revoked or stale records.
 5. Agent verifies that `manifest_url` host matches the registered domain.
 6. Agent fetches the manifest from the merchant domain.
 7. Agent canonicalizes the manifest JSON and verifies its hash.
-8. Agent verifies the detached signature or onchain proof over the registry
-   record.
+8. Agent verifies the detached signature, merchant-domain proof, or onchain
+   proof over the registry record.
 9. Agent verifies that payment recipient/network in the manifest matches the
    registry record.
 10. Agent verifies that absolute catalog/quote endpoint URLs stay on the
@@ -114,10 +113,37 @@ AGENTCART_REQUIRE_VERIFIED_REGISTRY=true
 AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS=180
 ```
 
-`hmac-sha256` is an implementation shortcut for the alpha feed, not the desired
-public trust model. Production should replace it with merchant wallet
-signatures, DNS/DID proofs, or an onchain registry event while keeping the same
-verified record shape for agents.
+`hmac-sha256` remains available for private/local feeds, but it is an
+implementation shortcut. Public trust should use a merchant-owned proof such as
+`https-domain-proof`, merchant wallet signatures, DNS/DID proofs, or an onchain
+registry event while keeping the same verified record shape for agents.
+
+## Merchant-Owned Domain Proof
+
+The dependency-light production step is `signature_alg:
+https-domain-proof`. The registry record points to a proof document hosted on
+the registered merchant domain under `/.well-known/`:
+
+```json
+{
+  "merchant_id": "tea-shop.example",
+  "domain": "shop.example",
+  "manifest_url": "https://shop.example/.well-known/agentcart.json",
+  "manifest_hash": "abc123...",
+  "payment_network": "tempo-testnet",
+  "payment_recipient": "0x...",
+  "updated_at": "2026-06-18T00:00:00Z",
+  "record_hash": "def456..."
+}
+```
+
+`record_hash` is the canonical JSON hash of the registry record, excluding
+runtime-only fields such as `signature`, `verification`, and local test
+snapshots. AgentCart requires the proof URL to be HTTPS, to stay on the
+registered merchant domain, and to use a `/.well-known/` path. It rejects
+mismatched record hashes. This proves control of the shop domain without adding
+a crypto dependency to the gateway. Wallet signatures can be added later as
+another verifier behind the same proof seam.
 
 ## Agent Safety Model
 
@@ -154,6 +180,8 @@ The gateway now:
 - canonicalizes and hashes the manifest;
 - verifies domain, hash, signature/proof, revocation, updated timestamp,
   payment recipient, and shipping country scope;
+- verifies `hmac-sha256` private-feed records and `https-domain-proof`
+  merchant-owned records;
 - rejects absolute catalog/quote endpoint URLs outside the registered merchant
   domain;
 - exposes `verification.state`, `verification.errors`, and manifest source;
