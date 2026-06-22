@@ -40,7 +40,9 @@ should add richer product/category controls:
 
 - Use external verifier mode for public order creation.
 - Keep token mode for trusted local gateways only.
-- Rate-limit quote and order endpoints.
+- Keep the plugin's baseline REST rate limits enabled for catalog, quote,
+  order, status, and refund endpoints.
+- Add host-level reverse-proxy/CDN/WAF rate limits for public production shops.
 - Store and reject used transaction references.
 - Require idempotency keys for order creation and refunds.
 - Bind order creation to stored quote hash and expiry.
@@ -64,6 +66,7 @@ harness for end-to-end endpoint behavior.
 - refund endpoint rejects conflicting idempotent replay;
 - reused external refund reference is rejected;
 - refund verifier failure does not create Woo refund;
+- public REST endpoints return `429` after rate-limit exhaustion;
 - unsupported destination country fails before payment;
 - products outside the selected exposure mode are absent from catalog and
   rejected in quote;

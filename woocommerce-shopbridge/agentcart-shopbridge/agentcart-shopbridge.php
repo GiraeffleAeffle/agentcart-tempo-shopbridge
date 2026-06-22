@@ -22,7 +22,9 @@ final class AgentCart_ShopBridge {
     const REFUND_REFERENCE_META = '_agentcart_refund_reference';
     const CHECKOUT_LOCK_PREFIX = 'agentcart_shopbridge_checkout_lock_';
     const REFUND_LOCK_PREFIX = 'agentcart_shopbridge_refund_lock_';
+    const RATE_LIMIT_TRANSIENT_PREFIX = 'agentcart_shopbridge_rate_';
     const CHECKOUT_LOCK_TTL_SECONDS = 120;
+    const RATE_LIMIT_WINDOW_SECONDS = 60;
     const PAYMENT_VERIFIER_URL_OPTION = 'agentcart_shopbridge_payment_verifier_url';
     const PAYMENT_VERIFIER_TOKEN_OPTION = 'agentcart_shopbridge_payment_verifier_token';
     const TEMPO_RECIPIENT_OPTION = 'agentcart_shopbridge_tempo_recipient';
@@ -421,6 +423,10 @@ final class AgentCart_ShopBridge {
         if (!class_exists('WooCommerce')) {
             return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
         }
+        $rate_limit = self::enforce_rate_limit($request);
+        if (is_wp_error($rate_limit)) {
+            return $rate_limit;
+        }
         return true;
     }
 
@@ -438,6 +444,10 @@ final class AgentCart_ShopBridge {
         if (!class_exists('WooCommerce')) {
             return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
         }
+        $rate_limit = self::enforce_rate_limit($request, 'checkout');
+        if (is_wp_error($rate_limit)) {
+            return $rate_limit;
+        }
         if (self::has_valid_merchant_token($request)) {
             return true;
         }
@@ -454,6 +464,10 @@ final class AgentCart_ShopBridge {
     public static function authorize_order_status(WP_REST_Request $request) {
         if (!class_exists('WooCommerce')) {
             return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
+        }
+        $rate_limit = self::enforce_rate_limit($request, 'order_status');
+        if (is_wp_error($rate_limit)) {
+            return $rate_limit;
         }
         if (self::has_valid_merchant_token($request)) {
             return true;
@@ -474,6 +488,10 @@ final class AgentCart_ShopBridge {
         if (!class_exists('WooCommerce')) {
             return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
         }
+        $rate_limit = self::enforce_rate_limit($request, 'refund');
+        if (is_wp_error($rate_limit)) {
+            return $rate_limit;
+        }
         if (self::has_valid_merchant_token($request)) {
             return true;
         }
@@ -488,6 +506,97 @@ final class AgentCart_ShopBridge {
         $configured = self::merchant_token_value();
         $supplied = $request->get_header('x-agentcart-merchant-token');
         return $configured && $supplied && hash_equals((string) $configured, (string) $supplied);
+    }
+
+    private static function enforce_rate_limit(WP_REST_Request $request, $bucket = null) {
+        $policy = self::rate_limit_policy($bucket ?: self::rate_limit_bucket_for_request($request));
+        if (!$policy || intval($policy['limit'] ?? 0) <= 0) {
+            return true;
+        }
+        $window = intval($policy['window'] ?? self::RATE_LIMIT_WINDOW_SECONDS);
+        $limit = intval($policy['limit']);
+        $transient = self::rate_limit_transient_name($request, (string) $policy['bucket'], $window);
+        $count = intval(get_transient($transient));
+        if ($count >= $limit) {
+            return new WP_Error(
+                'agentcart_rate_limited',
+                'Too many AgentCart requests. Try again shortly.',
+                [
+                    'status' => 429,
+                    'bucket' => (string) $policy['bucket'],
+                    'limit' => $limit,
+                    'window_seconds' => $window,
+                    'retry_after_seconds' => $window,
+                ]
+            );
+        }
+        set_transient($transient, (string) ($count + 1), $window);
+        return true;
+    }
+
+    private static function rate_limit_policy($bucket) {
+        $bucket = sanitize_key((string) $bucket);
+        $policies = [
+            'capability' => ['bucket' => 'capability', 'limit' => 120, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'catalog' => ['bucket' => 'catalog', 'limit' => 120, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'product' => ['bucket' => 'product', 'limit' => 120, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'quote' => ['bucket' => 'quote', 'limit' => 30, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'checkout' => ['bucket' => 'checkout', 'limit' => 12, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'order_status' => ['bucket' => 'order_status', 'limit' => 60, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'refund' => ['bucket' => 'refund', 'limit' => 10, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'public_read' => ['bucket' => 'public_read', 'limit' => 120, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+        ];
+        return $policies[$bucket] ?? $policies['public_read'];
+    }
+
+    private static function public_rate_limits_document() {
+        $document = [];
+        foreach (['capability', 'catalog', 'product', 'quote', 'checkout', 'order_status', 'refund'] as $bucket) {
+            $policy = self::rate_limit_policy($bucket);
+            $document[$bucket] = [
+                'limit' => intval($policy['limit']),
+                'window_seconds' => intval($policy['window']),
+                'scope' => 'hashed_client',
+            ];
+        }
+        return $document;
+    }
+
+    private static function rate_limit_bucket_for_request(WP_REST_Request $request) {
+        $route = (string) $request->get_route();
+        $method = strtoupper((string) $request->get_method());
+        if (strpos($route, '/quote') !== false && $method === 'POST') {
+            return 'quote';
+        }
+        if (strpos($route, '/catalog') !== false) {
+            return 'catalog';
+        }
+        if (strpos($route, '/products/') !== false) {
+            return 'product';
+        }
+        if (strpos($route, '/capability') !== false) {
+            return 'capability';
+        }
+        return 'public_read';
+    }
+
+    private static function rate_limit_transient_name(WP_REST_Request $request, $bucket, $window) {
+        $window_start = intval(floor(time() / max(1, intval($window))));
+        return self::RATE_LIMIT_TRANSIENT_PREFIX . hash('sha256', implode('|', [
+            sanitize_key((string) $bucket),
+            (string) $window_start,
+            self::rate_limit_client_key($request),
+        ]));
+    }
+
+    private static function rate_limit_client_key(WP_REST_Request $request) {
+        $ip = sanitize_text_field((string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        $agent = sanitize_text_field((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        $token_hint = '';
+        if (self::has_valid_merchant_token($request)) {
+            $token_hint = hash('sha256', self::merchant_token_value());
+        }
+        return hash('sha256', implode('|', [$ip, $agent, $token_hint]));
     }
 
     private static function merchant_token_value() {
@@ -913,9 +1022,11 @@ final class AgentCart_ShopBridge {
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'agentcart_order_ip_minimized' => true,
+                'endpoint_rate_limits' => true,
                 'refund_endpoint' => true,
                 'refunds_remain_in_woocommerce_with_external_rail_verification' => true,
             ],
+            'rate_limits' => self::public_rate_limits_document(),
             'product_exposure' => [
                 'mode' => self::product_exposure_mode(),
                 'tag' => self::product_exposure_mode() === 'tag' ? self::product_exposure_tag() : null,

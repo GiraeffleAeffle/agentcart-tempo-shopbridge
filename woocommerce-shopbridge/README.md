@@ -135,6 +135,21 @@ The quote endpoint computes final terms and stores them server-side for 15 minut
 
 The order endpoint reloads the stored quote and rejects mismatched or expired quotes. Stock is rechecked before order creation. The quote explicitly says stock is not reserved unless the merchant later adds real stock-hold support. Quote creation rejects unsupported destination countries before payment.
 
+## Endpoint Rate Limits
+
+ShopBridge applies a lightweight fixed-window rate limit in its REST permission
+callbacks before catalog, product, quote, order, status, or refund handlers run.
+The public capability document exposes the current buckets and limits under
+`rate_limits`.
+
+Limits are scoped to a hashed client key derived from the request IP, user
+agent, and merchant token hint when present. The plugin does not store raw IPs
+or user-agent strings in order records. Exceeded requests return `429` with
+`retry_after_seconds` metadata.
+
+These plugin limits are a production baseline, not a replacement for a reverse
+proxy, CDN/WAF, or host-level rate limiting on public shops.
+
 ## Payment Verification
 
 There are two modes:

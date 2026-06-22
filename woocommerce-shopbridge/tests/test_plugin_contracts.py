@@ -72,6 +72,39 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             body.index("return ["),
         )
 
+    def test_public_endpoints_are_rate_limited(self) -> None:
+        self.assertIn("RATE_LIMIT_TRANSIENT_PREFIX", SOURCE)
+        self.assertIn("RATE_LIMIT_WINDOW_SECONDS", SOURCE)
+
+        public_body = function_body("authorize_public_read")
+        checkout_body = function_body("authorize_checkout")
+        status_body = function_body("authorize_order_status")
+        refund_body = function_body("authorize_refund")
+
+        self.assertIn("enforce_rate_limit", public_body)
+        self.assertIn("enforce_rate_limit($request, 'checkout')", checkout_body)
+        self.assertIn("enforce_rate_limit($request, 'order_status')", status_body)
+        self.assertIn("enforce_rate_limit($request, 'refund')", refund_body)
+        self.assertLess(checkout_body.index("enforce_rate_limit"), checkout_body.index("has_valid_merchant_token"))
+        self.assertLess(status_body.index("enforce_rate_limit"), status_body.index("wc_get_order"))
+        self.assertLess(refund_body.index("enforce_rate_limit"), refund_body.index("has_valid_merchant_token"))
+
+    def test_rate_limiter_has_endpoint_policies_and_retry_metadata(self) -> None:
+        policy_body = function_body("rate_limit_policy")
+        limiter_body = function_body("enforce_rate_limit")
+        key_body = function_body("rate_limit_client_key")
+        capability_body = function_body("capability_document")
+
+        for bucket in ["'catalog'", "'quote'", "'checkout'", "'order_status'", "'refund'"]:
+            self.assertIn(bucket, policy_body)
+        self.assertIn("agentcart_rate_limited", limiter_body)
+        self.assertIn("'retry_after_seconds'", limiter_body)
+        self.assertIn("set_transient", limiter_body)
+        self.assertIn("REMOTE_ADDR", key_body)
+        self.assertNotIn("x-forwarded-for", key_body)
+        self.assertIn("'endpoint_rate_limits'", capability_body)
+        self.assertIn("'rate_limits'", capability_body)
+
     def test_product_exposure_modes_are_supported(self) -> None:
         self.assertIn("PRODUCT_EXPOSURE_MODE_OPTION", SOURCE)
         self.assertIn("PRODUCT_EXPOSURE_TAG_OPTION", SOURCE)
