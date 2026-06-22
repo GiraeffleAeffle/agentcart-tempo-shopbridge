@@ -61,6 +61,7 @@ section "Build release manifest"
 python3 "$ROOT_DIR/scripts/build-release-manifest.py"
 grep -q '"schema": "agentcart.release.v1"' "$ROOT_DIR/dist/agentcart-release.json"
 grep -q '"sha256":' "$ROOT_DIR/dist/agentcart-release.json"
+python3 "$ROOT_DIR/scripts/verify-release.py" --manifest "$ROOT_DIR/dist/agentcart-release.json" --root "$ROOT_DIR" >/dev/null
 
 section "Gateway Docker image"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then

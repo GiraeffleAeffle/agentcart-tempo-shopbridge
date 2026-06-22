@@ -60,6 +60,26 @@ shasum -a 256 dist/shopbridge-direct-skill.zip
 The checksums should match the corresponding `sha256` values in
 `dist/agentcart-release.json`.
 
+Or verify the full manifest and all listed artifacts:
+
+```sh
+python3 scripts/verify-release.py
+```
+
+If you received the manifest checksum over a trusted channel, pin it:
+
+```sh
+python3 scripts/verify-release.py \
+  --expected-manifest-sha256 "replace-with-trusted-manifest-sha256"
+```
+
+If a published release embeds `source_git_commit`, pin that too:
+
+```sh
+python3 scripts/verify-release.py \
+  --expected-source-commit "replace-with-trusted-source-commit"
+```
+
 ## Upgrade
 
 WooCommerce plugin:
@@ -106,5 +126,7 @@ Rollback direct skill:
 ## Signing Gap
 
 Production still needs signed release artifacts or a trusted update channel.
-Until then, use the manifest checksums, git commit, and a trusted distribution
-path together.
+Until then, use the manifest checksums, optional manifest checksum pin,
+optional source commit pin, and a trusted distribution path together. Checksums
+detect accidental or local tampering; they do not prove publisher identity when
+the manifest and artifacts come from the same compromised channel.
