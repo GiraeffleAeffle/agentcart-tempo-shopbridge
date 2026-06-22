@@ -57,6 +57,11 @@ skill_zip_listing="$(unzip -l "$ROOT_DIR/dist/shopbridge-direct-skill.zip")"
 grep -q "shopbridge-direct-skill/SKILL.md" <<<"$skill_zip_listing"
 grep -q "shopbridge-direct-skill/scripts/shopbridge-command.py" <<<"$skill_zip_listing"
 
+section "Build release manifest"
+python3 "$ROOT_DIR/scripts/build-release-manifest.py"
+grep -q '"schema": "agentcart.release.v1"' "$ROOT_DIR/dist/agentcart-release.json"
+grep -q '"sha256":' "$ROOT_DIR/dist/agentcart-release.json"
+
 section "Gateway Docker image"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   image="agentcart-gateway-verify:latest"

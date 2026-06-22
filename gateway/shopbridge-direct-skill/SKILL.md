@@ -1,6 +1,7 @@
 ---
 name: shopbridge-direct
 description: Buy from an AgentCart ShopBridge WooCommerce merchant directly, without running the AgentCart buyer service. Use for lightweight buyer integration where approval happens in chat and the merchant exposes manifest, catalog, quote, order, and status endpoints.
+version: 0.1.0-alpha
 ---
 
 # ShopBridge Direct Skill

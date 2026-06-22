@@ -20,6 +20,8 @@ For independent local testing, use the Local Gateway and Home-Server Package
 sections below.
 For buyer-agent setup, including the packaged direct skill, see
 `docs/BUYER_SETUP.md`.
+For release artifacts, checksums, upgrade, and rollback, see
+`docs/RELEASES.md`.
 For the production payment/refund verifier seam, see
 `docs/VERIFIER_CONTRACT.md`.
 
@@ -120,6 +122,12 @@ To rebuild the ZIP from source:
 
 ```sh
 ./scripts/package-woocommerce-plugin.sh
+```
+
+The release manifest with artifact checksums is generated at:
+
+```text
+dist/agentcart-release.json
 ```
 
 For a manual server install, copy `woocommerce-shopbridge/agentcart-shopbridge` into:

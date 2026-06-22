@@ -214,9 +214,10 @@ Definition of done:
 
 Current alpha status: the repo packages the WooCommerce plugin ZIP and the
 skill-only buyer ZIP under `dist/`, verifies both artifacts in the main
-pipeline, and documents skill-only plus home-server buyer setup in
-`docs/BUYER_SETUP.md`. Production still needs release signing, versioned
-upgrade/rollback notes, and a non-technical setup wizard.
+pipeline, generates `dist/agentcart-release.json` with component versions and
+artifact checksums, and documents skill-only plus home-server buyer setup and
+upgrade/rollback in `docs/BUYER_SETUP.md` and `docs/RELEASES.md`. Production
+still needs release signing and a non-technical setup wizard.
 
 ### 7. Registry Alpha
 

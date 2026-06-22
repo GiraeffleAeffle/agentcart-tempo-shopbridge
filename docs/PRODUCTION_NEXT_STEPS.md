@@ -15,7 +15,7 @@ the items below.
 | Stripe/card and EUR settlement | Plugin advertises `stripe-card-mpp` only when Stripe profile + verifier are configured | External verifier can validate Stripe/card credentials, execute EUR settlement/refunds, and bind result to quote hash | Define verifier contract and sample request/response fixtures |
 | Merchant discovery registry | Gateway exposes local registry page/document with stable claim or legacy manifest hashes | Public identity/integrity registry with no private demand or catalog data on-chain | Specify registry record, signing, update, revocation, and ranking rules |
 | Delivery tracking/refunds | Woo status endpoint returns merchant-estimated delivery and known tracking metadata; refund endpoint records/verifies via external verifier | Carrier tracking adapters and rail-specific refund execution/verification | Define tracking adapter interface and refund state machine |
-| Home-server package | Single-household deployment exists; clean repo has gateway + plugin, home-server compose package, buyer setup guide, and packaged skill-only ZIP | Self-hostable NUC/Dappnode-style stack for AgentCart, Household OS, Vikunja, Home Assistant integration, optional Woo demo | Add release signing, versioned upgrade/rollback notes, and a non-technical setup wizard |
+| Home-server package | Single-household deployment exists; clean repo has gateway + plugin, home-server compose package, buyer setup guide, packaged skill-only ZIP, release manifest, and upgrade/rollback notes | Self-hostable NUC/Dappnode-style stack for AgentCart, Household OS, Vikunja, Home Assistant integration, optional Woo demo | Add release signing and a non-technical setup wizard |
 
 ## Non-Negotiables
 
