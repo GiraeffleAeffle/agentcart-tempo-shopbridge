@@ -11,7 +11,7 @@
       "bytes": 20811,
       "component": "shopbridge_direct_skill",
       "file": "dist/shopbridge-direct-skill.zip",
-      "sha256": "b2d52e50705affd5064703e5b68078e2dafdb3a7802818be5a953e98e684bc90",
+      "sha256": "c976936a6d989fc1c5de80889ca5336828950e0b3b734b5029bf49b93bf3ca2e",
       "version": "0.1.0-alpha"
     }
   ],
@@ -31,7 +31,7 @@
     }
   },
   "release": {
-    "source_git_commit": "adc18bd3d153e849f219a398a95dc9ed9946fcad",
+    "source_git_commit": "",
     "stability": "alpha",
     "version": "0.2.0"
   },

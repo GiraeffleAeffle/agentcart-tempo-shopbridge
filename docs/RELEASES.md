@@ -19,7 +19,8 @@ dist/agentcart-release.json
 - WooCommerce plugin version from the plugin header;
 - direct skill version from `gateway/shopbridge-direct-skill/SKILL.md`;
 - artifact file names, byte sizes, and SHA-256 checksums;
-- the source git commit used to build the artifacts when available.
+- the source git commit used to build the artifacts when
+  `AGENTCART_RELEASE_SOURCE_COMMIT` is supplied.
 
 Build everything:
 
@@ -27,6 +28,12 @@ Build everything:
 ./scripts/package-woocommerce-plugin.sh
 ./scripts/package-shopbridge-direct-skill.sh
 python3 scripts/build-release-manifest.py
+```
+
+To embed a source commit in a published release manifest:
+
+```sh
+AGENTCART_RELEASE_SOURCE_COMMIT="$(git rev-parse HEAD)" python3 scripts/build-release-manifest.py
 ```
 
 Or run the full gate:

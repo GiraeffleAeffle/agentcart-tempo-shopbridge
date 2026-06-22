@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import pathlib
 import re
-import subprocess
 from typing import Any
 
 
@@ -26,16 +26,8 @@ def sha256(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def git_commit() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=ROOT,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return ""
+def release_source_commit() -> str:
+    return os.getenv("AGENTCART_RELEASE_SOURCE_COMMIT", "").strip()
 
 
 def plugin_version() -> str:
@@ -90,7 +82,7 @@ def main() -> int:
         "schema": "agentcart.release.v1",
         "release": {
             "version": gateway_version(),
-            "source_git_commit": git_commit(),
+            "source_git_commit": release_source_commit(),
             "stability": "alpha",
         },
         "components": {
