@@ -98,6 +98,50 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'tag_based_product_exposure'", capability_body)
         self.assertIn("'all_published_simple_product_exposure'", capability_body)
 
+    def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
+        self.assertIn("PRODUCT_BLOCKED_META", SOURCE)
+        self.assertIn("PRODUCT_MAX_QUANTITY_META", SOURCE)
+
+        product_options_body = function_body("render_product_agentcart_options")
+        self.assertIn("Exclude from AgentCart checkout", product_options_body)
+        self.assertIn("AgentCart max quantity", product_options_body)
+
+        save_body = function_body("save_product_agentcart_options")
+        self.assertIn("PRODUCT_BLOCKED_META", save_body)
+        self.assertIn("PRODUCT_MAX_QUANTITY_META", save_body)
+
+        product_body = function_body("serialize_product")
+        self.assertIn("'max_quantity'", product_body)
+        self.assertIn("'agentcart_policy'", product_body)
+        self.assertIn("is_product_agentcart_blocked", product_body)
+
+        capability_body = function_body("capability_document")
+        self.assertIn("'per_product_agentcart_max_quantity'", capability_body)
+        self.assertIn("'per_product_agentcart_block_override'", capability_body)
+        self.assertIn("'product_policy'", capability_body)
+
+    def test_quote_rejects_over_limit_quantities_instead_of_clamping(self) -> None:
+        quote_body = function_body("quote")
+
+        self.assertIn("product_max_quantity", quote_body)
+        self.assertIn("agentcart_quantity_limit_exceeded", quote_body)
+        self.assertNotIn("min(20", quote_body)
+        self.assertLess(
+            quote_body.index("agentcart_quantity_limit_exceeded"),
+            quote_body.index("add_to_cart"),
+        )
+
+    def test_catalog_and_readiness_filter_blocked_products(self) -> None:
+        catalog_body = function_body("catalog")
+        count_body = function_body("agentcart_enabled_product_count")
+        eligibility_body = function_body("is_product_agentcart_enabled")
+
+        self.assertIn("array_filter", catalog_body)
+        self.assertIn("is_product_agentcart_enabled", catalog_body)
+        self.assertIn("array_filter", count_body)
+        self.assertIn("is_product_agentcart_enabled", count_body)
+        self.assertIn("is_product_agentcart_blocked", eligibility_body)
+
 
 if __name__ == "__main__":
     unittest.main()

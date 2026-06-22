@@ -34,6 +34,8 @@ final class AgentCart_ShopBridge {
     const PRODUCT_EXPOSURE_MODE_OPTION = 'agentcart_shopbridge_product_exposure_mode';
     const PRODUCT_EXPOSURE_TAG_OPTION = 'agentcart_shopbridge_product_exposure_tag';
     const PRODUCT_ENABLED_META = '_agentcart_enabled';
+    const PRODUCT_BLOCKED_META = '_agentcart_checkout_blocked';
+    const PRODUCT_MAX_QUANTITY_META = '_agentcart_max_quantity';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -369,6 +371,26 @@ final class AgentCart_ShopBridge {
             'description' => __('Used in manual exposure mode. Tag and all-product modes are controlled from WooCommerce -> AgentCart.', 'agentcart-shopbridge'),
             'desc_tip' => true,
         ]);
+        woocommerce_wp_checkbox([
+            'id' => self::PRODUCT_BLOCKED_META,
+            'label' => __('Exclude from AgentCart checkout', 'agentcart-shopbridge'),
+            'description' => __('Overrides every exposure mode. Use for age-gated, regulated, local-pickup-only, deposit, or manual-review products.', 'agentcart-shopbridge'),
+            'desc_tip' => true,
+        ]);
+        if (function_exists('woocommerce_wp_text_input')) {
+            woocommerce_wp_text_input([
+                'id' => self::PRODUCT_MAX_QUANTITY_META,
+                'label' => __('AgentCart max quantity', 'agentcart-shopbridge'),
+                'description' => __('Maximum quantity a buyer agent may quote for this product. Defaults to 20, or 1 for sold-individually products.', 'agentcart-shopbridge'),
+                'desc_tip' => true,
+                'type' => 'number',
+                'custom_attributes' => [
+                    'min' => '1',
+                    'max' => '999',
+                    'step' => '1',
+                ],
+            ]);
+        }
     }
 
     public static function save_product_agentcart_options($product) {
@@ -376,6 +398,9 @@ final class AgentCart_ShopBridge {
             return;
         }
         $product->update_meta_data(self::PRODUCT_ENABLED_META, isset($_POST[self::PRODUCT_ENABLED_META]) ? 'yes' : 'no');
+        $product->update_meta_data(self::PRODUCT_BLOCKED_META, isset($_POST[self::PRODUCT_BLOCKED_META]) ? 'yes' : 'no');
+        $max_quantity = isset($_POST[self::PRODUCT_MAX_QUANTITY_META]) ? absint($_POST[self::PRODUCT_MAX_QUANTITY_META]) : 20;
+        $product->update_meta_data(self::PRODUCT_MAX_QUANTITY_META, (string) max(1, min(999, $max_quantity ?: 20)));
     }
 
     public static function maybe_serve_well_known_manifest() {
@@ -883,6 +908,8 @@ final class AgentCart_ShopBridge {
                 'per_product_agentcart_opt_in' => true,
                 'tag_based_product_exposure' => true,
                 'all_published_simple_product_exposure' => true,
+                'per_product_agentcart_max_quantity' => true,
+                'per_product_agentcart_block_override' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'agentcart_order_ip_minimized' => true,
@@ -894,6 +921,13 @@ final class AgentCart_ShopBridge {
                 'tag' => self::product_exposure_mode() === 'tag' ? self::product_exposure_tag() : null,
                 'published_simple_products_exposed' => self::agentcart_enabled_product_count(),
                 'manual_meta_key' => self::PRODUCT_ENABLED_META,
+            ],
+            'product_policy' => [
+                'max_quantity_default' => 20,
+                'max_quantity_meta_key' => self::PRODUCT_MAX_QUANTITY_META,
+                'block_override_meta_key' => self::PRODUCT_BLOCKED_META,
+                'over_limit_quote_rejected' => true,
+                'blocked_products_absent_from_catalog' => true,
             ],
             'delivery' => [
                 'ship_to_countries' => self::shipping_countries(),
@@ -952,7 +986,9 @@ final class AgentCart_ShopBridge {
         if ($search !== '') {
             $query['s'] = $search;
         }
-        $products = wc_get_products($query);
+        $products = array_values(array_filter(wc_get_products($query), function ($product) {
+            return $product instanceof WC_Product && self::is_product_agentcart_enabled($product);
+        }));
         return [
             'merchant' => self::merchant(),
             'products' => array_values(array_map([__CLASS__, 'serialize_product'], $products)),
@@ -989,9 +1025,13 @@ final class AgentCart_ShopBridge {
         if (is_wp_error($cart)) {
             return $cart;
         }
+        $quote_items = [];
         foreach ($items as $item) {
             $product_id = self::source_product_id($item);
-            $quantity = max(1, min(20, intval($item['quantity'] ?? 1)));
+            $quantity = intval($item['quantity'] ?? 1);
+            if ($quantity < 1) {
+                return new WP_Error('agentcart_quantity_invalid', 'Quantity must be at least 1 for product: ' . $product_id, ['status' => 400]);
+            }
             $product = wc_get_product($product_id);
             if (!$product || $product->get_status() !== 'publish') {
                 return new WP_Error('agentcart_product_missing', 'Product not found: ' . $product_id, ['status' => 404]);
@@ -999,12 +1039,31 @@ final class AgentCart_ShopBridge {
             if (!self::is_product_agentcart_enabled($product)) {
                 return new WP_Error('agentcart_product_not_enabled', 'Product is not enabled for AgentCart checkout: ' . $product_id, ['status' => 403]);
             }
+            $max_quantity = self::product_max_quantity($product);
+            if ($quantity > $max_quantity) {
+                return new WP_Error(
+                    'agentcart_quantity_limit_exceeded',
+                    'Requested quantity exceeds AgentCart maximum for product: ' . $product_id,
+                    [
+                        'status' => 400,
+                        'product_id' => 'woo_' . $product_id,
+                        'max_quantity' => $max_quantity,
+                    ]
+                );
+            }
             if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
                 return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
             }
-            $cart_item_key = $cart->add_to_cart($product_id, $quantity);
+            $quote_items[] = [
+                'product_id' => $product_id,
+                'quantity' => $quantity,
+            ];
+        }
+        foreach ($quote_items as $item) {
+            $cart_item_key = $cart->add_to_cart($item['product_id'], $item['quantity']);
             if (!$cart_item_key) {
-                return new WP_Error('agentcart_cart_rejected_product', 'WooCommerce cart rejected product: ' . $product_id, ['status' => 409]);
+                $cart->empty_cart();
+                return new WP_Error('agentcart_cart_rejected_product', 'WooCommerce cart rejected product: ' . $item['product_id'], ['status' => 409]);
             }
         }
         $cart->calculate_shipping();
@@ -2333,14 +2392,32 @@ final class AgentCart_ShopBridge {
     }
 
     private static function is_product_agentcart_enabled(WC_Product $product) {
+        if ($product->get_status() !== 'publish' || $product->get_type() !== 'simple') {
+            return false;
+        }
+        if (self::is_product_agentcart_blocked($product)) {
+            return false;
+        }
         $mode = self::product_exposure_mode();
         if ($mode === 'all') {
-            return $product->get_status() === 'publish' && $product->get_type() === 'simple';
+            return true;
         }
         if ($mode === 'tag') {
             return has_term(self::product_exposure_tag(), 'product_tag', $product->get_id());
         }
         return $product->get_meta(self::PRODUCT_ENABLED_META, true) === 'yes';
+    }
+
+    private static function is_product_agentcart_blocked(WC_Product $product) {
+        return $product->get_meta(self::PRODUCT_BLOCKED_META, true) === 'yes';
+    }
+
+    private static function product_max_quantity(WC_Product $product) {
+        if ($product->is_sold_individually()) {
+            return 1;
+        }
+        $stored = absint($product->get_meta(self::PRODUCT_MAX_QUANTITY_META, true));
+        return max(1, min(999, $stored ?: 20));
     }
 
     private static function agentcart_enabled_product_count() {
@@ -2349,9 +2426,12 @@ final class AgentCart_ShopBridge {
         }
         $products = wc_get_products(array_merge(self::agentcart_product_query_args(), [
             'limit' => -1,
-            'return' => 'ids',
+            'return' => 'objects',
         ]));
-        return count($products);
+        $enabled = array_filter($products, function ($product) {
+            return $product instanceof WC_Product && self::is_product_agentcart_enabled($product);
+        });
+        return count($enabled);
     }
 
     private static function set_agentcart_exposure_for_published_simple_products($enabled) {
@@ -2609,6 +2689,12 @@ final class AgentCart_ShopBridge {
             'availability' => $product->is_in_stock() ? 'in_stock' : 'out_of_stock',
             'shipping_regions' => self::shipping_countries(),
             'eligible_for_agent_checkout' => self::is_product_agentcart_enabled($product),
+            'max_quantity' => self::product_max_quantity($product),
+            'agentcart_policy' => [
+                'max_quantity' => self::product_max_quantity($product),
+                'blocked' => self::is_product_agentcart_blocked($product),
+                'exposure_mode' => self::product_exposure_mode(),
+            ],
         ];
     }
 

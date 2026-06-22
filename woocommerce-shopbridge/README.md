@@ -105,9 +105,18 @@ Woo fields into an agent-readable product schema:
 - stock/availability
 - shipping regions from WooCommerce's configured shipping countries
 - `eligible_for_agent_checkout`
+- `max_quantity`
+- `agentcart_policy`
 
-Future hardening can add category rules, quantity limits, and richer
-merchant-side policies, but the default product seam remains merchant-controlled.
+Each product can also define an `AgentCart max quantity`. Quote requests above
+that limit are rejected before cart or payment work begins. Products marked
+`Exclude from AgentCart checkout` are absent from catalog results and rejected in
+quotes, even in tag or all-product exposure modes. Use that override for
+age-gated, regulated, local-pickup-only, deposit, or manual-review products.
+
+Future hardening can add category-wide rules, shipping-country overrides, and
+richer merchant-side policies, but the default product seam remains
+merchant-controlled and fail-closed.
 
 ## Quote Binding
 
