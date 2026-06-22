@@ -25,18 +25,26 @@ MPP_NETWORK = os.getenv("SHOPBRIDGE_MPP_NETWORK", "testnet").strip()
 MPP_ACCOUNT = os.getenv("SHOPBRIDGE_MPP_ACCOUNT", "agentcart-test").strip()
 
 
+def base_url_from_args(args: dict[str, Any] | None = None) -> str:
+    args = args or {}
+    raw = args.get("base_url") or args.get("shopbridge_base_url") or args.get("merchant_base_url") or BASE_URL
+    return str(raw).rstrip("/")
+
+
 def request_json(
     path: str,
     *,
     method: str = "GET",
     payload: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
+    base_url: str | None = None,
 ) -> dict[str, Any]:
     data = json.dumps(payload).encode() if payload is not None else None
     request_headers = {"Accept": "application/json", **(headers or {})}
     if data is not None:
         request_headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(f"{BASE_URL}{path}", data=data, headers=request_headers, method=method)
+    origin = (base_url or BASE_URL).rstrip("/")
+    req = urllib.request.Request(f"{origin}{path}", data=data, headers=request_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode())
@@ -61,6 +69,18 @@ def sha256_hex(value: Any) -> str:
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
+def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in record.items()
+        if key not in {"signature", "verification", "manifest", "manifest_snapshot", "proof_snapshot"}
+    }
+
+
+def registry_record_hash(record: dict[str, Any]) -> str:
+    return sha256_hex(registry_signature_payload(record))
+
+
 def parse_time(value: Any) -> dt.datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -73,6 +93,213 @@ def parse_time(value: Any) -> dt.datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc)
+
+
+def fetch_json_url(url: str) -> dict[str, Any]:
+    parsed = parsed_url(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SystemExit(f"{url} must be an HTTP(S) JSON URL")
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise SystemExit(json.dumps({"error": {"status": exc.code, "detail": body}}, indent=2))
+    except urllib.error.URLError as exc:
+        raise SystemExit(json.dumps({"error": {"url": url, "detail": str(exc.reason)}}, indent=2))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(json.dumps({"error": {"url": url, "detail": f"invalid JSON: {exc}"}}, indent=2))
+    if not isinstance(data, dict):
+        raise SystemExit(f"{url} did not return a JSON object")
+    return data
+
+
+def parsed_url(value: str) -> urllib.parse.ParseResult:
+    return urllib.parse.urlparse(str(value or ""))
+
+
+def origin_for_url(value: str) -> str:
+    parsed = parsed_url(value)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "", "", "")).rstrip("/")
+
+
+def local_registry_host(host: str) -> bool:
+    host = host.lower()
+    return host in {"localhost", "127.0.0.1", "::1"} or host.startswith("192.168.") or host.endswith(".local")
+
+
+def domain_matches(domain: str, parsed: urllib.parse.ParseResult) -> bool:
+    domain = str(domain or "").lower().strip()
+    host = (parsed.hostname or "").lower()
+    netloc = parsed.netloc.lower()
+    return bool(domain and domain in {host, netloc})
+
+
+def endpoint_host_errors(record: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    domain = str(record.get("domain") or "")
+    endpoints = manifest.get("endpoints") if isinstance(manifest.get("endpoints"), dict) else {}
+    for required in ("catalog", "quote"):
+        if not endpoints.get(required):
+            errors.append(f"endpoint_{required}_missing")
+    for name, endpoint in endpoints.items():
+        endpoint_url = str(endpoint or "")
+        if not endpoint_url or endpoint_url.startswith("/"):
+            continue
+        parsed = parsed_url(endpoint_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            errors.append(f"endpoint_{name}_invalid")
+            continue
+        if parsed.scheme != "https" and not local_registry_host(parsed.hostname or ""):
+            errors.append(f"endpoint_{name}_requires_https")
+        if domain and not domain_matches(domain, parsed):
+            errors.append(f"endpoint_{name}_domain_mismatch")
+    return errors
+
+
+def verify_registry_claim(record: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
+    expected_hash = str(record.get("registry_claim_hash") or "")
+    if not expected_hash:
+        expected_manifest_hash = str(record.get("manifest_hash") or "")
+        if not expected_manifest_hash:
+            return ["missing_registry_claim_hash"]
+        actual_manifest_hash = sha256_hex(manifest)
+        return [] if expected_manifest_hash == actual_manifest_hash else ["manifest_hash_mismatch"]
+    discovery = manifest.get("discovery") if isinstance(manifest.get("discovery"), dict) else {}
+    claim = discovery.get("registry_claim") if isinstance(discovery.get("registry_claim"), dict) else {}
+    if not claim:
+        return ["registry_claim_missing_in_manifest"]
+    errors: list[str] = []
+    actual_hash = sha256_hex(claim)
+    if expected_hash != actual_hash:
+        errors.append("registry_claim_hash_mismatch")
+    for field in (
+        "merchant_id",
+        "name",
+        "domain",
+        "manifest_url",
+        "payment_network",
+        "payment_recipient",
+        "stripe_profile_id",
+        "proof_url",
+    ):
+        expected = str(record.get(field) or "")
+        supplied = str(claim.get(field) or "")
+        if expected and supplied and expected != supplied:
+            errors.append(f"registry_claim_{field}_mismatch")
+        elif expected and not supplied:
+            errors.append(f"registry_claim_{field}_missing")
+    return errors
+
+
+def verify_domain_proof(record: dict[str, Any], proof: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    expected_hash = registry_record_hash(record)
+    supplied_hash = str(proof.get("record_hash") or "")
+    if not supplied_hash:
+        errors.append("domain_proof_record_hash_missing")
+    elif supplied_hash != expected_hash:
+        errors.append("domain_proof_record_hash_mismatch")
+    fields = ["merchant_id", "domain", "manifest_url", "payment_network", "payment_recipient", "updated_at"]
+    fields.append("registry_claim_hash" if record.get("registry_claim_hash") else "manifest_hash")
+    for field in fields:
+        expected = str(record.get(field) or "")
+        supplied = str(proof.get(field) or "")
+        if expected and supplied and expected != supplied:
+            errors.append(f"domain_proof_{field}_mismatch")
+        elif expected and not supplied:
+            errors.append(f"domain_proof_{field}_missing")
+    return errors
+
+
+def registry_record_from_args(args: dict[str, Any]) -> dict[str, Any]:
+    record = args.get("registry_record")
+    if isinstance(record, dict):
+        return record
+    record_url = str(args.get("registry_record_url") or "")
+    if record_url:
+        loaded = fetch_json_url(record_url)
+        if isinstance(loaded.get("entries"), list):
+            merchant_id = str(args.get("merchant_id") or "")
+            for entry in loaded["entries"]:
+                if isinstance(entry, dict) and (not merchant_id or str(entry.get("merchant_id") or "") == merchant_id):
+                    return entry
+            raise SystemExit("registry_record_url did not contain the requested merchant_id")
+        return loaded
+    raise SystemExit("registry_record or registry_record_url is required")
+
+
+def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
+    record = registry_record_from_args(args)
+    errors: list[str] = []
+    manifest_url = str(record.get("manifest_url") or "")
+    domain = str(record.get("domain") or "")
+    parsed_manifest = parsed_url(manifest_url)
+    if parsed_manifest.scheme not in {"http", "https"} or not parsed_manifest.netloc:
+        errors.append("manifest_url_invalid")
+    elif parsed_manifest.scheme != "https" and not local_registry_host(parsed_manifest.hostname or ""):
+        errors.append("manifest_url_requires_https")
+    if parsed_manifest.netloc and domain and not domain_matches(domain, parsed_manifest):
+        errors.append("manifest_domain_mismatch")
+
+    proof = record.get("proof") if isinstance(record.get("proof"), dict) else {}
+    proof_url = str(proof.get("url") or "")
+    proof_type = str(proof.get("type") or "").lower()
+    parsed_proof = parsed_url(proof_url)
+    if proof_type not in {"https-well-known", "agentcart-domain-v1"}:
+        errors.append("domain_proof_type_unsupported")
+    if not proof_url:
+        errors.append("domain_proof_url_missing")
+    elif parsed_proof.scheme not in {"http", "https"} or not parsed_proof.netloc:
+        errors.append("domain_proof_url_invalid")
+    else:
+        if parsed_proof.scheme != "https" and not local_registry_host(parsed_proof.hostname or ""):
+            errors.append("domain_proof_url_requires_https")
+        if domain and not domain_matches(domain, parsed_proof):
+            errors.append("domain_proof_url_domain_mismatch")
+        if not parsed_proof.path.startswith("/.well-known/"):
+            errors.append("domain_proof_url_requires_well_known_path")
+
+    manifest = args.get("manifest_snapshot") if isinstance(args.get("manifest_snapshot"), dict) else None
+    proof_document = args.get("proof_snapshot") if isinstance(args.get("proof_snapshot"), dict) else None
+    if manifest is None and not any(error.startswith("manifest_") for error in errors):
+        manifest = fetch_json_url(manifest_url)
+    if proof_document is None and not any(error.startswith("domain_proof_url_") for error in errors):
+        proof_document = fetch_json_url(proof_url)
+
+    if isinstance(manifest, dict):
+        errors.extend(verify_registry_claim(record, manifest))
+        errors.extend(endpoint_host_errors(record, manifest))
+        manifest_merchant = manifest.get("merchant") if isinstance(manifest.get("merchant"), dict) else {}
+        if record.get("merchant_id") and manifest_merchant.get("id") and record.get("merchant_id") != manifest_merchant.get("id"):
+            errors.append("merchant_id_mismatch")
+    else:
+        errors.append("manifest_fetch_failed")
+    if isinstance(proof_document, dict):
+        errors.extend(verify_domain_proof(record, proof_document))
+    else:
+        errors.append("domain_proof_fetch_failed")
+
+    verification = {
+        "state": "verified" if not errors else "rejected",
+        "errors": errors,
+        "signature_alg": str(record.get("signature_alg") or ""),
+        "proof_type": proof_type,
+    }
+    merchant = (manifest or {}).get("merchant") if isinstance((manifest or {}).get("merchant"), dict) else {}
+    return {
+        "ok": not errors,
+        "base_url": origin_for_url(manifest_url) if manifest_url else "",
+        "merchant": {
+            "id": str(record.get("merchant_id") or merchant.get("id") or ""),
+            "name": str(record.get("name") or merchant.get("name") or ""),
+        },
+        "manifest_url": manifest_url,
+        "registry_record_hash": registry_record_hash(record),
+        "verification": verification,
+        "manifest": manifest if args.get("include_manifest") else None,
+    }
 
 
 def scalar(value: Any) -> bool:
@@ -422,15 +649,15 @@ def command_catalog(args: dict[str, Any]) -> dict[str, Any]:
             "limit": args.get("limit") or 12,
         }
     )
-    return request_json(f"/wp-json/agentcart/v1/catalog?{query}")
+    return request_json(f"/wp-json/agentcart/v1/catalog?{query}", base_url=base_url_from_args(args))
 
 
-def command_manifest(_args: dict[str, Any]) -> dict[str, Any]:
-    return request_json("/.well-known/agentcart.json")
+def command_manifest(args: dict[str, Any]) -> dict[str, Any]:
+    return request_json("/.well-known/agentcart.json", base_url=base_url_from_args(args))
 
 
-def command_capability(_args: dict[str, Any]) -> dict[str, Any]:
-    return request_json("/wp-json/agentcart/v1/capability")
+def command_capability(args: dict[str, Any]) -> dict[str, Any]:
+    return request_json("/wp-json/agentcart/v1/capability", base_url=base_url_from_args(args))
 
 
 def command_readiness(args: dict[str, Any]) -> dict[str, Any]:
@@ -462,7 +689,7 @@ def command_readiness(args: dict[str, Any]) -> dict[str, Any]:
         else None
     )
     return {
-        "base_url": BASE_URL,
+        "base_url": base_url_from_args(args),
         "merchant": (manifest or {}).get("merchant") or (capability or {}).get("merchant"),
         "manifest_ok": manifest is not None,
         "capability_ok": capability is not None,
@@ -478,7 +705,10 @@ def command_product(args: dict[str, Any]) -> dict[str, Any]:
     product_id = str(args.get("product_id") or args.get("id") or "").removeprefix("woo_")
     if not product_id:
         raise SystemExit("product_id is required")
-    return request_json(f"/wp-json/agentcart/v1/products/{urllib.parse.quote(product_id)}")
+    return request_json(
+        f"/wp-json/agentcart/v1/products/{urllib.parse.quote(product_id)}",
+        base_url=base_url_from_args(args),
+    )
 
 
 def command_quote(args: dict[str, Any]) -> dict[str, Any]:
@@ -486,7 +716,7 @@ def command_quote(args: dict[str, Any]) -> dict[str, Any]:
         "items": quote_items_from_args(args),
         "ship_to": quote_ship_to_from_args(args),
     }
-    return request_json("/wp-json/agentcart/v1/quote", method="POST", payload=payload)
+    return request_json("/wp-json/agentcart/v1/quote", method="POST", payload=payload, base_url=base_url_from_args(args))
 
 
 def command_approval_summary(args: dict[str, Any]) -> dict[str, Any]:
@@ -630,7 +860,7 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
 
 def command_checkout(args: dict[str, Any]) -> dict[str, Any]:
     payload = checkout_payload(args)
-    return request_json("/wp-json/agentcart/v1/orders", method="POST", payload=payload)
+    return request_json("/wp-json/agentcart/v1/orders", method="POST", payload=payload, base_url=base_url_from_args(args))
 
 
 def command_order_status(args: dict[str, Any]) -> dict[str, Any]:
@@ -642,13 +872,18 @@ def command_order_status(args: dict[str, Any]) -> dict[str, Any]:
             path = f"{path}?{parsed.query}"
         token = args.get("status_token") or args.get("token")
         headers = {"X-AgentCart-Order-Token": str(token)} if token else None
-        return request_json(path, headers=headers)
+        base_url = origin_for_url(status_url) if parsed.scheme and parsed.netloc else base_url_from_args(args)
+        return request_json(path, headers=headers, base_url=base_url)
     order_id = str(args.get("order_id") or args.get("id") or "")
     if not order_id:
         raise SystemExit("order_id or status_url is required")
     token = args.get("status_token") or args.get("token")
     headers = {"X-AgentCart-Order-Token": str(token)} if token else None
-    return request_json(f"/wp-json/agentcart/v1/orders/{urllib.parse.quote(order_id)}/status", headers=headers)
+    return request_json(
+        f"/wp-json/agentcart/v1/orders/{urllib.parse.quote(order_id)}/status",
+        headers=headers,
+        base_url=base_url_from_args(args),
+    )
 
 
 def main() -> None:
@@ -663,6 +898,8 @@ def main() -> None:
         compact = result
     elif command == "readiness":
         compact = command_readiness(args)
+    elif command == "resolve_merchant":
+        compact = command_resolve_merchant(args)
     elif command == "catalog":
         result = command_catalog(args)
         compact = compact_catalog(result) if args.get("compact", True) else result

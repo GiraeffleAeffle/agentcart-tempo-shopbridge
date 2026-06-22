@@ -16,7 +16,8 @@ deploy/home-server/       NUC/home-server compose package
 docs/                     Hackathon story, 3-minute runbook, roadmap, protocol notes
 ```
 
-For judge setup and independent local testing, start with `JUDGES.md`.
+For independent local testing, use the Local Gateway and Home-Server Package
+sections below.
 For the production payment/refund verifier seam, see
 `docs/VERIFIER_CONTRACT.md`.
 

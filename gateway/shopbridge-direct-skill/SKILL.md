@@ -17,7 +17,7 @@ unless the calling agent provides those features.
 
 Required environment for single-merchant alpha/testing:
 
-- `SHOPBRIDGE_BASE_URL`: merchant WordPress origin, for example `http://192.168.178.150:8098`
+- `SHOPBRIDGE_BASE_URL`: optional merchant WordPress origin override, for example `http://192.168.178.150:8098`
 
 Optional environment for demo checkout:
 
@@ -30,40 +30,57 @@ Commands are sent as JSON on stdin to `scripts/shopbridge-command.py`.
 
 ## Commands
 
+Resolve a merchant from a verified registry record:
+
+```json
+{"command":"resolve_merchant","args":{"registry_record":{...}}}
+```
+
+For a registry JSON document with multiple `entries`, pass a URL and optional merchant id:
+
+```json
+{"command":"resolve_merchant","args":{"registry_record_url":"https://registry.example/agentcart.json","merchant_id":"merchant-tea-shop"}}
+```
+
+Only continue when the result has `"ok": true`. Pass the returned `base_url` to
+later commands so catalog, quote, checkout, and status calls go to the verified
+merchant origin. In local demos, `SHOPBRIDGE_BASE_URL` can still be used as a
+manual single-shop override.
+
 Manifest:
 
 ```json
-{"command":"manifest","args":{}}
+{"command":"manifest","args":{"base_url":"https://shop.example"}}
 ```
 
 Capability/readiness:
 
 ```json
-{"command":"readiness","args":{"format":"toon"}}
+{"command":"readiness","args":{"base_url":"https://shop.example","format":"toon"}}
 ```
 
 Catalog:
 
 ```json
-{"command":"catalog","args":{"search":"tea","format":"toon"}}
+{"command":"catalog","args":{"base_url":"https://shop.example","search":"tea","format":"toon"}}
 ```
 
 Product detail:
 
 ```json
-{"command":"product","args":{"product_id":"woo_10"}}
+{"command":"product","args":{"base_url":"https://shop.example","product_id":"woo_10"}}
 ```
 
 Quote:
 
 ```json
-{"command":"quote","args":{"product_id":"woo_10","quantity":1,"format":"toon"}}
+{"command":"quote","args":{"base_url":"https://shop.example","product_id":"woo_10","quantity":1,"format":"toon"}}
 ```
 
 Multi-item quote:
 
 ```json
-{"command":"quote","args":{"items":[{"product_id":"woo_10","quantity":1},{"product_id":"woo_13","quantity":2}],"country":"DE","postal_code":"10115","format":"toon"}}
+{"command":"quote","args":{"base_url":"https://shop.example","items":[{"product_id":"woo_10","quantity":1},{"product_id":"woo_13","quantity":2}],"country":"DE","postal_code":"10115","format":"toon"}}
 ```
 
 Approval summary:
@@ -94,7 +111,7 @@ Checkout preflight:
 Checkout with a supplied verifier/payment receipt:
 
 ```json
-{"command":"checkout","args":{"quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"...","payment_receipt":{"method":"stripe-card-mpp","amount_cents":1480,"currency":"EUR","quote_hash":"...","stripe_profile_id":"acct_..."}}}
+{"command":"checkout","args":{"base_url":"https://shop.example","quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"...","payment_receipt":{"method":"stripe-card-mpp","amount_cents":1480,"currency":"EUR","quote_hash":"...","stripe_profile_id":"acct_..."}}}
 ```
 
 Build a checkout payload without sending it:
@@ -106,7 +123,7 @@ Build a checkout payload without sending it:
 Sandbox Tempo demo checkout:
 
 ```json
-{"command":"checkout_with_tempo_demo_proof","args":{"quote":{},"approved":true,"approval_hash":"..."}}
+{"command":"checkout_with_tempo_demo_proof","args":{"base_url":"https://shop.example","quote":{},"approved":true,"approval_hash":"..."}}
 ```
 
 Order status:
