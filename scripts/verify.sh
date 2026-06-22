@@ -34,6 +34,9 @@ section "Stripe MPP verifier syntax"
   bash -n scripts/stripe-link-mpp-smoke.sh
 )
 
+section "Verifier contract fixtures"
+python3 "$ROOT_DIR/scripts/verify-verifier-fixtures.py" >/dev/null
+
 section "Compose config"
 AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token \
   docker compose -f "$ROOT_DIR/gateway/docker-compose.yml" config >/dev/null

@@ -1,0 +1,67 @@
+{
+  "operation": "payment",
+  "quote": {
+    "id": "woo_quote_fixture_001",
+    "merchant": {
+      "id": "woocommerce-demo-shop",
+      "name": "AgentCart Demo Shop"
+    },
+    "items": [
+      {
+        "product_id": "woo_101",
+        "title": "Hazel's Chocolate Tea",
+        "quantity": 1,
+        "line_total_cents": 1350
+      }
+    ],
+    "subtotal_cents": 1350,
+    "shipping": {
+      "amount_cents": 490,
+      "country": "DE",
+      "method_id": "flat_rate:1"
+    },
+    "tax": {
+      "total_cents": 0,
+      "lines": []
+    },
+    "total_cents": 1840,
+    "currency": "EUR",
+    "expires_at": "2026-06-22T12:45:00+00:00",
+    "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "payment_requirements": {
+      "verification": {
+        "mode": "external_verifier",
+        "external_verifier_configured": true,
+        "refunds_use_same_verifier": true
+      },
+      "protocols": [
+        {
+          "id": "stripe-card-mpp",
+          "available": true,
+          "network_id": "profile_test_agentcart_shop",
+          "stripe_profile_id": "profile_test_agentcart_shop",
+          "settlement_note": "Stripe/card MPP requires a verifier that validates the quote-bound payment credential."
+        }
+      ]
+    }
+  },
+  "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "payment_receipt": {
+    "method": "stripe-card-mpp",
+    "amount_cents": 1840,
+    "currency": "EUR",
+    "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "stripe_profile_id": "profile_test_agentcart_shop",
+    "authorization": "mpp_test_authorization_opaque"
+  },
+  "agentcart_order_id": "skill_0123456789abcdef01234567",
+  "expected": {
+    "amount_cents": 1840,
+    "currency": "EUR",
+    "merchant_id": "woocommerce-demo-shop",
+    "rail": "stripe-card-mpp",
+    "tempo_network": "testnet",
+    "tempo_recipient": "",
+    "stripe_profile_id": "profile_test_agentcart_shop"
+  }
+}

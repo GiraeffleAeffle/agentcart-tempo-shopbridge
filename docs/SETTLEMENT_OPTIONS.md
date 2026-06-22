@@ -55,19 +55,24 @@ Ideal future option for EU merchants.
 
 ## Verifier Contract
 
-Payment verification request:
+The canonical verifier contract is `docs/VERIFIER_CONTRACT.md`, with checked-in
+Stripe/card fixtures under `docs/fixtures/verifier/`.
+
+Payment verification request shape:
 
 ```json
 {
-  "operation": "charge",
+  "operation": "payment",
+  "quote": {},
   "quote_hash": "sha256...",
-  "merchant_id": "merchant.example",
-  "expected_amount_cents": 1480,
-  "expected_currency": "EUR",
-  "payment_method": "stripe-card-mpp",
-  "payment_receipt": {
-    "method": "stripe-card-mpp",
-    "credential": "opaque-agent-payment-credential"
+  "payment_receipt": {},
+  "agentcart_order_id": "order_...",
+  "expected": {
+    "amount_cents": 1480,
+    "currency": "EUR",
+    "merchant_id": "merchant.example",
+    "rail": "stripe-card-mpp",
+    "stripe_profile_id": "profile_test_..."
   }
 }
 ```
@@ -82,7 +87,7 @@ Successful response:
   "currency": "EUR",
   "rail": "stripe-card-mpp",
   "transaction_reference": "pi_...",
-  "recipient": "acct_...",
+  "stripe_profile_id": "profile_test_...",
   "real_settlement_verified": true
 }
 ```
@@ -92,11 +97,27 @@ Refund verification request:
 ```json
 {
   "operation": "refund",
-  "merchant_order_id": "40",
-  "original_transaction_reference": "pi_...",
-  "amount_cents": 1480,
-  "currency": "EUR",
-  "reason": "customer requested refund"
+  "merchant": {},
+  "order": {
+    "id": "40",
+    "quote_hash": "sha256...",
+    "transaction_reference": "pi_...",
+    "payment_verification": {}
+  },
+  "refund": {
+    "amount_cents": 1480,
+    "currency": "EUR",
+    "reason": "customer requested refund",
+    "rail": "stripe-card-mpp",
+    "requested_reference": "refund-order-40-1"
+  },
+  "expected": {
+    "amount_cents": 1480,
+    "currency": "EUR",
+    "quote_hash": "sha256...",
+    "original_transaction_reference": "pi_...",
+    "stripe_profile_id": "profile_test_..."
+  }
 }
 ```
 
@@ -107,6 +128,8 @@ Successful refund response:
   "ok": true,
   "amount_cents": 1480,
   "currency": "EUR",
+  "quote_hash": "sha256...",
+  "original_transaction_reference": "pi_...",
   "rail": "stripe-card-mpp",
   "refund_reference": "re_...",
   "real_refund_verified": true

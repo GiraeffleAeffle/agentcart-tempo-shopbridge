@@ -1,0 +1,46 @@
+{
+  "operation": "refund",
+  "merchant": {
+    "id": "woocommerce-demo-shop",
+    "name": "AgentCart Demo Shop"
+  },
+  "order": {
+    "id": "123",
+    "number": "1001",
+    "agentcart_order_id": "skill_0123456789abcdef01234567",
+    "agentcart_quote_id": "woo_quote_fixture_001",
+    "merchant_quote_id": "woo_quote_fixture_001",
+    "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "currency": "EUR",
+    "payment_method": "agentcart",
+    "payment_receipt_id": "payrcpt_fixture_001",
+    "transaction_reference": "pi_agentcart_fixture_001",
+    "payment_verification": {
+      "state": "verified",
+      "mode": "external_verifier",
+      "real_settlement_verified": true,
+      "amount_cents": 1840,
+      "currency": "EUR",
+      "rail": "stripe-card-mpp",
+      "stripe_profile_id": "profile_test_agentcart_shop",
+      "transaction_reference": "pi_agentcart_fixture_001",
+      "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  },
+  "refund": {
+    "amount_cents": 1840,
+    "currency": "EUR",
+    "reason": "Customer requested refund",
+    "rail": "stripe-card-mpp",
+    "requested_reference": "refund-order-123-1"
+  },
+  "expected": {
+    "amount_cents": 1840,
+    "currency": "EUR",
+    "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "original_transaction_reference": "pi_agentcart_fixture_001",
+    "tempo_network": "testnet",
+    "tempo_recipient": "",
+    "stripe_profile_id": "profile_test_agentcart_shop"
+  }
+}

@@ -36,6 +36,9 @@ ShopBridge sends:
 }
 ```
 
+The canonical Stripe/card MPP fixture is checked in at
+`docs/fixtures/verifier/payment-request.stripe-card-mpp.json`.
+
 The verifier must reject the payment unless it can prove:
 
 - the payment credential or receipt is valid for the selected rail;
@@ -63,6 +66,9 @@ Expected success response:
   "real_settlement_verified": true
 }
 ```
+
+The canonical Stripe/card MPP success fixture is checked in at
+`docs/fixtures/verifier/payment-success.stripe-card-mpp.json`.
 
 ShopBridge rejects mismatched quote hash, amount, currency, rail, rail-specific
 merchant recipient/profile fields, or missing transaction reference. It also
@@ -99,6 +105,9 @@ ShopBridge sends:
 }
 ```
 
+The canonical Stripe/card MPP refund request fixture is checked in at
+`docs/fixtures/verifier/refund-request.stripe-card-mpp.json`.
+
 The verifier must execute or verify the refund through the original rail and
 return:
 
@@ -114,6 +123,9 @@ return:
   "real_refund_verified": true
 }
 ```
+
+The canonical Stripe/card MPP refund success fixture is checked in at
+`docs/fixtures/verifier/refund-success.stripe-card-mpp.json`.
 
 ShopBridge requires a refund idempotency key before calling the verifier. It
 rejects refund amounts above the remaining refundable amount, exact idempotent
@@ -131,3 +143,9 @@ MPP sandbox verifier for Link CLI testing. A production verifier still belongs
 to the selected payment rail or payment provider deployment because it must
 carry provider credentials, refund authority, replay protection, and operational
 monitoring.
+
+Validate the checked-in fixtures and the WooCommerce plugin payload field names:
+
+```sh
+python3 scripts/verify-verifier-fixtures.py
+```
