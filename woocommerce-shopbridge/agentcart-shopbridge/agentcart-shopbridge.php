@@ -286,6 +286,7 @@ final class AgentCart_ShopBridge {
         $stock_hold_mode = self::stock_hold_mode();
         $stock_hold_minutes = self::stock_hold_minutes();
         $readiness = self::readiness();
+        $setup_guide = self::setup_guide($readiness);
         ?>
         <div class="wrap">
             <h1>AgentCart ShopBridge</h1>
@@ -298,7 +299,14 @@ final class AgentCart_ShopBridge {
                 truth for products, stock, tax, shipping, fulfillment, refunds, and support.
             </p>
 
-            <h2>Readiness</h2>
+            <h2>Guided Setup</h2>
+            <p style="max-width: 760px;">
+                Complete these steps to move from local testing to production-shaped agent checkout.
+                The plugin keeps registry proof values and product endpoints generated from WooCommerce settings.
+            </p>
+            <?php self::render_setup_guide($setup_guide); ?>
+
+            <h2 id="agentcart-readiness">Readiness</h2>
             <table class="widefat striped" style="max-width: 980px;">
                 <tbody>
                     <tr>
@@ -374,7 +382,7 @@ final class AgentCart_ShopBridge {
                 </tbody>
             </table>
 
-            <h2>Endpoints</h2>
+            <h2 id="agentcart-endpoints">Endpoints</h2>
             <table class="widefat striped" style="max-width: 980px;">
                 <tbody>
                     <tr><th scope="row">Manifest</th><td><code><?php echo esc_html($manifest_url); ?></code></td></tr>
@@ -385,7 +393,7 @@ final class AgentCart_ShopBridge {
                 </tbody>
             </table>
 
-            <h2>Registry Proof</h2>
+            <h2 id="agentcart-registry-proof">Registry Proof</h2>
             <p style="max-width: 760px;">
                 A public AgentCart registry can verify this shop through a merchant-owned
                 <code>https-domain-proof</code>. The registry claim, timestamp, and canonical
@@ -403,8 +411,8 @@ final class AgentCart_ShopBridge {
                 </tbody>
             </table>
 
-            <h2>Settings</h2>
-            <form method="post" action="options.php">
+            <h2 id="agentcart-settings">Settings</h2>
+            <form id="agentcart-settings-form" method="post" action="options.php">
                 <?php settings_fields('agentcart_shopbridge'); ?>
                 <table class="form-table" role="presentation">
                     <?php self::render_text_setting_row('Merchant token', self::TOKEN_OPTION, self::merchant_token_value(), 'AGENTCART_SHOPBRIDGE_TOKEN', 'Shared secret for a trusted AgentCart gateway. Production public checkout should use a payment verifier.'); ?>
@@ -422,7 +430,7 @@ final class AgentCart_ShopBridge {
                 <?php submit_button('Save AgentCart settings'); ?>
             </form>
 
-            <h2>Product Exposure</h2>
+            <h2 id="agentcart-product-exposure">Product Exposure</h2>
             <p style="max-width: 760px;">
                 Products are private by default in manual mode. Merchants can also expose products
                 by assigning a normal WooCommerce product tag, or intentionally expose all published
@@ -927,6 +935,140 @@ final class AgentCart_ShopBridge {
         return '<span style="display:inline-block;padding:3px 8px;border-radius:999px;background:' . esc_attr($background) . ';color:' . esc_attr($color) . ';font-weight:600;">' . esc_html($label) . '</span>';
     }
 
+    private static function render_setup_guide($setup_guide) {
+        $steps = is_array($setup_guide['steps'] ?? null) ? $setup_guide['steps'] : [];
+        ?>
+        <table class="widefat striped" style="max-width: 980px;">
+            <thead>
+                <tr>
+                    <th scope="col">Step</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($steps as $step): ?>
+                    <tr>
+                        <th scope="row"><?php echo esc_html($step['label']); ?></th>
+                        <td>
+                            <?php echo self::admin_status_badge(($step['state'] ?? '') === 'complete', 'Complete', 'Needs setup'); ?>
+                            <p class="description"><?php echo esc_html($step['summary']); ?></p>
+                        </td>
+                        <td>
+                            <a href="<?php echo esc_attr($step['settings_anchor']); ?>"><?php echo esc_html($step['action_label']); ?></a>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <p style="max-width: 760px;">
+            Next step: <strong><?php echo esc_html($setup_guide['next_step']['label'] ?? 'Ready for testing'); ?></strong>
+            <?php if (!empty($setup_guide['next_step']['summary'])): ?>
+                &mdash; <?php echo esc_html($setup_guide['next_step']['summary']); ?>
+            <?php endif; ?>
+        </p>
+        <?php
+    }
+
+    private static function setup_guide($readiness = null) {
+        $readiness = is_array($readiness) ? $readiness : self::readiness();
+        $payment_configured = self::payment_verifier_url() !== ''
+            && self::payment_verifier_token() !== ''
+            && (self::tempo_recipient() !== '' || self::stripe_profile_id() !== '');
+        $registry_ready = self::public_origin_is_https() && self::registry_domain_proof_configured();
+        $steps = [
+            self::setup_guide_step(
+                'merchant_identity',
+                'Merchant identity and support',
+                self::support_email() !== '' && self::stable_merchant_id_configured(),
+                'Set support contact and a stable merchant id so buyers and registry records can identify the shop.',
+                'Review identity settings',
+                '#agentcart-settings',
+                ['production']
+            ),
+            self::setup_guide_step(
+                'products',
+                'Agent-safe products',
+                intval($readiness['agentcart_enabled_product_count'] ?? 0) > 0,
+                'Choose manual, tag, category, or all-product exposure and keep blocked products out of the catalog.',
+                'Review product exposure',
+                '#agentcart-product-exposure',
+                ['demo', 'production']
+            ),
+            self::setup_guide_step(
+                'tax_shipping',
+                'WooCommerce tax and shipping',
+                self::tax_and_shipping_configured(),
+                'Configure WooCommerce tax rates, shipping methods, and ship-to countries before accepting final quotes.',
+                'Review tax and shipping',
+                '#agentcart-readiness',
+                ['production']
+            ),
+            self::setup_guide_step(
+                'payment_verifier',
+                'Quote-bound payment verifier',
+                $payment_configured,
+                'Configure an external verifier plus a Tempo recipient or Stripe/card profile before public checkout.',
+                'Review payment settings',
+                '#agentcart-settings',
+                ['production']
+            ),
+            self::setup_guide_step(
+                'registry',
+                'Verified merchant discovery',
+                $registry_ready,
+                'Publish the well-known manifest and domain proof over HTTPS, then add the generated record to a registry.',
+                'Review registry proof',
+                '#agentcart-registry-proof',
+                ['production']
+            ),
+            self::setup_guide_step(
+                'sandbox_test',
+                'Sandbox quote and order test',
+                !empty($readiness['demo_ready']),
+                'Run a quote and non-production order test before allowing buyer agents to check out.',
+                'Open endpoints',
+                '#agentcart-endpoints',
+                ['demo', 'production']
+            ),
+        ];
+        $next_step = null;
+        foreach ($steps as $step) {
+            if ($step['state'] !== 'complete') {
+                $next_step = $step;
+                break;
+            }
+        }
+        if ($next_step === null) {
+            $next_step = [
+                'id' => 'ready',
+                'label' => !empty($readiness['production_ready']) ? 'Ready for production-shaped testing' : 'Ready for sandbox testing',
+                'summary' => !empty($readiness['production_ready'])
+                    ? 'Run final sandbox orders and connect the public registry.'
+                    : 'Demo prerequisites are complete; production rail, HTTPS, or legal checks may still be missing.',
+                'settings_anchor' => '#agentcart-readiness',
+            ];
+        }
+        return [
+            'demo_complete' => !empty($readiness['demo_ready']),
+            'production_complete' => !empty($readiness['production_ready']),
+            'next_step' => $next_step,
+            'steps' => $steps,
+        ];
+    }
+
+    private static function setup_guide_step($id, $label, $complete, $summary, $action_label, $settings_anchor, $required_for) {
+        return [
+            'id' => $id,
+            'label' => $label,
+            'state' => $complete ? 'complete' : 'needs_setup',
+            'summary' => $summary,
+            'action_label' => $action_label,
+            'settings_anchor' => $settings_anchor,
+            'required_for' => $required_for,
+        ];
+    }
+
     private static function readiness() {
         $missing_demo = [];
         if (!self::merchant_token_value()) {
@@ -1280,6 +1422,7 @@ final class AgentCart_ShopBridge {
             'merchant' => self::merchant(),
             'manifest_url' => home_url('/.well-known/agentcart.json'),
             'readiness' => self::readiness(),
+            'setup_guide' => self::setup_guide(),
             'protocols' => [
                 [
                     'id' => 'agentcart-shopbridge',

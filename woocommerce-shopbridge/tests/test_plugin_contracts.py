@@ -216,6 +216,31 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'all_published_simple_product_exposure'", capability_body)
         self.assertIn("'blocked_category_product_exclusion'", capability_body)
 
+    def test_admin_setup_guide_is_rendered_and_exposed_publicly(self) -> None:
+        render_body = function_body("render_settings_page")
+        guide_body = function_body("setup_guide")
+        step_body = function_body("setup_guide_step")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("render_setup_guide", render_body)
+        self.assertIn("'setup_guide'", capability_body)
+        for step_id in [
+            "'merchant_identity'",
+            "'products'",
+            "'tax_shipping'",
+            "'payment_verifier'",
+            "'registry'",
+            "'sandbox_test'",
+        ]:
+            self.assertIn(step_id, guide_body)
+        self.assertIn("'next_step'", guide_body)
+        self.assertIn("'demo_complete'", guide_body)
+        self.assertIn("'production_complete'", guide_body)
+        self.assertIn("'settings_anchor'", step_body)
+        self.assertIn("#agentcart-settings", SOURCE)
+        self.assertIn("#agentcart-product-exposure", SOURCE)
+        self.assertNotIn("admin_url(", guide_body)
+
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)
         self.assertIn("PRODUCT_MAX_QUANTITY_META", SOURCE)

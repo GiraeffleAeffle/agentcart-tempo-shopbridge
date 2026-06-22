@@ -118,6 +118,14 @@ Definition of done:
 - unsupported products, destinations, and quantities fail before payment;
 - merchant admin can understand why the shop is or is not agent-ready.
 
+Current alpha status: ShopBridge quotes through WooCommerce cart, tax, shipping,
+stock, and order APIs; exposes merchant-controlled product exposure modes; and
+renders a guided setup checklist in `WooCommerce -> AgentCart` for identity,
+agent-safe products, tax/shipping, payment verifier, registry proof, and sandbox
+testing. The same setup guide is included in the public capability document for
+remote onboarding tools. Production still needs a polished setup wizard, WP/Woo
+integration tests, and stronger hosted registry/payment-provider onboarding.
+
 ### 3. Idempotent Order And Replay Safety
 
 Goal: ShopBridge can safely accept public agent checkout requests.

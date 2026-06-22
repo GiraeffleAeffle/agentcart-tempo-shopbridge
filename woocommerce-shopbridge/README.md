@@ -80,6 +80,12 @@ It intentionally preserves WooCommerce orders, refunds, cancellation events,
 payment verification metadata, and product-level AgentCart metadata so merchants
 retain their commerce audit trail.
 
+The `WooCommerce -> AgentCart` admin page includes a guided setup checklist for
+merchant identity/support, agent-safe product exposure, WooCommerce tax and
+shipping setup, payment verifier configuration, registry proof publication, and
+sandbox quote/order testing. The same public-safe setup state is also exposed in
+the capability document for remote onboarding tools.
+
 For the hackathon demo, `AGENTCART_SHOPBRIDGE_TOKEN` lets a trusted AgentCart gateway create orders after its own approval and payment proof flow.
 
 For production, configure `AGENTCART_PAYMENT_VERIFIER_URL`. Public agents can then create orders only when the verifier confirms the quote-bound receipt.
