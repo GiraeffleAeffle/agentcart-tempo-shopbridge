@@ -103,9 +103,10 @@ Deliverables:
 - add readiness gates for HTTPS, support email, terms/refund URL, stable
   merchant id, tax/shipping setup, verifier configuration, and demo-mode status;
 - support low-friction merchant-controlled product exposure modes;
-- enforce per-product quantity limits and checkout exclusion overrides;
-- add richer product controls for restricted categories, perishables, deposits,
-  shipping country overrides, substitutions, and allergens.
+- enforce per-product quantity limits, checkout exclusion overrides, category
+  blocklists, and structured restricted-goods metadata;
+- add richer product controls for perishables, deposits, shipping country
+  overrides, and substitutions.
 
 Definition of done:
 

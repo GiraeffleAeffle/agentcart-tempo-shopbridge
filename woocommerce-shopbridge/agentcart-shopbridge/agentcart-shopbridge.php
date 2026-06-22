@@ -36,6 +36,8 @@ final class AgentCart_ShopBridge {
     const REGISTRY_UPDATED_AT_OPTION = 'agentcart_shopbridge_registry_updated_at';
     const PRODUCT_EXPOSURE_MODE_OPTION = 'agentcart_shopbridge_product_exposure_mode';
     const PRODUCT_EXPOSURE_TAG_OPTION = 'agentcart_shopbridge_product_exposure_tag';
+    const PRODUCT_EXPOSURE_CATEGORIES_OPTION = 'agentcart_shopbridge_product_exposure_categories';
+    const PRODUCT_BLOCKED_CATEGORIES_OPTION = 'agentcart_shopbridge_product_blocked_categories';
     const PRODUCT_ENABLED_META = '_agentcart_enabled';
     const PRODUCT_BLOCKED_META = '_agentcart_checkout_blocked';
     const PRODUCT_MAX_QUANTITY_META = '_agentcart_max_quantity';
@@ -151,11 +153,33 @@ final class AgentCart_ShopBridge {
             'sanitize_callback' => 'sanitize_title',
             'default' => 'agentcart-safe',
         ]);
+        register_setting('agentcart_shopbridge', self::PRODUCT_EXPOSURE_CATEGORIES_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_slug_list_setting'],
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::PRODUCT_BLOCKED_CATEGORIES_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_slug_list_setting'],
+            'default' => '',
+        ]);
     }
 
     public static function sanitize_product_exposure_mode_setting($value) {
         $mode = sanitize_key((string) $value);
-        return in_array($mode, ['manual', 'tag', 'all'], true) ? $mode : 'manual';
+        return in_array($mode, ['manual', 'tag', 'category', 'all'], true) ? $mode : 'manual';
+    }
+
+    public static function sanitize_slug_list_setting($value) {
+        $raw_values = is_array($value) ? $value : preg_split('/[\s,]+/', (string) $value);
+        $slugs = [];
+        foreach ((array) $raw_values as $raw_value) {
+            $slug = sanitize_title((string) $raw_value);
+            if ($slug !== '' && !in_array($slug, $slugs, true)) {
+                $slugs[] = $slug;
+            }
+        }
+        return implode(',', $slugs);
     }
 
     public static function render_settings_page() {
@@ -179,6 +203,8 @@ final class AgentCart_ShopBridge {
         $support_email = self::support_email();
         $product_exposure_mode = self::product_exposure_mode();
         $product_exposure_tag = self::product_exposure_tag();
+        $product_exposure_categories = self::product_exposure_categories();
+        $product_blocked_categories = self::product_blocked_categories();
         $readiness = self::readiness();
         ?>
         <div class="wrap">
@@ -303,7 +329,7 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
                     <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
                     <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
-                    <?php self::render_product_exposure_setting_rows($product_exposure_mode, $product_exposure_tag); ?>
+                    <?php self::render_product_exposure_setting_rows($product_exposure_mode, $product_exposure_tag, $product_exposure_categories, $product_blocked_categories); ?>
                 </table>
                 <?php submit_button('Save AgentCart settings'); ?>
             </form>
@@ -318,6 +344,8 @@ final class AgentCart_ShopBridge {
                 Current mode: <strong><?php echo esc_html(self::product_exposure_mode_label($product_exposure_mode)); ?></strong>
                 <?php if ($product_exposure_mode === 'tag') : ?>
                     using tag <code><?php echo esc_html($product_exposure_tag); ?></code>.
+                <?php elseif ($product_exposure_mode === 'category') : ?>
+                    using categories <code><?php echo esc_html(implode(', ', $product_exposure_categories) ?: 'none'); ?></code>.
                 <?php endif; ?>
             </p>
             <form method="post" style="display: inline-block; margin-right: 8px;">
@@ -923,12 +951,15 @@ final class AgentCart_ShopBridge {
         <?php
     }
 
-    private static function render_product_exposure_setting_rows($mode, $tag) {
+    private static function render_product_exposure_setting_rows($mode, $tag, $categories, $blocked_categories) {
         $mode_constant_defined = defined('AGENTCART_PRODUCT_EXPOSURE_MODE');
         $tag_constant_defined = defined('AGENTCART_PRODUCT_EXPOSURE_TAG');
+        $categories_constant_defined = defined('AGENTCART_PRODUCT_EXPOSURE_CATEGORIES');
+        $blocked_categories_constant_defined = defined('AGENTCART_PRODUCT_BLOCKED_CATEGORIES');
         $modes = [
             'manual' => 'Manual product checkbox',
             'tag' => 'WooCommerce product tag',
+            'category' => 'WooCommerce product categories',
             'all' => 'All published simple products',
         ];
         ?>
@@ -945,7 +976,7 @@ final class AgentCart_ShopBridge {
                     <?php endforeach; ?>
                 </select>
                 <p class="description">
-                    Manual mode preserves the explicit per-product checkbox. Tag mode lets merchants use normal WooCommerce product tags. All mode is for shops whose entire simple-product catalog is safe for agent checkout.
+                    Manual mode preserves the explicit per-product checkbox. Tag and category modes let merchants use normal WooCommerce taxonomy workflows. All mode is for shops whose entire simple-product catalog is safe for agent checkout.
                     <?php if ($mode_constant_defined): ?>
                         <br><strong>Configured in wp-config.php via <code>AGENTCART_PRODUCT_EXPOSURE_MODE</code>.</strong>
                     <?php endif; ?>
@@ -967,6 +998,44 @@ final class AgentCart_ShopBridge {
                     Used only in tag mode. Add this WooCommerce product tag to products that should appear in AgentCart catalog and quote endpoints.
                     <?php if ($tag_constant_defined): ?>
                         <br><strong>Configured in wp-config.php via <code>AGENTCART_PRODUCT_EXPOSURE_TAG</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::PRODUCT_EXPOSURE_CATEGORIES_OPTION); ?>">Agent-safe product categories</label></th>
+            <td>
+                <input
+                    id="<?php echo esc_attr(self::PRODUCT_EXPOSURE_CATEGORIES_OPTION); ?>"
+                    name="<?php echo esc_attr(self::PRODUCT_EXPOSURE_CATEGORIES_OPTION); ?>"
+                    type="text"
+                    class="regular-text"
+                    value="<?php echo esc_attr(implode(',', $categories)); ?>"
+                    <?php disabled($categories_constant_defined); ?>
+                >
+                <p class="description">
+                    Used only in category mode. Enter WooCommerce product category slugs, separated by commas.
+                    <?php if ($categories_constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_PRODUCT_EXPOSURE_CATEGORIES</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::PRODUCT_BLOCKED_CATEGORIES_OPTION); ?>">Blocked product categories</label></th>
+            <td>
+                <input
+                    id="<?php echo esc_attr(self::PRODUCT_BLOCKED_CATEGORIES_OPTION); ?>"
+                    name="<?php echo esc_attr(self::PRODUCT_BLOCKED_CATEGORIES_OPTION); ?>"
+                    type="text"
+                    class="regular-text"
+                    value="<?php echo esc_attr(implode(',', $blocked_categories)); ?>"
+                    <?php disabled($blocked_categories_constant_defined); ?>
+                >
+                <p class="description">
+                    These WooCommerce category slugs are excluded from catalog, quote, and checkout in every exposure mode.
+                    <?php if ($blocked_categories_constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_PRODUCT_BLOCKED_CATEGORIES</code>.</strong>
                     <?php endif; ?>
                 </p>
             </td>
@@ -1017,9 +1086,12 @@ final class AgentCart_ShopBridge {
                 'shipping_address_on_order' => true,
                 'per_product_agentcart_opt_in' => true,
                 'tag_based_product_exposure' => true,
+                'category_based_product_exposure' => true,
                 'all_published_simple_product_exposure' => true,
+                'blocked_category_product_exclusion' => true,
                 'per_product_agentcart_max_quantity' => true,
                 'per_product_agentcart_block_override' => true,
+                'structured_restricted_goods_metadata' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'agentcart_order_ip_minimized' => true,
@@ -1031,6 +1103,8 @@ final class AgentCart_ShopBridge {
             'product_exposure' => [
                 'mode' => self::product_exposure_mode(),
                 'tag' => self::product_exposure_mode() === 'tag' ? self::product_exposure_tag() : null,
+                'categories' => self::product_exposure_mode() === 'category' ? self::product_exposure_categories() : [],
+                'blocked_categories' => self::product_blocked_categories(),
                 'published_simple_products_exposed' => self::agentcart_enabled_product_count(),
                 'manual_meta_key' => self::PRODUCT_ENABLED_META,
             ],
@@ -1040,6 +1114,9 @@ final class AgentCart_ShopBridge {
                 'block_override_meta_key' => self::PRODUCT_BLOCKED_META,
                 'over_limit_quote_rejected' => true,
                 'blocked_products_absent_from_catalog' => true,
+                'blocked_categories_absent_from_catalog' => true,
+                'restricted_goods_metadata' => true,
+                'restricted_goods_require_human_review' => true,
             ],
             'delivery' => [
                 'ship_to_countries' => self::shipping_countries(),
@@ -2541,10 +2618,31 @@ final class AgentCart_ShopBridge {
         return $tag !== '' ? $tag : 'agentcart-safe';
     }
 
+    private static function product_exposure_categories() {
+        return self::slug_list_from_setting(self::PRODUCT_EXPOSURE_CATEGORIES_OPTION, 'AGENTCART_PRODUCT_EXPOSURE_CATEGORIES');
+    }
+
+    private static function product_blocked_categories() {
+        return self::slug_list_from_setting(self::PRODUCT_BLOCKED_CATEGORIES_OPTION, 'AGENTCART_PRODUCT_BLOCKED_CATEGORIES');
+    }
+
+    private static function slug_list_from_setting($option, $constant) {
+        if (defined($constant)) {
+            $raw = (string) constant($constant);
+        } else {
+            $raw = (string) get_option($option, '');
+        }
+        $value = self::sanitize_slug_list_setting($raw);
+        return $value === '' ? [] : explode(',', $value);
+    }
+
     private static function product_exposure_mode_label($mode = null) {
         $mode = $mode ?: self::product_exposure_mode();
         if ($mode === 'tag') {
             return 'WooCommerce tag';
+        }
+        if ($mode === 'category') {
+            return 'WooCommerce categories';
         }
         if ($mode === 'all') {
             return 'all published simple products';
@@ -2562,6 +2660,13 @@ final class AgentCart_ShopBridge {
             $args['meta_query'] = self::agentcart_enabled_meta_query();
         } elseif ($mode === 'tag') {
             $args['tag'] = [self::product_exposure_tag()];
+        } elseif ($mode === 'category') {
+            $categories = self::product_exposure_categories();
+            if (!$categories) {
+                $args['include'] = [0];
+            } else {
+                $args['category'] = $categories;
+            }
         }
         return $args;
     }
@@ -2580,11 +2685,42 @@ final class AgentCart_ShopBridge {
         if ($mode === 'tag') {
             return has_term(self::product_exposure_tag(), 'product_tag', $product->get_id());
         }
+        if ($mode === 'category') {
+            return self::product_has_category_slug($product, self::product_exposure_categories());
+        }
         return $product->get_meta(self::PRODUCT_ENABLED_META, true) === 'yes';
     }
 
     private static function is_product_agentcart_blocked(WC_Product $product) {
-        return $product->get_meta(self::PRODUCT_BLOCKED_META, true) === 'yes';
+        return $product->get_meta(self::PRODUCT_BLOCKED_META, true) === 'yes'
+            || !empty(self::product_blocked_category_matches($product));
+    }
+
+    private static function product_category_slugs(WC_Product $product) {
+        $slugs = [];
+        foreach ($product->get_category_ids() as $category_id) {
+            $term = get_term($category_id, 'product_cat');
+            if ($term && !is_wp_error($term)) {
+                foreach ([$term->slug, $term->name] as $value) {
+                    $slug = sanitize_title((string) $value);
+                    if ($slug !== '' && !in_array($slug, $slugs, true)) {
+                        $slugs[] = $slug;
+                    }
+                }
+            }
+        }
+        return $slugs;
+    }
+
+    private static function product_has_category_slug(WC_Product $product, $category_slugs) {
+        if (!$category_slugs) {
+            return false;
+        }
+        return (bool) array_intersect(self::product_category_slugs($product), $category_slugs);
+    }
+
+    private static function product_blocked_category_matches(WC_Product $product) {
+        return array_values(array_intersect(self::product_category_slugs($product), self::product_blocked_categories()));
     }
 
     private static function product_max_quantity(WC_Product $product) {
@@ -2706,7 +2842,10 @@ final class AgentCart_ShopBridge {
                 'line_total_cents' => $line_gross_cents,
                 'currency' => get_woocommerce_currency(),
                 'category' => $serialized['category'],
+                'category_slugs' => $serialized['category_slugs'],
                 'vat_rate_bps' => self::vat_rate_bps($product),
+                'restricted_goods' => $serialized['restricted_goods'],
+                'agentcart_policy' => $serialized['agentcart_policy'],
             ];
         }
         if (!$items) {
@@ -2967,6 +3106,50 @@ final class AgentCart_ShopBridge {
         ];
     }
 
+    private static function restricted_goods_rules() {
+        return [
+            'age_restricted' => [
+                'labels' => ['alcohol', 'beer', 'wine', 'spirits', 'liquor', 'tobacco', 'vape', 'vaping', 'cannabis', 'cbd', 'adult', 'lottery'],
+                'summary' => 'Age-restricted or adult-regulated goods.',
+            ],
+            'medical' => [
+                'labels' => ['medicine', 'medication', 'pharmacy', 'prescription', 'otc', 'drug', 'drugs'],
+                'summary' => 'Medical or pharmacy goods that may need legal and health review.',
+            ],
+            'weapons' => [
+                'labels' => ['weapon', 'weapons', 'knife', 'knives', 'blade', 'ammunition', 'fireworks'],
+                'summary' => 'Weapons, blades, ammunition, or fireworks.',
+            ],
+            'stored_value' => [
+                'labels' => ['gift-card', 'gift-cards', 'voucher', 'vouchers', 'prepaid-card', 'prepaid-cards'],
+                'summary' => 'Stored-value goods with fraud or resale risk.',
+            ],
+        ];
+    }
+
+    private static function product_restricted_goods(WC_Product $product, $agent_labels = null) {
+        $agent_labels = is_array($agent_labels) ? $agent_labels : self::product_agent_labels($product);
+        $labels = array_values(array_unique(array_merge(
+            $agent_labels['labels'] ?? [],
+            self::product_category_slugs($product)
+        )));
+        $flags = [];
+        foreach (self::restricted_goods_rules() as $code => $rule) {
+            $matches = array_values(array_intersect($labels, $rule['labels']));
+            if (!$matches) {
+                continue;
+            }
+            $flags[] = [
+                'code' => $code,
+                'summary' => $rule['summary'],
+                'matched_terms' => $matches,
+                'requires_human_review' => true,
+                'agent_should_not_autonomously_purchase' => true,
+            ];
+        }
+        return $flags;
+    }
+
     private static function serialize_product(WC_Product $product) {
         $category = 'household.supplies';
         $category_ids = $product->get_category_ids();
@@ -2986,6 +3169,9 @@ final class AgentCart_ShopBridge {
         }
         $package_size = self::package_size_for_product($product);
         $agent_labels = self::product_agent_labels($product);
+        $category_slugs = self::product_category_slugs($product);
+        $blocked_category_matches = self::product_blocked_category_matches($product);
+        $restricted_goods = self::product_restricted_goods($product, $agent_labels);
         return [
             'id' => 'woo_' . $product->get_id(),
             'product_id' => 'woo_' . $product->get_id(),
@@ -2995,6 +3181,7 @@ final class AgentCart_ShopBridge {
             'title' => wp_strip_all_tags($product->get_name()),
             'description' => wp_strip_all_tags($product->get_short_description() ?: $product->get_description()),
             'category' => $category,
+            'category_slugs' => $category_slugs,
             'brand' => get_bloginfo('name') ?: 'WooCommerce',
             'unit_size' => $package_size['label'],
             'package_size' => $package_size,
@@ -3002,6 +3189,7 @@ final class AgentCart_ShopBridge {
             'labels' => $agent_labels['labels'],
             'dietary_tags' => $agent_labels['dietary_tags'],
             'allergens' => $agent_labels['allergens'],
+            'restricted_goods' => $restricted_goods,
             'image_urls' => $image_urls,
             'price_cents' => self::cents((float) wc_get_price_including_tax($product, ['qty' => 1])),
             'currency' => get_woocommerce_currency(),
@@ -3014,7 +3202,11 @@ final class AgentCart_ShopBridge {
             'agentcart_policy' => [
                 'max_quantity' => self::product_max_quantity($product),
                 'blocked' => self::is_product_agentcart_blocked($product),
+                'blocked_category_slugs' => $blocked_category_matches,
                 'exposure_mode' => self::product_exposure_mode(),
+                'exposure_categories' => self::product_exposure_mode() === 'category' ? self::product_exposure_categories() : [],
+                'restricted_goods' => $restricted_goods,
+                'requires_human_review' => !empty($restricted_goods),
             ],
         ];
     }

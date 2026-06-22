@@ -5,9 +5,11 @@
 
 The ShopBridge plugin is demo-capable and now includes merchant-controlled
 product exposure modes: manual per-product opt-in, WooCommerce product tag, or
-all published simple products. It also supports per-product AgentCart max
-quantities and a product-level checkout exclusion override. Production merchant
-onboarding still needs the controls below.
+WooCommerce product categories, or all published simple products. It also
+supports blocked category slugs, per-product AgentCart max quantities, a
+product-level checkout exclusion override, and structured restricted-goods
+metadata in catalog and quote payloads. Production merchant onboarding still
+needs the controls below.
 
 ## Merchant Admin Readiness
 
@@ -27,12 +29,13 @@ The settings page should block or warn until:
 
 Current behavior exposes only published simple products selected by the
 merchant's exposure mode, excludes product-level checkout blocks, and rejects
-quote or checkout quantities above each product's AgentCart limit. Production
-should add richer product/category controls:
+quote or checkout quantities above each product's AgentCart limit. Blocked
+category slugs are excluded across every exposure mode, and restricted-goods
+metadata tells buyer agents when human review is required. Production should add
+richer product controls:
 
-- blocked categories;
 - shipping-country restrictions;
-- structured age/restricted goods flags;
+- perishable/deposit handling;
 - return/refund policy overrides;
 - merchant-side stock reservation option.
 

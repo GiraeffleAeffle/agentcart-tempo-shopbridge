@@ -91,21 +91,29 @@ merchant chooses one exposure mode in `WooCommerce -> AgentCart`:
 - `manual`: expose only products with the `Expose through AgentCart` checkbox.
 - `tag`: expose published simple products that have a normal WooCommerce product
   tag, default `agentcart-safe`.
+- `category`: expose published simple products in configured WooCommerce
+  product category slugs.
 - `all`: expose all published simple products. This is intended for shops whose
   entire simple-product catalog is safe for agent checkout.
+
+Merchants can also configure blocked category slugs. Blocked categories are
+excluded from catalog, quote, and checkout in every exposure mode.
 
 The legacy bulk action is still available for merchants who want to mark the
 current catalog for manual mode in one onboarding step. The plugin maps exposed
 Woo fields into an agent-readable product schema:
 
 - stable `product_id` and Woo `source_product_id`
-- SKU, title, description, category, brand, unit size
+- SKU, title, description, category, category slugs, brand, unit size
 - structured `package_size` from normal WooCommerce product weight settings,
   so buyer agents can compare grocery-style unit value without extra merchant
   setup
 - structured `tags`, `labels`, `dietary_tags`, and `allergens` from normal
   WooCommerce product tags and attributes, so buyer agents can apply household
   constraints without merchant-specific setup
+- structured `restricted_goods` policy metadata for age-restricted, medical,
+  weapon/fireworks, and stored-value categories when normal Woo labels indicate
+  those risks
 - image URLs
 - VAT-inclusive price hint
 - stock/availability
@@ -117,13 +125,13 @@ Woo fields into an agent-readable product schema:
 Each product can also define an `AgentCart max quantity`. Quote requests above
 that limit are rejected before cart or payment work begins, and checkout
 revalidates the limit before creating the paid WooCommerce order. Products
-marked `Exclude from AgentCart checkout` are absent from catalog results and
-rejected in quotes and checkout, even in tag or all-product exposure modes. Use
-that override for age-gated, regulated, local-pickup-only, deposit, or
-manual-review products.
+marked `Exclude from AgentCart checkout` or assigned to a blocked category are
+absent from catalog results and rejected in quotes and checkout, even in tag,
+category, or all-product exposure modes. Use those controls for age-gated,
+regulated, local-pickup-only, deposit, or manual-review products.
 
-Future hardening can add category-wide rules, shipping-country overrides, and
-richer merchant-side policies, but the default product seam remains
+Future hardening can add shipping-country overrides, stock reservation, and
+richer merchant-side policy workflows, but the default product seam remains
 merchant-controlled and fail-closed.
 
 ## Quote Binding

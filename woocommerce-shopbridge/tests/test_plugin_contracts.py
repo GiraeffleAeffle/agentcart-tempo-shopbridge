@@ -130,13 +130,19 @@ class ShopBridgePluginContractTests(unittest.TestCase):
     def test_product_exposure_modes_are_supported(self) -> None:
         self.assertIn("PRODUCT_EXPOSURE_MODE_OPTION", SOURCE)
         self.assertIn("PRODUCT_EXPOSURE_TAG_OPTION", SOURCE)
+        self.assertIn("PRODUCT_EXPOSURE_CATEGORIES_OPTION", SOURCE)
+        self.assertIn("PRODUCT_BLOCKED_CATEGORIES_OPTION", SOURCE)
         self.assertIn("AGENTCART_PRODUCT_EXPOSURE_MODE", SOURCE)
         self.assertIn("AGENTCART_PRODUCT_EXPOSURE_TAG", SOURCE)
+        self.assertIn("AGENTCART_PRODUCT_EXPOSURE_CATEGORIES", SOURCE)
+        self.assertIn("AGENTCART_PRODUCT_BLOCKED_CATEGORIES", SOURCE)
 
         mode_body = function_body("sanitize_product_exposure_mode_setting")
         self.assertIn("'manual'", mode_body)
         self.assertIn("'tag'", mode_body)
+        self.assertIn("'category'", mode_body)
         self.assertIn("'all'", mode_body)
+        self.assertIn("sanitize_slug_list_setting", SOURCE)
 
     def test_product_exposure_query_supports_manual_tag_and_all_modes(self) -> None:
         query_body = function_body("agentcart_product_query_args")
@@ -146,12 +152,17 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_enabled_meta_query", query_body)
         self.assertIn("product_exposure_tag", query_body)
         self.assertIn("'tag'", query_body)
+        self.assertIn("product_exposure_categories", query_body)
+        self.assertIn("'category'", query_body)
         self.assertIn("'all'", eligibility_body)
         self.assertIn("has_term", eligibility_body)
+        self.assertIn("product_has_category_slug", eligibility_body)
         self.assertIn("PRODUCT_ENABLED_META", eligibility_body)
         self.assertIn("'product_exposure'", capability_body)
         self.assertIn("'tag_based_product_exposure'", capability_body)
+        self.assertIn("'category_based_product_exposure'", capability_body)
         self.assertIn("'all_published_simple_product_exposure'", capability_body)
+        self.assertIn("'blocked_category_product_exclusion'", capability_body)
 
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)
@@ -169,11 +180,13 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'max_quantity'", product_body)
         self.assertIn("'agentcart_policy'", product_body)
         self.assertIn("is_product_agentcart_blocked", product_body)
+        self.assertIn("'blocked_category_slugs'", product_body)
 
         capability_body = function_body("capability_document")
         self.assertIn("'per_product_agentcart_max_quantity'", capability_body)
         self.assertIn("'per_product_agentcart_block_override'", capability_body)
         self.assertIn("'product_policy'", capability_body)
+        self.assertIn("'blocked_categories_absent_from_catalog'", capability_body)
 
     def test_catalog_exposes_structured_package_size_from_woo_weight(self) -> None:
         product_body = function_body("serialize_product")
@@ -201,6 +214,22 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("known_allergen_labels", labels_body)
         self.assertIn("wp_get_post_terms", tags_body)
         self.assertIn("get_attributes", attributes_body)
+
+    def test_catalog_and_quote_expose_restricted_goods_policy_metadata(self) -> None:
+        product_body = function_body("serialize_product")
+        restricted_body = function_body("product_restricted_goods")
+        rules_body = function_body("restricted_goods_rules")
+        quote_cart_body = function_body("quote_from_cart")
+
+        self.assertIn("product_restricted_goods", product_body)
+        for field in ["'restricted_goods'", "'requires_human_review'", "'agent_should_not_autonomously_purchase'"]:
+            self.assertIn(field, product_body + restricted_body)
+        for code in ["'age_restricted'", "'medical'", "'weapons'", "'stored_value'"]:
+            self.assertIn(code, rules_body)
+        self.assertIn("product_category_slugs", restricted_body)
+        self.assertIn("'category_slugs'", product_body)
+        self.assertIn("'restricted_goods'", quote_cart_body)
+        self.assertIn("'agentcart_policy'", quote_cart_body)
 
     def test_quote_rejects_over_limit_quantities_instead_of_clamping(self) -> None:
         quote_body = function_body("quote")
