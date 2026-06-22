@@ -95,6 +95,7 @@ Deliverables:
 - expose delivery methods/windows from WooCommerce or plugin settings;
 - add readiness gates for HTTPS, support email, terms/refund URL, stable
   merchant id, tax/shipping setup, verifier configuration, and demo-mode status;
+- support low-friction merchant-controlled product exposure modes;
 - add product controls for quantity limits, restricted categories, perishables,
   deposits, shipping country overrides, substitutions, and allergens.
 

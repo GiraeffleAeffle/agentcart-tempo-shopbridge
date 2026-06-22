@@ -3,8 +3,10 @@
 > Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
 
 
-The ShopBridge plugin is demo-capable and now includes explicit per-product
-AgentCart opt-in. Production merchant onboarding still needs the controls below.
+The ShopBridge plugin is demo-capable and now includes merchant-controlled
+product exposure modes: manual per-product opt-in, WooCommerce product tag, or
+all published simple products. Production merchant onboarding still needs the
+controls below.
 
 ## Merchant Admin Readiness
 
@@ -22,8 +24,8 @@ The settings page should block or warn until:
 
 ## Product Controls
 
-Current demo behavior exposes only published simple products that the merchant
-marks as AgentCart-enabled. Production should add richer product/category
+Current behavior exposes only published simple products selected by the
+merchant's exposure mode. Production should add richer product/category
 controls:
 
 - per-product max quantity;
@@ -62,7 +64,8 @@ harness for end-to-end endpoint behavior.
 - reused external refund reference is rejected;
 - refund verifier failure does not create Woo refund;
 - unsupported destination country fails before payment;
-- disabled product is absent from catalog and rejected in quote;
+- products outside the selected exposure mode are absent from catalog and
+  rejected in quote;
 - no customer IP/user-agent is saved for agent-created orders by default.
 
 ## Packaging

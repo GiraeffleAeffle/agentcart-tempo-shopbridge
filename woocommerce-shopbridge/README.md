@@ -26,7 +26,7 @@ The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_suppo
 3. Select the ZIP, install, and activate `AgentCart ShopBridge for WooCommerce`.
 4. Open `WooCommerce -> AgentCart` and configure support, Tempo, verifier, and gateway settings.
 5. Add or edit normal WooCommerce products.
-6. Enable `Expose through AgentCart` on selected products, or bulk-enable the current published simple-product catalog from the ShopBridge settings page.
+6. Choose a product exposure mode: manual product checkbox, WooCommerce product tag, or all published simple products.
 
 To rebuild the ZIP from source:
 
@@ -57,6 +57,8 @@ define('AGENTCART_STRIPE_PROFILE_ID', 'profile_test_...');
 define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/agentcart/tempo');
 define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
 define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
+define('AGENTCART_PRODUCT_EXPOSURE_MODE', 'tag'); // manual, tag, or all
+define('AGENTCART_PRODUCT_EXPOSURE_TAG', 'agentcart-safe');
 ```
 
 Constants override values saved from the WordPress admin settings page.
@@ -84,10 +86,17 @@ The settings page also shows:
 ## Product Exposure
 
 Products are not exposed just because they are published in WooCommerce. The
-merchant must explicitly enable AgentCart exposure. This can be done per product
-with `Expose through AgentCart`, or in one onboarding step by bulk-enabling the
-current published simple-product catalog from `WooCommerce -> AgentCart`. The
-plugin maps enabled Woo fields into an agent-readable product schema:
+merchant chooses one exposure mode in `WooCommerce -> AgentCart`:
+
+- `manual`: expose only products with the `Expose through AgentCart` checkbox.
+- `tag`: expose published simple products that have a normal WooCommerce product
+  tag, default `agentcart-safe`.
+- `all`: expose all published simple products. This is intended for shops whose
+  entire simple-product catalog is safe for agent checkout.
+
+The legacy bulk action is still available for merchants who want to mark the
+current catalog for manual mode in one onboarding step. The plugin maps exposed
+Woo fields into an agent-readable product schema:
 
 - stable `product_id` and Woo `source_product_id`
 - SKU, title, description, category, brand, unit size
@@ -98,7 +107,7 @@ plugin maps enabled Woo fields into an agent-readable product schema:
 - `eligible_for_agent_checkout`
 
 Future hardening can add category rules, quantity limits, and richer
-merchant-side policies, but the default product seam remains explicit opt-in.
+merchant-side policies, but the default product seam remains merchant-controlled.
 
 ## Quote Binding
 

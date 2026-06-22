@@ -72,6 +72,32 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             body.index("return ["),
         )
 
+    def test_product_exposure_modes_are_supported(self) -> None:
+        self.assertIn("PRODUCT_EXPOSURE_MODE_OPTION", SOURCE)
+        self.assertIn("PRODUCT_EXPOSURE_TAG_OPTION", SOURCE)
+        self.assertIn("AGENTCART_PRODUCT_EXPOSURE_MODE", SOURCE)
+        self.assertIn("AGENTCART_PRODUCT_EXPOSURE_TAG", SOURCE)
+
+        mode_body = function_body("sanitize_product_exposure_mode_setting")
+        self.assertIn("'manual'", mode_body)
+        self.assertIn("'tag'", mode_body)
+        self.assertIn("'all'", mode_body)
+
+    def test_product_exposure_query_supports_manual_tag_and_all_modes(self) -> None:
+        query_body = function_body("agentcart_product_query_args")
+        eligibility_body = function_body("is_product_agentcart_enabled")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("agentcart_enabled_meta_query", query_body)
+        self.assertIn("product_exposure_tag", query_body)
+        self.assertIn("'tag'", query_body)
+        self.assertIn("'all'", eligibility_body)
+        self.assertIn("has_term", eligibility_body)
+        self.assertIn("PRODUCT_ENABLED_META", eligibility_body)
+        self.assertIn("'product_exposure'", capability_body)
+        self.assertIn("'tag_based_product_exposure'", capability_body)
+        self.assertIn("'all_published_simple_product_exposure'", capability_body)
+
 
 if __name__ == "__main__":
     unittest.main()

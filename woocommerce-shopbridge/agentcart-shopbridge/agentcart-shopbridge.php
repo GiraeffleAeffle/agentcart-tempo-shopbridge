@@ -31,6 +31,8 @@ final class AgentCart_ShopBridge {
     const SUPPORT_EMAIL_OPTION = 'agentcart_shopbridge_support_email';
     const REGISTRY_CLAIM_FINGERPRINT_OPTION = 'agentcart_shopbridge_registry_claim_fingerprint';
     const REGISTRY_UPDATED_AT_OPTION = 'agentcart_shopbridge_registry_updated_at';
+    const PRODUCT_EXPOSURE_MODE_OPTION = 'agentcart_shopbridge_product_exposure_mode';
+    const PRODUCT_EXPOSURE_TAG_OPTION = 'agentcart_shopbridge_product_exposure_tag';
     const PRODUCT_ENABLED_META = '_agentcart_enabled';
 
     public static function init() {
@@ -134,6 +136,21 @@ final class AgentCart_ShopBridge {
             'sanitize_callback' => 'sanitize_text_field',
             'default' => '',
         ]);
+        register_setting('agentcart_shopbridge', self::PRODUCT_EXPOSURE_MODE_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_product_exposure_mode_setting'],
+            'default' => 'manual',
+        ]);
+        register_setting('agentcart_shopbridge', self::PRODUCT_EXPOSURE_TAG_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_title',
+            'default' => 'agentcart-safe',
+        ]);
+    }
+
+    public static function sanitize_product_exposure_mode_setting($value) {
+        $mode = sanitize_key((string) $value);
+        return in_array($mode, ['manual', 'tag', 'all'], true) ? $mode : 'manual';
     }
 
     public static function render_settings_page() {
@@ -155,6 +172,8 @@ final class AgentCart_ShopBridge {
         $tempo_recipient = self::tempo_recipient();
         $stripe_profile_id = self::stripe_profile_id();
         $support_email = self::support_email();
+        $product_exposure_mode = self::product_exposure_mode();
+        $product_exposure_tag = self::product_exposure_tag();
         $readiness = self::readiness();
         ?>
         <div class="wrap">
@@ -223,7 +242,7 @@ final class AgentCart_ShopBridge {
                     </tr>
                     <tr>
                         <th scope="row">AgentCart-enabled products</th>
-                        <td><?php echo esc_html((string) $readiness['agentcart_enabled_product_count']); ?> published simple products are explicitly opted in.</td>
+                        <td><?php echo esc_html((string) $readiness['agentcart_enabled_product_count']); ?> published simple products are exposed through <?php echo esc_html(self::product_exposure_mode_label($product_exposure_mode)); ?>.</td>
                         <td><?php echo self::admin_status_badge($readiness['agentcart_enabled_product_count'] > 0, 'Configured', 'None enabled'); ?></td>
                     </tr>
                     <tr>
@@ -279,15 +298,22 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
                     <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
                     <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
+                    <?php self::render_product_exposure_setting_rows($product_exposure_mode, $product_exposure_tag); ?>
                 </table>
                 <?php submit_button('Save AgentCart settings'); ?>
             </form>
 
             <h2>Product Exposure</h2>
             <p style="max-width: 760px;">
-                Products are private by default until the merchant explicitly enables AgentCart exposure.
-                Use the checkbox on individual products for fine-grained control, or bulk-enable the
-                current published simple-product catalog during onboarding.
+                Products are private by default in manual mode. Merchants can also expose products
+                by assigning a normal WooCommerce product tag, or intentionally expose all published
+                simple products when the whole catalog is safe for agent checkout.
+            </p>
+            <p style="max-width: 760px;">
+                Current mode: <strong><?php echo esc_html(self::product_exposure_mode_label($product_exposure_mode)); ?></strong>
+                <?php if ($product_exposure_mode === 'tag') : ?>
+                    using tag <code><?php echo esc_html($product_exposure_tag); ?></code>.
+                <?php endif; ?>
             </p>
             <form method="post" style="display: inline-block; margin-right: 8px;">
                 <?php wp_nonce_field('agentcart_shopbridge_product_action'); ?>
@@ -303,7 +329,7 @@ final class AgentCart_ShopBridge {
             <h2>Merchant Onboarding Checklist</h2>
             <ol>
                 <li>Add normal WooCommerce products, prices, stock, VAT/tax, and shipping countries.</li>
-                <li>Enable <strong>Expose through AgentCart</strong> on selected products, or bulk-enable the current published simple-product catalog above.</li>
+                <li>Choose a Product exposure mode: manual product checkbox, WooCommerce tag, or all published simple products.</li>
                 <li>Configure this page with support, Tempo recipient, and payment verification settings.</li>
                 <li>Share the manifest URL with the AgentCart discovery registry, or use a future hosted registry connection.</li>
                 <li>The registry proof hash and timestamp are maintained automatically by the plugin.</li>
@@ -340,7 +366,7 @@ final class AgentCart_ShopBridge {
         woocommerce_wp_checkbox([
             'id' => self::PRODUCT_ENABLED_META,
             'label' => __('Expose through AgentCart', 'agentcart-shopbridge'),
-            'description' => __('Allow this product to appear in AgentCart catalog and quote endpoints for agent checkout.', 'agentcart-shopbridge'),
+            'description' => __('Used in manual exposure mode. Tag and all-product modes are controlled from WooCommerce -> AgentCart.', 'agentcart-shopbridge'),
             'desc_tip' => true,
         ]);
     }
@@ -668,6 +694,8 @@ final class AgentCart_ShopBridge {
             'production_ready' => empty($missing_production),
             'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token_demo',
             'agentcart_enabled_product_count' => $enabled_product_count,
+            'product_exposure_mode' => self::product_exposure_mode(),
+            'product_exposure_tag' => self::product_exposure_mode() === 'tag' ? self::product_exposure_tag() : null,
             'missing_for_demo' => $missing_demo,
             'missing_for_production' => $missing_production,
             'demo_note' => 'Demo readiness means an AgentCart gateway can create quote-bound WooCommerce orders after its own approval and payment proof flow.',
@@ -760,6 +788,57 @@ final class AgentCart_ShopBridge {
         <?php
     }
 
+    private static function render_product_exposure_setting_rows($mode, $tag) {
+        $mode_constant_defined = defined('AGENTCART_PRODUCT_EXPOSURE_MODE');
+        $tag_constant_defined = defined('AGENTCART_PRODUCT_EXPOSURE_TAG');
+        $modes = [
+            'manual' => 'Manual product checkbox',
+            'tag' => 'WooCommerce product tag',
+            'all' => 'All published simple products',
+        ];
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::PRODUCT_EXPOSURE_MODE_OPTION); ?>">Product exposure mode</label></th>
+            <td>
+                <select
+                    id="<?php echo esc_attr(self::PRODUCT_EXPOSURE_MODE_OPTION); ?>"
+                    name="<?php echo esc_attr(self::PRODUCT_EXPOSURE_MODE_OPTION); ?>"
+                    <?php disabled($mode_constant_defined); ?>
+                >
+                    <?php foreach ($modes as $value => $label): ?>
+                        <option value="<?php echo esc_attr($value); ?>" <?php selected($mode, $value); ?>><?php echo esc_html($label); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="description">
+                    Manual mode preserves the explicit per-product checkbox. Tag mode lets merchants use normal WooCommerce product tags. All mode is for shops whose entire simple-product catalog is safe for agent checkout.
+                    <?php if ($mode_constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_PRODUCT_EXPOSURE_MODE</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::PRODUCT_EXPOSURE_TAG_OPTION); ?>">Agent-safe product tag</label></th>
+            <td>
+                <input
+                    id="<?php echo esc_attr(self::PRODUCT_EXPOSURE_TAG_OPTION); ?>"
+                    name="<?php echo esc_attr(self::PRODUCT_EXPOSURE_TAG_OPTION); ?>"
+                    type="text"
+                    class="regular-text"
+                    value="<?php echo esc_attr($tag); ?>"
+                    <?php disabled($tag_constant_defined); ?>
+                >
+                <p class="description">
+                    Used only in tag mode. Add this WooCommerce product tag to products that should appear in AgentCart catalog and quote endpoints.
+                    <?php if ($tag_constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_PRODUCT_EXPOSURE_TAG</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <?php
+    }
+
     public static function capability($request = null) {
         unset($request);
         return self::capability_document();
@@ -802,11 +881,19 @@ final class AgentCart_ShopBridge {
                 'guest_checkout' => true,
                 'shipping_address_on_order' => true,
                 'per_product_agentcart_opt_in' => true,
+                'tag_based_product_exposure' => true,
+                'all_published_simple_product_exposure' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'agentcart_order_ip_minimized' => true,
                 'refund_endpoint' => true,
                 'refunds_remain_in_woocommerce_with_external_rail_verification' => true,
+            ],
+            'product_exposure' => [
+                'mode' => self::product_exposure_mode(),
+                'tag' => self::product_exposure_mode() === 'tag' ? self::product_exposure_tag() : null,
+                'published_simple_products_exposed' => self::agentcart_enabled_product_count(),
+                'manual_meta_key' => self::PRODUCT_ENABLED_META,
             ],
             'delivery' => [
                 'ship_to_countries' => self::shipping_countries(),
@@ -858,13 +945,10 @@ final class AgentCart_ShopBridge {
     public static function catalog(WP_REST_Request $request) {
         $search = sanitize_text_field((string) $request->get_param('search'));
         $limit = min(24, max(1, intval($request->get_param('limit') ?: 12)));
-        $query = [
-            'status' => 'publish',
-            'type' => ['simple'],
+        $query = array_merge(self::agentcart_product_query_args(), [
             'limit' => $limit,
             'return' => 'objects',
-            'meta_query' => self::agentcart_enabled_meta_query(),
-        ];
+        ]);
         if ($search !== '') {
             $query['s'] = $search;
         }
@@ -2207,7 +2291,55 @@ final class AgentCart_ShopBridge {
         ];
     }
 
+    private static function product_exposure_mode() {
+        if (defined('AGENTCART_PRODUCT_EXPOSURE_MODE')) {
+            return self::sanitize_product_exposure_mode_setting((string) AGENTCART_PRODUCT_EXPOSURE_MODE);
+        }
+        return self::sanitize_product_exposure_mode_setting((string) get_option(self::PRODUCT_EXPOSURE_MODE_OPTION, 'manual'));
+    }
+
+    private static function product_exposure_tag() {
+        if (defined('AGENTCART_PRODUCT_EXPOSURE_TAG')) {
+            $tag = sanitize_title((string) AGENTCART_PRODUCT_EXPOSURE_TAG);
+        } else {
+            $tag = sanitize_title((string) get_option(self::PRODUCT_EXPOSURE_TAG_OPTION, 'agentcart-safe'));
+        }
+        return $tag !== '' ? $tag : 'agentcart-safe';
+    }
+
+    private static function product_exposure_mode_label($mode = null) {
+        $mode = $mode ?: self::product_exposure_mode();
+        if ($mode === 'tag') {
+            return 'WooCommerce tag';
+        }
+        if ($mode === 'all') {
+            return 'all published simple products';
+        }
+        return 'manual product opt-in';
+    }
+
+    private static function agentcart_product_query_args() {
+        $args = [
+            'status' => 'publish',
+            'type' => ['simple'],
+        ];
+        $mode = self::product_exposure_mode();
+        if ($mode === 'manual') {
+            $args['meta_query'] = self::agentcart_enabled_meta_query();
+        } elseif ($mode === 'tag') {
+            $args['tag'] = [self::product_exposure_tag()];
+        }
+        return $args;
+    }
+
     private static function is_product_agentcart_enabled(WC_Product $product) {
+        $mode = self::product_exposure_mode();
+        if ($mode === 'all') {
+            return $product->get_status() === 'publish' && $product->get_type() === 'simple';
+        }
+        if ($mode === 'tag') {
+            return has_term(self::product_exposure_tag(), 'product_tag', $product->get_id());
+        }
         return $product->get_meta(self::PRODUCT_ENABLED_META, true) === 'yes';
     }
 
@@ -2215,13 +2347,10 @@ final class AgentCart_ShopBridge {
         if (!function_exists('wc_get_products')) {
             return 0;
         }
-        $products = wc_get_products([
-            'status' => 'publish',
-            'type' => ['simple'],
+        $products = wc_get_products(array_merge(self::agentcart_product_query_args(), [
             'limit' => -1,
             'return' => 'ids',
-            'meta_query' => self::agentcart_enabled_meta_query(),
-        ]);
+        ]));
         return count($products);
     }
 
