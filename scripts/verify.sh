@@ -26,7 +26,25 @@ if command -v php >/dev/null 2>&1; then
 else
   printf 'php not installed; skipping php -l\n'
 fi
+python3 -m py_compile "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py"
 python3 -m unittest discover -s "$ROOT_DIR/woocommerce-shopbridge/tests"
+
+section "WooCommerce ShopBridge live smoke"
+if [ -n "${AGENTCART_WOO_SMOKE_BASE_URL:-}" ]; then
+  smoke_args=(--base-url "$AGENTCART_WOO_SMOKE_BASE_URL")
+  if [ -n "${AGENTCART_WOO_SMOKE_EXPECT_SHIPPING_CENTS:-}" ]; then
+    smoke_args+=(--expect-shipping-cents "$AGENTCART_WOO_SMOKE_EXPECT_SHIPPING_CENTS")
+  fi
+  if [ "${AGENTCART_WOO_SMOKE_REQUIRE_SHIPPING:-}" = "1" ]; then
+    smoke_args+=(--require-shipping)
+  fi
+  if [ "${AGENTCART_WOO_SMOKE_REQUIRE_VAT_LINES:-}" = "1" ]; then
+    smoke_args+=(--require-vat-lines)
+  fi
+  python3 "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py" "${smoke_args[@]}" >/dev/null
+else
+  printf 'AGENTCART_WOO_SMOKE_BASE_URL not set; skipping live WooCommerce smoke\n'
+fi
 
 section "Stripe MPP verifier syntax"
 (

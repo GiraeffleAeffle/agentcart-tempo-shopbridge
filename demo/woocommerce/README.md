@@ -34,6 +34,30 @@ The seed script configures the demo shop with:
   cancellation-request drafts;
 - demo tracking metadata for existing AgentCart-created Woo orders.
 
+After seeding, run the live ShopBridge smoke test from the repo root:
+
+```sh
+AGENTCART_WOO_SMOKE_BASE_URL=http://127.0.0.1:8098 \
+AGENTCART_WOO_SMOKE_EXPECT_SHIPPING_CENTS=490 \
+AGENTCART_WOO_SMOKE_REQUIRE_SHIPPING=1 \
+AGENTCART_WOO_SMOKE_REQUIRE_VAT_LINES=1 \
+./scripts/verify.sh
+```
+
+Or run only the smoke script:
+
+```sh
+python3 scripts/woocommerce-shopbridge-smoke.py \
+  --base-url http://127.0.0.1:8098 \
+  --expect-shipping-cents 490 \
+  --require-shipping \
+  --require-vat-lines
+```
+
+This checks the public manifest/capability setup guide, catalog product
+exposure, and a real WooCommerce-backed quote whose total equals gross product
+subtotal plus WooCommerce shipping.
+
 Open:
 
 ```text

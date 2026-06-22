@@ -86,6 +86,19 @@ shipping setup, payment verifier configuration, registry proof publication, and
 sandbox quote/order testing. The same public-safe setup state is also exposed in
 the capability document for remote onboarding tools.
 
+For a live endpoint smoke test against a seeded or staging shop:
+
+```sh
+python3 scripts/woocommerce-shopbridge-smoke.py \
+  --base-url http://127.0.0.1:8098 \
+  --require-shipping \
+  --require-vat-lines
+```
+
+Set `AGENTCART_WOO_SMOKE_BASE_URL` to make `./scripts/verify.sh` include this
+live check. The smoke test validates manifest/capability setup state, catalog
+exposure, and WooCommerce-backed quote totals without creating an order.
+
 For the hackathon demo, `AGENTCART_SHOPBRIDGE_TOKEN` lets a trusted AgentCart gateway create orders after its own approval and payment proof flow.
 
 For production, configure `AGENTCART_PAYMENT_VERIFIER_URL`. Public agents can then create orders only when the verifier confirms the quote-bound receipt.
