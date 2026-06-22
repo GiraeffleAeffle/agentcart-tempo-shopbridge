@@ -27,8 +27,8 @@ The settings page should block or warn until:
 
 Current behavior exposes only published simple products selected by the
 merchant's exposure mode, excludes product-level checkout blocks, and rejects
-quote quantities above each product's AgentCart limit. Production should add
-richer product/category controls:
+quote or checkout quantities above each product's AgentCart limit. Production
+should add richer product/category controls:
 
 - blocked categories;
 - shipping-country restrictions;
@@ -69,7 +69,8 @@ harness for end-to-end endpoint behavior.
   rejected in quote;
 - product-level checkout exclusions are absent from catalog and rejected in
   quote;
-- over-limit quantities are rejected instead of silently clamped;
+- over-limit quantities are rejected instead of silently clamped in both quote
+  and order creation;
 - no customer IP/user-agent is saved for agent-created orders by default.
 
 ## Packaging

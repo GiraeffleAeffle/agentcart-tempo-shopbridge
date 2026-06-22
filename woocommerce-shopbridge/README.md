@@ -109,10 +109,12 @@ Woo fields into an agent-readable product schema:
 - `agentcart_policy`
 
 Each product can also define an `AgentCart max quantity`. Quote requests above
-that limit are rejected before cart or payment work begins. Products marked
-`Exclude from AgentCart checkout` are absent from catalog results and rejected in
-quotes, even in tag or all-product exposure modes. Use that override for
-age-gated, regulated, local-pickup-only, deposit, or manual-review products.
+that limit are rejected before cart or payment work begins, and checkout
+revalidates the limit before creating the paid WooCommerce order. Products
+marked `Exclude from AgentCart checkout` are absent from catalog results and
+rejected in quotes and checkout, even in tag or all-product exposure modes. Use
+that override for age-gated, regulated, local-pickup-only, deposit, or
+manual-review products.
 
 Future hardening can add category-wide rules, shipping-country overrides, and
 richer merchant-side policies, but the default product seam remains

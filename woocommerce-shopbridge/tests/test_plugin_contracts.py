@@ -131,6 +131,17 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             quote_body.index("add_to_cart"),
         )
 
+    def test_order_creation_revalidates_product_quantity_limits_before_order_creation(self) -> None:
+        order_body = function_body("create_order")
+
+        self.assertIn("product_max_quantity", order_body)
+        self.assertIn("agentcart_quantity_limit_exceeded", order_body)
+        self.assertNotIn("min(20", order_body)
+        self.assertLess(
+            order_body.index("agentcart_quantity_limit_exceeded"),
+            order_body.index("wc_create_order"),
+        )
+
     def test_catalog_and_readiness_filter_blocked_products(self) -> None:
         catalog_body = function_body("catalog")
         count_body = function_body("agentcart_enabled_product_count")

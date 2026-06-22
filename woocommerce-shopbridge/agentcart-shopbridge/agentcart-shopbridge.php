@@ -1192,13 +1192,28 @@ final class AgentCart_ShopBridge {
         $validated_items = [];
         foreach ($quote['items'] as $item) {
             $product_id = self::source_product_id($item);
-            $quantity = max(1, min(20, intval($item['quantity'] ?? 1)));
+            $quantity = intval($item['quantity'] ?? 1);
+            if ($quantity < 1) {
+                return new WP_Error('agentcart_quantity_invalid', 'Quote quantity is invalid for product: ' . $product_id, ['status' => 409]);
+            }
             $product = wc_get_product($product_id);
             if (!$product || $product->get_status() !== 'publish') {
                 return new WP_Error('agentcart_product_missing', 'Product not found: ' . $product_id, ['status' => 404]);
             }
             if (!self::is_product_agentcart_enabled($product)) {
                 return new WP_Error('agentcart_product_not_enabled', 'Product is no longer enabled for AgentCart checkout: ' . $product_id, ['status' => 403]);
+            }
+            $max_quantity = self::product_max_quantity($product);
+            if ($quantity > $max_quantity) {
+                return new WP_Error(
+                    'agentcart_quantity_limit_exceeded',
+                    'Quote quantity now exceeds AgentCart maximum for product: ' . $product_id,
+                    [
+                        'status' => 409,
+                        'product_id' => 'woo_' . $product_id,
+                        'max_quantity' => $max_quantity,
+                    ]
+                );
             }
             if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
                 return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
