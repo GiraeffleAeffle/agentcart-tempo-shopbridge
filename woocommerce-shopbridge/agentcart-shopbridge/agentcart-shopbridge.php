@@ -41,6 +41,10 @@ final class AgentCart_ShopBridge {
     const PRODUCT_ENABLED_META = '_agentcart_enabled';
     const PRODUCT_BLOCKED_META = '_agentcart_checkout_blocked';
     const PRODUCT_MAX_QUANTITY_META = '_agentcart_max_quantity';
+    const PRODUCT_SHIPPING_COUNTRIES_META = '_agentcart_shipping_countries';
+    const STOCK_HOLD_MODE_OPTION = 'agentcart_shopbridge_stock_hold_mode';
+    const STOCK_HOLD_MINUTES_OPTION = 'agentcart_shopbridge_stock_hold_minutes';
+    const STOCK_HOLDS_OPTION = 'agentcart_shopbridge_stock_holds';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -163,6 +167,16 @@ final class AgentCart_ShopBridge {
             'sanitize_callback' => [__CLASS__, 'sanitize_slug_list_setting'],
             'default' => '',
         ]);
+        register_setting('agentcart_shopbridge', self::STOCK_HOLD_MODE_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_stock_hold_mode_setting'],
+            'default' => 'soft',
+        ]);
+        register_setting('agentcart_shopbridge', self::STOCK_HOLD_MINUTES_OPTION, [
+            'type' => 'integer',
+            'sanitize_callback' => [__CLASS__, 'sanitize_stock_hold_minutes_setting'],
+            'default' => 15,
+        ]);
     }
 
     public static function sanitize_product_exposure_mode_setting($value) {
@@ -180,6 +194,28 @@ final class AgentCart_ShopBridge {
             }
         }
         return implode(',', $slugs);
+    }
+
+    public static function sanitize_country_list_setting($value) {
+        $raw_values = is_array($value) ? $value : preg_split('/[\s,]+/', (string) $value);
+        $countries = [];
+        foreach ((array) $raw_values as $raw_value) {
+            $country = strtoupper(preg_replace('/[^A-Za-z]/', '', (string) $raw_value));
+            if (strlen($country) === 2 && !in_array($country, $countries, true)) {
+                $countries[] = $country;
+            }
+        }
+        return implode(',', $countries);
+    }
+
+    public static function sanitize_stock_hold_mode_setting($value) {
+        $mode = sanitize_key((string) $value);
+        return in_array($mode, ['soft', 'none'], true) ? $mode : 'soft';
+    }
+
+    public static function sanitize_stock_hold_minutes_setting($value) {
+        $minutes = absint($value);
+        return max(1, min(60, $minutes ?: 15));
     }
 
     public static function render_settings_page() {
@@ -205,6 +241,8 @@ final class AgentCart_ShopBridge {
         $product_exposure_tag = self::product_exposure_tag();
         $product_exposure_categories = self::product_exposure_categories();
         $product_blocked_categories = self::product_blocked_categories();
+        $stock_hold_mode = self::stock_hold_mode();
+        $stock_hold_minutes = self::stock_hold_minutes();
         $readiness = self::readiness();
         ?>
         <div class="wrap">
@@ -330,6 +368,7 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
                     <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
                     <?php self::render_product_exposure_setting_rows($product_exposure_mode, $product_exposure_tag, $product_exposure_categories, $product_blocked_categories); ?>
+                    <?php self::render_stock_hold_setting_rows($stock_hold_mode, $stock_hold_minutes); ?>
                 </table>
                 <?php submit_button('Save AgentCart settings'); ?>
             </form>
@@ -421,6 +460,13 @@ final class AgentCart_ShopBridge {
                     'step' => '1',
                 ],
             ]);
+            woocommerce_wp_text_input([
+                'id' => self::PRODUCT_SHIPPING_COUNTRIES_META,
+                'label' => __('AgentCart shipping countries', 'agentcart-shopbridge'),
+                'description' => __('Optional comma-separated ISO country codes for this product. Leave empty to inherit store shipping countries.', 'agentcart-shopbridge'),
+                'desc_tip' => true,
+                'type' => 'text',
+            ]);
         }
     }
 
@@ -432,6 +478,10 @@ final class AgentCart_ShopBridge {
         $product->update_meta_data(self::PRODUCT_BLOCKED_META, isset($_POST[self::PRODUCT_BLOCKED_META]) ? 'yes' : 'no');
         $max_quantity = isset($_POST[self::PRODUCT_MAX_QUANTITY_META]) ? absint($_POST[self::PRODUCT_MAX_QUANTITY_META]) : 20;
         $product->update_meta_data(self::PRODUCT_MAX_QUANTITY_META, (string) max(1, min(999, $max_quantity ?: 20)));
+        $shipping_countries = isset($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META])
+            ? self::sanitize_country_list_setting(wp_unslash($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META]))
+            : '';
+        $product->update_meta_data(self::PRODUCT_SHIPPING_COUNTRIES_META, $shipping_countries);
     }
 
     public static function maybe_serve_well_known_manifest() {
@@ -1043,6 +1093,58 @@ final class AgentCart_ShopBridge {
         <?php
     }
 
+    private static function render_stock_hold_setting_rows($mode, $minutes) {
+        $mode_constant_defined = defined('AGENTCART_STOCK_HOLD_MODE');
+        $minutes_constant_defined = defined('AGENTCART_STOCK_HOLD_MINUTES');
+        $modes = [
+            'soft' => 'Soft quote holds',
+            'none' => 'No quote holds',
+        ];
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::STOCK_HOLD_MODE_OPTION); ?>">Stock hold mode</label></th>
+            <td>
+                <select
+                    id="<?php echo esc_attr(self::STOCK_HOLD_MODE_OPTION); ?>"
+                    name="<?php echo esc_attr(self::STOCK_HOLD_MODE_OPTION); ?>"
+                    <?php disabled($mode_constant_defined); ?>
+                >
+                    <?php foreach ($modes as $value => $label): ?>
+                        <option value="<?php echo esc_attr($value); ?>" <?php selected($mode, $value); ?>><?php echo esc_html($label); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="description">
+                    Soft holds do not reduce WooCommerce stock. They make AgentCart quote and checkout checks account for active AgentCart quotes until expiry.
+                    <?php if ($mode_constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_STOCK_HOLD_MODE</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::STOCK_HOLD_MINUTES_OPTION); ?>">Stock hold minutes</label></th>
+            <td>
+                <input
+                    id="<?php echo esc_attr(self::STOCK_HOLD_MINUTES_OPTION); ?>"
+                    name="<?php echo esc_attr(self::STOCK_HOLD_MINUTES_OPTION); ?>"
+                    type="number"
+                    min="1"
+                    max="60"
+                    step="1"
+                    value="<?php echo esc_attr((string) $minutes); ?>"
+                    <?php disabled($minutes_constant_defined); ?>
+                >
+                <p class="description">
+                    AgentCart quote holds expire after this many minutes. The quote expiry uses the same value.
+                    <?php if ($minutes_constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_STOCK_HOLD_MINUTES</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <?php
+    }
+
     public static function capability($request = null) {
         unset($request);
         return self::capability_document();
@@ -1091,6 +1193,8 @@ final class AgentCart_ShopBridge {
                 'blocked_category_product_exclusion' => true,
                 'per_product_agentcart_max_quantity' => true,
                 'per_product_agentcart_block_override' => true,
+                'per_product_shipping_country_overrides' => true,
+                'soft_quote_stock_holds' => self::stock_hold_enabled(),
                 'structured_restricted_goods_metadata' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
@@ -1117,6 +1221,12 @@ final class AgentCart_ShopBridge {
                 'blocked_categories_absent_from_catalog' => true,
                 'restricted_goods_metadata' => true,
                 'restricted_goods_require_human_review' => true,
+                'product_shipping_country_meta_key' => self::PRODUCT_SHIPPING_COUNTRIES_META,
+                'shipping_country_overrides_rechecked_on_order' => true,
+                'stock_hold_mode' => self::stock_hold_mode(),
+                'stock_hold_minutes' => self::stock_hold_minutes(),
+                'soft_stock_holds_accounted_in_quotes' => self::stock_hold_enabled(),
+                'soft_stock_holds_accounted_in_checkout' => self::stock_hold_enabled(),
             ],
             'delivery' => [
                 'ship_to_countries' => self::shipping_countries(),
@@ -1228,6 +1338,18 @@ final class AgentCart_ShopBridge {
             if (!self::is_product_agentcart_enabled($product)) {
                 return new WP_Error('agentcart_product_not_enabled', 'Product is not enabled for AgentCart checkout: ' . $product_id, ['status' => 403]);
             }
+            if (!self::product_ships_to_country($product, $ship_to['country'])) {
+                return new WP_Error(
+                    'agentcart_product_shipping_country_unsupported',
+                    'Product is not available for AgentCart shipping to country: ' . $ship_to['country'],
+                    [
+                        'status' => 400,
+                        'product_id' => 'woo_' . $product_id,
+                        'ship_to_country' => $ship_to['country'],
+                        'supported_countries' => self::product_shipping_countries($product),
+                    ]
+                );
+            }
             $max_quantity = self::product_max_quantity($product);
             if ($quantity > $max_quantity) {
                 return new WP_Error(
@@ -1240,8 +1362,9 @@ final class AgentCart_ShopBridge {
                     ]
                 );
             }
-            if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
-                return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
+            $stock_check = self::validate_product_stock_for_agentcart($product, $quantity);
+            if (is_wp_error($stock_check)) {
+                return $stock_check;
             }
             $quote_items[] = [
                 'product_id' => $product_id,
@@ -1268,7 +1391,14 @@ final class AgentCart_ShopBridge {
             return $cart_quote;
         }
         $now = time();
+        $quote_ttl_seconds = self::stock_hold_ttl_seconds();
         $quote_id = 'woo_quote_' . wp_generate_uuid4();
+        $expires_at = gmdate('c', $now + $quote_ttl_seconds);
+        $stock_reservation = self::reserve_stock_for_quote($quote_id, $quote_items, $expires_at);
+        if (is_wp_error($stock_reservation)) {
+            $cart->empty_cart();
+            return $stock_reservation;
+        }
         $quote = [
             'id' => $quote_id,
             'merchant' => self::merchant(),
@@ -1290,20 +1420,16 @@ final class AgentCart_ShopBridge {
                 'label' => '2-4 business days',
             ],
             'delivery_window' => self::delivery_window(2, 4),
-            'stock_reserved_until' => null,
-            'stock_reservation' => [
-                'state' => 'not_reserved',
-                'checked_at' => gmdate('c', $now),
-                'rechecked_before_order_creation' => true,
-            ],
-            'expires_at' => gmdate('c', $now + 15 * 60),
+            'stock_reserved_until' => ($stock_reservation['state'] ?? '') === 'soft_reserved' ? $expires_at : null,
+            'stock_reservation' => $stock_reservation,
+            'expires_at' => $expires_at,
             'terms_url' => wc_get_page_permalink('terms') ?: home_url('/terms'),
             'returns_url' => home_url('/returns'),
         ];
         $quote['quote_hash'] = self::quote_hash($quote);
         $quote['payment_requirements'] = self::payment_requirements($quote);
         $quote['refund_policy'] = self::quote_refund_policy();
-        set_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id, $quote, 15 * MINUTE_IN_SECONDS);
+        set_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id, $quote, $quote_ttl_seconds);
         $cart->empty_cart();
         return $quote;
     }
@@ -1371,6 +1497,7 @@ final class AgentCart_ShopBridge {
         }
         if (strtotime((string) ($quote['expires_at'] ?? '')) < time()) {
             delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
+            self::release_stock_hold($merchant_quote_id);
             return new WP_Error('agentcart_quote_expired', 'Merchant quote has expired.', ['status' => 409]);
         }
         $expected_quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
@@ -1388,6 +1515,7 @@ final class AgentCart_ShopBridge {
         }
 
         $validated_items = [];
+        $quote_ship_to = self::normalize_address($quote['ship_to'] ?? ['country' => '']);
         foreach ($quote['items'] as $item) {
             $product_id = self::source_product_id($item);
             $quantity = intval($item['quantity'] ?? 1);
@@ -1401,6 +1529,18 @@ final class AgentCart_ShopBridge {
             if (!self::is_product_agentcart_enabled($product)) {
                 return new WP_Error('agentcart_product_not_enabled', 'Product is no longer enabled for AgentCart checkout: ' . $product_id, ['status' => 403]);
             }
+            if (!self::product_ships_to_country($product, $quote_ship_to['country'] ?? '')) {
+                return new WP_Error(
+                    'agentcart_product_shipping_country_unsupported',
+                    'Product is no longer available for AgentCart shipping to country: ' . ($quote_ship_to['country'] ?? ''),
+                    [
+                        'status' => 409,
+                        'product_id' => 'woo_' . $product_id,
+                        'ship_to_country' => $quote_ship_to['country'] ?? '',
+                        'supported_countries' => self::product_shipping_countries($product),
+                    ]
+                );
+            }
             $max_quantity = self::product_max_quantity($product);
             if ($quantity > $max_quantity) {
                 return new WP_Error(
@@ -1413,8 +1553,9 @@ final class AgentCart_ShopBridge {
                     ]
                 );
             }
-            if (!$product->is_in_stock() || ($product->managing_stock() && $product->get_stock_quantity() !== null && $product->get_stock_quantity() < $quantity)) {
-                return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product_id, ['status' => 409]);
+            $stock_check = self::validate_product_stock_for_agentcart($product, $quantity, $merchant_quote_id);
+            if (is_wp_error($stock_check)) {
+                return $stock_check;
             }
             $validated_items[] = [$product, $item, $quantity];
         }
@@ -1479,6 +1620,7 @@ final class AgentCart_ShopBridge {
         $order->add_order_note('AgentCart created this order after quote-bound payment verification: ' . sanitize_text_field((string) ($payment_verification['mode'] ?? 'unknown')) . '.');
         $order->save();
         delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
+        self::release_stock_hold($merchant_quote_id);
         return self::serialize_order_response($order, 'created', $payment_verification);
         } finally {
             self::release_quote_lock($merchant_quote_id);
@@ -2723,12 +2865,173 @@ final class AgentCart_ShopBridge {
         return array_values(array_intersect(self::product_category_slugs($product), self::product_blocked_categories()));
     }
 
+    private static function product_shipping_countries(WC_Product $product) {
+        $stored = self::sanitize_country_list_setting((string) $product->get_meta(self::PRODUCT_SHIPPING_COUNTRIES_META, true));
+        return $stored === '' ? self::shipping_countries() : explode(',', $stored);
+    }
+
+    private static function product_ships_to_country(WC_Product $product, $country) {
+        $country = strtoupper(sanitize_text_field((string) $country));
+        $countries = self::product_shipping_countries($product);
+        return $country === '' || !$countries || in_array($country, $countries, true);
+    }
+
     private static function product_max_quantity(WC_Product $product) {
         if ($product->is_sold_individually()) {
             return 1;
         }
         $stored = absint($product->get_meta(self::PRODUCT_MAX_QUANTITY_META, true));
         return max(1, min(999, $stored ?: 20));
+    }
+
+    private static function stock_hold_mode() {
+        if (defined('AGENTCART_STOCK_HOLD_MODE')) {
+            return self::sanitize_stock_hold_mode_setting((string) AGENTCART_STOCK_HOLD_MODE);
+        }
+        return self::sanitize_stock_hold_mode_setting((string) get_option(self::STOCK_HOLD_MODE_OPTION, 'soft'));
+    }
+
+    private static function stock_hold_enabled() {
+        return self::stock_hold_mode() === 'soft';
+    }
+
+    private static function stock_hold_minutes() {
+        if (defined('AGENTCART_STOCK_HOLD_MINUTES')) {
+            return self::sanitize_stock_hold_minutes_setting(AGENTCART_STOCK_HOLD_MINUTES);
+        }
+        return self::sanitize_stock_hold_minutes_setting(get_option(self::STOCK_HOLD_MINUTES_OPTION, 15));
+    }
+
+    private static function stock_hold_ttl_seconds() {
+        return self::stock_hold_minutes() * MINUTE_IN_SECONDS;
+    }
+
+    private static function stock_holds() {
+        $raw = get_option(self::STOCK_HOLDS_OPTION, []);
+        $holds = is_array($raw) ? $raw : [];
+        $now = time();
+        $changed = false;
+        foreach ($holds as $quote_id => $hold) {
+            $expires_at = strtotime((string) ($hold['expires_at'] ?? ''));
+            if (!$expires_at || $expires_at <= $now) {
+                unset($holds[$quote_id]);
+                $changed = true;
+            }
+        }
+        if ($changed) {
+            update_option(self::STOCK_HOLDS_OPTION, $holds, false);
+        }
+        return $holds;
+    }
+
+    private static function held_stock_quantity($product_id, $exclude_quote_id = '') {
+        $quantity = 0;
+        foreach (self::stock_holds() as $quote_id => $hold) {
+            if ($exclude_quote_id !== '' && (string) $quote_id === (string) $exclude_quote_id) {
+                continue;
+            }
+            $items = isset($hold['items']) && is_array($hold['items']) ? $hold['items'] : [];
+            foreach ($items as $item) {
+                if (intval($item['product_id'] ?? 0) === intval($product_id)) {
+                    $quantity += intval($item['quantity'] ?? 0);
+                }
+            }
+        }
+        return max(0, $quantity);
+    }
+
+    private static function validate_product_stock_for_agentcart(WC_Product $product, $quantity, $exclude_quote_id = '') {
+        if (!$product->is_in_stock()) {
+            return new WP_Error('agentcart_stock_conflict', 'Insufficient stock for product: ' . $product->get_id(), ['status' => 409]);
+        }
+        if (!$product->managing_stock() || $product->get_stock_quantity() === null) {
+            return true;
+        }
+        $stock_quantity = intval($product->get_stock_quantity());
+        $held_quantity = self::stock_hold_enabled() ? self::held_stock_quantity($product->get_id(), $exclude_quote_id) : 0;
+        $available_quantity = max(0, $stock_quantity - $held_quantity);
+        if ($available_quantity < intval($quantity)) {
+            return new WP_Error(
+                'agentcart_stock_conflict',
+                'Insufficient stock for product: ' . $product->get_id(),
+                [
+                    'status' => 409,
+                    'product_id' => 'woo_' . $product->get_id(),
+                    'stock_quantity' => $stock_quantity,
+                    'held_quantity' => $held_quantity,
+                    'available_quantity' => $available_quantity,
+                ]
+            );
+        }
+        return true;
+    }
+
+    private static function reserve_stock_for_quote($quote_id, $quote_items, $expires_at) {
+        $checked_at = gmdate('c');
+        if (!self::stock_hold_enabled()) {
+            return [
+                'state' => 'not_reserved',
+                'mode' => 'none',
+                'checked_at' => $checked_at,
+                'rechecked_before_order_creation' => true,
+                'reason' => 'stock_holds_disabled',
+            ];
+        }
+        $items = [];
+        foreach ($quote_items as $item) {
+            $product = wc_get_product(intval($item['product_id'] ?? 0));
+            if (!$product instanceof WC_Product || !$product->managing_stock() || $product->get_stock_quantity() === null) {
+                continue;
+            }
+            $quantity = max(1, intval($item['quantity'] ?? 1));
+            $stock_check = self::validate_product_stock_for_agentcart($product, $quantity);
+            if (is_wp_error($stock_check)) {
+                return $stock_check;
+            }
+            $items[] = [
+                'product_id' => intval($item['product_id']),
+                'quantity' => $quantity,
+            ];
+        }
+        if (!$items) {
+            return [
+                'state' => 'not_applicable',
+                'mode' => 'soft',
+                'checked_at' => $checked_at,
+                'rechecked_before_order_creation' => true,
+                'reason' => 'no_managed_stock_items',
+            ];
+        }
+        $holds = self::stock_holds();
+        $holds[$quote_id] = [
+            'quote_id' => $quote_id,
+            'mode' => 'soft',
+            'created_at' => $checked_at,
+            'expires_at' => $expires_at,
+            'items' => $items,
+        ];
+        update_option(self::STOCK_HOLDS_OPTION, $holds, false);
+        return [
+            'state' => 'soft_reserved',
+            'mode' => 'soft',
+            'hold_id' => $quote_id,
+            'expires_at' => $expires_at,
+            'checked_at' => $checked_at,
+            'rechecked_before_order_creation' => true,
+            'items' => $items,
+            'note' => 'Soft AgentCart hold only; WooCommerce stock is rechecked before paid order creation.',
+        ];
+    }
+
+    private static function release_stock_hold($quote_id) {
+        if ($quote_id === '') {
+            return;
+        }
+        $holds = self::stock_holds();
+        if (isset($holds[$quote_id])) {
+            unset($holds[$quote_id]);
+            update_option(self::STOCK_HOLDS_OPTION, $holds, false);
+        }
     }
 
     private static function agentcart_enabled_product_count() {
@@ -3196,7 +3499,7 @@ final class AgentCart_ShopBridge {
             'vat_rate_bps' => self::vat_rate_bps($product),
             'stock' => $product->managing_stock() && $product->get_stock_quantity() !== null ? intval($product->get_stock_quantity()) : 999,
             'availability' => $product->is_in_stock() ? 'in_stock' : 'out_of_stock',
-            'shipping_regions' => self::shipping_countries(),
+            'shipping_regions' => self::product_shipping_countries($product),
             'eligible_for_agent_checkout' => self::is_product_agentcart_enabled($product),
             'max_quantity' => self::product_max_quantity($product),
             'agentcart_policy' => [

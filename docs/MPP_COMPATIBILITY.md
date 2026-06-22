@@ -65,7 +65,7 @@ AgentCart fields are deliberately outside the MPP core:
 | Area | AgentCart / ShopBridge fields |
 | --- | --- |
 | Product | `product_id`, `sku`, `title`, `description`, `category`, `category_slugs`, `brand`, `unit_size`, `image_urls`, `price_cents`, `currency`, `stock`, `availability`, `shipping_regions`, `agentcart_policy`, `restricted_goods` |
-| Quote | `items`, `subtotal_cents`, `shipping`, `vat_lines`, `total_cents`, `currency`, `delivery_window`, `merchant_of_record`, `quote_hash`, `expires_at`, `payment_requirements`, item-level `agentcart_policy` |
+| Quote | `items`, `subtotal_cents`, `shipping`, `vat_lines`, `total_cents`, `currency`, `delivery_window`, `merchant_of_record`, `stock_reservation`, `quote_hash`, `expires_at`, `payment_requirements`, item-level `agentcart_policy` |
 | Approval | `approval_id`, `quote_id`, `decision_token`, `decision_api`, `channel`, `delivery_channels`, `approver`, `decision_reason` |
 | Order | `merchant_order_id`, `status_url`, `status_token`, `shipment`, `tracking`, `delivery_window`, `payment_receipt_id` |
 | Audit | intent, product, quote, policy result, approval, payment receipt, merchant order, task/calendar sync |

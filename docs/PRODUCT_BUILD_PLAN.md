@@ -104,9 +104,9 @@ Deliverables:
   merchant id, tax/shipping setup, verifier configuration, and demo-mode status;
 - support low-friction merchant-controlled product exposure modes;
 - enforce per-product quantity limits, checkout exclusion overrides, category
-  blocklists, and structured restricted-goods metadata;
-- add richer product controls for perishables, deposits, shipping country
-  overrides, and substitutions.
+  blocklists, product shipping-country overrides, soft quote stock holds, and
+  structured restricted-goods metadata;
+- add richer product controls for perishables, deposits, and substitutions.
 
 Definition of done:
 

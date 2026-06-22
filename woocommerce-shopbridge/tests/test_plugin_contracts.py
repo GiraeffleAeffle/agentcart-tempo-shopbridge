@@ -167,14 +167,18 @@ class ShopBridgePluginContractTests(unittest.TestCase):
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)
         self.assertIn("PRODUCT_MAX_QUANTITY_META", SOURCE)
+        self.assertIn("PRODUCT_SHIPPING_COUNTRIES_META", SOURCE)
 
         product_options_body = function_body("render_product_agentcart_options")
         self.assertIn("Exclude from AgentCart checkout", product_options_body)
         self.assertIn("AgentCart max quantity", product_options_body)
+        self.assertIn("AgentCart shipping countries", product_options_body)
 
         save_body = function_body("save_product_agentcart_options")
         self.assertIn("PRODUCT_BLOCKED_META", save_body)
         self.assertIn("PRODUCT_MAX_QUANTITY_META", save_body)
+        self.assertIn("PRODUCT_SHIPPING_COUNTRIES_META", save_body)
+        self.assertIn("sanitize_country_list_setting", save_body)
 
         product_body = function_body("serialize_product")
         self.assertIn("'max_quantity'", product_body)
@@ -185,6 +189,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         capability_body = function_body("capability_document")
         self.assertIn("'per_product_agentcart_max_quantity'", capability_body)
         self.assertIn("'per_product_agentcart_block_override'", capability_body)
+        self.assertIn("'per_product_shipping_country_overrides'", capability_body)
         self.assertIn("'product_policy'", capability_body)
         self.assertIn("'blocked_categories_absent_from_catalog'", capability_body)
 
@@ -230,6 +235,50 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'category_slugs'", product_body)
         self.assertIn("'restricted_goods'", quote_cart_body)
         self.assertIn("'agentcart_policy'", quote_cart_body)
+
+    def test_product_shipping_country_overrides_are_exposed_and_rechecked(self) -> None:
+        product_body = function_body("serialize_product")
+        quote_body = function_body("quote")
+        order_body = function_body("create_order")
+        shipping_body = function_body("product_shipping_countries")
+
+        self.assertIn("sanitize_country_list_setting", SOURCE)
+        self.assertIn("product_shipping_countries", product_body)
+        self.assertIn("'shipping_regions'", product_body)
+        self.assertIn("PRODUCT_SHIPPING_COUNTRIES_META", shipping_body)
+        self.assertIn("product_ships_to_country", quote_body)
+        self.assertIn("agentcart_product_shipping_country_unsupported", quote_body)
+        self.assertIn("product_ships_to_country", order_body)
+        self.assertIn("agentcart_product_shipping_country_unsupported", order_body)
+        self.assertLess(
+            quote_body.index("agentcart_product_shipping_country_unsupported"),
+            quote_body.index("validate_product_stock_for_agentcart"),
+        )
+        self.assertLess(
+            order_body.index("agentcart_product_shipping_country_unsupported"),
+            order_body.index("validate_product_stock_for_agentcart"),
+        )
+
+    def test_soft_stock_holds_are_created_and_revalidated(self) -> None:
+        quote_body = function_body("quote")
+        order_body = function_body("create_order")
+        reservation_body = function_body("reserve_stock_for_quote")
+        stock_check_body = function_body("validate_product_stock_for_agentcart")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("STOCK_HOLD_MODE_OPTION", SOURCE)
+        self.assertIn("STOCK_HOLD_MINUTES_OPTION", SOURCE)
+        self.assertIn("STOCK_HOLDS_OPTION", SOURCE)
+        self.assertIn("stock_hold_ttl_seconds", quote_body)
+        self.assertIn("reserve_stock_for_quote", quote_body)
+        self.assertIn("'stock_reserved_until'", quote_body)
+        self.assertIn("'soft_reserved'", reservation_body)
+        self.assertIn("held_stock_quantity", stock_check_body)
+        self.assertIn("validate_product_stock_for_agentcart($product, $quantity)", quote_body)
+        self.assertIn("validate_product_stock_for_agentcart($product, $quantity, $merchant_quote_id)", order_body)
+        self.assertIn("release_stock_hold($merchant_quote_id)", order_body)
+        self.assertIn("delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id)", order_body)
+        self.assertIn("'soft_quote_stock_holds'", capability_body)
 
     def test_quote_rejects_over_limit_quantities_instead_of_clamping(self) -> None:
         quote_body = function_body("quote")

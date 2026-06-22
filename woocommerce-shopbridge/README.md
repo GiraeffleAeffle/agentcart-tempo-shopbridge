@@ -117,7 +117,8 @@ Woo fields into an agent-readable product schema:
 - image URLs
 - VAT-inclusive price hint
 - stock/availability
-- shipping regions from WooCommerce's configured shipping countries
+- shipping regions from WooCommerce's configured shipping countries or the
+  product-specific AgentCart shipping country override
 - `eligible_for_agent_checkout`
 - `max_quantity`
 - `agentcart_policy`
@@ -130,13 +131,18 @@ absent from catalog results and rejected in quotes and checkout, even in tag,
 category, or all-product exposure modes. Use those controls for age-gated,
 regulated, local-pickup-only, deposit, or manual-review products.
 
-Future hardening can add shipping-country overrides, stock reservation, and
-richer merchant-side policy workflows, but the default product seam remains
-merchant-controlled and fail-closed.
+Product-specific AgentCart shipping countries are optional; empty values inherit
+the store's WooCommerce shipping countries. Quote and checkout both reject
+products whose override no longer permits the destination country.
+
+Future hardening can add deposit/perishable workflows and richer merchant-side
+policy review, but the default product seam remains merchant-controlled and
+fail-closed.
 
 ## Quote Binding
 
-The quote endpoint computes final terms and stores them server-side for 15 minutes:
+The quote endpoint computes final terms and stores them server-side for the
+configured quote/stock-hold window, default 15 minutes:
 
 - line items
 - VAT lines
@@ -151,9 +157,11 @@ The order endpoint reloads the stored quote under a quote-level checkout lock
 and rejects mismatched, expired, already-consumed, or concurrently-consumed
 quotes. Exact idempotent replays return the existing order; different checkout
 attempts cannot reuse the same merchant quote. Stock is rechecked before order
-creation. The quote explicitly says stock is not reserved unless the merchant
-later adds real stock-hold support. Quote creation rejects unsupported
-destination countries before payment.
+creation. When soft quote holds are enabled, managed-stock products are held in
+an AgentCart-scoped hold index until quote expiry or paid-order creation. This
+does not reduce WooCommerce stock, but it prevents concurrent AgentCart quotes
+from ignoring each other. Quote creation rejects unsupported shop or
+product-specific destination countries before payment.
 
 ## Endpoint Rate Limits
 
