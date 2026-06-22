@@ -51,6 +51,10 @@ final class AgentCart_ShopBridge {
     const PRODUCT_BLOCKED_META = '_agentcart_checkout_blocked';
     const PRODUCT_MAX_QUANTITY_META = '_agentcart_max_quantity';
     const PRODUCT_SHIPPING_COUNTRIES_META = '_agentcart_shipping_countries';
+    const PRODUCT_PERISHABLE_META = '_agentcart_perishable';
+    const PRODUCT_DEPOSIT_META = '_agentcart_deposit_possible';
+    const PRODUCT_FINAL_SALE_META = '_agentcart_final_sale';
+    const PRODUCT_SUBSTITUTION_SENSITIVE_META = '_agentcart_substitution_sensitive';
     const STOCK_HOLD_MODE_OPTION = 'agentcart_shopbridge_stock_hold_mode';
     const STOCK_HOLD_MINUTES_OPTION = 'agentcart_shopbridge_stock_hold_minutes';
     const STOCK_HOLDS_OPTION = 'agentcart_shopbridge_stock_holds';
@@ -504,6 +508,30 @@ final class AgentCart_ShopBridge {
             'description' => __('Overrides every exposure mode. Use for age-gated, regulated, local-pickup-only, deposit, or manual-review products.', 'agentcart-shopbridge'),
             'desc_tip' => true,
         ]);
+        woocommerce_wp_checkbox([
+            'id' => self::PRODUCT_PERISHABLE_META,
+            'label' => __('AgentCart perishable item', 'agentcart-shopbridge'),
+            'description' => __('Marks this product as perishable or temperature-sensitive for agent refund, return, cancellation, and delivery review.', 'agentcart-shopbridge'),
+            'desc_tip' => true,
+        ]);
+        woocommerce_wp_checkbox([
+            'id' => self::PRODUCT_DEPOSIT_META,
+            'label' => __('AgentCart deposit possible', 'agentcart-shopbridge'),
+            'description' => __('Marks this product as potentially deposit-bearing, for example Pfand or reusable packaging.', 'agentcart-shopbridge'),
+            'desc_tip' => true,
+        ]);
+        woocommerce_wp_checkbox([
+            'id' => self::PRODUCT_FINAL_SALE_META,
+            'label' => __('AgentCart final sale / non-returnable', 'agentcart-shopbridge'),
+            'description' => __('Marks this product as final sale or normally non-returnable so buyer agents do not imply standard returns.', 'agentcart-shopbridge'),
+            'desc_tip' => true,
+        ]);
+        woocommerce_wp_checkbox([
+            'id' => self::PRODUCT_SUBSTITUTION_SENSITIVE_META,
+            'label' => __('AgentCart substitution-sensitive', 'agentcart-shopbridge'),
+            'description' => __('Marks this product as needing explicit buyer approval before any substitution.', 'agentcart-shopbridge'),
+            'desc_tip' => true,
+        ]);
         if (function_exists('woocommerce_wp_text_input')) {
             woocommerce_wp_text_input([
                 'id' => self::PRODUCT_MAX_QUANTITY_META,
@@ -533,6 +561,10 @@ final class AgentCart_ShopBridge {
         }
         $product->update_meta_data(self::PRODUCT_ENABLED_META, isset($_POST[self::PRODUCT_ENABLED_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_BLOCKED_META, isset($_POST[self::PRODUCT_BLOCKED_META]) ? 'yes' : 'no');
+        $product->update_meta_data(self::PRODUCT_PERISHABLE_META, isset($_POST[self::PRODUCT_PERISHABLE_META]) ? 'yes' : 'no');
+        $product->update_meta_data(self::PRODUCT_DEPOSIT_META, isset($_POST[self::PRODUCT_DEPOSIT_META]) ? 'yes' : 'no');
+        $product->update_meta_data(self::PRODUCT_FINAL_SALE_META, isset($_POST[self::PRODUCT_FINAL_SALE_META]) ? 'yes' : 'no');
+        $product->update_meta_data(self::PRODUCT_SUBSTITUTION_SENSITIVE_META, isset($_POST[self::PRODUCT_SUBSTITUTION_SENSITIVE_META]) ? 'yes' : 'no');
         $max_quantity = isset($_POST[self::PRODUCT_MAX_QUANTITY_META]) ? absint($_POST[self::PRODUCT_MAX_QUANTITY_META]) : 20;
         $product->update_meta_data(self::PRODUCT_MAX_QUANTITY_META, (string) max(1, min(999, $max_quantity ?: 20)));
         $shipping_countries = isset($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META])
@@ -1460,6 +1492,7 @@ final class AgentCart_ShopBridge {
                 'per_product_agentcart_max_quantity' => true,
                 'per_product_agentcart_block_override' => true,
                 'per_product_shipping_country_overrides' => true,
+                'per_product_aftercare_policy_overrides' => true,
                 'soft_quote_stock_holds' => self::stock_hold_enabled(),
                 'structured_restricted_goods_metadata' => true,
                 'structured_commerce_policy_metadata' => true,
@@ -1495,7 +1528,15 @@ final class AgentCart_ShopBridge {
                 'restricted_goods_metadata' => true,
                 'restricted_goods_require_human_review' => true,
                 'commerce_policy_metadata' => true,
+                'aftercare_override_meta_keys' => [
+                    'perishable' => self::PRODUCT_PERISHABLE_META,
+                    'deposit' => self::PRODUCT_DEPOSIT_META,
+                    'final_sale' => self::PRODUCT_FINAL_SALE_META,
+                    'substitution_sensitive' => self::PRODUCT_SUBSTITUTION_SENSITIVE_META,
+                ],
                 'perishable_deposit_final_sale_detection' => true,
+                'explicit_perishable_deposit_final_sale_overrides' => true,
+                'explicit_substitution_sensitive_override' => true,
                 'item_policy_preserved_on_order' => true,
                 'product_shipping_country_meta_key' => self::PRODUCT_SHIPPING_COUNTRIES_META,
                 'shipping_country_overrides_rechecked_on_order' => true,
@@ -4268,12 +4309,13 @@ final class AgentCart_ShopBridge {
             if (empty($rule['returnable'])) {
                 $returnable = false;
             }
-            $flags[] = [
-                'code' => $code,
-                'summary' => $rule['summary'],
-                'matched_terms' => $matches,
-                'requires_human_review' => true,
-            ];
+            $flags[] = self::commerce_policy_flag($code, $rule, $matches, 'woocommerce_terms');
+        }
+        foreach (self::product_aftercare_override_flags($product) as $flag) {
+            if (empty($flag['returnable'])) {
+                $returnable = false;
+            }
+            $flags = self::upsert_commerce_policy_flag($flags, $flag);
         }
         $refund_conditions = [
             'merchant_review_required' => !empty($flags),
@@ -4297,6 +4339,62 @@ final class AgentCart_ShopBridge {
                 ? 'Review item-level merchant policy before refund, return, cancellation, or substitution.'
                 : 'Use standard merchant return and refund policy.',
         ];
+    }
+
+    private static function product_aftercare_override_flags(WC_Product $product) {
+        $overrides = [
+            'perishable' => self::PRODUCT_PERISHABLE_META,
+            'deposit' => self::PRODUCT_DEPOSIT_META,
+            'final_sale' => self::PRODUCT_FINAL_SALE_META,
+            'substitution_sensitive' => self::PRODUCT_SUBSTITUTION_SENSITIVE_META,
+        ];
+        $rules = self::commerce_policy_rules();
+        $flags = [];
+        foreach ($overrides as $code => $meta_key) {
+            if ($product->get_meta($meta_key, true) !== 'yes' || empty($rules[$code])) {
+                continue;
+            }
+            $flags[] = self::commerce_policy_flag($code, $rules[$code], [$meta_key], 'woocommerce_product_meta');
+        }
+        return $flags;
+    }
+
+    private static function commerce_policy_flag($code, $rule, $matched_terms, $source) {
+        return [
+            'code' => $code,
+            'summary' => (string) ($rule['summary'] ?? ''),
+            'matched_terms' => array_values(array_unique(array_map('strval', $matched_terms))),
+            'source' => $source,
+            'requires_human_review' => true,
+            'returnable' => !empty($rule['returnable']),
+        ];
+    }
+
+    private static function upsert_commerce_policy_flag($flags, $new_flag) {
+        $code = (string) ($new_flag['code'] ?? '');
+        if ($code === '') {
+            return $flags;
+        }
+        foreach ($flags as $index => $flag) {
+            if (!is_array($flag) || (string) ($flag['code'] ?? '') !== $code) {
+                continue;
+            }
+            $existing_terms = isset($flag['matched_terms']) && is_array($flag['matched_terms']) ? $flag['matched_terms'] : [];
+            $new_terms = isset($new_flag['matched_terms']) && is_array($new_flag['matched_terms']) ? $new_flag['matched_terms'] : [];
+            $sources = [];
+            foreach ([$flag['source'] ?? '', $new_flag['source'] ?? ''] as $source) {
+                if ($source !== '' && !in_array($source, $sources, true)) {
+                    $sources[] = $source;
+                }
+            }
+            $flag['matched_terms'] = array_values(array_unique(array_merge($existing_terms, $new_terms)));
+            $flag['source'] = implode('+', $sources);
+            $flag['returnable'] = !empty($flag['returnable']) && !empty($new_flag['returnable']);
+            $flags[$index] = $flag;
+            return $flags;
+        }
+        $flags[] = $new_flag;
+        return $flags;
     }
 
     private static function commerce_policy_has_flag($flags, $code) {

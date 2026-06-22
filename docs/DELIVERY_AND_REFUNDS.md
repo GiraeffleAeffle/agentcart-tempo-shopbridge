@@ -89,6 +89,12 @@ includes:
 - `next_actions`: stable action ids such as `request_cancellation`,
   `request_refund`, `open_tracking`, or `complete_verified_refund`.
 
+Item-level policy comes from normal WooCommerce tags/categories/attributes and
+optional ShopBridge product switches for perishable, deposit-bearing,
+final-sale/non-returnable, and substitution-sensitive goods. The quote stores
+that item policy on the WooCommerce order so aftercare keeps using the approved
+quote context even if product metadata changes later.
+
 ## Refund Verification Requirements
 
 ShopBridge refunds require an idempotency key. Exact replays return the

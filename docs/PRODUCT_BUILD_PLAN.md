@@ -108,7 +108,8 @@ Deliverables:
   blocklists, product shipping-country overrides, soft quote stock holds, and
   structured restricted-goods metadata;
 - expose perishable, deposit-bearing, final-sale, and substitution-sensitive
-  handling metadata from normal WooCommerce tags, attributes, and categories;
+  handling metadata from normal WooCommerce tags, attributes, categories, and
+  optional product-level AgentCart override switches;
 - expose store-level returns, substitution, and cancellation-request defaults
   from the merchant settings page and bind them into approved quotes.
 
@@ -119,7 +120,8 @@ Definition of done:
 - merchant admin can understand why the shop is or is not agent-ready.
 
 Current alpha status: ShopBridge quotes through WooCommerce cart, tax, shipping,
-stock, and order APIs; exposes merchant-controlled product exposure modes; and
+stock, and order APIs; exposes merchant-controlled product exposure modes;
+publishes automatic and explicit item-level aftercare policy metadata; and
 renders a guided setup checklist in `WooCommerce -> AgentCart` for identity,
 agent-safe products, tax/shipping, payment verifier, registry proof, and sandbox
 testing. The same setup guide is included in the public capability document for
@@ -212,13 +214,15 @@ carrier adapters, and durable household aftercare state in the AgentCart service
 path.
 
 Current grocery alpha status: ShopBridge exposes structured package-size
-metadata from WooCommerce product weights and structured tag/dietary/allergen
-metadata from normal WooCommerce product tags and attributes. The direct buyer
-skill can rank verified merchant quotes by package/unit value, compare verified
-merchants by whole-basket quotes, and handle explicit user-provided
-substitutions with inherited exclusion/tag/allergen constraints. Production
-still needs stronger cross-merchant basket splitting, richer dietary
-constraints, and pantry-aware replenishment.
+metadata from WooCommerce product weights, structured tag/dietary/allergen
+metadata from normal WooCommerce product tags and attributes, and optional
+product-level aftercare overrides for perishables, deposits, final-sale goods,
+and substitution-sensitive items. The direct buyer skill can rank verified
+merchant quotes by package/unit value, compare verified merchants by
+whole-basket quotes, and handle explicit user-provided substitutions with
+inherited exclusion/tag/allergen constraints. Production still needs stronger
+cross-merchant basket splitting, richer dietary constraints, and pantry-aware
+replenishment.
 
 ### 6. Production Packaging
 

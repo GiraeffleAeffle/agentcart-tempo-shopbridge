@@ -47,7 +47,9 @@ actions.
   other rails.
 * Merchant-token-protected refund and cancellation endpoints.
 * Structured policy metadata for restricted goods, perishables, deposits,
-  final-sale goods, substitutions, refunds, and cancellations.
+  final-sale goods, substitutions, refunds, and cancellations, inferred from
+  WooCommerce tags, categories, and attributes with optional explicit product
+  overrides.
 * Domain-proof fields for a future AgentCart merchant registry.
 
 == Installation ==
@@ -96,4 +98,3 @@ product-level AgentCart metadata so merchants retain their commerce audit trail.
 
 * Alpha ShopBridge plugin for WooCommerce-backed agent catalog, quote, order,
   status, refund, and cancellation flows.
-

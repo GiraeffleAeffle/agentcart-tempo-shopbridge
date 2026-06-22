@@ -245,16 +245,28 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)
         self.assertIn("PRODUCT_MAX_QUANTITY_META", SOURCE)
         self.assertIn("PRODUCT_SHIPPING_COUNTRIES_META", SOURCE)
+        self.assertIn("PRODUCT_PERISHABLE_META", SOURCE)
+        self.assertIn("PRODUCT_DEPOSIT_META", SOURCE)
+        self.assertIn("PRODUCT_FINAL_SALE_META", SOURCE)
+        self.assertIn("PRODUCT_SUBSTITUTION_SENSITIVE_META", SOURCE)
 
         product_options_body = function_body("render_product_agentcart_options")
         self.assertIn("Exclude from AgentCart checkout", product_options_body)
         self.assertIn("AgentCart max quantity", product_options_body)
         self.assertIn("AgentCart shipping countries", product_options_body)
+        self.assertIn("AgentCart perishable item", product_options_body)
+        self.assertIn("AgentCart deposit possible", product_options_body)
+        self.assertIn("AgentCart final sale / non-returnable", product_options_body)
+        self.assertIn("AgentCart substitution-sensitive", product_options_body)
 
         save_body = function_body("save_product_agentcart_options")
         self.assertIn("PRODUCT_BLOCKED_META", save_body)
         self.assertIn("PRODUCT_MAX_QUANTITY_META", save_body)
         self.assertIn("PRODUCT_SHIPPING_COUNTRIES_META", save_body)
+        self.assertIn("PRODUCT_PERISHABLE_META", save_body)
+        self.assertIn("PRODUCT_DEPOSIT_META", save_body)
+        self.assertIn("PRODUCT_FINAL_SALE_META", save_body)
+        self.assertIn("PRODUCT_SUBSTITUTION_SENSITIVE_META", save_body)
         self.assertIn("sanitize_country_list_setting", save_body)
 
         product_body = function_body("serialize_product")
@@ -267,6 +279,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'per_product_agentcart_max_quantity'", capability_body)
         self.assertIn("'per_product_agentcart_block_override'", capability_body)
         self.assertIn("'per_product_shipping_country_overrides'", capability_body)
+        self.assertIn("'per_product_aftercare_policy_overrides'", capability_body)
         self.assertIn("'product_policy'", capability_body)
         self.assertIn("'blocked_categories_absent_from_catalog'", capability_body)
 
@@ -316,6 +329,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
     def test_catalog_quote_order_and_refunds_expose_commerce_policy_metadata(self) -> None:
         product_body = function_body("serialize_product")
         policy_body = function_body("product_commerce_policy")
+        overrides_body = function_body("product_aftercare_override_flags")
+        flag_body = function_body("commerce_policy_flag")
+        upsert_body = function_body("upsert_commerce_policy_flag")
         rules_body = function_body("commerce_policy_rules")
         quote_cart_body = function_body("quote_from_cart")
         order_body = function_body("create_order")
@@ -331,6 +347,18 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             self.assertIn(code, rules_body)
         for field in ["'commerce_policy'", "'refund_conditions'", "'buyer_agent_aftercare_note'"]:
             self.assertIn(field, product_body + policy_body)
+        self.assertIn("product_aftercare_override_flags", policy_body)
+        self.assertIn("upsert_commerce_policy_flag", policy_body)
+        for meta in [
+            "PRODUCT_PERISHABLE_META",
+            "PRODUCT_DEPOSIT_META",
+            "PRODUCT_FINAL_SALE_META",
+            "PRODUCT_SUBSTITUTION_SENSITIVE_META",
+        ]:
+            self.assertIn(meta, overrides_body)
+        self.assertIn("'woocommerce_product_meta'", overrides_body)
+        self.assertIn("'source'", flag_body + upsert_body)
+        self.assertIn("'returnable'", flag_body + upsert_body)
         self.assertIn("'commerce_policy'", quote_cart_body)
         self.assertIn("ORDER_ITEMS_META", order_body)
         self.assertIn("ORDER_ITEMS_META", order_items_body)
@@ -340,6 +368,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'merchant_review_required'", policy_summary_body)
         self.assertIn("'structured_commerce_policy_metadata'", capability_body)
         self.assertIn("'item_commerce_policy_metadata'", capability_body)
+        self.assertIn("'aftercare_override_meta_keys'", capability_body)
+        self.assertIn("'explicit_perishable_deposit_final_sale_overrides'", capability_body)
+        self.assertIn("'explicit_substitution_sensitive_override'", capability_body)
 
     def test_merchant_aftercare_policy_is_configurable_quote_bound_and_preserved(self) -> None:
         settings_body = function_body("register_settings")
