@@ -682,6 +682,94 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["rejected"][0]["missing_items"][0]["query"], "filters")
         self.assertEqual([call["base_url"] for call in calls if call["method"] == "POST"], ["https://complete.example"])
 
+    def test_discover_basket_quotes_uses_only_explicit_substitutions_with_constraints(self) -> None:
+        manifest, record, proof = registry_manifest_and_record(
+            merchant_id="shop-a",
+            name="Substitution Grocery",
+            domain="substitution.example",
+            stripe_profile_id="acct_substitution",
+        )
+
+        def payment_requirements(profile_id):
+            return {
+                "verification": {"external_verifier_configured": True},
+                "protocols": [
+                    {
+                        "id": "stripe-card-mpp",
+                        "available": True,
+                        "network_id": profile_id,
+                        "stripe_profile_id": profile_id,
+                    }
+                ],
+            }
+
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            if path.startswith("/wp-json/agentcart/v1/catalog"):
+                if "organic+milk" in path:
+                    return {"products": []}
+                return {
+                    "products": [
+                        {
+                            "id": "peanut-oat-milk",
+                            "title": "Peanut Oat Milk",
+                            "description": "Contains peanut flavor.",
+                            "eligible_for_agent_checkout": True,
+                            "shipping_regions": ["DE"],
+                        },
+                        {
+                            "id": "oat-milk",
+                            "title": "Oat Milk",
+                            "description": "Dairy-free oat drink.",
+                            "eligible_for_agent_checkout": True,
+                            "shipping_regions": ["DE"],
+                        },
+                    ]
+                }
+            self.assertEqual(payload["items"], [{"product_id": "oat-milk", "quantity": 2}])
+            return sample_quote(
+                id="quote-oat",
+                merchant={"id": "shop-a", "name": "Substitution Grocery"},
+                items=[
+                    {
+                        "product_id": "oat-milk",
+                        "title": "Oat Milk",
+                        "quantity": 2,
+                        "line_total_cents": 500,
+                    }
+                ],
+                subtotal_cents=500,
+                shipping={"amount_cents": 300},
+                total_cents=800,
+                quote_hash="hash-oat",
+                payment_requirements=payment_requirements("acct_substitution"),
+            )
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+            result = shopbridge_direct.command_discover_basket_quotes(
+                {
+                    "registry_records": [record],
+                    "manifest_snapshots": {"shop-a": manifest},
+                    "proof_snapshots": {"shop-a": proof},
+                    "basket": [
+                        {
+                            "query": "organic milk",
+                            "quantity": 2,
+                            "constraints": {"exclude_terms": ["peanut"]},
+                            "alternatives": [{"query": "oat milk"}],
+                        }
+                    ],
+                    "country": "DE",
+                    "payment_rail": "stripe-card-mpp",
+                }
+            )
+
+        self.assertEqual(result["winner"]["quote_id"], "quote-oat")
+        self.assertEqual(result["winner"]["matched_items"][0]["query"], "organic milk")
+        self.assertEqual(result["winner"]["matched_items"][0]["matched_query"], "oat milk")
+        self.assertTrue(result["winner"]["matched_items"][0]["substitution"])
+        self.assertEqual(result["winner"]["substitutions"][0]["product_id"], "oat-milk")
+        self.assertIn("product did not satisfy basket constraints", {item["reason"] for item in result["winner"]["item_rejections"]})
+
     def test_discover_basket_quotes_rejects_unverified_merchants_before_catalog_or_quote(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
         proof["record_hash"] = "0" * 64

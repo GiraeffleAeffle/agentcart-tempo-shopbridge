@@ -106,6 +106,15 @@ This resolves each registry record first, searches each verified merchant for
 every required basket item, requests one whole-basket quote from merchants that
 can satisfy the basket, and ranks full baskets by final total and delivery. Use
 `allow_partial:true` only when the human is willing to buy an incomplete basket.
+Basket items may include explicit `alternatives`/`substitutions` and structured
+constraints:
+
+```json
+{"query":"organic milk","quantity":2,"constraints":{"exclude_terms":["peanut"]},"alternatives":[{"query":"oat milk"}]}
+```
+
+Only these explicit alternatives may be used. Do not infer substitutions from
+merchant product text.
 
 Approval summary:
 
@@ -204,6 +213,9 @@ not call the merchant-token refund endpoint.
   reject merchants whose registry verification fails before making catalog or
   quote calls, and it must not call checkout until the human approves the
   returned whole-basket approval packet.
+- Substitutions are allowed only when the basket item includes explicit
+  `alternatives` or `substitutions`. Product descriptions, category labels, and
+  merchant support text are not permission to substitute.
 - Prefer JSON for payment/order calls. Use TOON only for compact agent-readable
   summaries.
 - Use `aftercare_summary` for buyer-facing follow-up. Do not call refund

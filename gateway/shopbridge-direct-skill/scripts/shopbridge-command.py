@@ -1046,16 +1046,97 @@ def basket_items_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
         product_id = str(item.get("product_id") or item.get("id") or "").strip()
         if not query and not product_id:
             raise SystemExit(f"basket item {index} must include query or product_id")
+        constraints = item.get("constraints") if isinstance(item.get("constraints"), dict) else {}
         normalized.append(
             {
                 "query": query or product_id,
                 "product_id": product_id,
                 "quantity": bounded_int(item.get("quantity"), default=1, minimum=1, maximum=20),
                 "required": item.get("required", True) is not False,
-                "constraints": item.get("constraints") if isinstance(item.get("constraints"), dict) else {},
+                "constraints": constraints,
+                "alternatives": basket_item_alternatives(item, parent_constraints=constraints),
             }
         )
     return normalized
+
+
+def merge_basket_constraints(parent: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(parent)
+    for field in ("exclude_terms", "required_tags"):
+        values: list[str] = []
+        for source in (parent, child):
+            raw_values = source.get(field)
+            if isinstance(raw_values, list):
+                for value in raw_values:
+                    text = str(value).strip()
+                    if text and text not in values:
+                        values.append(text)
+        if values:
+            merged[field] = values
+        elif field in merged:
+            merged.pop(field)
+    for key, value in child.items():
+        if key not in {"exclude_terms", "required_tags"}:
+            merged[key] = value
+    return merged
+
+
+def basket_item_alternatives(item: dict[str, Any], *, parent_constraints: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_alternatives = item.get("alternatives") or item.get("substitutions") or []
+    if not isinstance(raw_alternatives, list):
+        return []
+    alternatives = []
+    for index, alternative in enumerate(raw_alternatives, start=1):
+        if isinstance(alternative, str):
+            alternative = {"query": alternative}
+        if not isinstance(alternative, dict):
+            raise SystemExit(f"basket alternative {index} must be a string or object")
+        query = str(
+            alternative.get("query")
+            or alternative.get("q")
+            or alternative.get("search")
+            or alternative.get("name")
+            or alternative.get("title")
+            or ""
+        ).strip()
+        product_id = str(alternative.get("product_id") or alternative.get("id") or "").strip()
+        if not query and not product_id:
+            raise SystemExit(f"basket alternative {index} must include query or product_id")
+        alt_constraints = alternative.get("constraints") if isinstance(alternative.get("constraints"), dict) else {}
+        alternatives.append(
+            {
+                "query": query or product_id,
+                "product_id": product_id,
+                "constraints": merge_basket_constraints(parent_constraints, alt_constraints),
+                "label": str(alternative.get("label") or query or product_id),
+            }
+        )
+    return alternatives
+
+
+def basket_item_candidates(item: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = [
+        {
+            "query": item["query"],
+            "product_id": item.get("product_id") or "",
+            "constraints": item.get("constraints") if isinstance(item.get("constraints"), dict) else {},
+            "substitution": False,
+            "requested_query": item["query"],
+        }
+    ]
+    for alternative in item.get("alternatives", []):
+        if not isinstance(alternative, dict):
+            continue
+        candidates.append(
+            {
+                "query": alternative["query"],
+                "product_id": alternative.get("product_id") or "",
+                "constraints": alternative.get("constraints") if isinstance(alternative.get("constraints"), dict) else {},
+                "substitution": True,
+                "requested_query": item["query"],
+            }
+        )
+    return candidates
 
 
 def product_matches_basket_item(product: dict[str, Any], item: dict[str, Any]) -> bool:
@@ -1416,6 +1497,32 @@ def catalog_product_for_basket_item(
     return best_catalog_product_for_basket_item(catalog, item, country)
 
 
+def resolved_product_for_basket_item(
+    base_url: str,
+    item: dict[str, Any],
+    country: str,
+    catalog_limit: int,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]]]:
+    rejections = []
+    for candidate in basket_item_candidates(item):
+        try:
+            product, candidate_rejections = catalog_product_for_basket_item(base_url, candidate, country, catalog_limit)
+        except SystemExit as exc:
+            product, candidate_rejections = None, [{"reason": "catalog request failed", "detail": str(exc)}]
+        rejections.extend(
+            {
+                "requested_query": item["query"],
+                "query": candidate["query"],
+                "substitution": bool(candidate.get("substitution")),
+                **rejection,
+            }
+            for rejection in candidate_rejections
+        )
+        if product is not None:
+            return product, candidate, rejections
+    return None, None, rejections
+
+
 def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
     basket = basket_items_from_args(args)
     ship_to = quote_ship_to_from_args(args)
@@ -1449,29 +1556,27 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
         missing_items: list[dict[str, Any]] = []
         item_rejections: list[dict[str, Any]] = []
         for item in basket:
-            try:
-                product, product_rejections = catalog_product_for_basket_item(base_url, item, country, catalog_limit)
-            except SystemExit as exc:
-                product, product_rejections = None, [{"reason": "catalog request failed", "detail": str(exc)}]
-            item_rejections.extend(
-                {
-                    "query": item["query"],
-                    **rejection,
-                }
-                for rejection in product_rejections
-            )
+            product, selected_candidate, product_rejections = resolved_product_for_basket_item(base_url, item, country, catalog_limit)
+            item_rejections.extend(product_rejections)
             if product is None:
                 missing_items.append(
                     {
                         "query": item["query"],
                         "quantity": item["quantity"],
                         "required": item["required"],
+                        "alternatives": [
+                            alternative["query"]
+                            for alternative in item.get("alternatives", [])
+                            if isinstance(alternative, dict)
+                        ],
                     }
                 )
                 continue
             matched_items.append(
                 {
                     "query": item["query"],
+                    "matched_query": (selected_candidate or item)["query"],
+                    "substitution": bool((selected_candidate or {}).get("substitution")),
                     "quantity": item["quantity"],
                     "required": item["required"],
                     "product": product,
@@ -1533,6 +1638,16 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
             continue
         merchant = quote.get("merchant") if isinstance(quote.get("merchant"), dict) else {}
         matched_products = [item["product"] for item in matched_items if isinstance(item.get("product"), dict)]
+        substitutions = [
+            {
+                "query": item["query"],
+                "matched_query": item.get("matched_query") or item["query"],
+                "product_id": product_id_for_quote(item["product"]),
+                "title": item["product"].get("title"),
+            }
+            for item in matched_items
+            if item.get("substitution") and isinstance(item.get("product"), dict)
+        ]
         candidates.append(
             {
                 "_quote": quote,
@@ -1543,12 +1658,15 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 "matched_items": [
                     {
                         "query": item["query"],
+                        "matched_query": item.get("matched_query") or item["query"],
+                        "substitution": bool(item.get("substitution")),
                         "quantity": item["quantity"],
                         "product_id": product_id_for_quote(item["product"]),
                         "title": item["product"].get("title"),
                     }
                     for item in matched_items
                 ],
+                "substitutions": substitutions,
                 "missing_items": missing_items,
                 "full_basket": not missing_items,
                 "total_cents": int(quote.get("total_cents") or 0),
