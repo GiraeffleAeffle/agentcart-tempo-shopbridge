@@ -26,6 +26,7 @@ if command -v php >/dev/null 2>&1; then
 else
   printf 'php not installed; skipping php -l\n'
 fi
+bash -n "$ROOT_DIR/scripts/woocommerce-demo-smoke.sh"
 python3 -m py_compile "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py"
 python3 -m unittest discover -s "$ROOT_DIR/woocommerce-shopbridge/tests"
 

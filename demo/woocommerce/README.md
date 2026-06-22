@@ -15,6 +15,25 @@ shop and does not bypass WooCommerce order handling.
 
 ## Run Locally
 
+From the repo root, the one-command smoke path is:
+
+```sh
+scripts/woocommerce-demo-smoke.sh
+```
+
+This starts the bundled WordPress/MariaDB demo, downloads WooCommerce if needed,
+seeds products, tax, shipping, terms, and ShopBridge settings, waits for the
+public AgentCart endpoints, then verifies a live WooCommerce-backed quote.
+
+Use `--down` when you want the script to stop the demo services after the smoke
+test:
+
+```sh
+scripts/woocommerce-demo-smoke.sh --down
+```
+
+Manual setup is still available:
+
 ```sh
 cd demo/woocommerce
 cp .env.example .env

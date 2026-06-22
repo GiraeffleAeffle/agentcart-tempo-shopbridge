@@ -125,9 +125,10 @@ agent-safe products, tax/shipping, payment verifier, registry proof, and sandbox
 testing. The same setup guide is included in the public capability document for
 remote onboarding tools. The repo also includes an opt-in live smoke script for
 checking manifest/capability setup state, catalog exposure, and WooCommerce
-quote totals against a seeded or staging shop. Production still needs a polished
-setup wizard, WP/Woo integration tests, and stronger hosted
-registry/payment-provider onboarding.
+quote totals against a seeded or staging shop, plus a one-command WooCommerce
+demo smoke wrapper that starts, seeds, and verifies the bundled local shop.
+Production still needs a polished setup wizard, WP/Woo integration tests, and
+stronger hosted registry/payment-provider onboarding.
 
 ### 3. Idempotent Order And Replay Safety
 

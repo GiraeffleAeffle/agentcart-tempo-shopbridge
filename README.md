@@ -84,6 +84,12 @@ docker-compose --profile homeassistant --profile woocommerce-demo up -d --build
 docker-compose --profile woocommerce-demo run --rm woocommerce-seed
 ```
 
+For the standalone WooCommerce ShopBridge demo and quote-total smoke test:
+
+```sh
+scripts/woocommerce-demo-smoke.sh
+```
+
 This starts AgentCart, Household OS, Vikunja, and optional Home Assistant /
 WooCommerce demo services. OpenClaw is expected to run separately or on the same
 network with the provided skills installed.

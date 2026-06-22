@@ -141,6 +141,14 @@ For OpenClaw-style deployments, the helper also reads:
 A tester can run the optional WooCommerce demo shop without your homelab:
 
 ```sh
+scripts/woocommerce-demo-smoke.sh
+```
+
+That command starts the demo WooCommerce stack, seeds products/tax/shipping, and
+verifies the public ShopBridge manifest, catalog, and WooCommerce-backed quote
+totals. Manual startup is also available:
+
+```sh
 cd deploy/home-server
 cp .env.example .env
 docker-compose --profile woocommerce-demo up -d --build
