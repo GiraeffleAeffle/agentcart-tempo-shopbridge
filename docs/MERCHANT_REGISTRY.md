@@ -149,6 +149,46 @@ The WooCommerce ShopBridge plugin exposes this proof at
 `/.well-known/agentcart-registry-proof.json` once the merchant enters the final
 registry record hash and timestamp on the AgentCart settings page.
 
+## Registry Record Helper
+
+The registry operator should build records from the merchant manifest instead
+of asking merchants to hand-write JSON. The helper uses the same canonical JSON
+hashing and verifier code as the gateway:
+
+```sh
+python3 gateway/scripts/registry_record.py build \
+  --manifest-url https://shop.example/.well-known/agentcart.json \
+  --format bundle
+```
+
+The output contains:
+
+- `registry_record`: the record to add to the public registry feed.
+- `merchant_settings`: the two required paste-back fields for
+  `WooCommerce -> AgentCart`, plus the manifest hash.
+- `proof_document_expected`: the proof document the shop should publish after
+  those values are saved.
+
+After the merchant saves the record hash and timestamp, verify the live proof:
+
+```sh
+python3 gateway/scripts/registry_record.py verify \
+  --record-file merchant-registry-record.json
+```
+
+For reproducible local tests, use snapshots instead of network fetches:
+
+```sh
+python3 gateway/scripts/registry_record.py verify \
+  --record-file merchant-registry-record.json \
+  --manifest-file manifest.json \
+  --proof-file proof.json
+```
+
+This keeps merchant onboarding close to the normal WooCommerce flow: install the
+plugin, configure payment/support settings, enable products, share the manifest
+URL, and paste back the final registry hash.
+
 ## Agent Safety Model
 
 Registry verification solves spoofing and silent endpoint swaps. It does not

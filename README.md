@@ -120,11 +120,20 @@ A GitHub repo or ZIP does not make the plugin appear in WordPress plugin search.
 The plugin exposes:
 
 - `/.well-known/agentcart.json`
+- `/.well-known/agentcart-registry-proof.json`
 - `/wp-json/agentcart/v1/catalog`
 - `/wp-json/agentcart/v1/quote`
 - `/wp-json/agentcart/v1/orders`
 - `/wp-json/agentcart/v1/orders/{id}/status`
 - `/wp-json/agentcart/v1/orders/{id}/refunds`
+
+Registry operators can build and verify merchant records from a ShopBridge
+manifest without hand-writing JSON:
+
+```sh
+python3 gateway/scripts/registry_record.py build --manifest-url https://shop.example/.well-known/agentcart.json
+python3 gateway/scripts/registry_record.py verify --record-file merchant-registry-record.json
+```
 
 ## Production Roadmap
 

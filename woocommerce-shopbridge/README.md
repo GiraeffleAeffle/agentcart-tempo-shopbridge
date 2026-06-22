@@ -219,8 +219,9 @@ the shop domain to the final canonical registry record hash. The workflow is:
 
 1. Open `WooCommerce -> AgentCart` and copy the manifest URL and computed
    manifest hash.
-2. Build or request the final registry record using that manifest hash, payment
-   recipient/network, shipping countries, and proof URL.
+2. Ask the AgentCart registry operator to build the final registry record from
+   that manifest URL. Operators can use:
+   `python3 gateway/scripts/registry_record.py build --manifest-url https://shop.example/.well-known/agentcart.json`.
 3. Paste the final registry record hash and `updated_at` timestamp back into
    the AgentCart settings page, or configure them with
    `AGENTCART_REGISTRY_RECORD_HASH` and `AGENTCART_REGISTRY_UPDATED_AT`.
