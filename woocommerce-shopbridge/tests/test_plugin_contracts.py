@@ -186,6 +186,22 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("woocommerce_weight_unit", package_body)
         self.assertIn("normalize_package_quantity", package_body)
 
+    def test_catalog_exposes_structured_tags_and_allergens_from_woo_metadata(self) -> None:
+        product_body = function_body("serialize_product")
+        labels_body = function_body("product_agent_labels")
+        tags_body = function_body("product_tag_values")
+        attributes_body = function_body("product_attribute_values")
+
+        self.assertIn("product_agent_labels", product_body)
+        for field in ["'tags'", "'labels'", "'dietary_tags'", "'allergens'"]:
+            self.assertIn(field, product_body)
+        self.assertIn("product_tag_values", labels_body)
+        self.assertIn("product_attribute_values", labels_body)
+        self.assertIn("known_dietary_labels", labels_body)
+        self.assertIn("known_allergen_labels", labels_body)
+        self.assertIn("wp_get_post_terms", tags_body)
+        self.assertIn("get_attributes", attributes_body)
+
     def test_quote_rejects_over_limit_quantities_instead_of_clamping(self) -> None:
         quote_body = function_body("quote")
 

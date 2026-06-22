@@ -712,7 +712,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                         {
                             "id": "peanut-oat-milk",
                             "title": "Peanut Oat Milk",
-                            "description": "Contains peanut flavor.",
+                            "description": "Oat drink.",
+                            "tags": ["vegan"],
+                            "dietary_tags": ["vegan"],
+                            "allergens": ["peanuts"],
                             "eligible_for_agent_checkout": True,
                             "shipping_regions": ["DE"],
                         },
@@ -720,6 +723,9 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                             "id": "oat-milk",
                             "title": "Oat Milk",
                             "description": "Dairy-free oat drink.",
+                            "tags": ["vegan"],
+                            "dietary_tags": ["vegan"],
+                            "allergens": [],
                             "eligible_for_agent_checkout": True,
                             "shipping_regions": ["DE"],
                         },
@@ -754,7 +760,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                         {
                             "query": "organic milk",
                             "quantity": 2,
-                            "constraints": {"exclude_terms": ["peanut"]},
+                            "constraints": {"required_tags": ["vegan"], "exclude_allergens": ["peanut"]},
                             "alternatives": [{"query": "oat milk"}],
                         }
                     ],

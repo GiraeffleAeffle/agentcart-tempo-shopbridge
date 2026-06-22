@@ -103,6 +103,9 @@ Woo fields into an agent-readable product schema:
 - structured `package_size` from normal WooCommerce product weight settings,
   so buyer agents can compare grocery-style unit value without extra merchant
   setup
+- structured `tags`, `labels`, `dietary_tags`, and `allergens` from normal
+  WooCommerce product tags and attributes, so buyer agents can apply household
+  constraints without merchant-specific setup
 - image URLs
 - VAT-inclusive price hint
 - stock/availability

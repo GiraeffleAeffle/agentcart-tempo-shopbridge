@@ -394,6 +394,9 @@ def compact_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
                 "price": money(int(product.get("price_cents") or 0), product.get("currency", "EUR")),
                 "unit_size": product.get("unit_size"),
                 "package_size": product.get("package_size"),
+                "tags": product.get("tags"),
+                "dietary_tags": product.get("dietary_tags"),
+                "allergens": product.get("allergens"),
                 "stock": product.get("stock"),
                 "eligible": product.get("eligible_for_agent_checkout"),
             }
@@ -1062,7 +1065,7 @@ def basket_items_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
 
 def merge_basket_constraints(parent: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:
     merged = dict(parent)
-    for field in ("exclude_terms", "required_tags"):
+    for field in ("exclude_terms", "required_tags", "exclude_tags", "exclude_allergens"):
         values: list[str] = []
         for source in (parent, child):
             raw_values = source.get(field)
@@ -1114,6 +1117,46 @@ def basket_item_alternatives(item: dict[str, Any], *, parent_constraints: dict[s
     return alternatives
 
 
+def normalized_product_values(product: dict[str, Any], fields: tuple[str, ...]) -> set[str]:
+    values: set[str] = set()
+    for field in fields:
+        value = product.get(field)
+        if isinstance(value, list):
+            for item in value:
+                text = str(item).strip().lower()
+                if text:
+                    values.add(text)
+                    values.add(text.replace(" ", "-"))
+                    if text.endswith("s"):
+                        values.add(text[:-1])
+                        values.add(text[:-1].replace(" ", "-"))
+        else:
+            text = str(value or "").strip().lower()
+            if text:
+                values.add(text)
+                values.add(text.replace(" ", "-"))
+                if text.endswith("s"):
+                    values.add(text[:-1])
+                    values.add(text[:-1].replace(" ", "-"))
+    return values
+
+
+def constraint_values(constraints: dict[str, Any], field: str) -> set[str]:
+    raw_values = constraints.get(field)
+    if not isinstance(raw_values, list):
+        return set()
+    values = set()
+    for value in raw_values:
+        text = str(value).strip().lower()
+        if text:
+            values.add(text)
+            values.add(text.replace(" ", "-"))
+            if text.endswith("s"):
+                values.add(text[:-1])
+                values.add(text[:-1].replace(" ", "-"))
+    return values
+
+
 def basket_item_candidates(item: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = [
         {
@@ -1144,29 +1187,30 @@ def product_matches_basket_item(product: dict[str, Any], item: dict[str, Any]) -
     if product_id and product_id_for_quote(product).removeprefix("woo_") != str(product_id).removeprefix("woo_"):
         return False
     constraints = item.get("constraints") if isinstance(item.get("constraints"), dict) else {}
-    excluded_terms = [
-        str(term).lower()
-        for term in constraints.get("exclude_terms", [])
-        if term
-    ] if isinstance(constraints.get("exclude_terms"), list) else []
+    label_values = normalized_product_values(product, ("tags", "dietary_tags", "labels", "allergens"))
+    excluded_terms = constraint_values(constraints, "exclude_terms")
     if excluded_terms:
         haystack = " ".join(
-            str(product.get(field) or "")
-            for field in ("title", "description", "category", "brand")
+            [
+                *[
+                    str(product.get(field) or "")
+                    for field in ("title", "description", "category", "brand")
+                ],
+                *sorted(label_values),
+            ]
         ).lower()
         if any(term in haystack for term in excluded_terms):
             return False
-    required_tags = [
-        str(tag).lower()
-        for tag in constraints.get("required_tags", [])
-        if tag
-    ] if isinstance(constraints.get("required_tags"), list) else []
+    excluded_tags = constraint_values(constraints, "exclude_tags")
+    if excluded_tags and excluded_tags.intersection(label_values):
+        return False
+    excluded_allergens = constraint_values(constraints, "exclude_allergens")
+    allergen_values = normalized_product_values(product, ("allergens",))
+    if excluded_allergens and excluded_allergens.intersection(allergen_values):
+        return False
+    required_tags = constraint_values(constraints, "required_tags")
     if required_tags:
-        raw_tags = []
-        for field in ("tags", "dietary_tags", "labels"):
-            if isinstance(product.get(field), list):
-                raw_tags.extend(str(tag).lower() for tag in product[field])
-        if not set(required_tags).issubset(set(raw_tags)):
+        if not required_tags.issubset(label_values):
             return False
     return True
 

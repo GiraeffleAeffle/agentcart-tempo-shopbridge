@@ -507,6 +507,10 @@ class AgentCartTests(unittest.TestCase):
                                     "normalized_unit": "g",
                                     "source": "woocommerce_weight",
                                 },
+                                "tags": ["organic", "vegan"],
+                                "labels": ["organic", "vegan"],
+                                "dietary_tags": ["organic", "vegan"],
+                                "allergens": [],
                                 "price_cents": 900,
                                 "currency": "EUR",
                                 "vat_rate_bps": 700,
@@ -574,6 +578,8 @@ class AgentCartTests(unittest.TestCase):
             self.assertFalse(product["data_trust"]["instructions_allowed"])
             self.assertEqual(product["package_size"]["normalized_quantity"], 100)
             self.assertEqual(product["package_size"]["normalized_unit"], "g")
+            self.assertEqual(product["dietary_tags"], ["organic", "vegan"])
+            self.assertEqual(product["allergens"], [])
 
             tournament = service.quote_tournament(
                 {"q": "signed sencha", "country": "DE", "postal_code": "10115"}

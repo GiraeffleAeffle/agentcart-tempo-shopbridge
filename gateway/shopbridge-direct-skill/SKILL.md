@@ -110,7 +110,7 @@ Basket items may include explicit `alternatives`/`substitutions` and structured
 constraints:
 
 ```json
-{"query":"organic milk","quantity":2,"constraints":{"exclude_terms":["peanut"]},"alternatives":[{"query":"oat milk"}]}
+{"query":"organic milk","quantity":2,"constraints":{"required_tags":["vegan"],"exclude_allergens":["peanut"]},"alternatives":[{"query":"oat milk"}]}
 ```
 
 Only these explicit alternatives may be used. Do not infer substitutions from

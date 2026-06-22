@@ -2886,6 +2886,87 @@ final class AgentCart_ShopBridge {
         return $formatted === '' ? '0' : $formatted;
     }
 
+    private static function normalized_label_values($values) {
+        $normalized = [];
+        foreach ($values as $value) {
+            $text = strtolower(trim(wp_strip_all_tags((string) $value)));
+            if ($text === '') {
+                continue;
+            }
+            $slug = sanitize_title($text);
+            foreach (array_filter([$text, $slug]) as $candidate) {
+                if (!in_array($candidate, $normalized, true)) {
+                    $normalized[] = $candidate;
+                }
+            }
+        }
+        return $normalized;
+    }
+
+    private static function product_tag_values(WC_Product $product) {
+        $terms = wp_get_post_terms($product->get_id(), 'product_tag', ['fields' => 'all']);
+        if (is_wp_error($terms) || !is_array($terms)) {
+            return [];
+        }
+        $values = [];
+        foreach ($terms as $term) {
+            $values[] = $term->name;
+            $values[] = $term->slug;
+        }
+        return self::normalized_label_values($values);
+    }
+
+    private static function product_attribute_values(WC_Product $product) {
+        $values = [];
+        foreach ($product->get_attributes() as $attribute) {
+            if (!is_object($attribute) || !method_exists($attribute, 'get_options')) {
+                continue;
+            }
+            if (method_exists($attribute, 'is_taxonomy') && $attribute->is_taxonomy() && function_exists('wc_get_product_terms')) {
+                $term_values = wc_get_product_terms($product->get_id(), $attribute->get_name(), ['fields' => 'names']);
+                if (!is_wp_error($term_values) && is_array($term_values)) {
+                    $values = array_merge($values, $term_values);
+                }
+                continue;
+            }
+            foreach ($attribute->get_options() as $option) {
+                $values[] = $option;
+            }
+        }
+        return self::normalized_label_values($values);
+    }
+
+    private static function known_dietary_labels() {
+        return [
+            'vegan', 'vegetarian', 'organic', 'bio', 'gluten-free', 'glutenfree',
+            'dairy-free', 'dairyfree', 'lactose-free', 'lactosefree', 'nut-free',
+            'nutfree', 'peanut-free', 'peanutfree', 'halal', 'kosher',
+        ];
+    }
+
+    private static function known_allergen_labels() {
+        return [
+            'peanut', 'peanuts', 'tree-nut', 'tree-nuts', 'nuts', 'milk', 'dairy',
+            'egg', 'eggs', 'soy', 'soya', 'wheat', 'gluten', 'sesame', 'fish',
+            'shellfish', 'crustaceans', 'molluscs', 'mustard', 'celery', 'lupin',
+            'sulphites', 'sulfites',
+        ];
+    }
+
+    private static function product_agent_labels(WC_Product $product) {
+        $tags = self::product_tag_values($product);
+        $attributes = self::product_attribute_values($product);
+        $labels = array_values(array_unique(array_merge($tags, $attributes)));
+        $dietary_tags = array_values(array_intersect($labels, self::known_dietary_labels()));
+        $allergens = array_values(array_intersect($labels, self::known_allergen_labels()));
+        return [
+            'tags' => $tags,
+            'labels' => $labels,
+            'dietary_tags' => $dietary_tags,
+            'allergens' => $allergens,
+        ];
+    }
+
     private static function serialize_product(WC_Product $product) {
         $category = 'household.supplies';
         $category_ids = $product->get_category_ids();
@@ -2904,6 +2985,7 @@ final class AgentCart_ShopBridge {
             }
         }
         $package_size = self::package_size_for_product($product);
+        $agent_labels = self::product_agent_labels($product);
         return [
             'id' => 'woo_' . $product->get_id(),
             'product_id' => 'woo_' . $product->get_id(),
@@ -2916,6 +2998,10 @@ final class AgentCart_ShopBridge {
             'brand' => get_bloginfo('name') ?: 'WooCommerce',
             'unit_size' => $package_size['label'],
             'package_size' => $package_size,
+            'tags' => $agent_labels['tags'],
+            'labels' => $agent_labels['labels'],
+            'dietary_tags' => $agent_labels['dietary_tags'],
+            'allergens' => $agent_labels['allergens'],
             'image_urls' => $image_urls,
             'price_cents' => self::cents((float) wc_get_price_including_tax($product, ['qty' => 1])),
             'currency' => get_woocommerce_currency(),
