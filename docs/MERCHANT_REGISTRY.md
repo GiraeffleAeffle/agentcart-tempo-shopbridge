@@ -145,6 +145,10 @@ mismatched record hashes. This proves control of the shop domain without adding
 a crypto dependency to the gateway. Wallet signatures can be added later as
 another verifier behind the same proof seam.
 
+The WooCommerce ShopBridge plugin exposes this proof at
+`/.well-known/agentcart-registry-proof.json` once the merchant enters the final
+registry record hash and timestamp on the AgentCart settings page.
+
 ## Agent Safety Model
 
 Registry verification solves spoofing and silent endpoint swaps. It does not

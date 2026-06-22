@@ -3,6 +3,7 @@
 AgentCart ShopBridge exposes an opt-in WooCommerce store to household or agentic commerce clients through a machine-readable merchant interface:
 
 - public discovery: `/.well-known/agentcart.json`
+- public registry domain proof: `/.well-known/agentcart-registry-proof.json`
 - public catalog: `/wp-json/agentcart/v1/catalog`
 - public product details: `/wp-json/agentcart/v1/products/{id}`
 - public quote: `/wp-json/agentcart/v1/quote`
@@ -56,6 +57,9 @@ define('AGENTCART_STRIPE_PROFILE_ID', 'profile_test_...');
 define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/agentcart/tempo');
 define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
 define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
+define('AGENTCART_REGISTRY_MANIFEST_HASH', '0000000000000000000000000000000000000000000000000000000000000000');
+define('AGENTCART_REGISTRY_UPDATED_AT', '2026-06-22T10:00:00Z');
+define('AGENTCART_REGISTRY_RECORD_HASH', '1111111111111111111111111111111111111111111111111111111111111111');
 ```
 
 Constants override values saved from the WordPress admin settings page.
@@ -73,6 +77,7 @@ For production, configure `AGENTCART_PAYMENT_VERIFIER_URL`. Public agents can th
 The settings page also shows:
 
 - discovery manifest URL
+- registry domain proof URL and configured state
 - catalog, quote, and paid-order endpoints
 - whether the Tempo recipient is configured
 - whether Stripe/card MPP has a Stripe profile and verifier configured
@@ -202,6 +207,26 @@ https://shop.example/.well-known/agentcart.json
 
 Agents and directories can crawl this, validate the manifest, and index the catalog endpoint.
 
+For registry-based discovery, the plugin also serves a merchant-owned domain
+proof:
+
+```text
+https://shop.example/.well-known/agentcart-registry-proof.json
+```
+
+The proof document is used with `signature_alg: https-domain-proof`. It binds
+the shop domain to the final canonical registry record hash. The workflow is:
+
+1. Open `WooCommerce -> AgentCart` and copy the manifest URL and computed
+   manifest hash.
+2. Build or request the final registry record using that manifest hash, payment
+   recipient/network, shipping countries, and proof URL.
+3. Paste the final registry record hash and `updated_at` timestamp back into
+   the AgentCart settings page, or configure them with
+   `AGENTCART_REGISTRY_RECORD_HASH` and `AGENTCART_REGISTRY_UPDATED_AT`.
+4. The proof endpoint publishes the fields AgentCart verifies before including
+   the shop in quote tournaments.
+
 An onchain registry can make sense as an identity and integrity anchor, not as the product catalog itself. A useful registry record would contain:
 
 - merchant id
@@ -211,6 +236,7 @@ An onchain registry can make sense as an identity and integrity anchor, not as t
 - payment network
 - payment recipient
 - timestamp/version
+- proof URL under `/.well-known/`
 
 Catalogs, quotes, stock, delivery estimates, and consumer terms should stay offchain because they change often and may contain regulated commerce data.
 
