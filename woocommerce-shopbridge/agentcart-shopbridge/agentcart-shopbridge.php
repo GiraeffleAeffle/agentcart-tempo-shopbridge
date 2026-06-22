@@ -2828,6 +2828,64 @@ final class AgentCart_ShopBridge {
         return 0;
     }
 
+    private static function package_size_for_product(WC_Product $product) {
+        $weight = trim((string) $product->get_weight());
+        $weight_unit = strtolower((string) get_option('woocommerce_weight_unit', 'kg'));
+        if ($weight !== '' && floatval($weight) > 0) {
+            $quantity = floatval($weight);
+            $normalized = self::normalize_package_quantity($quantity, $weight_unit);
+            $label = self::format_quantity($quantity) . ' ' . $weight_unit;
+            return [
+                'label' => $label,
+                'quantity' => $quantity,
+                'unit' => $weight_unit,
+                'normalized_quantity' => $normalized['quantity'],
+                'normalized_unit' => $normalized['unit'],
+                'source' => 'woocommerce_weight',
+            ];
+        }
+        return [
+            'label' => '1 unit',
+            'quantity' => 1,
+            'unit' => 'unit',
+            'normalized_quantity' => 1,
+            'normalized_unit' => 'unit',
+            'source' => 'woocommerce_default_unit',
+        ];
+    }
+
+    private static function normalize_package_quantity($quantity, $unit) {
+        $unit = strtolower((string) $unit);
+        $quantity = floatval($quantity);
+        if (in_array($unit, ['kg', 'kilogram', 'kilograms'], true)) {
+            return ['quantity' => $quantity * 1000, 'unit' => 'g'];
+        }
+        if (in_array($unit, ['g', 'gram', 'grams'], true)) {
+            return ['quantity' => $quantity, 'unit' => 'g'];
+        }
+        if (in_array($unit, ['lbs', 'lb', 'pound', 'pounds'], true)) {
+            return ['quantity' => $quantity * 453.59237, 'unit' => 'g'];
+        }
+        if (in_array($unit, ['oz', 'ounce', 'ounces'], true)) {
+            return ['quantity' => $quantity * 28.349523125, 'unit' => 'g'];
+        }
+        if (in_array($unit, ['l', 'liter', 'litre', 'liters', 'litres'], true)) {
+            return ['quantity' => $quantity * 1000, 'unit' => 'ml'];
+        }
+        if (in_array($unit, ['cl', 'centiliter', 'centilitre', 'centiliters', 'centilitres'], true)) {
+            return ['quantity' => $quantity * 10, 'unit' => 'ml'];
+        }
+        if (in_array($unit, ['ml', 'milliliter', 'millilitre', 'milliliters', 'millilitres'], true)) {
+            return ['quantity' => $quantity, 'unit' => 'ml'];
+        }
+        return ['quantity' => max(1, $quantity), 'unit' => 'unit'];
+    }
+
+    private static function format_quantity($quantity) {
+        $formatted = rtrim(rtrim(number_format((float) $quantity, 3, '.', ''), '0'), '.');
+        return $formatted === '' ? '0' : $formatted;
+    }
+
     private static function serialize_product(WC_Product $product) {
         $category = 'household.supplies';
         $category_ids = $product->get_category_ids();
@@ -2845,6 +2903,7 @@ final class AgentCart_ShopBridge {
                 $image_urls[] = $url;
             }
         }
+        $package_size = self::package_size_for_product($product);
         return [
             'id' => 'woo_' . $product->get_id(),
             'product_id' => 'woo_' . $product->get_id(),
@@ -2855,7 +2914,8 @@ final class AgentCart_ShopBridge {
             'description' => wp_strip_all_tags($product->get_short_description() ?: $product->get_description()),
             'category' => $category,
             'brand' => get_bloginfo('name') ?: 'WooCommerce',
-            'unit_size' => $product->get_weight() ?: 'unit',
+            'unit_size' => $package_size['label'],
+            'package_size' => $package_size,
             'image_urls' => $image_urls,
             'price_cents' => self::cents((float) wc_get_price_including_tax($product, ['qty' => 1])),
             'currency' => get_woocommerce_currency(),

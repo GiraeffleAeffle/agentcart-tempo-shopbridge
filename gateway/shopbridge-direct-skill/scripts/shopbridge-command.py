@@ -392,6 +392,8 @@ def compact_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
                 "id": product.get("id") or product.get("product_id"),
                 "title": product.get("title"),
                 "price": money(int(product.get("price_cents") or 0), product.get("currency", "EUR")),
+                "unit_size": product.get("unit_size"),
+                "package_size": product.get("package_size"),
                 "stock": product.get("stock"),
                 "eligible": product.get("eligible_for_agent_checkout"),
             }
@@ -885,6 +887,153 @@ def product_ships_to_country(product: dict[str, Any], country: str) -> bool:
     return not regions or country.upper() in regions
 
 
+def format_quantity(value: float) -> str:
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def normalize_package_quantity(quantity: float, unit: str) -> tuple[float, str]:
+    normalized_unit = unit.strip().lower().replace(".", "")
+    aliases = {
+        "kilogram": "kg",
+        "kilograms": "kg",
+        "gram": "g",
+        "grams": "g",
+        "liter": "l",
+        "litre": "l",
+        "liters": "l",
+        "litres": "l",
+        "milliliter": "ml",
+        "millilitre": "ml",
+        "milliliters": "ml",
+        "millilitres": "ml",
+        "centiliter": "cl",
+        "centilitre": "cl",
+        "centiliters": "cl",
+        "centilitres": "cl",
+        "pound": "lb",
+        "pounds": "lb",
+        "ounce": "oz",
+        "ounces": "oz",
+        "item": "unit",
+        "items": "unit",
+        "piece": "unit",
+        "pieces": "unit",
+        "pcs": "unit",
+        "pc": "unit",
+        "ea": "unit",
+        "each": "unit",
+        "count": "unit",
+        "units": "unit",
+    }
+    normalized_unit = aliases.get(normalized_unit, normalized_unit)
+    if normalized_unit == "kg":
+        return quantity * 1000, "g"
+    if normalized_unit == "g":
+        return quantity, "g"
+    if normalized_unit == "lb":
+        return quantity * 453.59237, "g"
+    if normalized_unit == "oz":
+        return quantity * 28.349523125, "g"
+    if normalized_unit == "l":
+        return quantity * 1000, "ml"
+    if normalized_unit == "cl":
+        return quantity * 10, "ml"
+    if normalized_unit == "ml":
+        return quantity, "ml"
+    return max(1.0, quantity), "unit"
+
+
+def package_size_from_product(product: dict[str, Any]) -> dict[str, Any]:
+    package = product.get("package_size") if isinstance(product.get("package_size"), dict) else {}
+    label = str(package.get("label") or product.get("unit_size") or "").strip()
+    normalized_quantity = package.get("normalized_quantity")
+    normalized_unit = str(package.get("normalized_unit") or "").strip().lower()
+    if normalized_quantity is not None and normalized_unit:
+        try:
+            quantity = float(normalized_quantity)
+        except (TypeError, ValueError):
+            quantity = 0
+        if quantity > 0:
+            return {
+                "available": True,
+                "label": label or f"{format_quantity(quantity)} {normalized_unit}",
+                "normalized_quantity": quantity,
+                "normalized_unit": normalized_unit,
+                "source": str(package.get("source") or "package_size"),
+            }
+    quantity = package.get("quantity")
+    unit = str(package.get("unit") or "").strip()
+    if quantity is not None and unit:
+        try:
+            normalized_quantity, normalized_unit = normalize_package_quantity(float(quantity), unit)
+        except (TypeError, ValueError):
+            normalized_quantity, normalized_unit = 0, ""
+        if normalized_quantity > 0:
+            return {
+                "available": True,
+                "label": label or f"{format_quantity(float(quantity))} {unit}",
+                "normalized_quantity": normalized_quantity,
+                "normalized_unit": normalized_unit,
+                "source": str(package.get("source") or "package_size"),
+            }
+    text = str(product.get("unit_size") or "").strip()
+    match = re.search(r"(?i)(\d+(?:[.,]\d+)?)\s*(kg|g|grams?|l|liters?|litres?|ml|cl|lbs?|pounds?|oz|ounces?|units?|items?|pieces?|pcs|ea|each|count)\b", text)
+    if match:
+        quantity = float(match.group(1).replace(",", "."))
+        normalized_quantity, normalized_unit = normalize_package_quantity(quantity, match.group(2))
+        if normalized_quantity > 0:
+            return {
+                "available": True,
+                "label": text,
+                "normalized_quantity": normalized_quantity,
+                "normalized_unit": normalized_unit,
+                "source": "unit_size",
+            }
+    return {
+        "available": False,
+        "label": text or "unknown",
+        "normalized_quantity": 0,
+        "normalized_unit": "",
+        "source": "unavailable",
+    }
+
+
+def quote_line_for_product(quote: dict[str, Any], product_id: str) -> dict[str, Any]:
+    items = [item for item in quote.get("items", []) if isinstance(item, dict)]
+    for item in items:
+        if str(item.get("product_id") or "") == product_id:
+            return item
+    return items[0] if items else {}
+
+
+def unit_value_for_candidate(product: dict[str, Any], quote: dict[str, Any], product_id: str) -> dict[str, Any]:
+    package = package_size_from_product(product)
+    if not package.get("available"):
+        return {"available": False, "package": package, "label": "unit value unavailable"}
+    line = quote_line_for_product(quote, product_id)
+    quantity = bounded_int(line.get("quantity"), default=1, minimum=1, maximum=999)
+    line_total_cents = int(line.get("line_total_cents") or product.get("price_cents") or quote.get("subtotal_cents") or quote.get("total_cents") or 0)
+    total_normalized_quantity = float(package["normalized_quantity"]) * quantity
+    if total_normalized_quantity <= 0 or line_total_cents <= 0:
+        return {"available": False, "package": package, "label": "unit value unavailable"}
+    normalized_unit = str(package["normalized_unit"])
+    basis_quantity = 100 if normalized_unit in {"g", "ml"} else 1
+    basis_label = f"100 {normalized_unit}" if normalized_unit in {"g", "ml"} else normalized_unit
+    cents_per_basis = int(round((line_total_cents / total_normalized_quantity) * basis_quantity))
+    currency = str(quote.get("currency") or product.get("currency") or "EUR")
+    return {
+        "available": True,
+        "package": package,
+        "line_total": money(line_total_cents, currency),
+        "normalized_total_quantity": total_normalized_quantity,
+        "normalized_unit": normalized_unit,
+        "cents_per_basis": cents_per_basis,
+        "basis": basis_label,
+        "label": f"{money(cents_per_basis, currency)} per {basis_label}",
+    }
+
+
 def merchant_snapshot_arg(args: dict[str, Any], name: str, merchant_id: str) -> dict[str, Any] | None:
     value = args.get(name)
     if isinstance(value, dict):
@@ -917,10 +1066,17 @@ def quote_latest_delivery_key(quote: dict[str, Any]) -> str:
     return "9999-12-31"
 
 
-def quote_rank_reasons(quote: dict[str, Any], resolved: dict[str, Any], preflight: dict[str, Any]) -> list[str]:
+def quote_rank_reasons(
+    quote: dict[str, Any],
+    resolved: dict[str, Any],
+    preflight: dict[str, Any],
+    unit_value: dict[str, Any] | None = None,
+) -> list[str]:
     reasons = [
         f"final total {money(int(quote.get('total_cents') or 0), str(quote.get('currency') or 'EUR'))}",
     ]
+    if isinstance(unit_value, dict) and unit_value.get("available") and unit_value.get("label"):
+        reasons.append(f"unit value {unit_value['label']}")
     delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
     if isinstance(delivery, dict) and (delivery.get("latest_date") or delivery.get("label")):
         reasons.append(f"delivery {delivery.get('latest_date') or delivery.get('label')}")
@@ -944,6 +1100,8 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
     max_candidates = bounded_int(args.get("max_candidates"), default=6, minimum=1, maximum=12)
     products_per_merchant = bounded_int(args.get("products_per_merchant"), default=2, minimum=1, maximum=6)
     catalog_limit = max(products_per_merchant, bounded_int(args.get("catalog_limit"), default=8, minimum=1, maximum=24))
+    rank_by = str(args.get("rank_by") or args.get("ranking") or "total").strip().lower().replace("-", "_")
+    rank_by_unit_price = rank_by in {"unit_price", "unit_value", "package_value", "value"}
     candidates: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     seen_quotes: set[str] = set()
@@ -1048,10 +1206,12 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 continue
             seen_quotes.add(quote_key)
             merchant = quote.get("merchant") if isinstance(quote.get("merchant"), dict) else {}
+            unit_value = unit_value_for_candidate(product, quote, product_id)
             candidates.append(
                 {
                     "_quote": quote,
                     "_preflight": preflight,
+                    "_unit_value": unit_value,
                     "quote_id": quote_id,
                     "merchant_id": str(merchant.get("id") or merchant_id),
                     "merchant_name": str(merchant.get("name") or resolved.get("merchant", {}).get("name") or ""),
@@ -1064,23 +1224,35 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                     "quote_hash": quote.get("quote_hash"),
                     "approval_hash": preflight.get("approval_hash"),
                     "payment_destination": preflight.get("payment_destination"),
+                    "unit_value": unit_value,
                     "registry": {
                         "manifest_url": resolved.get("manifest_url"),
                         "registry_record_hash": resolved.get("registry_record_hash"),
                         "verification": verification,
                         "paid_placement": False,
                     },
-                    "rank_reasons": quote_rank_reasons(quote, resolved, preflight),
+                    "rank_reasons": quote_rank_reasons(quote, resolved, preflight, unit_value),
                 }
             )
 
-    candidates.sort(
-        key=lambda candidate: (
-            int(candidate["total_cents"]),
-            quote_latest_delivery_key(candidate["_quote"]),
-            str(candidate["merchant_name"]),
+    if rank_by_unit_price:
+        candidates.sort(
+            key=lambda candidate: (
+                not bool(candidate["_unit_value"].get("available")),
+                int(candidate["_unit_value"].get("cents_per_basis") or 10**12),
+                int(candidate["total_cents"]),
+                quote_latest_delivery_key(candidate["_quote"]),
+                str(candidate["merchant_name"]),
+            )
         )
-    )
+    else:
+        candidates.sort(
+            key=lambda candidate: (
+                int(candidate["total_cents"]),
+                quote_latest_delivery_key(candidate["_quote"]),
+                str(candidate["merchant_name"]),
+            )
+        )
     public_candidates = []
     for index, candidate in enumerate(candidates[:max_candidates], start=1):
         public = {key: value for key, value in candidate.items() if not key.startswith("_")}
@@ -1103,7 +1275,8 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
         "market_design": {
             "registry_role": "public identity and integrity anchor",
             "quote_request": "private RFQ to verified merchants",
-            "ranking": "local agent ranking by final price, delivery, payment readiness, and policy; no paid placement",
+            "ranking": "local agent ranking by unit value when requested, then final price, delivery, payment readiness, and policy; no paid placement",
+            "rank_by": "unit_price" if rank_by_unit_price else "total",
         },
         "candidates": public_candidates,
         "winner": winner,

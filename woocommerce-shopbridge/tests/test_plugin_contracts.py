@@ -175,6 +175,17 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'per_product_agentcart_block_override'", capability_body)
         self.assertIn("'product_policy'", capability_body)
 
+    def test_catalog_exposes_structured_package_size_from_woo_weight(self) -> None:
+        product_body = function_body("serialize_product")
+        package_body = function_body("package_size_for_product")
+
+        self.assertIn("package_size_for_product", product_body)
+        self.assertIn("'package_size'", product_body)
+        self.assertIn("'normalized_quantity'", package_body)
+        self.assertIn("'normalized_unit'", package_body)
+        self.assertIn("woocommerce_weight_unit", package_body)
+        self.assertIn("normalize_package_quantity", package_body)
+
     def test_quote_rejects_over_limit_quantities_instead_of_clamping(self) -> None:
         quote_body = function_body("quote")
 

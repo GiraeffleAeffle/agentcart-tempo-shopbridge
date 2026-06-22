@@ -100,6 +100,9 @@ Woo fields into an agent-readable product schema:
 
 - stable `product_id` and Woo `source_product_id`
 - SKU, title, description, category, brand, unit size
+- structured `package_size` from normal WooCommerce product weight settings,
+  so buyer agents can compare grocery-style unit value without extra merchant
+  setup
 - image URLs
 - VAT-inclusive price hint
 - stock/availability

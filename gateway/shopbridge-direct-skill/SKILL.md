@@ -86,13 +86,15 @@ Multi-item quote:
 Verified multi-merchant discovery:
 
 ```json
-{"command":"discover_quotes","args":{"registry_records":[...],"query":"tea","country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
+{"command":"discover_quotes","args":{"registry_records":[...],"query":"tea","country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","rank_by":"unit_price","format":"toon"}}
 ```
 
 This resolves each registry record first, rejects failed registry/domain-proof
 records before catalog or quote calls, requests private merchant quotes, ranks
-by final total and delivery without paid placement, and returns the winning full
-quote plus an approval packet.
+by final total and delivery by default, and returns the winning full quote plus
+an approval packet. Use `rank_by:"unit_price"` or `rank_by:"value"` for
+grocery-style package comparisons when catalog products expose `package_size` or
+parseable `unit_size` metadata. Paid placement is not used.
 
 Approval summary:
 

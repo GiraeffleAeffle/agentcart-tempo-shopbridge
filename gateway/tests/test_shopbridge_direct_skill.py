@@ -436,6 +436,123 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertFalse(result["winner"]["registry"]["paid_placement"])
         self.assertEqual([call["base_url"] for call in calls if call["method"] == "POST"], ["https://alpha.example", "https://beta.example"])
 
+    def test_discover_quotes_can_rank_by_unit_price_for_grocery_value(self) -> None:
+        manifest_a, record_a, proof_a = registry_manifest_and_record(
+            merchant_id="shop-a",
+            name="Small Pack Shop",
+            domain="small.example",
+            stripe_profile_id="acct_small",
+        )
+        manifest_b, record_b, proof_b = registry_manifest_and_record(
+            merchant_id="shop-b",
+            name="Bulk Pack Shop",
+            domain="bulk.example",
+            stripe_profile_id="acct_bulk",
+        )
+
+        def payment_requirements(profile_id):
+            return {
+                "verification": {"external_verifier_configured": True},
+                "protocols": [
+                    {
+                        "id": "stripe-card-mpp",
+                        "available": True,
+                        "network_id": profile_id,
+                        "stripe_profile_id": profile_id,
+                    }
+                ],
+            }
+
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            if path.startswith("/wp-json/agentcart/v1/catalog"):
+                if base_url == "https://small.example":
+                    return {
+                        "merchant": {"id": "shop-a", "name": "Small Pack Shop"},
+                        "products": [
+                            {
+                                "id": "small-tea",
+                                "title": "Tea 50 g",
+                                "eligible_for_agent_checkout": True,
+                                "shipping_regions": ["DE"],
+                                "package_size": {
+                                    "label": "50 g",
+                                    "normalized_quantity": 50,
+                                    "normalized_unit": "g",
+                                },
+                            }
+                        ],
+                    }
+                return {
+                    "merchant": {"id": "shop-b", "name": "Bulk Pack Shop"},
+                    "products": [
+                        {
+                            "id": "bulk-tea",
+                            "title": "Tea 200 g",
+                            "eligible_for_agent_checkout": True,
+                            "shipping_regions": ["DE"],
+                            "package_size": {
+                                "label": "200 g",
+                                "normalized_quantity": 200,
+                                "normalized_unit": "g",
+                            },
+                        }
+                    ],
+                }
+            product_id = payload["items"][0]["product_id"]
+            if product_id == "small-tea":
+                return sample_quote(
+                    id="quote-small",
+                    merchant={"id": "shop-a", "name": "Small Pack Shop"},
+                    items=[
+                        {
+                            "product_id": "small-tea",
+                            "title": "Tea 50 g",
+                            "quantity": 1,
+                            "line_total_cents": 500,
+                        }
+                    ],
+                    subtotal_cents=500,
+                    shipping={"amount_cents": 0},
+                    total_cents=500,
+                    quote_hash="hash-small",
+                    payment_requirements=payment_requirements("acct_small"),
+                )
+            return sample_quote(
+                id="quote-bulk",
+                merchant={"id": "shop-b", "name": "Bulk Pack Shop"},
+                items=[
+                    {
+                        "product_id": "bulk-tea",
+                        "title": "Tea 200 g",
+                        "quantity": 1,
+                        "line_total_cents": 900,
+                    }
+                ],
+                subtotal_cents=900,
+                shipping={"amount_cents": 0},
+                total_cents=900,
+                quote_hash="hash-bulk",
+                payment_requirements=payment_requirements("acct_bulk"),
+            )
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+            result = shopbridge_direct.command_discover_quotes(
+                {
+                    "registry_records": [record_a, record_b],
+                    "manifest_snapshots": {"shop-a": manifest_a, "shop-b": manifest_b},
+                    "proof_snapshots": {"shop-a": proof_a, "shop-b": proof_b},
+                    "query": "tea",
+                    "country": "DE",
+                    "payment_rail": "stripe-card-mpp",
+                    "rank_by": "unit_price",
+                }
+            )
+
+        self.assertEqual(result["market_design"]["rank_by"], "unit_price")
+        self.assertEqual(result["winner"]["quote_id"], "quote-bulk")
+        self.assertEqual(result["winner"]["unit_value"]["label"], "4.50 EUR per 100 g")
+        self.assertIn("unit value 4.50 EUR per 100 g", result["winner"]["rank_reasons"])
+
     def test_discover_quotes_rejects_unverified_merchants_before_catalog_or_quote(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
         proof["record_hash"] = "0" * 64

@@ -186,6 +186,12 @@ refund request draft without calling merchant-token refund endpoints. Production
 still needs cancellation support, richer refund workflows, and durable household
 aftercare state in the AgentCart service path.
 
+Current grocery alpha status: ShopBridge exposes structured package-size
+metadata from WooCommerce product weights, and the direct buyer skill can rank
+verified merchant quotes by package/unit value for comparable grocery products.
+Production still needs multi-item basket optimization, substitutions, dietary
+constraints, and pantry-aware replenishment.
+
 ### 6. Production Packaging
 
 Goal: the product is installable and maintainable.

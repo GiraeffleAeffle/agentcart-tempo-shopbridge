@@ -501,6 +501,12 @@ class AgentCartTests(unittest.TestCase):
                                 "category": "household.supplies",
                                 "brand": "Signed Tea Shop",
                                 "unit_size": "100 g",
+                                "package_size": {
+                                    "label": "100 g",
+                                    "normalized_quantity": 100,
+                                    "normalized_unit": "g",
+                                    "source": "woocommerce_weight",
+                                },
                                 "price_cents": 900,
                                 "currency": "EUR",
                                 "vat_rate_bps": 700,
@@ -566,6 +572,8 @@ class AgentCartTests(unittest.TestCase):
             product = next(item for item in catalog["products"] if item["merchant_id"] == "signed-tea-shop")
             self.assertEqual(product["data_trust"]["merchant_text"], "untrusted")
             self.assertFalse(product["data_trust"]["instructions_allowed"])
+            self.assertEqual(product["package_size"]["normalized_quantity"], 100)
+            self.assertEqual(product["package_size"]["normalized_unit"], "g")
 
             tournament = service.quote_tournament(
                 {"q": "signed sencha", "country": "DE", "postal_code": "10115"}
