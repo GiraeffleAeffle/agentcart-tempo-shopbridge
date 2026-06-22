@@ -25,9 +25,8 @@ final class AgentCart_ShopBridge {
     const TEMPO_NETWORK_OPTION = 'agentcart_shopbridge_tempo_network';
     const STRIPE_PROFILE_ID_OPTION = 'agentcart_shopbridge_stripe_profile_id';
     const SUPPORT_EMAIL_OPTION = 'agentcart_shopbridge_support_email';
-    const REGISTRY_RECORD_HASH_OPTION = 'agentcart_shopbridge_registry_record_hash';
+    const REGISTRY_CLAIM_FINGERPRINT_OPTION = 'agentcart_shopbridge_registry_claim_fingerprint';
     const REGISTRY_UPDATED_AT_OPTION = 'agentcart_shopbridge_registry_updated_at';
-    const REGISTRY_MANIFEST_HASH_OPTION = 'agentcart_shopbridge_registry_manifest_hash';
     const PRODUCT_ENABLED_META = '_agentcart_enabled';
 
     public static function init() {
@@ -131,21 +130,6 @@ final class AgentCart_ShopBridge {
             'sanitize_callback' => 'sanitize_text_field',
             'default' => '',
         ]);
-        register_setting('agentcart_shopbridge', self::REGISTRY_RECORD_HASH_OPTION, [
-            'type' => 'string',
-            'sanitize_callback' => [__CLASS__, 'sanitize_hash_setting'],
-            'default' => '',
-        ]);
-        register_setting('agentcart_shopbridge', self::REGISTRY_UPDATED_AT_OPTION, [
-            'type' => 'string',
-            'sanitize_callback' => [__CLASS__, 'sanitize_registry_updated_at'],
-            'default' => '',
-        ]);
-        register_setting('agentcart_shopbridge', self::REGISTRY_MANIFEST_HASH_OPTION, [
-            'type' => 'string',
-            'sanitize_callback' => [__CLASS__, 'sanitize_hash_setting'],
-            'default' => '',
-        ]);
     }
 
     public static function render_settings_page() {
@@ -158,8 +142,8 @@ final class AgentCart_ShopBridge {
         $registry_proof_url = self::registry_proof_url();
         $registry_record_hash = self::registry_record_hash_value();
         $registry_updated_at = self::registry_updated_at();
-        $registry_manifest_hash = self::registry_manifest_hash();
-        $computed_manifest_hash = self::computed_manifest_hash();
+        $registry_claim_hash = self::registry_claim_hash();
+        $registry_claim_fingerprint = self::registry_claim_fingerprint();
         $catalog_url = rest_url(self::API_NAMESPACE . '/catalog');
         $quote_url = rest_url(self::API_NAMESPACE . '/quote');
         $orders_url = rest_url(self::API_NAMESPACE . '/orders');
@@ -191,7 +175,7 @@ final class AgentCart_ShopBridge {
                     <tr>
                         <th scope="row">Registry domain proof</th>
                         <td><code><?php echo esc_html($registry_proof_url); ?></code></td>
-                        <td><?php echo self::admin_status_badge(self::registry_domain_proof_configured(), 'Configured', 'Needs record hash'); ?></td>
+                        <td><?php echo self::admin_status_badge(self::registry_domain_proof_configured(), 'Auto-managed', 'Needs merchant id'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Merchant token</th>
@@ -265,17 +249,18 @@ final class AgentCart_ShopBridge {
             <h2>Registry Proof</h2>
             <p style="max-width: 760px;">
                 A public AgentCart registry can verify this shop through a merchant-owned
-                <code>https-domain-proof</code>. Register the manifest hash below, then paste the
-                final canonical registry record hash back into this page. The proof endpoint will
-                publish it under this shop domain.
+                <code>https-domain-proof</code>. The registry claim, timestamp, and canonical
+                record hash are generated automatically from stable merchant, payment, shipping,
+                and endpoint settings. Normal product, stock, quote, and readiness changes do not
+                require merchants to paste new hashes.
             </p>
             <table class="widefat striped" style="max-width: 980px;">
                 <tbody>
                     <tr><th scope="row">Proof URL</th><td><code><?php echo esc_html($registry_proof_url); ?></code></td></tr>
-                    <tr><th scope="row">Computed manifest hash</th><td><code><?php echo esc_html($computed_manifest_hash); ?></code></td></tr>
-                    <tr><th scope="row">Published manifest hash</th><td><code><?php echo esc_html($registry_manifest_hash ?: 'not available'); ?></code></td></tr>
-                    <tr><th scope="row">Registry record hash</th><td><code><?php echo esc_html($registry_record_hash ?: 'not configured'); ?></code></td></tr>
-                    <tr><th scope="row">Registry updated_at</th><td><code><?php echo esc_html($registry_updated_at ?: 'not configured'); ?></code></td></tr>
+                    <tr><th scope="row">Registry claim hash</th><td><code><?php echo esc_html($registry_claim_hash); ?></code></td></tr>
+                    <tr><th scope="row">Registry record hash</th><td><code><?php echo esc_html($registry_record_hash); ?></code></td></tr>
+                    <tr><th scope="row">Registry updated_at</th><td><code><?php echo esc_html($registry_updated_at); ?></code></td></tr>
+                    <tr><th scope="row">Stable claim fingerprint</th><td><code><?php echo esc_html($registry_claim_fingerprint); ?></code></td></tr>
                 </tbody>
             </table>
 
@@ -290,9 +275,6 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
                     <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
                     <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
-                    <?php self::render_text_setting_row('Registry record hash', self::REGISTRY_RECORD_HASH_OPTION, $registry_record_hash, 'AGENTCART_REGISTRY_RECORD_HASH', 'Canonical hash of the final AgentCart registry record. Paste this after the registry operator has built the record.'); ?>
-                    <?php self::render_text_setting_row('Registry updated_at', self::REGISTRY_UPDATED_AT_OPTION, $registry_updated_at, 'AGENTCART_REGISTRY_UPDATED_AT', 'Timestamp used in the final registry record, for example 2026-06-22T10:00:00Z.'); ?>
-                    <?php self::render_text_setting_row('Registry manifest hash override', self::REGISTRY_MANIFEST_HASH_OPTION, self::registry_manifest_hash_override(), 'AGENTCART_REGISTRY_MANIFEST_HASH', 'Optional exact manifest hash from the registry operator. Leave blank to use the computed hash shown above.'); ?>
                 </table>
                 <?php submit_button('Save AgentCart settings'); ?>
             </form>
@@ -319,8 +301,8 @@ final class AgentCart_ShopBridge {
                 <li>Add normal WooCommerce products, prices, stock, VAT/tax, and shipping countries.</li>
                 <li>Enable <strong>Expose through AgentCart</strong> on selected products, or bulk-enable the current published simple-product catalog above.</li>
                 <li>Configure this page with support, Tempo recipient, and payment verification settings.</li>
-                <li>Share the manifest URL and computed manifest hash with the AgentCart discovery registry.</li>
-                <li>Paste the final registry record hash here so the shop can publish its domain proof.</li>
+                <li>Share the manifest URL with the AgentCart discovery registry, or use a future hosted registry connection.</li>
+                <li>The registry proof hash and timestamp are maintained automatically by the plugin.</li>
                 <li>Run a sandbox quote and order test before allowing public agent checkout.</li>
             </ol>
         </div>
@@ -453,12 +435,32 @@ final class AgentCart_ShopBridge {
         return $configured && $supplied && hash_equals((string) $configured, (string) $supplied);
     }
 
-    public static function sanitize_hash_setting($value) {
-        $value = strtolower(trim((string) $value));
-        return preg_match('/^[a-f0-9]{64}$/', $value) ? $value : '';
+    private static function merchant_token_value() {
+        return defined('AGENTCART_SHOPBRIDGE_TOKEN') ? (string) AGENTCART_SHOPBRIDGE_TOKEN : (string) get_option(self::TOKEN_OPTION, '');
     }
 
-    public static function sanitize_registry_updated_at($value) {
+    private static function registry_record_hash_value() {
+        return self::registry_record_hash(self::suggested_registry_record());
+    }
+
+    private static function registry_updated_at() {
+        self::ensure_registry_claim_version();
+        if (defined('AGENTCART_REGISTRY_UPDATED_AT')) {
+            $value = self::sanitize_registry_updated_at_value((string) AGENTCART_REGISTRY_UPDATED_AT);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        $value = self::sanitize_registry_updated_at_value((string) get_option(self::REGISTRY_UPDATED_AT_OPTION, ''));
+        if ($value !== '') {
+            return $value;
+        }
+        $now = self::current_registry_timestamp();
+        update_option(self::REGISTRY_UPDATED_AT_OPTION, $now, false);
+        return $now;
+    }
+
+    private static function sanitize_registry_updated_at_value($value) {
         $value = trim((string) $value);
         if ($value === '') {
             return '';
@@ -466,47 +468,18 @@ final class AgentCart_ShopBridge {
         return preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $value) ? $value : '';
     }
 
-    private static function merchant_token_value() {
-        return defined('AGENTCART_SHOPBRIDGE_TOKEN') ? (string) AGENTCART_SHOPBRIDGE_TOKEN : (string) get_option(self::TOKEN_OPTION, '');
+    private static function current_registry_timestamp() {
+        return gmdate('Y-m-d\TH:i:s\Z');
     }
 
-    private static function registry_record_hash_value() {
-        if (defined('AGENTCART_REGISTRY_RECORD_HASH')) {
-            $value = self::sanitize_hash_setting((string) AGENTCART_REGISTRY_RECORD_HASH);
-            if ($value !== '') {
-                return $value;
-            }
+    private static function ensure_registry_claim_version() {
+        $fingerprint = self::registry_claim_fingerprint();
+        $stored_fingerprint = (string) get_option(self::REGISTRY_CLAIM_FINGERPRINT_OPTION, '');
+        $stored_updated_at = self::sanitize_registry_updated_at_value((string) get_option(self::REGISTRY_UPDATED_AT_OPTION, ''));
+        if ($fingerprint !== $stored_fingerprint || $stored_updated_at === '') {
+            update_option(self::REGISTRY_CLAIM_FINGERPRINT_OPTION, $fingerprint, false);
+            update_option(self::REGISTRY_UPDATED_AT_OPTION, self::current_registry_timestamp(), false);
         }
-        return self::sanitize_hash_setting((string) get_option(self::REGISTRY_RECORD_HASH_OPTION, ''));
-    }
-
-    private static function registry_updated_at() {
-        if (defined('AGENTCART_REGISTRY_UPDATED_AT')) {
-            $value = self::sanitize_registry_updated_at((string) AGENTCART_REGISTRY_UPDATED_AT);
-            if ($value !== '') {
-                return $value;
-            }
-        }
-        return self::sanitize_registry_updated_at((string) get_option(self::REGISTRY_UPDATED_AT_OPTION, ''));
-    }
-
-    private static function registry_manifest_hash_override() {
-        if (defined('AGENTCART_REGISTRY_MANIFEST_HASH')) {
-            $value = self::sanitize_hash_setting((string) AGENTCART_REGISTRY_MANIFEST_HASH);
-            if ($value !== '') {
-                return $value;
-            }
-        }
-        return self::sanitize_hash_setting((string) get_option(self::REGISTRY_MANIFEST_HASH_OPTION, ''));
-    }
-
-    private static function registry_manifest_hash() {
-        $override = self::registry_manifest_hash_override();
-        return $override !== '' ? $override : self::computed_manifest_hash();
-    }
-
-    private static function computed_manifest_hash() {
-        return self::canonical_json_hash(self::capability_document());
     }
 
     private static function registry_proof_url() {
@@ -519,42 +492,95 @@ final class AgentCart_ShopBridge {
     }
 
     private static function registry_domain_proof_configured() {
-        return self::registry_record_hash_value() !== '' && self::registry_updated_at() !== '' && self::registry_manifest_hash() !== '';
+        return self::merchant()['id'] !== '' && self::registry_record_hash_value() !== '' && self::registry_updated_at() !== '';
     }
 
     private static function registry_domain_proof() {
+        $record = self::suggested_registry_record();
         return [
             'type' => 'https-well-known',
             'configured' => self::registry_domain_proof_configured(),
             'merchant_id' => self::merchant()['id'],
             'domain' => self::public_origin_host(),
             'manifest_url' => home_url('/.well-known/agentcart.json'),
-            'manifest_hash' => self::registry_manifest_hash(),
+            'registry_claim_hash' => self::registry_claim_hash(),
             'payment_network' => self::tempo_network(),
             'payment_recipient' => self::tempo_recipient(),
             'updated_at' => self::registry_updated_at(),
-            'record_hash' => self::registry_record_hash_value(),
+            'record_hash' => self::registry_record_hash($record),
         ];
     }
 
-    private static function suggested_registry_record() {
+    private static function registry_claim() {
         return [
             'merchant_id' => self::merchant()['id'],
             'name' => self::merchant()['name'],
             'domain' => self::public_origin_host(),
             'manifest_url' => home_url('/.well-known/agentcart.json'),
-            'manifest_hash_alg' => 'sha-256',
-            'supported_protocols' => ['agentcart-shopbridge', 'mpp'],
+            'endpoints' => [
+                'catalog' => rest_url(self::API_NAMESPACE . '/catalog'),
+                'quote' => rest_url(self::API_NAMESPACE . '/quote'),
+                'orders' => rest_url(self::API_NAMESPACE . '/orders'),
+                'order_status' => rest_url(self::API_NAMESPACE . '/orders/{id}/status'),
+                'refunds' => rest_url(self::API_NAMESPACE . '/orders/{id}/refunds'),
+            ],
+            'supported_protocols' => self::registry_supported_protocols(),
             'payment_network' => self::tempo_network(),
             'payment_recipient' => self::tempo_recipient(),
+            'stripe_profile_id' => self::stripe_profile_id(),
             'ship_to_countries' => self::shipping_countries(),
+            'proof_url' => self::registry_proof_url(),
+        ];
+    }
+
+    private static function registry_supported_protocols() {
+        $protocols = ['agentcart-shopbridge'];
+        if (self::tempo_recipient() !== '') {
+            $protocols[] = 'tempo-mpp';
+        }
+        if (self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '') {
+            $protocols[] = 'stripe-card-mpp';
+        }
+        return $protocols;
+    }
+
+    private static function registry_claim_fingerprint() {
+        return self::canonical_json_hash(self::registry_claim());
+    }
+
+    private static function registry_claim_hash() {
+        return self::canonical_json_hash(self::registry_claim());
+    }
+
+    private static function suggested_registry_record() {
+        $claim = self::registry_claim();
+        return array_merge($claim, [
+            'registry_claim_hash_alg' => 'sha-256',
+            'registry_claim_hash' => self::registry_claim_hash(),
+            'updated_at' => self::registry_updated_at(),
+            'revoked_at' => null,
             'signature_alg' => 'https-domain-proof',
             'signature' => '',
             'proof' => [
                 'type' => 'https-well-known',
                 'url' => self::registry_proof_url(),
             ],
-        ];
+        ]);
+    }
+
+    private static function registry_record_hash($record) {
+        return self::canonical_json_hash(self::registry_signature_payload($record));
+    }
+
+    private static function registry_signature_payload($record) {
+        $payload = [];
+        foreach ($record as $key => $value) {
+            if (in_array($key, ['signature', 'verification', 'manifest', 'manifest_snapshot', 'proof_snapshot'], true)) {
+                continue;
+            }
+            $payload[$key] = $value;
+        }
+        return $payload;
     }
 
     private static function canonical_json_hash($value) {
@@ -800,6 +826,11 @@ final class AgentCart_ShopBridge {
                     'signature_alg' => 'https-domain-proof',
                     'url' => self::registry_proof_url(),
                 ],
+                'registry_claim_hash_alg' => 'sha-256',
+                'registry_claim_hash' => self::registry_claim_hash(),
+                'registry_claim' => self::registry_claim(),
+                'registry_record_hash' => self::registry_record_hash_value(),
+                'registry_updated_at' => self::registry_updated_at(),
                 'registry_ready' => true,
                 'suggested_registry_record' => self::suggested_registry_record(),
             ],

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import sys
+import tempfile
 import unittest
 
 
@@ -56,8 +58,46 @@ def shopbridge_manifest() -> dict[str, object]:
     }
 
 
+def shopbridge_manifest_with_published_claim() -> dict[str, object]:
+    manifest = shopbridge_manifest()
+    manifest["discovery"] = {
+        "registry_proof": {
+            "signature_alg": "https-domain-proof",
+            "url": "https://merchant.example/.well-known/agentcart-registry-proof.json",
+        }
+    }
+    claim = registry_record_tool.registry_claim(manifest)
+    record = {
+        **claim,
+        "registry_claim_hash_alg": "sha-256",
+        "registry_claim_hash": registry_record_tool.agentcart.canonical_json_hash(claim),
+        "updated_at": registry_record_tool.iso_now(),
+        "revoked_at": None,
+        "signature_alg": "https-domain-proof",
+        "signature": "",
+        "proof": {
+            "type": "https-well-known",
+            "url": "https://merchant.example/.well-known/agentcart-registry-proof.json",
+        },
+    }
+    manifest["discovery"] = {
+        "registry_proof": {
+            "signature_alg": "https-domain-proof",
+            "url": "https://merchant.example/.well-known/agentcart-registry-proof.json",
+        },
+        "registry_claim_hash_alg": "sha-256",
+        "registry_claim_hash": record["registry_claim_hash"],
+        "registry_claim": claim,
+        "registry_record_hash": registry_record_tool.agentcart.registry_record_hash(record),
+        "registry_updated_at": record["updated_at"],
+        "registry_ready": True,
+        "suggested_registry_record": record,
+    }
+    return manifest
+
+
 class RegistryRecordToolTests(unittest.TestCase):
-    def test_builds_domain_proof_record_and_paste_back_settings(self) -> None:
+    def test_builds_legacy_domain_proof_record_and_paste_back_settings(self) -> None:
         manifest = shopbridge_manifest()
         record = registry_record_tool.build_registry_record(
             manifest,
@@ -77,13 +117,67 @@ class RegistryRecordToolTests(unittest.TestCase):
             "https://merchant.example/.well-known/agentcart-registry-proof.json",
         )
         self.assertEqual(
-            bundle["merchant_settings"]["AGENTCART_REGISTRY_RECORD_HASH"],
+            bundle["legacy_merchant_settings"]["AGENTCART_REGISTRY_RECORD_HASH"],
             registry_record_tool.agentcart.registry_record_hash(record),
         )
         self.assertEqual(
-            bundle["merchant_settings"]["AGENTCART_REGISTRY_MANIFEST_HASH"],
+            bundle["legacy_merchant_settings"]["AGENTCART_REGISTRY_MANIFEST_HASH"],
             registry_record_tool.agentcart.canonical_json_hash(manifest),
         )
+
+    def test_env_format_says_no_paste_back_for_auto_managed_claim(self) -> None:
+        manifest = shopbridge_manifest_with_published_claim()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest_file = tmp / "manifest.json"
+            output_file = tmp / "env.txt"
+            manifest_file.write_text(json.dumps(manifest))
+
+            exit_code = registry_record_tool.main([
+                "build",
+                "--manifest-file",
+                str(manifest_file),
+                "--format",
+                "env",
+                "--output",
+                str(output_file),
+            ])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(
+                output_file.read_text(),
+                "# no merchant env paste-back is required for this ShopBridge manifest\n",
+            )
+
+    def test_build_prefers_auto_managed_shopbridge_registry_claim(self) -> None:
+        manifest = shopbridge_manifest_with_published_claim()
+
+        record = registry_record_tool.build_registry_record(manifest)
+        bundle = registry_record_tool.onboarding_bundle(record)
+
+        self.assertNotIn("manifest_hash", record)
+        self.assertEqual(record, manifest["discovery"]["suggested_registry_record"])
+        self.assertEqual(
+            record["registry_claim_hash"],
+            registry_record_tool.agentcart.canonical_json_hash(manifest["discovery"]["registry_claim"]),
+        )
+        self.assertEqual(bundle["legacy_merchant_settings"], {})
+        self.assertIn("auto-publishes", bundle["merchant_action"])
+
+    def test_auto_managed_shopbridge_registry_claim_verifies(self) -> None:
+        manifest = shopbridge_manifest_with_published_claim()
+        record = registry_record_tool.build_registry_record(manifest)
+        proof = registry_record_tool.domain_proof_document(record)
+
+        result = registry_record_tool.verify_registry_record(
+            record,
+            manifest_snapshot=manifest,
+            proof_snapshot=proof,
+        )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["verification"]["state"], "verified")
+        self.assertEqual(result["entry"]["registry_claim_hash"], record["registry_claim_hash"])
 
     def test_generated_domain_proof_record_verifies_with_snapshots(self) -> None:
         manifest = shopbridge_manifest()

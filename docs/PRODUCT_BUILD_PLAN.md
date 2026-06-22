@@ -193,7 +193,7 @@ Deliverables:
   revocation pointer, and signature or onchain proof;
 - fetch the manifest from the registered merchant domain and verify the
   canonical hash before catalog or quote calls;
-- fail closed on domain mismatch, manifest hash mismatch, revoked records,
+- fail closed on domain mismatch, claim/manifest hash mismatch, revoked records,
   invalid signature/proof, or payment-recipient mismatch;
 - keep product catalog, prices, stock, buyer intent, address, and quotes
   off-chain and out of the public registry;

@@ -82,6 +82,16 @@ def proof_url_for(manifest: dict[str, Any], manifest_url: str, supplied_url: str
     return origin_for(manifest_url) + "/.well-known/agentcart-registry-proof.json"
 
 
+def manifest_discovery(manifest: dict[str, Any]) -> dict[str, Any]:
+    return manifest.get("discovery") if isinstance(manifest.get("discovery"), dict) else {}
+
+
+def suggested_record_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    discovery = manifest_discovery(manifest)
+    record = discovery.get("suggested_registry_record")
+    return copy.deepcopy(record) if isinstance(record, dict) else {}
+
+
 def protocol_ids(manifest: dict[str, Any]) -> list[str]:
     protocols = manifest.get("protocols") if isinstance(manifest.get("protocols"), list) else []
     ids: list[str] = []
@@ -119,11 +129,53 @@ def shipping_countries(manifest: dict[str, Any]) -> list[str]:
     return sorted(dict.fromkeys(countries))
 
 
+def manifest_endpoints(manifest: dict[str, Any]) -> dict[str, str]:
+    endpoints = manifest.get("endpoints") if isinstance(manifest.get("endpoints"), dict) else {}
+    return {
+        key: str(value)
+        for key, value in endpoints.items()
+        if key in {"catalog", "quote", "orders", "order_status", "refunds"} and value
+    }
+
+
 def merchant_block(manifest: dict[str, Any]) -> dict[str, Any]:
     merchant = manifest.get("merchant") if isinstance(manifest.get("merchant"), dict) else {}
     if not merchant.get("id"):
         raise ValueError("manifest merchant.id is required")
     return merchant
+
+
+def registry_claim(
+    manifest: dict[str, Any],
+    *,
+    manifest_url: str = "",
+    proof_url: str = "",
+) -> dict[str, Any]:
+    discovery = manifest_discovery(manifest)
+    published_claim = discovery.get("registry_claim")
+    if isinstance(published_claim, dict):
+        return copy.deepcopy(published_claim)
+    merchant = merchant_block(manifest)
+    final_manifest_url = manifest_url_for(manifest, manifest_url)
+    parsed_manifest_url = urllib.parse.urlparse(final_manifest_url)
+    payment_network, payment_recipient = tempo_payment_binding(manifest)
+    claim: dict[str, Any] = {
+        "merchant_id": str(merchant["id"]),
+        "name": str(merchant.get("name") or merchant["id"]),
+        "domain": parsed_manifest_url.netloc.lower(),
+        "manifest_url": final_manifest_url,
+        "endpoints": manifest_endpoints(manifest),
+        "supported_protocols": protocol_ids(manifest),
+        "payment_network": payment_network,
+        "payment_recipient": payment_recipient,
+        "stripe_profile_id": "",
+        "ship_to_countries": shipping_countries(manifest),
+        "proof_url": proof_url_for(manifest, final_manifest_url, proof_url),
+    }
+    for protocol in manifest.get("protocols", []) if isinstance(manifest.get("protocols"), list) else []:
+        if isinstance(protocol, dict) and str(protocol.get("id") or "") == "stripe-card-mpp":
+            claim["stripe_profile_id"] = str(protocol.get("network_id") or "")
+    return claim
 
 
 def build_registry_record(
@@ -136,34 +188,60 @@ def build_registry_record(
     hmac_secret: str = "",
     include_manifest_snapshot: bool = False,
 ) -> dict[str, Any]:
-    merchant = merchant_block(manifest)
-    final_manifest_url = manifest_url_for(manifest, manifest_url)
-    parsed_manifest_url = urllib.parse.urlparse(final_manifest_url)
-    payment_network, payment_recipient = tempo_payment_binding(manifest)
-    record: dict[str, Any] = {
-        "merchant_id": str(merchant["id"]),
-        "name": str(merchant.get("name") or merchant["id"]),
-        "domain": parsed_manifest_url.netloc.lower(),
-        "manifest_url": final_manifest_url,
-        "manifest_hash_alg": "sha-256",
-        "manifest_hash": agentcart.canonical_json_hash(manifest),
-        "supported_protocols": protocol_ids(manifest),
-        "payment_network": payment_network,
-        "payment_recipient": payment_recipient,
-        "ship_to_countries": shipping_countries(manifest),
-        "updated_at": updated_at or iso_now(),
-        "revoked_at": None,
-        "signature_alg": signature_alg,
-        "signature": "",
-    }
-    if merchant.get("terms_url"):
-        record["terms_url"] = str(merchant["terms_url"])
-    if merchant.get("returns_url"):
-        record["returns_url"] = str(merchant["returns_url"])
+    record = suggested_record_from_manifest(manifest)
+    if record:
+        if updated_at:
+            record["updated_at"] = updated_at
+        if proof_url:
+            record["proof"] = {"type": "https-well-known", "url": proof_url}
+        record["signature_alg"] = signature_alg
+        record["signature"] = ""
+    else:
+        merchant = merchant_block(manifest)
+        discovery = manifest_discovery(manifest)
+        if isinstance(discovery.get("registry_claim"), dict):
+            claim = registry_claim(manifest, manifest_url=manifest_url, proof_url=proof_url)
+            record = {
+                **claim,
+                "registry_claim_hash_alg": "sha-256",
+                "registry_claim_hash": agentcart.canonical_json_hash(claim),
+                "updated_at": updated_at or iso_now(),
+                "revoked_at": None,
+                "signature_alg": signature_alg,
+                "signature": "",
+            }
+        else:
+            final_manifest_url = manifest_url_for(manifest, manifest_url)
+            parsed_manifest_url = urllib.parse.urlparse(final_manifest_url)
+            payment_network, payment_recipient = tempo_payment_binding(manifest)
+            record = {
+                "merchant_id": str(merchant["id"]),
+                "name": str(merchant.get("name") or merchant["id"]),
+                "domain": parsed_manifest_url.netloc.lower(),
+                "manifest_url": final_manifest_url,
+                "manifest_hash_alg": "sha-256",
+                "manifest_hash": agentcart.canonical_json_hash(manifest),
+                "supported_protocols": protocol_ids(manifest),
+                "payment_network": payment_network,
+                "payment_recipient": payment_recipient,
+                "ship_to_countries": shipping_countries(manifest),
+                "updated_at": updated_at or iso_now(),
+                "revoked_at": None,
+                "signature_alg": signature_alg,
+                "signature": "",
+            }
+        if merchant.get("terms_url"):
+            record["terms_url"] = str(merchant["terms_url"])
+        if merchant.get("returns_url"):
+            record["returns_url"] = str(merchant["returns_url"])
     if signature_alg in {"https-domain-proof", "agentcart-domain-v1"}:
+        existing_proof_url = ""
+        if isinstance(record.get("proof"), dict):
+            existing_proof_url = str(record["proof"].get("url") or "")
+        default_manifest_url = str(record.get("manifest_url") or manifest_url_for(manifest, manifest_url))
         record["proof"] = {
             "type": "https-well-known",
-            "url": proof_url_for(manifest, final_manifest_url, proof_url),
+            "url": proof_url or existing_proof_url or str(record.get("proof_url") or "") or proof_url_for(manifest, default_manifest_url),
         }
     elif signature_alg == "hmac-sha256":
         if not hmac_secret:
@@ -177,16 +255,20 @@ def build_registry_record(
 
 
 def domain_proof_document(record: dict[str, Any]) -> dict[str, Any]:
-    return {
+    proof = {
         "merchant_id": str(record.get("merchant_id") or ""),
         "domain": str(record.get("domain") or ""),
         "manifest_url": str(record.get("manifest_url") or ""),
-        "manifest_hash": str(record.get("manifest_hash") or ""),
         "payment_network": str(record.get("payment_network") or ""),
         "payment_recipient": str(record.get("payment_recipient") or ""),
         "updated_at": str(record.get("updated_at") or ""),
         "record_hash": agentcart.registry_record_hash(record),
     }
+    if record.get("registry_claim_hash"):
+        proof["registry_claim_hash"] = str(record.get("registry_claim_hash") or "")
+    else:
+        proof["manifest_hash"] = str(record.get("manifest_hash") or "")
+    return proof
 
 
 def onboarding_bundle(record: dict[str, Any]) -> dict[str, Any]:
@@ -196,11 +278,12 @@ def onboarding_bundle(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "registry_record": record,
         "record_hash": record_hash,
-        "merchant_settings": {
+        "merchant_action": "none if the ShopBridge manifest already contains discovery.suggested_registry_record; the plugin auto-publishes the proof hash and updated_at",
+        "legacy_merchant_settings": {
             "AGENTCART_REGISTRY_MANIFEST_HASH": manifest_hash,
             "AGENTCART_REGISTRY_UPDATED_AT": updated_at,
             "AGENTCART_REGISTRY_RECORD_HASH": record_hash,
-        },
+        } if manifest_hash else {},
         "proof_document_expected": domain_proof_document(record)
         if str(record.get("signature_alg") or "") in {"https-domain-proof", "agentcart-domain-v1"}
         else None,
@@ -209,7 +292,8 @@ def onboarding_bundle(record: dict[str, Any]) -> dict[str, Any]:
         },
         "next_steps": [
             "Add registry_record to the public AgentCart registry feed.",
-            "Paste AGENTCART_REGISTRY_RECORD_HASH and AGENTCART_REGISTRY_UPDATED_AT into WooCommerce -> AgentCart, or configure them in wp-config.php.",
+            "If this record came from ShopBridge discovery.suggested_registry_record, the plugin already publishes the matching proof.",
+            "Only legacy/non-ShopBridge manifests need manual paste-back settings.",
             "Run verify against the registry record after the shop proof endpoint updates.",
         ],
     }
@@ -327,8 +411,12 @@ def build_command(args: argparse.Namespace) -> int:
     elif args.format == "feed":
         output = bundle["registry_feed"]
     elif args.format == "env":
-        settings = bundle["merchant_settings"]
-        output = "".join(f"{key}={value}\n" for key, value in settings.items())
+        settings = bundle["legacy_merchant_settings"]
+        output = (
+            "".join(f"{key}={value}\n" for key, value in settings.items())
+            if settings
+            else "# no merchant env paste-back is required for this ShopBridge manifest\n"
+        )
     else:
         output = bundle
     emit(output, args.output)

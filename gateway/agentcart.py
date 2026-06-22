@@ -1955,15 +1955,18 @@ class AgentCartService:
                 errors.append("manifest_fetch_failed")
 
         if manifest is not None:
-            expected_hash = str(record.get("manifest_hash") or "")
-            hash_alg = str(record.get("manifest_hash_alg") or "sha-256").lower()
-            actual_hash = canonical_json_hash(manifest)
-            if hash_alg not in {"sha-256", "sha256"}:
-                errors.append("manifest_hash_alg_unsupported")
-            if not expected_hash:
-                errors.append("missing_manifest_hash")
-            elif not hmac.compare_digest(expected_hash, actual_hash):
-                errors.append("manifest_hash_mismatch")
+            if record.get("registry_claim_hash"):
+                errors.extend(self.verify_registry_claim_binding(record, manifest))
+            else:
+                expected_hash = str(record.get("manifest_hash") or "")
+                hash_alg = str(record.get("manifest_hash_alg") or "sha-256").lower()
+                actual_hash = canonical_json_hash(manifest)
+                if hash_alg not in {"sha-256", "sha256"}:
+                    errors.append("manifest_hash_alg_unsupported")
+                if not expected_hash:
+                    errors.append("missing_manifest_hash")
+                elif not hmac.compare_digest(expected_hash, actual_hash):
+                    errors.append("manifest_hash_mismatch")
 
             manifest_merchant = manifest.get("merchant") if isinstance(manifest.get("merchant"), dict) else {}
             manifest_merchant_id = str(manifest_merchant.get("id") or "")
@@ -2057,11 +2060,14 @@ class AgentCartService:
             "merchant_id",
             "domain",
             "manifest_url",
-            "manifest_hash",
             "payment_network",
             "payment_recipient",
             "updated_at",
         ]
+        if record.get("registry_claim_hash"):
+            required_fields.append("registry_claim_hash")
+        else:
+            required_fields.append("manifest_hash")
         for field in required_fields:
             expected = str(record.get(field) or "")
             supplied = str(proof_document.get(field) or "")
@@ -2069,6 +2075,56 @@ class AgentCartService:
                 errors.append(f"domain_proof_{field}_mismatch")
             elif expected and not supplied:
                 errors.append(f"domain_proof_{field}_missing")
+        return errors
+
+    def verify_registry_claim_binding(self, record: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
+        expected_hash = str(record.get("registry_claim_hash") or "")
+        if not expected_hash:
+            return []
+        errors: list[str] = []
+        hash_alg = str(record.get("registry_claim_hash_alg") or "sha-256").lower()
+        if hash_alg not in {"sha-256", "sha256"}:
+            errors.append("registry_claim_hash_alg_unsupported")
+        discovery = manifest.get("discovery") if isinstance(manifest.get("discovery"), dict) else {}
+        claim = discovery.get("registry_claim") if isinstance(discovery.get("registry_claim"), dict) else {}
+        if not claim:
+            errors.append("registry_claim_missing_in_manifest")
+            return errors
+        actual_hash = canonical_json_hash(claim)
+        if not hmac.compare_digest(expected_hash, actual_hash):
+            errors.append("registry_claim_hash_mismatch")
+        for field in (
+            "merchant_id",
+            "name",
+            "domain",
+            "manifest_url",
+            "payment_network",
+            "payment_recipient",
+            "stripe_profile_id",
+            "proof_url",
+        ):
+            expected = str(record.get(field) or "")
+            supplied = str(claim.get(field) or "")
+            if expected and supplied and expected != supplied:
+                errors.append(f"registry_claim_{field}_mismatch")
+            elif expected and not supplied:
+                errors.append(f"registry_claim_{field}_missing")
+        record_countries = sorted(str(value).upper() for value in record.get("ship_to_countries", []) if value)
+        claim_countries = sorted(str(value).upper() for value in claim.get("ship_to_countries", []) if value)
+        if record_countries and record_countries != claim_countries:
+            errors.append("registry_claim_ship_to_countries_mismatch")
+        record_protocols = sorted(str(value) for value in record.get("supported_protocols", []) if value)
+        claim_protocols = sorted(str(value) for value in claim.get("supported_protocols", []) if value)
+        if record_protocols and record_protocols != claim_protocols:
+            errors.append("registry_claim_supported_protocols_mismatch")
+        record_endpoints = record.get("endpoints") if isinstance(record.get("endpoints"), dict) else {}
+        claim_endpoints = claim.get("endpoints") if isinstance(claim.get("endpoints"), dict) else {}
+        for name, endpoint in record_endpoints.items():
+            supplied = claim_endpoints.get(name)
+            if endpoint and supplied and endpoint != supplied:
+                errors.append(f"registry_claim_endpoint_{name}_mismatch")
+            elif endpoint and not supplied:
+                errors.append(f"registry_claim_endpoint_{name}_missing")
         return errors
 
     def verify_registry_payment_binding(self, record: dict[str, Any], manifest: dict[str, Any]) -> str | None:
@@ -2155,6 +2211,8 @@ class AgentCartService:
             "manifest_url": str(record.get("manifest_url") or ""),
             "manifest_hash_alg": str(record.get("manifest_hash_alg") or "sha-256"),
             "manifest_hash": str(record.get("manifest_hash") or ""),
+            "registry_claim_hash_alg": str(record.get("registry_claim_hash_alg") or ""),
+            "registry_claim_hash": str(record.get("registry_claim_hash") or ""),
             "supported_protocols": record.get("supported_protocols") if isinstance(record.get("supported_protocols"), list) else ["agentcart-shopbridge"],
             "payment": {
                 "network": str(record.get("payment_network") or ""),

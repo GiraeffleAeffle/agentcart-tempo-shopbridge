@@ -1,7 +1,7 @@
 # Merchant Registry And Discovery
 
 > Status: alpha implemented. The current gateway can load a signed off-chain
-> registry JSON feed, verify manifest hash/domain/payment/shipping bindings,
+> registry JSON feed, verify claim/domain/payment/shipping bindings,
 > and exclude unverified external merchants from quote tournaments by default.
 > The same verifier interface is intended to sit behind an onchain or
 > append-only registry later.
@@ -28,8 +28,8 @@ marketplace and not a product catalog.
   "merchant_id": "tea-shop.example",
   "domain": "shop.example",
   "manifest_url": "https://shop.example/.well-known/agentcart.json",
-  "manifest_hash_alg": "sha-256",
-  "manifest_hash": "abc123...",
+  "registry_claim_hash_alg": "sha-256",
+  "registry_claim_hash": "abc123...",
   "supported_protocols": ["agentcart-shopbridge", "mpp-http-auth"],
   "payment_network": "tempo-testnet",
   "payment_recipient": "0x...",
@@ -53,7 +53,7 @@ Put on-chain or in a public append-only registry:
 - merchant id
 - domain
 - manifest URL
-- manifest hash
+- registry claim hash
 - payment network/recipient
 - update timestamp
 - revocation pointer
@@ -86,13 +86,14 @@ eligible merchants, but final bidding should not leak household demand broadly.
 
 1. Merchant publishes `/.well-known/agentcart.json`.
 2. Merchant signs or publishes a proof for the canonical registry record and
-   manifest hash.
+   stable registry claim hash.
 3. Agent fetches the registry record from an allowlisted off-chain feed or
    onchain registry.
 4. Agent rejects revoked or stale records.
 5. Agent verifies that `manifest_url` host matches the registered domain.
 6. Agent fetches the manifest from the merchant domain.
-7. Agent canonicalizes the manifest JSON and verifies its hash.
+7. Agent canonicalizes the stable registry claim inside the manifest and
+   verifies its hash. Legacy records can still bind the full manifest hash.
 8. Agent verifies the detached signature, merchant-domain proof, or onchain
    proof over the registry record.
 9. Agent verifies that payment recipient/network in the manifest matches the
@@ -129,7 +130,7 @@ the registered merchant domain under `/.well-known/`:
   "merchant_id": "tea-shop.example",
   "domain": "shop.example",
   "manifest_url": "https://shop.example/.well-known/agentcart.json",
-  "manifest_hash": "abc123...",
+  "registry_claim_hash": "abc123...",
   "payment_network": "tempo-testnet",
   "payment_recipient": "0x...",
   "updated_at": "2026-06-18T00:00:00Z",
@@ -146,14 +147,15 @@ a crypto dependency to the gateway. Wallet signatures can be added later as
 another verifier behind the same proof seam.
 
 The WooCommerce ShopBridge plugin exposes this proof at
-`/.well-known/agentcart-registry-proof.json` once the merchant enters the final
-registry record hash and timestamp on the AgentCart settings page.
+`/.well-known/agentcart-registry-proof.json`. It automatically maintains the
+claim hash, record hash, and `updated_at` timestamp from stable settings, so
+merchants do not paste registry hashes during normal onboarding.
 
 ## Registry Record Helper
 
 The registry operator should build records from the merchant manifest instead
-of asking merchants to hand-write JSON. The helper uses the same canonical JSON
-hashing and verifier code as the gateway:
+of asking merchants to hand-write JSON or copy hashes. The helper uses the same
+canonical JSON hashing and verifier code as the gateway:
 
 ```sh
 python3 gateway/scripts/registry_record.py build \
@@ -164,12 +166,14 @@ python3 gateway/scripts/registry_record.py build \
 The output contains:
 
 - `registry_record`: the record to add to the public registry feed.
-- `merchant_settings`: the two required paste-back fields for
-  `WooCommerce -> AgentCart`, plus the manifest hash.
-- `proof_document_expected`: the proof document the shop should publish after
-  those values are saved.
+- `merchant_action`: whether the merchant needs to do anything. For current
+  ShopBridge manifests this should be `none` because the plugin already
+  publishes a matching proof.
+- `proof_document_expected`: the proof document the shop should already publish.
+- `legacy_merchant_settings`: paste-back settings only for legacy/non-ShopBridge
+  manifests that do not publish an auto-managed registry claim.
 
-After the merchant saves the record hash and timestamp, verify the live proof:
+Verify the live proof:
 
 ```sh
 python3 gateway/scripts/registry_record.py verify \
@@ -187,7 +191,7 @@ python3 gateway/scripts/registry_record.py verify \
 
 This keeps merchant onboarding close to the normal WooCommerce flow: install the
 plugin, configure payment/support settings, enable products, share the manifest
-URL, and paste back the final registry hash.
+URL, and let the registry consume the plugin-generated claim.
 
 ## Agent Safety Model
 
@@ -210,7 +214,7 @@ Safe agent behavior:
   payment rail, and quote hash;
 - exclude quotes whose advertised payment protocols are all unavailable or
   setup-required before ranking;
-- fail closed when registry verification, manifest hash, quote hash, payment
+- fail closed when registry verification, claim/manifest hash, quote hash, payment
   recipient, or verifier response do not match.
 
 ## Implemented Alpha
@@ -221,7 +225,7 @@ The gateway now:
   `AGENTCART_MERCHANT_REGISTRY_URL`;
 - fetches each manifest, or reads `manifest_snapshot` for reproducible local
   tests;
-- canonicalizes and hashes the manifest;
+- canonicalizes and hashes either the stable registry claim or legacy manifest;
 - verifies domain, hash, signature/proof, revocation, updated timestamp,
   payment recipient, and shipping country scope;
 - verifies `hmac-sha256` private-feed records and `https-domain-proof`
