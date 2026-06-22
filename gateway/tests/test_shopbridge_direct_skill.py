@@ -117,6 +117,43 @@ def registry_manifest_and_record():
     return manifest, record, proof
 
 
+def sample_order_status(**overrides):
+    order = {
+        "id": "123",
+        "number": "1001",
+        "status": "processing",
+        "payment_status": "paid",
+        "status_url": "https://merchant.example/wp-json/agentcart/v1/orders/123/status",
+        "fulfillment": {
+            "state": "preparing",
+            "order_status": "processing",
+            "carrier": "",
+            "tracking_number": "",
+            "tracking_url": "",
+            "estimated_delivery_window": {
+                "label": "2-4 business days",
+                "earliest_date": "2999-01-03",
+                "latest_date": "2999-01-05",
+            },
+            "note": "No carrier tracking metadata is attached yet.",
+        },
+        "payment_verification": {
+            "rail": "stripe-card-mpp",
+            "transaction_reference": "pi_test_123",
+            "real_settlement_verified": True,
+        },
+        "refund_policy": {
+            "endpoint": "https://merchant.example/wp-json/agentcart/v1/orders/123/refunds",
+            "requires_merchant_token": True,
+            "remaining_refundable_cents": 1480,
+            "currency": "EUR",
+        },
+        "refunds": [],
+    }
+    order.update(overrides)
+    return order
+
+
 class ShopBridgeDirectSkillTests(unittest.TestCase):
     def test_approval_hash_changes_when_total_changes(self) -> None:
         first = shopbridge_direct.approval_packet(sample_quote())["approval_hash"]
@@ -296,6 +333,51 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(calls[0]["path"], "/wp-json/agentcart/v1/orders/123/status")
         self.assertEqual(calls[0]["headers"], {"X-AgentCart-Order-Token": "status-token-abc"})
         self.assertEqual(calls[0]["base_url"], shopbridge_direct.BASE_URL)
+
+    def test_aftercare_summary_reports_safe_next_actions_and_refund_draft(self) -> None:
+        result = shopbridge_direct.command_aftercare_summary(
+            {
+                "order": sample_order_status(),
+                "merchant": {
+                    "name": "Merchant Tea Shop",
+                    "merchant_of_record": {"support_email": "support@example.test"},
+                    "returns_url": "https://merchant.example/returns",
+                },
+                "refund_reason": "Item damaged",
+                "refund_amount_cents": 500,
+            }
+        )
+
+        self.assertEqual(result["order"]["id"], "123")
+        self.assertEqual(result["fulfillment"]["state"], "preparing")
+        self.assertEqual(result["refund"]["remaining"], "14.80 EUR")
+        self.assertTrue(result["refund"]["requires_merchant_or_gateway"])
+        self.assertEqual(result["support"]["email"], "support@example.test")
+        self.assertEqual(result["payment_proof"]["transaction_reference"], "pi_test_123")
+        self.assertEqual(result["refund_request_draft"]["amount"], "5.00 EUR")
+        self.assertIn("does not call merchant-token refund endpoints", result["safety_note"])
+        self.assertIn("request_refund", {action["id"] for action in result["next_actions"]})
+
+    def test_aftercare_summary_can_fetch_order_status(self) -> None:
+        calls = []
+
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            calls.append({"path": path, "headers": headers, "base_url": base_url})
+            return sample_order_status()
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+            result = shopbridge_direct.command_aftercare_summary(
+                {
+                    "base_url": "https://merchant.example",
+                    "order_id": "123",
+                    "status_token": "status-token-abc",
+                }
+            )
+
+        self.assertEqual(result["order"]["id"], "123")
+        self.assertEqual(calls[0]["path"], "/wp-json/agentcart/v1/orders/123/status")
+        self.assertEqual(calls[0]["headers"], {"X-AgentCart-Order-Token": "status-token-abc"})
+        self.assertEqual(calls[0]["base_url"], "https://merchant.example")
 
 
 if __name__ == "__main__":

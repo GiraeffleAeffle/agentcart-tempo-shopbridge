@@ -173,6 +173,12 @@ Definition of done:
 - an agent can replenish a small basket with approval and explain tradeoffs;
 - users can inspect, cancel, refund, or contact the merchant after checkout.
 
+Current alpha status: the direct ShopBridge skill can summarize order status,
+fulfillment/tracking, refundability, merchant support, payment proof, and a
+refund request draft without calling merchant-token refund endpoints. Production
+still needs cancellation support, richer refund workflows, and durable household
+aftercare state in the AgentCart service path.
+
 ### 6. Production Packaging
 
 Goal: the product is installable and maintainable.

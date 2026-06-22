@@ -393,6 +393,119 @@ def compact_quote(quote: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    fulfillment = order.get("fulfillment") if isinstance(order.get("fulfillment"), dict) else {}
+    refund_policy = order.get("refund_policy") if isinstance(order.get("refund_policy"), dict) else {}
+    payment = order.get("payment_verification") if isinstance(order.get("payment_verification"), dict) else {}
+    refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
+    support = support_contact(order, args)
+    currency = str(refund_policy.get("currency") or args.get("currency") or "EUR")
+    remaining_cents = int(refund_policy.get("remaining_refundable_cents") or 0)
+    tracking_url = str(fulfillment.get("tracking_url") or "")
+    tracking_number = str(fulfillment.get("tracking_number") or "")
+    delivery = fulfillment.get("estimated_delivery_window") if isinstance(fulfillment.get("estimated_delivery_window"), dict) else {}
+    next_actions = []
+    if tracking_url:
+        next_actions.append({"id": "open_tracking", "label": "Open carrier tracking", "url": tracking_url})
+    elif tracking_number:
+        next_actions.append({"id": "track_with_carrier", "label": f"Track shipment {tracking_number}"})
+    else:
+        next_actions.append({"id": "check_status_later", "label": "Check order status again later"})
+    if remaining_cents > 0:
+        next_actions.append(
+            {
+                "id": "request_refund",
+                "label": "Ask merchant or trusted gateway to review a refund",
+                "requires_merchant_token": bool(refund_policy.get("requires_merchant_token", True)),
+            }
+        )
+    if support.get("email"):
+        next_actions.append({"id": "contact_support", "label": "Contact merchant support", "email": support["email"]})
+    transaction_reference = str(payment.get("transaction_reference") or payment.get("reference") or "")
+    if transaction_reference:
+        next_actions.append({"id": "export_payment_proof", "label": "Export payment proof", "reference": transaction_reference})
+    refund_request = refund_request_draft(order, args, support, remaining_cents, currency) if args.get("refund_reason") or args.get("refund_amount_cents") else None
+    return {
+        "order": {
+            "id": str(order.get("id") or order.get("order_id") or ""),
+            "number": str(order.get("number") or ""),
+            "status": str(order.get("status") or ""),
+            "payment_status": str(order.get("payment_status") or ("paid" if payment else "")),
+            "status_url": str(order.get("status_url") or ""),
+            "has_status_token": bool(order.get("status_token") or args.get("status_token") or args.get("token")),
+        },
+        "fulfillment": {
+            "state": str(fulfillment.get("state") or ""),
+            "carrier": str(fulfillment.get("carrier") or ""),
+            "tracking_number": tracking_number,
+            "tracking_url": tracking_url,
+            "estimated_delivery": delivery.get("label") or delivery.get("latest_date") or "",
+            "note": str(fulfillment.get("note") or ""),
+        },
+        "refund": {
+            "available": remaining_cents > 0,
+            "remaining": money(remaining_cents, currency),
+            "requires_merchant_or_gateway": bool(refund_policy.get("requires_merchant_token", True)),
+            "endpoint_for_trusted_gateway": str(refund_policy.get("endpoint") or ""),
+            "existing_refunds": len([refund for refund in refunds if isinstance(refund, dict)]),
+        },
+        "support": support,
+        "payment_proof": {
+            "rail": str(payment.get("rail") or ""),
+            "transaction_reference": transaction_reference,
+            "real_settlement_verified": bool(payment.get("real_settlement_verified")),
+        },
+        "refund_request_draft": refund_request,
+        "next_actions": next_actions,
+        "safety_note": "The direct buyer skill does not call merchant-token refund endpoints. Ask the merchant or a trusted AgentCart gateway to submit approved refunds.",
+    }
+
+
+def support_contact(order: dict[str, Any], args: dict[str, Any]) -> dict[str, str]:
+    candidates = [
+        args.get("merchant"),
+        args.get("manifest", {}).get("merchant") if isinstance(args.get("manifest"), dict) else None,
+        order.get("merchant"),
+        order.get("merchant_of_record"),
+    ]
+    support_email = str(args.get("support_email") or "")
+    returns_url = str(args.get("returns_url") or "")
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        merchant_of_record = candidate.get("merchant_of_record") if isinstance(candidate.get("merchant_of_record"), dict) else {}
+        support_email = support_email or str(candidate.get("support_email") or merchant_of_record.get("support_email") or "")
+        returns_url = returns_url or str(candidate.get("returns_url") or "")
+    return {"email": support_email, "returns_url": returns_url}
+
+
+def refund_request_draft(
+    order: dict[str, Any],
+    args: dict[str, Any],
+    support: dict[str, str],
+    remaining_cents: int,
+    currency: str,
+) -> dict[str, Any]:
+    requested_cents = int(args.get("refund_amount_cents") or remaining_cents or 0)
+    if remaining_cents > 0:
+        requested_cents = min(requested_cents, remaining_cents)
+    reason = str(args.get("refund_reason") or "Buyer requested refund review")
+    return {
+        "to": support.get("email") or "merchant support",
+        "subject": f"Refund request for AgentCart order {order.get('number') or order.get('id') or ''}".strip(),
+        "amount": money(max(0, requested_cents), currency),
+        "reason": reason,
+        "order_id": str(order.get("id") or order.get("order_id") or ""),
+        "trusted_gateway_payload_hint": {
+            "order_id": str(order.get("id") or order.get("order_id") or ""),
+            "amount_cents": max(0, requested_cents),
+            "currency": currency,
+            "reason": reason,
+            "requested_reference": args.get("requested_reference") or f"buyer_refund_{order.get('id') or 'order'}",
+        },
+    }
+
+
 def payment_protocols(quote: dict[str, Any]) -> list[dict[str, Any]]:
     payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
     protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
@@ -886,6 +999,13 @@ def command_order_status(args: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def command_aftercare_summary(args: dict[str, Any]) -> dict[str, Any]:
+    order = args.get("order") or args.get("status") or args.get("order_status")
+    if not isinstance(order, dict):
+        order = command_order_status(args)
+    return compact_aftercare(order, args)
+
+
 def main() -> None:
     request = json.load(sys.stdin)
     command = request.get("command")
@@ -927,6 +1047,8 @@ def main() -> None:
     elif command == "order_status":
         result = command_order_status(args)
         compact = result
+    elif command == "aftercare_summary":
+        compact = command_aftercare_summary(args)
     else:
         raise SystemExit(f"Unknown command: {command}")
 

@@ -132,6 +132,23 @@ Order status:
 {"command":"order_status","args":{"status_url":"https://shop.example/wp-json/agentcart/v1/orders/123/status?token=..."}}
 ```
 
+Aftercare summary:
+
+```json
+{"command":"aftercare_summary","args":{"order":{...},"merchant":{...},"format":"toon"}}
+```
+
+Or fetch status first, then summarize:
+
+```json
+{"command":"aftercare_summary","args":{"base_url":"https://shop.example","order_id":"123","status_token":"...","refund_reason":"Item damaged","refund_amount_cents":500,"format":"toon"}}
+```
+
+This is read-only. It summarizes fulfillment, tracking, refundability, support,
+payment proof, and safe next actions. If refund fields are supplied, it creates
+a refund request draft for the merchant or trusted AgentCart gateway; it does
+not call the merchant-token refund endpoint.
+
 ## Safety Rules
 
 - Do not call `checkout` unless the human explicitly approves the exact merchant,
@@ -158,6 +175,9 @@ Order status:
   local override or user-specified shop.
 - Prefer JSON for payment/order calls. Use TOON only for compact agent-readable
   summaries.
+- Use `aftercare_summary` for buyer-facing follow-up. Do not call refund
+  endpoints from this direct buyer skill; ShopBridge refund endpoints require a
+  merchant token or trusted gateway approval.
 - Use the full AgentCart service path instead when the buyer needs durable
   household policy, multi-user approval, recurring budgets, delivery calendar,
   task sync, or a persistent audit trail.
