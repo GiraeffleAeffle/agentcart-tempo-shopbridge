@@ -18,6 +18,8 @@ docs/                     Hackathon story, 3-minute runbook, roadmap, protocol n
 
 For independent local testing, use the Local Gateway and Home-Server Package
 sections below.
+For buyer-agent setup, including the packaged direct skill, see
+`docs/BUYER_SETUP.md`.
 For the production payment/refund verifier seam, see
 `docs/VERIFIER_CONTRACT.md`.
 
@@ -83,6 +85,16 @@ docker-compose --profile woocommerce-demo run --rm woocommerce-seed
 This starts AgentCart, Household OS, Vikunja, and optional Home Assistant /
 WooCommerce demo services. OpenClaw is expected to run separately or on the same
 network with the provided skills installed.
+
+For the lowest-friction buyer path without running AgentCart, package and
+install the direct ShopBridge skill:
+
+```sh
+./scripts/package-shopbridge-direct-skill.sh
+```
+
+This creates `dist/shopbridge-direct-skill.zip`. See `docs/BUYER_SETUP.md` for
+skill-only and service-backed setup.
 
 When `AGENTCART_TOKEN` is set, open protected browser pages with the token once:
 

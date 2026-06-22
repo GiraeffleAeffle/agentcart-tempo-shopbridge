@@ -15,6 +15,17 @@ merchant service.
 OpenClaw is currently expected to run separately or on the same network. Install
 the AgentCart OpenClaw skill from `gateway/openclaw-skill`.
 
+If the buyer does not need the AgentCart service, use the skill-only path
+instead:
+
+```sh
+../../scripts/package-shopbridge-direct-skill.sh
+```
+
+That creates `dist/shopbridge-direct-skill.zip` from the repo root. See
+`../../docs/BUYER_SETUP.md` for the skill-only and service-backed buyer setup
+paths.
+
 ## Quick Start
 
 From the clean hackathon repo root:

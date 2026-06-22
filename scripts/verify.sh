@@ -50,6 +50,13 @@ section "Package WooCommerce plugin"
 zip_listing="$(unzip -l "$ROOT_DIR/dist/agentcart-shopbridge.zip")"
 grep -q "agentcart-shopbridge/agentcart-shopbridge.php" <<<"$zip_listing"
 
+section "Package ShopBridge direct skill"
+bash -n "$ROOT_DIR/scripts/package-shopbridge-direct-skill.sh"
+"$ROOT_DIR/scripts/package-shopbridge-direct-skill.sh"
+skill_zip_listing="$(unzip -l "$ROOT_DIR/dist/shopbridge-direct-skill.zip")"
+grep -q "shopbridge-direct-skill/SKILL.md" <<<"$skill_zip_listing"
+grep -q "shopbridge-direct-skill/scripts/shopbridge-command.py" <<<"$skill_zip_listing"
+
 section "Gateway Docker image"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   image="agentcart-gateway-verify:latest"

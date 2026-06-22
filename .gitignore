@@ -11,3 +11,4 @@ gateway/data/
 dist/*
 !dist/
 !dist/agentcart-shopbridge.zip
+!dist/shopbridge-direct-skill.zip

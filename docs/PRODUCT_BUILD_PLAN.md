@@ -212,6 +212,12 @@ Definition of done:
 - a merchant and a buyer can install without reading the hackathon internals;
 - releases have tests, versioning, and rollback/update guidance.
 
+Current alpha status: the repo packages the WooCommerce plugin ZIP and the
+skill-only buyer ZIP under `dist/`, verifies both artifacts in the main
+pipeline, and documents skill-only plus home-server buyer setup in
+`docs/BUYER_SETUP.md`. Production still needs release signing, versioned
+upgrade/rollback notes, and a non-technical setup wizard.
+
 ### 7. Registry Alpha
 
 Goal: agents can discover multiple opt-in merchants without trusting arbitrary
