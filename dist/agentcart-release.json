@@ -1,17 +1,17 @@
 {
   "artifacts": [
     {
-      "bytes": 38316,
+      "bytes": 38863,
       "component": "woocommerce_shopbridge",
       "file": "dist/agentcart-shopbridge.zip",
-      "sha256": "ba3be5b87aab0523880b97c3f20ad42be8f712e28e599606bd70dbe451be12d2",
+      "sha256": "c8a6a909fec8cd75f2d7a9cdf2e1b93988c3780ffbc980a8378bf3449ed95e76",
       "version": "0.1.0"
     },
     {
-      "bytes": 23252,
+      "bytes": 23449,
       "component": "shopbridge_direct_skill",
       "file": "dist/shopbridge-direct-skill.zip",
-      "sha256": "5fb77a68fca2ba15a21f01275d57c6230e8b2a8d62f46f6036528dcb5bc3984a",
+      "sha256": "34b131e0558f68331de022a8f9250519908b68985d4c132266b08a5513d20f32",
       "version": "0.1.0-alpha"
     }
   ],

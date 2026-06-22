@@ -1468,6 +1468,7 @@ final class AgentCart_ShopBridge {
                 'merchant_cancellation_policy' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
+                'aftercare_state_contract' => true,
                 'agentcart_order_ip_minimized' => true,
                 'endpoint_rate_limits' => true,
                 'refund_endpoint' => true,
@@ -2153,6 +2154,7 @@ final class AgentCart_ShopBridge {
             'status_url' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/status'),
             'status_token' => $status_token,
             'fulfillment' => self::serialize_fulfillment($order),
+            'aftercare_state' => self::aftercare_state($order),
             'payment_verification' => is_array($payment_verification) ? $payment_verification : self::stored_payment_verification($order),
             'items' => self::serialize_order_items($order),
             'merchant_policy' => self::stored_merchant_policy($order),
@@ -2178,6 +2180,7 @@ final class AgentCart_ShopBridge {
             'refund_reference' => (string) $refund->get_meta(self::REFUND_REFERENCE_META, true),
             'real_refund_verified' => is_array($verification) && !empty($verification['real_refund_verified']),
             'verification' => $verification,
+            'aftercare_state' => self::aftercare_state($order),
             'refunds' => self::serialize_refunds($order),
         ];
     }
@@ -2192,6 +2195,7 @@ final class AgentCart_ShopBridge {
             'cancellation' => $event,
             'refund_required' => !empty($event['refund_required']),
             'real_refund_verified' => false,
+            'aftercare_state' => self::aftercare_state($order),
             'refund_policy' => self::refund_policy($order),
             'cancellation_policy' => self::cancellation_policy($order),
             'cancellations' => self::serialize_cancellations($order),
@@ -2208,6 +2212,7 @@ final class AgentCart_ShopBridge {
             'payment_status' => $order->is_paid() ? 'paid' : 'unpaid',
             'payment_method' => $order->get_payment_method(),
             'fulfillment' => self::serialize_fulfillment($order),
+            'aftercare_state' => self::aftercare_state($order),
             'items' => self::serialize_order_items($order),
             'merchant_policy' => self::stored_merchant_policy($order),
             'cancellation_policy' => self::cancellation_policy($order),
@@ -2883,17 +2888,93 @@ final class AgentCart_ShopBridge {
     private static function cancellation_policy(WC_Order $order) {
         $eligibility = self::cancellation_eligibility($order);
         $merchant_policy = self::stored_merchant_policy($order);
+        $aftercare_state = self::aftercare_state($order, $eligibility);
         return [
             'endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/cancellations'),
             'requires_merchant_token' => true,
             'idempotency_required' => true,
             'eligible' => !empty($eligibility['eligible']),
+            'state' => $aftercare_state['cancellation_state'],
             'eligibility' => $eligibility,
             'merchant_policy' => $merchant_policy,
             'does_not_execute_refund' => true,
             'paid_order_requires_separate_refund' => $order->is_paid() && self::cents((float) $order->get_remaining_refund_amount()) > 0,
             'refund_endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/refunds'),
         ];
+    }
+
+    private static function aftercare_state(WC_Order $order, $eligibility = null) {
+        $fulfillment = self::serialize_fulfillment($order);
+        $eligibility = is_array($eligibility) ? $eligibility : self::cancellation_eligibility($order);
+        $blocking_reasons = isset($eligibility['blocking_reasons']) && is_array($eligibility['blocking_reasons'])
+            ? $eligibility['blocking_reasons']
+            : [];
+        $remaining_refundable_cents = self::cents((float) $order->get_remaining_refund_amount());
+        $paid = $order->is_paid();
+        $cancellation_state = 'not_available';
+        if (!empty($eligibility['eligible'])) {
+            $cancellation_state = 'cancellable_before_fulfillment';
+        } elseif (in_array('already_cancelled', $blocking_reasons, true)) {
+            $cancellation_state = 'already_cancelled';
+        } elseif (in_array('fulfillment_tracking_attached', $blocking_reasons, true)) {
+            $cancellation_state = 'fulfillment_locked';
+        } elseif (in_array('terminal_order_status', $blocking_reasons, true)) {
+            $cancellation_state = 'terminal';
+        }
+
+        if (!$paid) {
+            $refund_state = 'unpaid_no_refund_due';
+        } elseif ($remaining_refundable_cents > 0) {
+            $refund_state = 'refund_available';
+        } else {
+            $refund_state = 'no_refund_remaining';
+        }
+
+        $next_actions = [];
+        if (!empty($fulfillment['tracking_url'])) {
+            $next_actions[] = 'open_tracking';
+        } elseif (!empty($fulfillment['tracking_number'])) {
+            $next_actions[] = 'track_with_carrier';
+        } else {
+            $next_actions[] = 'check_status_later';
+        }
+        if ($cancellation_state === 'cancellable_before_fulfillment') {
+            $next_actions[] = 'request_cancellation';
+        }
+        if ($refund_state === 'refund_available') {
+            $next_actions[] = 'request_refund';
+        }
+        if ($paid && $order->has_status('cancelled') && $remaining_refundable_cents > 0) {
+            $next_actions[] = 'complete_verified_refund';
+        }
+
+        return [
+            'order_status' => $order->get_status(),
+            'fulfillment_phase' => self::fulfillment_phase($order, $fulfillment),
+            'cancellation_state' => $cancellation_state,
+            'refund_state' => $refund_state,
+            'remaining_refundable_cents' => $remaining_refundable_cents,
+            'currency' => $order->get_currency(),
+            'blocking_reasons' => $blocking_reasons,
+            'fulfillment_locked' => !empty($eligibility['fulfillment_locked']),
+            'refund_required_if_cancelled' => !empty($eligibility['refund_required_if_cancelled']),
+            'cancellation_does_not_execute_refund' => true,
+            'rail_refund_requires_verifier' => true,
+            'next_actions' => array_values(array_unique($next_actions)),
+        ];
+    }
+
+    private static function fulfillment_phase(WC_Order $order, $fulfillment) {
+        if (!empty($fulfillment['tracking_number']) || !empty($fulfillment['tracking_url'])) {
+            return 'shipped';
+        }
+        if ($order->has_status('completed')) {
+            return 'fulfilled';
+        }
+        if ($order->has_status(['cancelled', 'refunded', 'failed'])) {
+            return 'closed';
+        }
+        return 'pre_fulfillment';
     }
 
     private static function cancellation_eligibility(WC_Order $order) {

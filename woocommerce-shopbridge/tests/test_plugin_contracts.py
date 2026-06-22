@@ -385,9 +385,12 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         key_body = function_body("cancellation_idempotency_key")
         eligibility_body = function_body("cancellation_eligibility")
         policy_body = function_body("cancellation_policy")
+        aftercare_body = function_body("aftercare_state")
+        fulfillment_phase_body = function_body("fulfillment_phase")
         response_body = function_body("serialize_cancellation_response")
         status_body = function_body("serialize_order_status")
         order_response_body = function_body("serialize_order_response")
+        refund_response_body = function_body("serialize_refund_response")
         capability_body = function_body("capability_document")
 
         self.assertIn("/orders/(?P<id>[\\d]+)/cancellations", routes_body)
@@ -402,6 +405,23 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'real_refund_verified' => false", cancellation_body + response_body)
         self.assertIn("'refund_required'", cancellation_body + response_body)
         self.assertIn("does_not_execute_refund", policy_body + capability_body)
+        self.assertIn("'aftercare_state_contract'", capability_body)
+        self.assertIn("'aftercare_state'", status_body)
+        self.assertIn("'aftercare_state'", order_response_body)
+        self.assertIn("'aftercare_state'", response_body)
+        self.assertIn("'aftercare_state'", refund_response_body)
+        for state in [
+            "cancellable_before_fulfillment",
+            "fulfillment_locked",
+            "refund_available",
+            "complete_verified_refund",
+        ]:
+            self.assertIn(state, aftercare_body)
+        self.assertIn("'state' => $aftercare_state['cancellation_state']", policy_body)
+        self.assertIn("serialize_fulfillment", aftercare_body)
+        self.assertIn("cancellation_eligibility", aftercare_body)
+        self.assertIn("tracking_number", fulfillment_phase_body)
+        self.assertIn("pre_fulfillment", fulfillment_phase_body)
         self.assertIn("fulfillment_tracking_attached", eligibility_body)
         self.assertIn("terminal_order_status", eligibility_body)
         self.assertIn("requested_reference", key_body + cancellation_body)

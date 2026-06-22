@@ -441,6 +441,7 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
     fulfillment = order.get("fulfillment") if isinstance(order.get("fulfillment"), dict) else {}
     refund_policy = order.get("refund_policy") if isinstance(order.get("refund_policy"), dict) else {}
     cancellation_policy = order.get("cancellation_policy") if isinstance(order.get("cancellation_policy"), dict) else {}
+    aftercare_state = order.get("aftercare_state") if isinstance(order.get("aftercare_state"), dict) else {}
     payment = order.get("payment_verification") if isinstance(order.get("payment_verification"), dict) else {}
     refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
     item_policy = aftercare_item_policy_summary(order, refund_policy)
@@ -514,6 +515,7 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         },
         "item_policy": item_policy,
         "merchant_policy": merchant_policy,
+        "aftercare_state": compact_aftercare_state(aftercare_state),
         "cancellation": cancellation,
         "support": support,
         "payment_proof": {
@@ -525,6 +527,24 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         "cancellation_request_draft": cancellation_request,
         "next_actions": next_actions,
         "safety_note": "The direct buyer skill does not call merchant-token refund, cancellation, or order mutation endpoints. Ask the merchant or a trusted AgentCart gateway to submit approved aftercare requests, especially for perishable, deposit, restricted, or final-sale items.",
+    }
+
+
+def compact_aftercare_state(aftercare_state: dict[str, Any]) -> dict[str, Any]:
+    state = aftercare_state if isinstance(aftercare_state, dict) else {}
+    next_actions = state.get("next_actions") if isinstance(state.get("next_actions"), list) else []
+    blocking_reasons = state.get("blocking_reasons") if isinstance(state.get("blocking_reasons"), list) else []
+    return {
+        "fulfillment_phase": str(state.get("fulfillment_phase") or ""),
+        "cancellation_state": str(state.get("cancellation_state") or ""),
+        "refund_state": str(state.get("refund_state") or ""),
+        "remaining_refundable_cents": bounded_int(state.get("remaining_refundable_cents"), default=0, minimum=0, maximum=999999999),
+        "fulfillment_locked": bool(state.get("fulfillment_locked")),
+        "refund_required_if_cancelled": bool(state.get("refund_required_if_cancelled")),
+        "cancellation_does_not_execute_refund": bool(state.get("cancellation_does_not_execute_refund", True)),
+        "rail_refund_requires_verifier": bool(state.get("rail_refund_requires_verifier", True)),
+        "blocking_reasons": [str(reason) for reason in blocking_reasons],
+        "next_actions": [str(action) for action in next_actions],
     }
 
 

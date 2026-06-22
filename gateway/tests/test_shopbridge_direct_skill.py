@@ -148,6 +148,18 @@ def sample_order_status(**overrides):
             "transaction_reference": "pi_test_123",
             "real_settlement_verified": True,
         },
+        "aftercare_state": {
+            "fulfillment_phase": "pre_fulfillment",
+            "cancellation_state": "cancellable_before_fulfillment",
+            "refund_state": "refund_available",
+            "remaining_refundable_cents": 1480,
+            "fulfillment_locked": False,
+            "refund_required_if_cancelled": True,
+            "cancellation_does_not_execute_refund": True,
+            "rail_refund_requires_verifier": True,
+            "blocking_reasons": [],
+            "next_actions": ["check_status_later", "request_cancellation", "request_refund"],
+        },
         "merchant_policy": {
             "returns_url": "https://merchant.example/returns",
             "refunds": {
@@ -944,6 +956,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertTrue(result["refund"]["requires_merchant_or_gateway"])
         self.assertEqual(result["support"]["email"], "support@example.test")
         self.assertEqual(result["merchant_policy"]["substitution_policy"], "approval_required")
+        self.assertEqual(result["aftercare_state"]["fulfillment_phase"], "pre_fulfillment")
+        self.assertEqual(result["aftercare_state"]["cancellation_state"], "cancellable_before_fulfillment")
+        self.assertEqual(result["aftercare_state"]["refund_state"], "refund_available")
+        self.assertTrue(result["aftercare_state"]["refund_required_if_cancelled"])
         self.assertTrue(result["merchant_policy"]["cancellation_request_allowed"])
         self.assertEqual(result["payment_proof"]["transaction_reference"], "pi_test_123")
         self.assertEqual(result["refund_request_draft"]["amount"], "5.00 EUR")

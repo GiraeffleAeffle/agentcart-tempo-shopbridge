@@ -77,6 +77,18 @@ WooCommerce order status to `cancelled`, but it does not move card, Tempo,
 stablecoin, or EUR funds. Paid orders still need a separate verified refund
 flow before the agent can say money was returned.
 
+Order, status, refund, and cancellation responses expose `aftercare_state` so
+buyer agents do not infer lifecycle state from prose. The current contract
+includes:
+
+- `fulfillment_phase`: `pre_fulfillment`, `shipped`, `fulfilled`, or `closed`;
+- `cancellation_state`: `cancellable_before_fulfillment`,
+  `fulfillment_locked`, `already_cancelled`, `terminal`, or `not_available`;
+- `refund_state`: `refund_available`, `no_refund_remaining`, or
+  `unpaid_no_refund_due`;
+- `next_actions`: stable action ids such as `request_cancellation`,
+  `request_refund`, `open_tracking`, or `complete_verified_refund`.
+
 ## Refund Verification Requirements
 
 ShopBridge refunds require an idempotency key. Exact replays return the
