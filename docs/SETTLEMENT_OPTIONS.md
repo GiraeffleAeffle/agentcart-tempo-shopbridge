@@ -32,6 +32,18 @@ Best production story for normal WooCommerce merchants.
   hash, and returns a Stripe payment reference.
 - WooCommerce order is created as paid only after verifier success.
 
+Buyer-side skill flow:
+
+- Merchant manifest/registry claim advertises the Stripe profile/network id.
+- Final quote repeats the available `stripe-card-mpp` rail and seller profile in
+  structured `payment_requirements.protocols[]`.
+- The buyer skill includes that destination in the approval packet and approval
+  hash.
+- After approval, the agent issues or receives a scoped payment token for that
+  exact seller profile, amount, currency, quote hash, and expiry.
+- Checkout rejects receipts whose seller profile does not match the approved
+  destination.
+
 ### EUR-Compatible MPP Rail
 
 Ideal future option for EU merchants.

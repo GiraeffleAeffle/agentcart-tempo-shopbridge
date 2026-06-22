@@ -166,13 +166,87 @@ def compact_quote(quote: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def payment_protocols(quote: dict[str, Any]) -> list[dict[str, Any]]:
+    payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+    protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
+    return [protocol for protocol in protocols if isinstance(protocol, dict)]
+
+
+def normalize_payment_rail(value: Any) -> str:
+    rail = str(value or "").strip().lower().replace("_", "-")
+    if rail in {"stripe", "stripe-card", "stripe-card-mpp"}:
+        return "stripe-card-mpp"
+    if rail in {"tempo", "tempo-mpp", "mpp", "mpp-shaped-demo", "demo-payment-proof"}:
+        return "tempo-mpp"
+    return rail
+
+
+def selected_payment_protocol(quote: dict[str, Any], payment_rail: str | None = None) -> dict[str, Any]:
+    protocols = payment_protocols(quote)
+    requested = normalize_payment_rail(payment_rail)
+    if requested:
+        for protocol in protocols:
+            if normalize_payment_rail(protocol.get("id")) == requested:
+                return protocol
+        return {"id": requested, "available": False}
+    for protocol in protocols:
+        if protocol.get("available", True) is not False and protocol.get("setup_required") is not True:
+            return protocol
+    return protocols[0] if protocols else {}
+
+
+def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) -> dict[str, Any]:
+    protocol = selected_payment_protocol(quote, payment_rail)
+    rail = normalize_payment_rail(protocol.get("id") or payment_rail)
+    destination: dict[str, Any] = {
+        "rail": rail,
+        "available": protocol.get("available", True) is not False,
+        "setup_required": protocol.get("setup_required") is True,
+        "source": "quote.payment_requirements.protocols",
+    }
+    if rail == "stripe-card-mpp":
+        profile_id = str(
+            protocol.get("stripe_profile_id")
+            or protocol.get("network_id")
+            or protocol.get("profile_id")
+            or ""
+        )
+        destination.update(
+            {
+                "stripe_profile_id": profile_id,
+                "network_id": str(protocol.get("network_id") or profile_id),
+            }
+        )
+    elif rail == "tempo-mpp":
+        destination.update(
+            {
+                "network": str(protocol.get("network") or ""),
+                "recipient": str(protocol.get("recipient") or protocol.get("recipient_address") or ""),
+                "settlement_asset": str(protocol.get("settlement_asset") or ""),
+            }
+        )
+    return destination
+
+
+def payment_destination_label(destination: dict[str, Any]) -> str:
+    rail = destination.get("rail")
+    if rail == "stripe-card-mpp":
+        profile = destination.get("stripe_profile_id") or destination.get("network_id") or "unconfigured"
+        return f"Stripe/card MPP to seller profile {profile}"
+    if rail == "tempo-mpp":
+        recipient = destination.get("recipient") or "unconfigured recipient"
+        network = destination.get("network") or "unknown network"
+        return f"Tempo MPP to {recipient} on {network}"
+    return str(rail or "unknown payment rail")
+
+
 def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -> dict[str, Any]:
     merchant = quote.get("merchant") or {}
     shipping = quote.get("shipping") or {}
     delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
-    payment = quote.get("payment_requirements") or {}
-    protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
-    selected_rail = payment_rail or (protocols[0].get("id") if protocols and isinstance(protocols[0], dict) else None)
+    protocols = payment_protocols(quote)
+    destination = payment_destination(quote, payment_rail)
+    selected_rail = destination.get("rail") or payment_rail
     material = {
         "merchant": {
             "id": merchant.get("id"),
@@ -196,6 +270,7 @@ def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -
         "quote_hash": quote.get("quote_hash"),
         "expires_at": quote.get("expires_at"),
         "payment_rail": selected_rail,
+        "payment_destination": destination,
         "payment_methods": [protocol.get("id") for protocol in protocols if isinstance(protocol, dict)],
     }
     approval_hash = sha256_hex(material)
@@ -203,7 +278,7 @@ def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -
     return {
         "approval_hash": approval_hash,
         "approval_material": material,
-        "summary": f"Approve {quote_title(quote)} from {compact['merchant']} for {compact['total']}?",
+        "summary": f"Approve {quote_title(quote)} from {compact['merchant']} for {compact['total']} via {payment_destination_label(destination)}?",
         "quote": compact,
         "approval_in_skill_only_mode": "Human approval happens in the agent chat; no AgentCart service policy or durable approval record is used.",
     }
@@ -426,7 +501,8 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
     now = dt.datetime.now(dt.timezone.utc)
     payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
     verification = payment.get("verification") if isinstance(payment.get("verification"), dict) else {}
-    protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
+    protocols = payment_protocols(quote)
+    destination = payment_destination(quote, args.get("payment_rail"))
     available_protocols = [
         protocol.get("id")
         for protocol in protocols
@@ -439,9 +515,16 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
         issues.append("missing_quote_hash")
     if not verification.get("external_verifier_configured"):
         issues.append("external_verifier_required_for_public_checkout")
-    payment_rail = args.get("payment_rail")
-    if payment_rail and payment_rail not in available_protocols:
+    payment_rail = normalize_payment_rail(args.get("payment_rail"))
+    available_rails = {normalize_payment_rail(value) for value in available_protocols}
+    if payment_rail and payment_rail not in available_rails:
         issues.append("payment_rail_unavailable")
+    if destination.get("setup_required"):
+        issues.append("payment_destination_setup_required")
+    if destination.get("rail") == "stripe-card-mpp" and not destination.get("stripe_profile_id"):
+        issues.append("missing_stripe_profile_id")
+    if destination.get("rail") == "tempo-mpp" and not destination.get("recipient"):
+        issues.append("missing_tempo_recipient")
     max_total_cents = args.get("max_total_cents")
     if max_total_cents is not None and int(quote.get("total_cents") or 0) > int(max_total_cents):
         issues.append("over_buyer_limit")
@@ -451,14 +534,36 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
         "approval_hash": approval["approval_hash"],
         "approval_summary": approval["summary"],
         "available_payment_methods": available_protocols,
+        "payment_destination": destination,
         "external_verifier_configured": bool(verification.get("external_verifier_configured")),
     }
+
+
+def validate_receipt_destination(receipt: dict[str, Any], destination: dict[str, Any]) -> None:
+    rail = destination.get("rail")
+    if rail == "stripe-card-mpp":
+        expected = str(destination.get("stripe_profile_id") or destination.get("network_id") or "")
+        supplied = str(receipt.get("stripe_profile_id") or receipt.get("network_id") or receipt.get("seller_profile_id") or "")
+        if expected and supplied and supplied != expected:
+            raise SystemExit("payment_receipt.stripe_profile_id does not match quote payment destination")
+        if expected and not supplied:
+            raise SystemExit("payment_receipt.stripe_profile_id is required for stripe-card-mpp checkout")
+    elif rail == "tempo-mpp":
+        expected_recipient = str(destination.get("recipient") or "").lower()
+        supplied_recipient = str(receipt.get("recipient") or receipt.get("payment_recipient") or "").lower()
+        if expected_recipient and supplied_recipient and supplied_recipient != expected_recipient:
+            raise SystemExit("payment_receipt.recipient does not match quote payment destination")
+        expected_network = str(destination.get("network") or "").lower()
+        supplied_network = str(receipt.get("network") or "").lower()
+        if expected_network and supplied_network and supplied_network != expected_network:
+            raise SystemExit("payment_receipt.network does not match quote payment destination")
 
 
 def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     receipt = args.get("payment_receipt")
     if not isinstance(receipt, dict):
         raise SystemExit("payment_receipt is required unless use_tempo_demo_proof=true")
+    destination = payment_destination(quote, args.get("payment_rail"))
     expected_amount = int(quote["total_cents"])
     expected_currency = str(quote["currency"]).upper()
     supplied_amount = receipt.get("amount_cents")
@@ -470,6 +575,7 @@ def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dic
         raise SystemExit("payment_receipt.currency does not match quote.currency")
     if supplied_hash != str(quote["quote_hash"]):
         raise SystemExit("payment_receipt.quote_hash does not match quote.quote_hash")
+    validate_receipt_destination(receipt, destination)
     return {
         **receipt,
         "id": receipt.get("id") or f"skill_payrcpt_{uuid.uuid4().hex[:12]}",
@@ -477,6 +583,7 @@ def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dic
         "amount_cents": expected_amount,
         "currency": expected_currency,
         "quote_hash": quote["quote_hash"],
+        "payment_destination": destination,
     }
 
 
@@ -508,11 +615,14 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
     else:
         receipt = supplied_payment_receipt(quote, args)
     stable_order_id = f"skill_{expected_approval_hash[:24]}"
+    destination = payment_destination(quote, args.get("payment_rail"))
     return {
         "agentcart_order_id": args.get("agentcart_order_id") or args.get("idempotency_key") or stable_order_id,
         "merchant_quote_id": quote["id"],
         "quote_hash": quote["quote_hash"],
         "quote": quote,
+        "rail": destination.get("rail"),
+        "payment_destination": destination,
         "reason": args.get("reason") or "Skill-only ShopBridge agent checkout",
         "payment_receipt": receipt,
     }

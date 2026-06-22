@@ -38,8 +38,18 @@ def sample_quote(**overrides):
         "payment_requirements": {
             "verification": {"external_verifier_configured": True},
             "protocols": [
-                {"id": "stripe-card-mpp", "available": True},
-                {"id": "tempo-mpp", "available": True},
+                {
+                    "id": "stripe-card-mpp",
+                    "available": True,
+                    "network_id": "acct_shop_123",
+                    "stripe_profile_id": "acct_shop_123",
+                },
+                {
+                    "id": "tempo-mpp",
+                    "available": True,
+                    "network": "testnet",
+                    "recipient": "0x1111111111111111111111111111111111111111",
+                },
             ],
         },
     }
@@ -61,6 +71,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             "amount_cents": 1480,
             "currency": "EUR",
             "quote_hash": "quote-hash-123",
+            "stripe_profile_id": "acct_shop_123",
             "authorization": "opaque-test-credential",
         }
         with self.assertRaises(SystemExit):
@@ -74,6 +85,36 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         )
         self.assertEqual(payload["agentcart_order_id"], f"skill_{approval_hash[:24]}")
         self.assertEqual(payload["payment_receipt"]["amount_cents"], 1480)
+        self.assertEqual(payload["rail"], "stripe-card-mpp")
+        self.assertEqual(payload["payment_destination"]["stripe_profile_id"], "acct_shop_123")
+
+    def test_approval_packet_binds_stripe_payment_destination(self) -> None:
+        packet = shopbridge_direct.approval_packet(sample_quote(), payment_rail="stripe-card-mpp")
+
+        self.assertEqual(packet["approval_material"]["payment_destination"]["rail"], "stripe-card-mpp")
+        self.assertEqual(packet["approval_material"]["payment_destination"]["stripe_profile_id"], "acct_shop_123")
+        self.assertIn("acct_shop_123", packet["summary"])
+
+    def test_checkout_payload_rejects_wrong_stripe_destination(self) -> None:
+        quote = sample_quote()
+        approval_hash = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_hash"]
+
+        with self.assertRaises(SystemExit):
+            shopbridge_direct.checkout_payload(
+                {
+                    "quote": quote,
+                    "payment_rail": "stripe-card-mpp",
+                    "approved": True,
+                    "approval_hash": approval_hash,
+                    "payment_receipt": {
+                        "method": "stripe-card-mpp",
+                        "amount_cents": 1480,
+                        "currency": "EUR",
+                        "quote_hash": "quote-hash-123",
+                        "stripe_profile_id": "acct_wrong",
+                    },
+                }
+            )
 
     def test_payment_receipt_must_match_quote(self) -> None:
         quote = sample_quote()
@@ -110,6 +151,15 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         result = shopbridge_direct.command_checkout_preflight({"quote": quote, "payment_rail": "tempo-mpp"})
         self.assertFalse(result["ok"])
         self.assertIn("external_verifier_required_for_public_checkout", result["issues"])
+
+    def test_checkout_preflight_reports_selected_payment_destination(self) -> None:
+        result = shopbridge_direct.command_checkout_preflight(
+            {"quote": sample_quote(), "payment_rail": "stripe-card-mpp"}
+        )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["payment_destination"]["rail"], "stripe-card-mpp")
+        self.assertEqual(result["payment_destination"]["stripe_profile_id"], "acct_shop_123")
 
     def test_order_status_sends_status_token_header(self) -> None:
         calls = []
