@@ -77,7 +77,7 @@ The registry should not rank by advertising spend. Ranking belongs to the
 buyer-side agent and should be explainable:
 
 ```text
-eligible merchants -> private quote requests -> local policy/price/delivery ranking
+eligible merchants -> private quote requests -> payment readiness -> local policy/price/delivery ranking
 ```
 
 If a marketplace relay later supports auctions, the auction should be
@@ -138,6 +138,8 @@ Safe agent behavior:
 - use structured fields for policy decisions, not prose;
 - bind quote approval to merchant id, items, total, delivery window, expiry,
   payment rail, and quote hash;
+- exclude quotes whose advertised payment protocols are all unavailable or
+  setup-required before ranking;
 - fail closed when registry verification, manifest hash, quote hash, payment
   recipient, or verifier response do not match.
 

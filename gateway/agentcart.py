@@ -2252,6 +2252,103 @@ class AgentCartService:
         )
         return countries or [self.config.default_ship_country]
 
+    def payment_protocol_label(self, protocol: dict[str, Any]) -> str:
+        return str(
+            protocol.get("id")
+            or protocol.get("protocol")
+            or protocol.get("method")
+            or protocol.get("scheme")
+            or "unknown"
+        )
+
+    def quote_payment_readiness(self, quote: dict[str, Any]) -> dict[str, Any]:
+        requirements = (
+            quote.get("payment_requirements")
+            if isinstance(quote.get("payment_requirements"), dict)
+            else {}
+        )
+        protocols = (
+            requirements.get("protocols")
+            if isinstance(requirements.get("protocols"), list)
+            else []
+        )
+        if protocols:
+            usable_protocols = []
+            rejected_protocols = []
+            for protocol in protocols:
+                if not isinstance(protocol, dict):
+                    continue
+                label = self.payment_protocol_label(protocol)
+                unavailable = protocol.get("available") is False
+                setup_required = protocol.get("setup_required") is True
+                if unavailable or setup_required:
+                    reasons = []
+                    if unavailable:
+                        reasons.append("available=false")
+                    if setup_required:
+                        reasons.append("setup_required=true")
+                    rejected_protocols.append({"id": label, "reasons": reasons})
+                    continue
+                usable_protocols.append(protocol)
+            return {
+                "state": "ready" if usable_protocols else "unavailable",
+                "source": "merchant_payment_requirements",
+                "usable_protocols": usable_protocols,
+                "rejected_protocols": rejected_protocols,
+                "reason": None if usable_protocols else "no advertised payment protocol is currently available",
+            }
+
+        provider = self.payment_provider.capability()
+        supported = bool(provider.get("supported"))
+        return {
+            "state": "ready" if supported else "unavailable",
+            "source": "agentcart_payment_provider",
+            "usable_protocols": [
+                {
+                    "id": provider.get("protocol") or self.payment_provider.protocol,
+                    "method": provider.get("method") or self.payment_provider.method,
+                    "available": supported,
+                    "real_settlement": provider.get("real_settlement"),
+                }
+            ]
+            if supported
+            else [],
+            "rejected_protocols": [] if supported else [{"id": provider.get("method") or self.payment_provider.method, "reasons": ["provider unsupported"]}],
+            "provider": provider,
+            "reason": None if supported else "configured AgentCart payment provider is unavailable",
+        }
+
+    def payment_summary_from_readiness(
+        self,
+        quote: dict[str, Any],
+        readiness: dict[str, Any],
+    ) -> dict[str, Any]:
+        usable_protocols = (
+            readiness.get("usable_protocols")
+            if isinstance(readiness.get("usable_protocols"), list)
+            else []
+        )
+        settlement_asset = next(
+            (
+                protocol.get("settlement_asset")
+                for protocol in usable_protocols
+                if isinstance(protocol, dict) and isinstance(protocol.get("settlement_asset"), dict)
+            ),
+            None,
+        )
+        methods = [
+            self.payment_protocol_label(protocol)
+            for protocol in usable_protocols
+            if isinstance(protocol, dict)
+        ]
+        return {
+            "quote_currency": quote.get("currency"),
+            "methods": methods or [self.payment_provider.protocol],
+            "settlement_asset": settlement_asset,
+            "readiness_state": readiness.get("state"),
+            "readiness_source": readiness.get("source"),
+        }
+
     def quote_tournament(self, request: dict[str, Any]) -> dict[str, Any]:
         query = str(request.get("query") or request.get("q") or "tea").strip() or "tea"
         catalog_query = catalog_query_for_intent(query)
@@ -2334,24 +2431,20 @@ class AgentCartService:
                 if isinstance(quote.get("payment_requirements"), dict)
                 else {}
             )
-            payment_protocols = (
-                payment_requirements.get("protocols")
-                if isinstance(payment_requirements.get("protocols"), list)
-                else []
-            )
-            settlement_asset = next(
-                (
-                    protocol.get("settlement_asset")
-                    for protocol in payment_protocols
-                    if isinstance(protocol, dict) and isinstance(protocol.get("settlement_asset"), dict)
-                ),
-                None,
-            )
-            payment_methods = [
-                str(protocol.get("method") or protocol.get("protocol") or protocol.get("id") or "unknown")
-                for protocol in payment_protocols
-                if isinstance(protocol, dict)
-            ]
+            payment_readiness = self.quote_payment_readiness(quote)
+            if payment_readiness.get("state") != "ready":
+                rejected.append(
+                    {
+                        "product_id": product_id,
+                        "title": product.get("title"),
+                        "merchant_id": quote.get("merchant_id"),
+                        "quote_id": quote.get("id"),
+                        "reason": "merchant payment rail is unavailable",
+                        "detail": payment_readiness,
+                    }
+                )
+                continue
+            payment_summary = self.payment_summary_from_readiness(quote, payment_readiness)
             candidate = {
                 "quote_id": quote["id"],
                 "merchant_id": quote["merchant_id"],
@@ -2364,11 +2457,8 @@ class AgentCartService:
                 "delivery_window": delivery,
                 "policy_result": policy,
                 "payment_requirements": payment_requirements,
-                "payment_summary": {
-                    "quote_currency": quote.get("currency"),
-                    "methods": payment_methods or [self.payment_provider.protocol],
-                    "settlement_asset": settlement_asset,
-                },
+                "payment_readiness": payment_readiness,
+                "payment_summary": payment_summary,
                 "registry": {
                     "manifest_url": registry_entry.get("manifest_url"),
                     "manifest_hash": registry_entry.get("manifest_hash"),
@@ -2422,6 +2512,14 @@ class AgentCartService:
             reasons.append("configured local merchant override")
         elif registry_entry.get("manifest_hash"):
             reasons.append("merchant manifest hash is registered")
+        readiness = self.quote_payment_readiness(quote)
+        if readiness.get("state") == "ready":
+            methods = [
+                self.payment_protocol_label(protocol)
+                for protocol in readiness.get("usable_protocols", [])
+                if isinstance(protocol, dict)
+            ]
+            reasons.append(f"payment rail ready: {', '.join(methods) if methods else self.payment_provider.protocol}")
         reasons.append("no paid ranking signal used")
         return reasons
 

@@ -456,6 +456,120 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(signed_candidate["merchant_name"], "Signed Tea Shop")
             self.assertEqual(signed_candidate["registry"]["verification"]["state"], "verified")
             self.assertIn("merchant registry verification passed", signed_candidate["rank_reasons"])
+            self.assertEqual(signed_candidate["payment_readiness"]["state"], "ready")
+            self.assertIn("payment rail ready: mpp", signed_candidate["rank_reasons"])
+
+    def test_quote_tournament_rejects_verified_merchant_without_available_payment_rail(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            policy_path = tmp / "policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "allowed_merchants": [],
+                        "allowed_categories": [],
+                        "allowed_ship_countries": ["DE"],
+                        "max_order_total_cents": 5000,
+                        "monthly_budget_cents": 10000,
+                        "require_human_approval": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps({"entries": [signed_registry_record(manifest)]}),
+                encoding="utf-8",
+            )
+
+            service = make_service(
+                tmp,
+                policy_path=policy_path,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            adapter = service.adapters["signed-tea-shop"]
+
+            def fake_request_json(
+                url: str,
+                *,
+                method: str = "GET",
+                params: dict[str, str] | None = None,
+                payload: dict[str, object] | None = None,
+                timeout: int = 15,
+            ) -> object:
+                del params, payload, timeout
+                if "catalog" in url:
+                    return {
+                        "products": [
+                            {
+                                "product_id": "2002",
+                                "sku": "SIG-PAYMENT-TEST",
+                                "title": "Payment Test Tea",
+                                "description": "Tea used to verify payment-readiness gating.",
+                                "category": "household.supplies",
+                                "brand": "Signed Tea Shop",
+                                "unit_size": "100 g",
+                                "price_cents": 900,
+                                "currency": "EUR",
+                                "vat_rate_bps": 700,
+                                "stock": 5,
+                                "shipping_regions": ["DE"],
+                                "eligible_for_agent_checkout": True,
+                            }
+                        ]
+                    }
+                if method == "POST" and "quote" in url:
+                    return {
+                        "id": "merchant_quote_no_payment",
+                        "items": [
+                            {
+                                "product_id": "2002",
+                                "source_product_id": "2002",
+                                "sku": "SIG-PAYMENT-TEST",
+                                "title": "Payment Test Tea",
+                                "quantity": 1,
+                                "unit_price_cents": 900,
+                                "line_total_cents": 900,
+                                "currency": "EUR",
+                                "category": "household.supplies",
+                                "vat_rate_bps": 700,
+                            }
+                        ],
+                        "subtotal_cents": 900,
+                        "shipping": {"amount_cents": 300, "currency": "EUR", "method": "signed-standard"},
+                        "vat_lines": [],
+                        "total_cents": 1200,
+                        "currency": "EUR",
+                        "delivery_estimate": {"min_days": 2, "max_days": 3, "label": "2-3 business days"},
+                        "quote_hash": "signed-no-payment",
+                        "payment_requirements": {
+                            "protocols": [
+                                {"id": "tempo-mpp", "available": False, "setup_required": True},
+                                {"id": "stripe-card-mpp", "available": False, "setup_required": True},
+                            ]
+                        },
+                    }
+                raise AssertionError(f"unexpected registry adapter request: {url}")
+
+            adapter.request_json = fake_request_json
+
+            tournament = service.quote_tournament(
+                {"q": "payment test", "country": "DE", "postal_code": "10115"}
+            )
+
+            self.assertNotIn(
+                "signed-tea-shop",
+                {candidate["merchant_id"] for candidate in tournament["candidates"]},
+            )
+            rejected = next(item for item in tournament["rejected"] if item.get("merchant_id") == "signed-tea-shop")
+            self.assertEqual(rejected["reason"], "merchant payment rail is unavailable")
+            self.assertEqual(rejected["detail"]["state"], "unavailable")
+            self.assertEqual(
+                {item["id"] for item in rejected["detail"]["rejected_protocols"]},
+                {"tempo-mpp", "stripe-card-mpp"},
+            )
 
     def test_quote_tournament_ranks_final_quotes_without_paid_placement(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
