@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
+import os
 import pathlib
 import re
 import sys
@@ -11,6 +13,7 @@ from typing import Any
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+SIGNATURE_SCHEMA = "agentcart.release_signature.v1"
 
 
 def sha256(path: pathlib.Path) -> str:
@@ -26,6 +29,10 @@ def load_json(path: pathlib.Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"{path} must contain a JSON object")
     return data
+
+
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def safe_relative_path(value: Any) -> pathlib.Path:
@@ -73,6 +80,10 @@ def verify_release(
     root: pathlib.Path,
     expected_manifest_sha256: str = "",
     expected_source_commit: str = "",
+    signature_path: pathlib.Path | None = None,
+    trusted_hmac_key: str = "",
+    trusted_signature_key_id: str = "",
+    require_signature: bool = False,
 ) -> list[str]:
     errors: list[str] = []
     if not manifest_path.exists():
@@ -92,6 +103,19 @@ def verify_release(
         errors.append("source_git_commit_mismatch")
     if not str(release.get("version") or ""):
         errors.append("release_version_missing")
+    if require_signature and signature_path is None:
+        errors.append("signature_required")
+    if signature_path is not None:
+        errors.extend(
+            verify_signature(
+                signature_path=signature_path,
+                manifest_path=manifest_path,
+                root=root,
+                manifest_sha256=actual_manifest_sha256,
+                trusted_hmac_key=trusted_hmac_key,
+                trusted_signature_key_id=trusted_signature_key_id,
+            )
+        )
 
     components = manifest.get("components") if isinstance(manifest.get("components"), dict) else {}
     for component, meta in components.items():
@@ -137,21 +161,85 @@ def verify_release(
     return errors
 
 
+def verify_signature(
+    *,
+    signature_path: pathlib.Path,
+    manifest_path: pathlib.Path,
+    root: pathlib.Path,
+    manifest_sha256: str,
+    trusted_hmac_key: str,
+    trusted_signature_key_id: str = "",
+) -> list[str]:
+    errors: list[str] = []
+    if not signature_path.exists():
+        return [f"signature_missing:{signature_path}"]
+    if not trusted_hmac_key:
+        return ["trusted_hmac_key_missing"]
+    try:
+        signature = load_json(signature_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return [f"signature_invalid:{exc}"]
+    if signature.get("schema") != SIGNATURE_SCHEMA:
+        errors.append("signature_schema_mismatch")
+    if signature.get("alg") != "hmac-sha256":
+        errors.append("signature_alg_mismatch")
+    try:
+        expected_manifest_file = str(manifest_path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        expected_manifest_file = str(manifest_path)
+    if str(signature.get("manifest_file") or "") != expected_manifest_file:
+        errors.append("signature_manifest_file_mismatch")
+    if str(signature.get("manifest_sha256") or "") != manifest_sha256:
+        errors.append("signature_manifest_sha256_mismatch")
+    key_id = str(signature.get("key_id") or "")
+    if trusted_signature_key_id and key_id != trusted_signature_key_id:
+        errors.append("signature_key_id_mismatch")
+    supplied = str(signature.get("signature") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", supplied):
+        errors.append("signature_format_invalid")
+        return errors
+    payload = {
+        "schema": signature.get("schema"),
+        "alg": signature.get("alg"),
+        "key_id": key_id,
+        "manifest_file": signature.get("manifest_file"),
+        "manifest_sha256": signature.get("manifest_sha256"),
+    }
+    expected = hmac.new(
+        trusted_hmac_key.encode("utf-8"),
+        canonical_json(payload).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(supplied, expected):
+        errors.append("signature_mismatch")
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify AgentCart release artifacts against a release manifest.")
     parser.add_argument("--manifest", default=str(ROOT / "dist/agentcart-release.json"))
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--expected-manifest-sha256", default="")
     parser.add_argument("--expected-source-commit", default="")
+    parser.add_argument("--signature", default="")
+    parser.add_argument("--require-signature", action="store_true")
+    parser.add_argument("--trusted-hmac-key", default="")
+    parser.add_argument("--trusted-hmac-key-env", default="AGENTCART_RELEASE_SIGNING_KEY")
+    parser.add_argument("--trusted-signature-key-id", default="")
     args = parser.parse_args(argv)
 
     manifest_path = pathlib.Path(args.manifest).resolve()
     root = pathlib.Path(args.root).resolve()
+    trusted_hmac_key = args.trusted_hmac_key or os.getenv(args.trusted_hmac_key_env, "")
     errors = verify_release(
         manifest_path=manifest_path,
         root=root,
         expected_manifest_sha256=args.expected_manifest_sha256,
         expected_source_commit=args.expected_source_commit,
+        signature_path=pathlib.Path(args.signature).resolve() if args.signature else None,
+        trusted_hmac_key=trusted_hmac_key,
+        trusted_signature_key_id=args.trusted_signature_key_id,
+        require_signature=args.require_signature,
     )
     if errors:
         print(json.dumps({"ok": False, "errors": errors}, indent=2), file=sys.stderr)

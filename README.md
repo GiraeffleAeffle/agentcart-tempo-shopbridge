@@ -130,6 +130,13 @@ The release manifest with artifact checksums is generated at:
 dist/agentcart-release.json
 ```
 
+Private/self-hosted release channels can also publish a detached manifest
+signature:
+
+```text
+dist/agentcart-release.sig
+```
+
 For a manual server install, copy `woocommerce-shopbridge/agentcart-shopbridge` into:
 
 ```text
@@ -147,6 +154,7 @@ The plugin exposes:
 - `/wp-json/agentcart/v1/orders`
 - `/wp-json/agentcart/v1/orders/{id}/status`
 - `/wp-json/agentcart/v1/orders/{id}/refunds`
+- `/wp-json/agentcart/v1/orders/{id}/cancellations`
 
 Registry operators can build and verify merchant records from a ShopBridge
 manifest without hand-writing JSON:

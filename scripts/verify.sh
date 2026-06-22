@@ -65,6 +65,19 @@ python3 "$ROOT_DIR/scripts/build-release-manifest.py"
 grep -q '"schema": "agentcart.release.v1"' "$ROOT_DIR/dist/agentcart-release.json"
 grep -q '"sha256":' "$ROOT_DIR/dist/agentcart-release.json"
 python3 "$ROOT_DIR/scripts/verify-release.py" --manifest "$ROOT_DIR/dist/agentcart-release.json" --root "$ROOT_DIR" >/dev/null
+release_sig="$(mktemp "${TMPDIR:-/tmp}/agentcart-release.XXXXXX")"
+AGENTCART_RELEASE_SIGNING_KEY="verify-local-release-signing-key" \
+  python3 "$ROOT_DIR/scripts/build-release-manifest.py" \
+    --signature-out "$release_sig" \
+    --signature-key-id verify-local >/dev/null
+AGENTCART_RELEASE_SIGNING_KEY="verify-local-release-signing-key" \
+  python3 "$ROOT_DIR/scripts/verify-release.py" \
+    --manifest "$ROOT_DIR/dist/agentcart-release.json" \
+    --root "$ROOT_DIR" \
+    --signature "$release_sig" \
+    --trusted-signature-key-id verify-local \
+    --require-signature >/dev/null
+rm -f "$release_sig"
 
 section "Gateway Docker image"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then

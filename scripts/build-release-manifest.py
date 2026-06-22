@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import pathlib
 import re
+import argparse
 from typing import Any
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 MANIFEST = DIST / "agentcart-release.json"
+SIGNATURE_SCHEMA = "agentcart.release_signature.v1"
 
 
 def read_text(path: pathlib.Path) -> str:
@@ -24,6 +27,10 @@ def sha256(path: pathlib.Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def release_source_commit() -> str:
@@ -74,11 +81,32 @@ def artifact(path: pathlib.Path, *, component: str, version: str) -> dict[str, A
     }
 
 
-def main() -> int:
+def signature_payload(*, manifest_path: pathlib.Path, root: pathlib.Path, key_id: str = "") -> dict[str, Any]:
+    return {
+        "schema": SIGNATURE_SCHEMA,
+        "alg": "hmac-sha256",
+        "key_id": key_id,
+        "manifest_file": str(manifest_path.relative_to(root)),
+        "manifest_sha256": sha256(manifest_path),
+    }
+
+
+def write_signature(*, manifest_path: pathlib.Path, root: pathlib.Path, signature_path: pathlib.Path, signing_key: str, key_id: str = "") -> None:
+    if not signing_key:
+        raise SystemExit("release signing requested but signing key is empty")
+    payload = signature_payload(manifest_path=manifest_path, root=root, key_id=key_id)
+    signature = hmac.new(signing_key.encode("utf-8"), canonical_json(payload).encode("utf-8"), hashlib.sha256).hexdigest()
+    signed = {**payload, "signature": signature}
+    signature_path.parent.mkdir(parents=True, exist_ok=True)
+    signature_path.write_text(json.dumps(signed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Created {signature_path}")
+
+
+def build_release() -> dict[str, Any]:
     DIST.mkdir(exist_ok=True)
     skill = skill_metadata()
     skill_version = skill.get("version") or "0.1.0-alpha"
-    release = {
+    return {
         "schema": "agentcart.release.v1",
         "release": {
             "version": gateway_version(),
@@ -118,8 +146,40 @@ def main() -> int:
             "rollback": "Keep the previous ZIPs and this manifest; reinstall the previous artifact if verification or smoke tests fail.",
         },
     }
-    MANIFEST.write_text(json.dumps(release, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"Created {MANIFEST}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build the AgentCart release manifest and optional detached signature.")
+    parser.add_argument("--manifest", default=str(MANIFEST))
+    parser.add_argument("--signature-out", default="", help="Write a detached release signature JSON sidecar.")
+    parser.add_argument("--signing-key-env", default="AGENTCART_RELEASE_SIGNING_KEY")
+    parser.add_argument("--signature-key-id", default=os.getenv("AGENTCART_RELEASE_SIGNING_KEY_ID", "").strip())
+    args = parser.parse_args(argv)
+
+    manifest_path = pathlib.Path(args.manifest)
+    if not manifest_path.is_absolute():
+        manifest_path = ROOT / manifest_path
+    manifest_for_signature = manifest_path.resolve()
+    try:
+        manifest_for_signature.relative_to(ROOT.resolve())
+    except ValueError:
+        raise SystemExit("manifest path must be inside the repository root")
+    release = build_release()
+    manifest_for_signature.parent.mkdir(parents=True, exist_ok=True)
+    manifest_for_signature.write_text(json.dumps(release, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Created {manifest_for_signature}")
+    if args.signature_out:
+        signature_path = pathlib.Path(args.signature_out)
+        if not signature_path.is_absolute():
+            signature_path = ROOT / signature_path
+        signing_key = os.getenv(args.signing_key_env, "")
+        write_signature(
+            manifest_path=manifest_for_signature,
+            root=ROOT,
+            signature_path=signature_path,
+            signing_key=signing_key,
+            key_id=args.signature_key_id,
+        )
     return 0
 
 
