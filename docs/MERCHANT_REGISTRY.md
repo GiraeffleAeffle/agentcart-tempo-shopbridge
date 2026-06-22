@@ -1,8 +1,10 @@
 # Merchant Registry And Discovery
 
-> Status: architecture plan. The current repo exposes a demo registry document;
-> production work should first implement the off-chain verifier described here,
-> then swap the registry source to an onchain contract or append-only registry.
+> Status: alpha implemented. The current gateway can load a signed off-chain
+> registry JSON feed, verify manifest hash/domain/payment/shipping bindings,
+> and exclude unverified external merchants from quote tournaments by default.
+> The same verifier interface is intended to sit behind an onchain or
+> append-only registry later.
 
 
 AgentCart's registry should be an identity and integrity anchor, not an ad
@@ -35,8 +37,8 @@ marketplace and not a product catalog.
   "updated_at": "2026-06-18T00:00:00Z",
   "revoked_at": null,
   "revocation_url": "https://shop.example/.well-known/agentcart-revocations.json",
-  "signature_alg": "eip-191-or-ed25519",
-  "signature": "merchant-domain-or-wallet-signature",
+  "signature_alg": "hmac-sha256",
+  "signature": "hmac-sha256:...",
   "proof": {
     "type": "onchain_registry_record",
     "chain_id": "tempo-testnet",
@@ -96,7 +98,26 @@ eligible merchants, but final bidding should not leak household demand broadly.
    record.
 9. Agent verifies that payment recipient/network in the manifest matches the
    registry record.
-10. Agent requests private catalog/quote data from the merchant endpoint.
+10. Agent verifies that absolute catalog/quote endpoint URLs stay on the
+    registered merchant domain.
+11. Agent requests private catalog/quote data from the merchant endpoint.
+
+## Alpha Configuration
+
+The local alpha supports an off-chain JSON registry source:
+
+```env
+AGENTCART_MERCHANT_REGISTRY_PATH=/data/merchant-registry.json
+AGENTCART_MERCHANT_REGISTRY_URL=
+AGENTCART_MERCHANT_REGISTRY_HMAC_SECRET=replace-with-shared-registry-secret
+AGENTCART_REQUIRE_VERIFIED_REGISTRY=true
+AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS=180
+```
+
+`hmac-sha256` is an implementation shortcut for the alpha feed, not the desired
+public trust model. Production should replace it with merchant wallet
+signatures, DNS/DID proofs, or an onchain registry event while keeping the same
+verified record shape for agents.
 
 ## Agent Safety Model
 
@@ -120,18 +141,21 @@ Safe agent behavior:
 - fail closed when registry verification, manifest hash, quote hash, payment
   recipient, or verifier response do not match.
 
-## Suggested Alpha
+## Implemented Alpha
 
-Start off-chain. Implement a signed registry JSON or local file loader with the
-same record shape as the future onchain contract. The verifier module should:
+The gateway now:
 
-- load candidate records;
-- fetch each manifest;
-- canonicalize and hash the manifest;
-- verify domain, hash, signature/proof, revocation, timestamp, payment
-  recipient, and shipping country scope;
-- expose `verification.state` and `verification.errors`;
-- make quote tournament exclude unverified external merchants by default.
+- loads candidate records from `AGENTCART_MERCHANT_REGISTRY_PATH` or
+  `AGENTCART_MERCHANT_REGISTRY_URL`;
+- fetches each manifest, or reads `manifest_snapshot` for reproducible local
+  tests;
+- canonicalizes and hashes the manifest;
+- verifies domain, hash, signature/proof, revocation, updated timestamp,
+  payment recipient, and shipping country scope;
+- rejects absolute catalog/quote endpoint URLs outside the registered merchant
+  domain;
+- exposes `verification.state`, `verification.errors`, and manifest source;
+- makes quote tournament exclude unverified external merchants by default.
 
 Once that interface is stable, the source of records can move from a signed JSON
 feed to an onchain registry without changing buyer or merchant adapters.
