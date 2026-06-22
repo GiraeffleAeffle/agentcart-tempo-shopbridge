@@ -57,23 +57,29 @@ def sample_quote(**overrides):
     return quote
 
 
-def registry_manifest_and_record():
+def registry_manifest_and_record(
+    *,
+    merchant_id: str = "merchant-tea-shop",
+    name: str = "Merchant Tea Shop",
+    domain: str = "merchant.example",
+    stripe_profile_id: str = "acct_shop_123",
+):
     claim = {
-        "merchant_id": "merchant-tea-shop",
-        "name": "Merchant Tea Shop",
-        "domain": "merchant.example",
-        "manifest_url": "https://merchant.example/.well-known/agentcart.json",
+        "merchant_id": merchant_id,
+        "name": name,
+        "domain": domain,
+        "manifest_url": f"https://{domain}/.well-known/agentcart.json",
         "endpoints": {
-            "catalog": "https://merchant.example/wp-json/agentcart/v1/catalog",
-            "quote": "https://merchant.example/wp-json/agentcart/v1/quote",
-            "orders": "https://merchant.example/wp-json/agentcart/v1/orders",
+            "catalog": f"https://{domain}/wp-json/agentcart/v1/catalog",
+            "quote": f"https://{domain}/wp-json/agentcart/v1/quote",
+            "orders": f"https://{domain}/wp-json/agentcart/v1/orders",
         },
         "supported_protocols": ["agentcart-shopbridge", "stripe-card-mpp"],
         "payment_network": "testnet",
         "payment_recipient": "",
-        "stripe_profile_id": "acct_shop_123",
+        "stripe_profile_id": stripe_profile_id,
         "ship_to_countries": ["DE"],
-        "proof_url": "https://merchant.example/.well-known/agentcart-registry-proof.json",
+        "proof_url": f"https://{domain}/.well-known/agentcart-registry-proof.json",
     }
     record = {
         **claim,
@@ -85,15 +91,15 @@ def registry_manifest_and_record():
         "signature": "",
         "proof": {
             "type": "https-well-known",
-            "url": "https://merchant.example/.well-known/agentcart-registry-proof.json",
+            "url": f"https://{domain}/.well-known/agentcart-registry-proof.json",
         },
     }
     manifest = {
-        "merchant": {"id": "merchant-tea-shop", "name": "Merchant Tea Shop"},
-        "manifest_url": "https://merchant.example/.well-known/agentcart.json",
+        "merchant": {"id": merchant_id, "name": name},
+        "manifest_url": f"https://{domain}/.well-known/agentcart.json",
         "protocols": [
             {"id": "agentcart-shopbridge"},
-            {"id": "stripe-card-mpp", "network_id": "acct_shop_123"},
+            {"id": "stripe-card-mpp", "network_id": stripe_profile_id},
         ],
         "delivery": {"ship_to_countries": ["DE"]},
         "endpoints": claim["endpoints"],
@@ -316,6 +322,137 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["merchant"]["name"], "Merchant Tea Shop")
         self.assertEqual(calls[0]["base_url"], "https://merchant.example")
         self.assertIn("search=tea", calls[0]["path"])
+
+    def test_discover_quotes_ranks_verified_merchants_and_returns_winner_quote(self) -> None:
+        manifest_a, record_a, proof_a = registry_manifest_and_record(
+            merchant_id="shop-a",
+            name="Alpha Tea",
+            domain="alpha.example",
+            stripe_profile_id="acct_alpha",
+        )
+        manifest_b, record_b, proof_b = registry_manifest_and_record(
+            merchant_id="shop-b",
+            name="Beta Tea",
+            domain="beta.example",
+            stripe_profile_id="acct_beta",
+        )
+        calls = []
+
+        def payment_requirements(profile_id):
+            return {
+                "verification": {"external_verifier_configured": True},
+                "protocols": [
+                    {
+                        "id": "stripe-card-mpp",
+                        "available": True,
+                        "network_id": profile_id,
+                        "stripe_profile_id": profile_id,
+                    }
+                ],
+            }
+
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            calls.append({"path": path, "method": method, "payload": payload, "base_url": base_url})
+            if path.startswith("/wp-json/agentcart/v1/catalog"):
+                if base_url == "https://alpha.example":
+                    return {
+                        "merchant": {"id": "shop-a", "name": "Alpha Tea"},
+                        "products": [
+                            {
+                                "id": "alpha-tea",
+                                "title": "Alpha Tea Tin",
+                                "eligible_for_agent_checkout": True,
+                                "shipping_regions": ["DE"],
+                            }
+                        ],
+                    }
+                return {
+                    "merchant": {"id": "shop-b", "name": "Beta Tea"},
+                    "products": [
+                        {
+                            "id": "beta-tea",
+                            "title": "Beta Tea Tin",
+                            "eligible_for_agent_checkout": True,
+                            "shipping_regions": ["DE"],
+                        }
+                    ],
+                }
+            product_id = payload["items"][0]["product_id"]
+            if product_id == "alpha-tea":
+                return sample_quote(
+                    id="quote-alpha",
+                    merchant={"id": "shop-a", "name": "Alpha Tea"},
+                    items=[
+                        {
+                            "product_id": "alpha-tea",
+                            "title": "Alpha Tea Tin",
+                            "quantity": 1,
+                            "line_total_cents": 1090,
+                        }
+                    ],
+                    subtotal_cents=1090,
+                    total_cents=1580,
+                    quote_hash="hash-alpha",
+                    payment_requirements=payment_requirements("acct_alpha"),
+                )
+            return sample_quote(
+                id="quote-beta",
+                merchant={"id": "shop-b", "name": "Beta Tea"},
+                items=[
+                    {
+                        "product_id": "beta-tea",
+                        "title": "Beta Tea Tin",
+                        "quantity": 1,
+                        "line_total_cents": 890,
+                    }
+                ],
+                subtotal_cents=890,
+                total_cents=1380,
+                quote_hash="hash-beta",
+                payment_requirements=payment_requirements("acct_beta"),
+            )
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+            result = shopbridge_direct.command_discover_quotes(
+                {
+                    "registry_records": [record_a, record_b],
+                    "manifest_snapshots": {"shop-a": manifest_a, "shop-b": manifest_b},
+                    "proof_snapshots": {"shop-a": proof_a, "shop-b": proof_b},
+                    "query": "tea",
+                    "country": "DE",
+                    "postal_code": "10115",
+                    "payment_rail": "stripe-card-mpp",
+                }
+            )
+
+        self.assertEqual(len(result["candidates"]), 2)
+        self.assertEqual(result["winner"]["quote_id"], "quote-beta")
+        self.assertEqual(result["winner"]["quote"]["id"], "quote-beta")
+        self.assertEqual(
+            result["winner"]["approval_packet"]["approval_material"]["payment_destination"]["stripe_profile_id"],
+            "acct_beta",
+        )
+        self.assertEqual(result["candidates"][0]["rank"], 1)
+        self.assertFalse(result["winner"]["registry"]["paid_placement"])
+        self.assertEqual([call["base_url"] for call in calls if call["method"] == "POST"], ["https://alpha.example", "https://beta.example"])
+
+    def test_discover_quotes_rejects_unverified_merchants_before_catalog_or_quote(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+        proof["record_hash"] = "0" * 64
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+            result = shopbridge_direct.command_discover_quotes(
+                {
+                    "registry_records": [record],
+                    "manifest_snapshots": {"merchant-tea-shop": manifest},
+                    "proof_snapshots": {"merchant-tea-shop": proof},
+                    "query": "tea",
+                }
+            )
+
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["rejected"][0]["reason"], "merchant registry verification failed")
+        self.assertIn("domain_proof_record_hash_mismatch", result["rejected"][0]["detail"]["errors"])
 
     def test_order_status_sends_status_token_header(self) -> None:
         calls = []

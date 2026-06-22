@@ -84,6 +84,13 @@ Definition of done:
 - smoke tests cover catalog, quote, approval summary, and checkout payload
   construction.
 
+Current alpha status: the direct ShopBridge skill can resolve verified registry
+records, compare private quotes across multiple verified merchants, return the
+winning full quote with an approval packet, and reject failed registry/domain
+proofs before making catalog or quote calls. Production still needs durable
+buyer policy, persistent audit, richer matching for multi-item grocery baskets,
+and a packaged setup flow for non-technical buyers.
+
 ### 2. Merchant Alpha
 
 Goal: a real WooCommerce merchant can expose trustworthy final quotes.

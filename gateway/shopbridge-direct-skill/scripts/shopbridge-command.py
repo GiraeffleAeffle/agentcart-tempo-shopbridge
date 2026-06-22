@@ -230,6 +230,37 @@ def registry_record_from_args(args: dict[str, Any]) -> dict[str, Any]:
     raise SystemExit("registry_record or registry_record_url is required")
 
 
+def registry_records_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_records = args.get("registry_records")
+    if isinstance(raw_records, list):
+        records = [record for record in raw_records if isinstance(record, dict)]
+    elif isinstance(args.get("registry"), dict) and isinstance(args["registry"].get("entries"), list):
+        records = [record for record in args["registry"]["entries"] if isinstance(record, dict)]
+    elif args.get("registry_record") or args.get("registry_record_url"):
+        record_url = str(args.get("registry_record_url") or "")
+        if record_url:
+            loaded = fetch_json_url(record_url)
+            if isinstance(loaded.get("entries"), list):
+                records = [record for record in loaded["entries"] if isinstance(record, dict)]
+            else:
+                records = [loaded]
+        else:
+            records = [registry_record_from_args(args)]
+    else:
+        raise SystemExit("registry_records, registry.entries, registry_record, or registry_record_url is required")
+    merchant_ids = {
+        str(value)
+        for value in args.get("merchant_ids", [])
+        if value
+    } if isinstance(args.get("merchant_ids"), list) else set()
+    merchant_id = str(args.get("merchant_id") or "")
+    if merchant_id:
+        merchant_ids.add(merchant_id)
+    if merchant_ids:
+        records = [record for record in records if str(record.get("merchant_id") or "") in merchant_ids]
+    return records
+
+
 def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
     record = registry_record_from_args(args)
     errors: list[str] = []
@@ -263,6 +294,10 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
 
     manifest = args.get("manifest_snapshot") if isinstance(args.get("manifest_snapshot"), dict) else None
     proof_document = args.get("proof_snapshot") if isinstance(args.get("proof_snapshot"), dict) else None
+    if manifest is None and isinstance(record.get("manifest_snapshot"), dict):
+        manifest = record["manifest_snapshot"]
+    if proof_document is None and isinstance(record.get("proof_snapshot"), dict):
+        proof_document = record["proof_snapshot"]
     if manifest is None and not any(error.startswith("manifest_") for error in errors):
         manifest = fetch_json_url(manifest_url)
     if proof_document is None and not any(error.startswith("domain_proof_url_") for error in errors):
@@ -737,6 +772,14 @@ def quote_items_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
     return normalized
 
 
+def bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
 def quote_ship_to_from_args(args: dict[str, Any]) -> dict[str, Any]:
     ship_to = args.get("ship_to") if isinstance(args.get("ship_to"), dict) else {}
     normalized = dict(ship_to)
@@ -830,6 +873,243 @@ def command_quote(args: dict[str, Any]) -> dict[str, Any]:
         "ship_to": quote_ship_to_from_args(args),
     }
     return request_json("/wp-json/agentcart/v1/quote", method="POST", payload=payload, base_url=base_url_from_args(args))
+
+
+def product_id_for_quote(product: dict[str, Any]) -> str:
+    return str(product.get("id") or product.get("product_id") or "").strip()
+
+
+def product_ships_to_country(product: dict[str, Any], country: str) -> bool:
+    raw_regions = product.get("shipping_regions") or product.get("ship_to_countries") or []
+    regions = [str(region).upper() for region in raw_regions if region] if isinstance(raw_regions, list) else []
+    return not regions or country.upper() in regions
+
+
+def merchant_snapshot_arg(args: dict[str, Any], name: str, merchant_id: str) -> dict[str, Any] | None:
+    value = args.get(name)
+    if isinstance(value, dict):
+        if merchant_id and isinstance(value.get(merchant_id), dict):
+            return value[merchant_id]
+        if not merchant_id and value:
+            return value
+    return None
+
+
+def resolve_record_for_discovery(record: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    merchant_id = str(record.get("merchant_id") or "")
+    resolve_args: dict[str, Any] = {
+        "registry_record": record,
+        "include_manifest": bool(args.get("include_manifest")),
+    }
+    manifest_snapshot = merchant_snapshot_arg(args, "manifest_snapshots", merchant_id)
+    proof_snapshot = merchant_snapshot_arg(args, "proof_snapshots", merchant_id)
+    if manifest_snapshot:
+        resolve_args["manifest_snapshot"] = manifest_snapshot
+    if proof_snapshot:
+        resolve_args["proof_snapshot"] = proof_snapshot
+    return command_resolve_merchant(resolve_args)
+
+
+def quote_latest_delivery_key(quote: dict[str, Any]) -> str:
+    delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
+    if isinstance(delivery, dict):
+        return str(delivery.get("latest_date") or delivery.get("label") or "9999-12-31")
+    return "9999-12-31"
+
+
+def quote_rank_reasons(quote: dict[str, Any], resolved: dict[str, Any], preflight: dict[str, Any]) -> list[str]:
+    reasons = [
+        f"final total {money(int(quote.get('total_cents') or 0), str(quote.get('currency') or 'EUR'))}",
+    ]
+    delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
+    if isinstance(delivery, dict) and (delivery.get("latest_date") or delivery.get("label")):
+        reasons.append(f"delivery {delivery.get('latest_date') or delivery.get('label')}")
+    verification = resolved.get("verification") if isinstance(resolved.get("verification"), dict) else {}
+    if verification.get("state") == "verified":
+        reasons.append("merchant registry verification passed")
+    destination = preflight.get("payment_destination") if isinstance(preflight.get("payment_destination"), dict) else {}
+    if destination.get("rail"):
+        reasons.append(f"payment rail ready: {payment_destination_label(destination)}")
+    reasons.append("no paid ranking signal used")
+    return reasons
+
+
+def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
+    query = str(args.get("query") or args.get("q") or args.get("search") or "").strip()
+    if not query:
+        raise SystemExit("query, q, or search is required")
+    ship_to = quote_ship_to_from_args(args)
+    country = str(ship_to.get("country") or "DE").upper()
+    quantity = bounded_int(args.get("quantity"), default=1, minimum=1, maximum=20)
+    max_candidates = bounded_int(args.get("max_candidates"), default=6, minimum=1, maximum=12)
+    products_per_merchant = bounded_int(args.get("products_per_merchant"), default=2, minimum=1, maximum=6)
+    catalog_limit = max(products_per_merchant, bounded_int(args.get("catalog_limit"), default=8, minimum=1, maximum=24))
+    candidates: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    seen_quotes: set[str] = set()
+
+    for record in registry_records_from_args(args):
+        merchant_id = str(record.get("merchant_id") or "")
+        try:
+            resolved = resolve_record_for_discovery(record, args)
+        except SystemExit as exc:
+            rejected.append({"merchant_id": merchant_id, "reason": "registry verification failed", "detail": str(exc)})
+            continue
+        verification = resolved.get("verification") if isinstance(resolved.get("verification"), dict) else {}
+        if not resolved.get("ok") or verification.get("state") != "verified":
+            rejected.append(
+                {
+                    "merchant_id": merchant_id or resolved.get("merchant", {}).get("id"),
+                    "merchant_name": resolved.get("merchant", {}).get("name"),
+                    "reason": "merchant registry verification failed",
+                    "detail": verification,
+                }
+            )
+            continue
+        base_url = str(resolved.get("base_url") or "")
+        try:
+            catalog = command_catalog({"base_url": base_url, "search": query, "limit": catalog_limit})
+        except SystemExit as exc:
+            rejected.append({"merchant_id": merchant_id, "reason": "catalog request failed", "detail": str(exc)})
+            continue
+        products = catalog.get("products") if isinstance(catalog.get("products"), list) else []
+        merchant_products = 0
+        for product in products:
+            if not isinstance(product, dict):
+                continue
+            if merchant_products >= products_per_merchant:
+                break
+            product_id = product_id_for_quote(product)
+            if not product_id:
+                rejected.append({"merchant_id": merchant_id, "reason": "catalog product missing product id"})
+                continue
+            if product.get("eligible_for_agent_checkout", True) is False:
+                rejected.append(
+                    {
+                        "merchant_id": merchant_id,
+                        "product_id": product_id,
+                        "title": product.get("title"),
+                        "reason": "product is not eligible for agent checkout",
+                    }
+                )
+                continue
+            if not product_ships_to_country(product, country):
+                rejected.append(
+                    {
+                        "merchant_id": merchant_id,
+                        "product_id": product_id,
+                        "title": product.get("title"),
+                        "reason": f"merchant does not ship to {country}",
+                    }
+                )
+                continue
+            merchant_products += 1
+            try:
+                quote = command_quote(
+                    {
+                        "base_url": base_url,
+                        "items": [{"product_id": product_id, "quantity": quantity}],
+                        "ship_to": ship_to,
+                    }
+                )
+                preflight = command_checkout_preflight(
+                    {
+                        "quote": quote,
+                        "payment_rail": args.get("payment_rail"),
+                        "max_total_cents": args.get("max_total_cents"),
+                    }
+                )
+            except SystemExit as exc:
+                rejected.append(
+                    {
+                        "merchant_id": merchant_id,
+                        "product_id": product_id,
+                        "title": product.get("title"),
+                        "reason": "quote request failed",
+                        "detail": str(exc),
+                    }
+                )
+                continue
+            if not preflight.get("ok") or not preflight.get("available_payment_methods"):
+                rejected.append(
+                    {
+                        "merchant_id": merchant_id,
+                        "product_id": product_id,
+                        "title": product.get("title"),
+                        "quote_id": quote.get("id"),
+                        "reason": "merchant payment rail is unavailable",
+                        "detail": preflight,
+                    }
+                )
+                continue
+            quote_id = str(quote.get("id") or "")
+            quote_key = quote_id or sha256_hex(quote)
+            if quote_key in seen_quotes:
+                continue
+            seen_quotes.add(quote_key)
+            merchant = quote.get("merchant") if isinstance(quote.get("merchant"), dict) else {}
+            candidates.append(
+                {
+                    "_quote": quote,
+                    "_preflight": preflight,
+                    "quote_id": quote_id,
+                    "merchant_id": str(merchant.get("id") or merchant_id),
+                    "merchant_name": str(merchant.get("name") or resolved.get("merchant", {}).get("name") or ""),
+                    "product_id": product_id,
+                    "product_title": str(product.get("title") or quote_title(quote)),
+                    "quantity": quantity,
+                    "total_cents": int(quote.get("total_cents") or 0),
+                    "currency": str(quote.get("currency") or "EUR"),
+                    "delivery": quote.get("delivery_window") or quote.get("delivery_estimate") or {},
+                    "quote_hash": quote.get("quote_hash"),
+                    "approval_hash": preflight.get("approval_hash"),
+                    "payment_destination": preflight.get("payment_destination"),
+                    "registry": {
+                        "manifest_url": resolved.get("manifest_url"),
+                        "registry_record_hash": resolved.get("registry_record_hash"),
+                        "verification": verification,
+                        "paid_placement": False,
+                    },
+                    "rank_reasons": quote_rank_reasons(quote, resolved, preflight),
+                }
+            )
+
+    candidates.sort(
+        key=lambda candidate: (
+            int(candidate["total_cents"]),
+            quote_latest_delivery_key(candidate["_quote"]),
+            str(candidate["merchant_name"]),
+        )
+    )
+    public_candidates = []
+    for index, candidate in enumerate(candidates[:max_candidates], start=1):
+        public = {key: value for key, value in candidate.items() if not key.startswith("_")}
+        public["rank"] = index
+        public["winner"] = index == 1
+        public["quote_summary"] = compact_quote(candidate["_quote"])
+        public_candidates.append(public)
+    winner = None
+    if public_candidates:
+        raw_winner = candidates[0]
+        winner = {
+            **public_candidates[0],
+            "quote": raw_winner["_quote"],
+            "approval_packet": approval_packet(raw_winner["_quote"], payment_rail=args.get("payment_rail")),
+        }
+    return {
+        "query": query,
+        "ship_to": ship_to,
+        "quantity": quantity,
+        "market_design": {
+            "registry_role": "public identity and integrity anchor",
+            "quote_request": "private RFQ to verified merchants",
+            "ranking": "local agent ranking by final price, delivery, payment readiness, and policy; no paid placement",
+        },
+        "candidates": public_candidates,
+        "winner": winner,
+        "rejected": rejected,
+        "next_step": "Ask the human to approve winner.approval_packet.summary, then call checkout with the winner.quote and a matching payment receipt.",
+    }
 
 
 def command_approval_summary(args: dict[str, Any]) -> dict[str, Any]:
@@ -1029,6 +1309,8 @@ def main() -> None:
     elif command == "quote":
         result = command_quote(args)
         compact = compact_quote(result) if args.get("compact") or args.get("format") == "toon" else result
+    elif command == "discover_quotes":
+        compact = command_discover_quotes(args)
     elif command == "approval_summary":
         compact = command_approval_summary(args)
     elif command == "approval_packet":

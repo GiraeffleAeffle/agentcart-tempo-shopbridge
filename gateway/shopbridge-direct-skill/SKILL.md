@@ -83,6 +83,17 @@ Multi-item quote:
 {"command":"quote","args":{"base_url":"https://shop.example","items":[{"product_id":"woo_10","quantity":1},{"product_id":"woo_13","quantity":2}],"country":"DE","postal_code":"10115","format":"toon"}}
 ```
 
+Verified multi-merchant discovery:
+
+```json
+{"command":"discover_quotes","args":{"registry_records":[...],"query":"tea","country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
+```
+
+This resolves each registry record first, rejects failed registry/domain-proof
+records before catalog or quote calls, requests private merchant quotes, ranks
+by final total and delivery without paid placement, and returns the winning full
+quote plus an approval packet.
+
 Approval summary:
 
 ```json
@@ -173,6 +184,9 @@ not call the merchant-token refund endpoint.
 - For multi-merchant discovery, use a verified registry entry before calling
   `manifest`, `catalog`, or `quote`. A bare `SHOPBRIDGE_BASE_URL` is only a
   local override or user-specified shop.
+- Use `discover_quotes` for skill-only quote comparison. It must reject
+  merchants whose registry verification fails before making catalog or quote
+  calls.
 - Prefer JSON for payment/order calls. Use TOON only for compact agent-readable
   summaries.
 - Use `aftercare_summary` for buyer-facing follow-up. Do not call refund
