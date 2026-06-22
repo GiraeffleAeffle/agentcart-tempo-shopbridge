@@ -72,6 +72,28 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             body.index("return ["),
         )
 
+    def test_checkout_consumes_merchant_quote_under_quote_lock(self) -> None:
+        self.assertIn("QUOTE_LOCK_PREFIX", SOURCE)
+
+        order_body = function_body("create_order")
+        self.assertIn("acquire_quote_lock", order_body)
+        self.assertIn("release_quote_lock", order_body)
+        self.assertIn("find_existing_quote_order", order_body)
+        self.assertIn("agentcart_quote_already_consumed", order_body)
+        self.assertLess(order_body.index("acquire_quote_lock"), order_body.index("get_transient"))
+        self.assertLess(order_body.index("acquire_quote_lock"), order_body.index("verify_payment_receipt"))
+        self.assertLess(order_body.index("acquire_quote_lock"), order_body.index("wc_create_order"))
+        self.assertLess(order_body.index("delete_transient"), order_body.index("release_quote_lock"))
+
+    def test_merchant_quote_id_is_stored_from_normalized_request_value(self) -> None:
+        order_body = function_body("create_order")
+        quote_lookup_body = function_body("find_existing_quote_order")
+
+        self.assertIn("merchant_quote_id_from_body", order_body)
+        self.assertIn("update_meta_data('_agentcart_merchant_quote_id', $merchant_quote_id)", order_body)
+        self.assertIn("'meta_key' => '_agentcart_merchant_quote_id'", quote_lookup_body)
+        self.assertIn("'meta_value' => $merchant_quote_id", quote_lookup_body)
+
     def test_public_endpoints_are_rate_limited(self) -> None:
         self.assertIn("RATE_LIMIT_TRANSIENT_PREFIX", SOURCE)
         self.assertIn("RATE_LIMIT_WINDOW_SECONDS", SOURCE)

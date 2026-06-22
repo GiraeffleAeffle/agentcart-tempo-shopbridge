@@ -124,6 +124,13 @@ Definition of done:
 - replayed payment references fail closed;
 - verifier cost and public endpoint abuse have basic protection.
 
+Current alpha status: the WooCommerce plugin requires order/refund idempotency
+keys, locks checkout by idempotency key and merchant quote id, deletes consumed
+quote transients after paid order creation, rejects reused payment/refund
+references, rate-limits REST endpoints, and rejects refund overages. Production
+still needs a WordPress/WooCommerce integration harness and host-level abuse
+controls.
+
 ### 4. Real Settlement Path
 
 Goal: one production-like payment rail can create and refund paid WooCommerce

@@ -133,7 +133,13 @@ The quote endpoint computes final terms and stores them server-side for 15 minut
 - `quote_hash`
 - payment requirements
 
-The order endpoint reloads the stored quote and rejects mismatched or expired quotes. Stock is rechecked before order creation. The quote explicitly says stock is not reserved unless the merchant later adds real stock-hold support. Quote creation rejects unsupported destination countries before payment.
+The order endpoint reloads the stored quote under a quote-level checkout lock
+and rejects mismatched, expired, already-consumed, or concurrently-consumed
+quotes. Exact idempotent replays return the existing order; different checkout
+attempts cannot reuse the same merchant quote. Stock is rechecked before order
+creation. The quote explicitly says stock is not reserved unless the merchant
+later adds real stock-hold support. Quote creation rejects unsupported
+destination countries before payment.
 
 ## Endpoint Rate Limits
 

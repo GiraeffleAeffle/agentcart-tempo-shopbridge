@@ -21,6 +21,7 @@ final class AgentCart_ShopBridge {
     const REFUND_REQUESTED_REFERENCE_META = '_agentcart_refund_requested_reference';
     const REFUND_REFERENCE_META = '_agentcart_refund_reference';
     const CHECKOUT_LOCK_PREFIX = 'agentcart_shopbridge_checkout_lock_';
+    const QUOTE_LOCK_PREFIX = 'agentcart_shopbridge_quote_lock_';
     const REFUND_LOCK_PREFIX = 'agentcart_shopbridge_refund_lock_';
     const RATE_LIMIT_TRANSIENT_PREFIX = 'agentcart_shopbridge_rate_';
     const CHECKOUT_LOCK_TTL_SECONDS = 120;
@@ -1278,6 +1279,15 @@ final class AgentCart_ShopBridge {
         if ($merchant_quote_id === '') {
             return new WP_Error('agentcart_bad_request', 'merchant_quote_id is required.', ['status' => 400]);
         }
+        $quote_lock = self::acquire_quote_lock($merchant_quote_id);
+        if (is_wp_error($quote_lock)) {
+            return $quote_lock;
+        }
+        try {
+        $existing_quote_order = self::find_existing_quote_order($merchant_quote_id);
+        if ($existing_quote_order) {
+            return new WP_Error('agentcart_quote_already_consumed', 'Merchant quote has already been used for an AgentCart order.', ['status' => 409]);
+        }
         $quote = get_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
         if (!is_array($quote)) {
             return new WP_Error('agentcart_quote_expired', 'Merchant quote is unknown or expired.', ['status' => 409]);
@@ -1375,7 +1385,7 @@ final class AgentCart_ShopBridge {
         $order->update_meta_data('_agentcart_order_id', $agentcart_order_id);
         $order->update_meta_data(self::IDEMPOTENCY_KEY_META, $idempotency_key);
         $order->update_meta_data('_agentcart_quote_id', sanitize_text_field((string) ($body['agentcart_quote_id'] ?? '')));
-        $order->update_meta_data('_agentcart_merchant_quote_id', sanitize_text_field((string) ($body['merchant_quote_id'] ?? '')));
+        $order->update_meta_data('_agentcart_merchant_quote_id', $merchant_quote_id);
         $order->update_meta_data('_agentcart_payment_receipt_id', sanitize_text_field((string) $receipt['id']));
         $order->update_meta_data('_agentcart_payment_rail', $payment_rail);
         $order->update_meta_data('_agentcart_reason', sanitize_text_field((string) ($body['reason'] ?? '')));
@@ -1393,6 +1403,9 @@ final class AgentCart_ShopBridge {
         $order->save();
         delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
         return self::serialize_order_response($order, 'created', $payment_verification);
+        } finally {
+            self::release_quote_lock($merchant_quote_id);
+        }
         } finally {
             self::release_checkout_lock($idempotency_key);
         }
@@ -1636,6 +1649,20 @@ final class AgentCart_ShopBridge {
         return null;
     }
 
+    private static function find_existing_quote_order($merchant_quote_id) {
+        $merchant_quote_id = sanitize_text_field((string) $merchant_quote_id);
+        if ($merchant_quote_id === '') {
+            return null;
+        }
+        $existing_orders = wc_get_orders([
+            'limit' => 1,
+            'return' => 'objects',
+            'meta_key' => '_agentcart_merchant_quote_id',
+            'meta_value' => $merchant_quote_id,
+        ]);
+        return !empty($existing_orders) ? $existing_orders[0] : null;
+    }
+
     private static function validate_existing_order_replay(WC_Order $order, $body, $receipt, $agentcart_order_id, $idempotency_key) {
         $stored_agentcart_order_id = (string) $order->get_meta('_agentcart_order_id', true);
         if ($agentcart_order_id !== '' && $stored_agentcart_order_id !== '' && !hash_equals($stored_agentcart_order_id, $agentcart_order_id)) {
@@ -1767,6 +1794,28 @@ final class AgentCart_ShopBridge {
 
     private static function checkout_lock_option_name($idempotency_key) {
         return self::CHECKOUT_LOCK_PREFIX . hash('sha256', (string) $idempotency_key);
+    }
+
+    private static function acquire_quote_lock($merchant_quote_id) {
+        $option_name = self::quote_lock_option_name($merchant_quote_id);
+        $now = time();
+        if (add_option($option_name, (string) $now, '', 'no')) {
+            return true;
+        }
+        $existing = intval(get_option($option_name, 0));
+        if ($existing > 0 && $existing < ($now - self::CHECKOUT_LOCK_TTL_SECONDS)) {
+            update_option($option_name, (string) $now, false);
+            return true;
+        }
+        return new WP_Error('agentcart_quote_checkout_in_progress', 'A checkout for this merchant quote is already in progress.', ['status' => 409]);
+    }
+
+    private static function release_quote_lock($merchant_quote_id) {
+        delete_option(self::quote_lock_option_name($merchant_quote_id));
+    }
+
+    private static function quote_lock_option_name($merchant_quote_id) {
+        return self::QUOTE_LOCK_PREFIX . hash('sha256', (string) $merchant_quote_id);
     }
 
     private static function acquire_refund_lock($refund_idempotency_key) {
