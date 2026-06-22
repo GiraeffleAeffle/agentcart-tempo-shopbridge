@@ -1034,6 +1034,103 @@ def unit_value_for_candidate(product: dict[str, Any], quote: dict[str, Any], pro
     }
 
 
+def basket_items_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_items = args.get("basket") or args.get("shopping_list") or args.get("items")
+    if not isinstance(raw_items, list) or not raw_items:
+        raise SystemExit("basket, shopping_list, or items must contain at least one item")
+    normalized = []
+    for index, item in enumerate(raw_items, start=1):
+        if not isinstance(item, dict):
+            raise SystemExit(f"basket item {index} must be an object")
+        query = str(item.get("query") or item.get("q") or item.get("search") or item.get("name") or item.get("title") or "").strip()
+        product_id = str(item.get("product_id") or item.get("id") or "").strip()
+        if not query and not product_id:
+            raise SystemExit(f"basket item {index} must include query or product_id")
+        normalized.append(
+            {
+                "query": query or product_id,
+                "product_id": product_id,
+                "quantity": bounded_int(item.get("quantity"), default=1, minimum=1, maximum=20),
+                "required": item.get("required", True) is not False,
+                "constraints": item.get("constraints") if isinstance(item.get("constraints"), dict) else {},
+            }
+        )
+    return normalized
+
+
+def product_matches_basket_item(product: dict[str, Any], item: dict[str, Any]) -> bool:
+    product_id = item.get("product_id")
+    if product_id and product_id_for_quote(product).removeprefix("woo_") != str(product_id).removeprefix("woo_"):
+        return False
+    constraints = item.get("constraints") if isinstance(item.get("constraints"), dict) else {}
+    excluded_terms = [
+        str(term).lower()
+        for term in constraints.get("exclude_terms", [])
+        if term
+    ] if isinstance(constraints.get("exclude_terms"), list) else []
+    if excluded_terms:
+        haystack = " ".join(
+            str(product.get(field) or "")
+            for field in ("title", "description", "category", "brand")
+        ).lower()
+        if any(term in haystack for term in excluded_terms):
+            return False
+    required_tags = [
+        str(tag).lower()
+        for tag in constraints.get("required_tags", [])
+        if tag
+    ] if isinstance(constraints.get("required_tags"), list) else []
+    if required_tags:
+        raw_tags = []
+        for field in ("tags", "dietary_tags", "labels"):
+            if isinstance(product.get(field), list):
+                raw_tags.extend(str(tag).lower() for tag in product[field])
+        if not set(required_tags).issubset(set(raw_tags)):
+            return False
+    return True
+
+
+def best_catalog_product_for_basket_item(
+    catalog: dict[str, Any],
+    item: dict[str, Any],
+    country: str,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    rejected = []
+    products = catalog.get("products") if isinstance(catalog.get("products"), list) else []
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        product_id = product_id_for_quote(product)
+        if not product_id:
+            rejected.append({"reason": "catalog product missing product id"})
+            continue
+        if product.get("eligible_for_agent_checkout", True) is False:
+            rejected.append({"product_id": product_id, "title": product.get("title"), "reason": "product is not eligible for agent checkout"})
+            continue
+        if not product_ships_to_country(product, country):
+            rejected.append({"product_id": product_id, "title": product.get("title"), "reason": f"merchant does not ship to {country}"})
+            continue
+        if not product_matches_basket_item(product, item):
+            rejected.append({"product_id": product_id, "title": product.get("title"), "reason": "product did not satisfy basket constraints"})
+            continue
+        return product, rejected
+    return None, rejected
+
+
+def basket_unit_values(products: list[dict[str, Any]], quote: dict[str, Any]) -> list[dict[str, Any]]:
+    values = []
+    for product in products:
+        product_id = product_id_for_quote(product)
+        values.append(
+            {
+                "product_id": product_id,
+                "title": product.get("title"),
+                "unit_value": unit_value_for_candidate(product, quote, product_id),
+            }
+        )
+    return values
+
+
 def merchant_snapshot_arg(args: dict[str, Any], name: str, merchant_id: str) -> dict[str, Any] | None:
     value = args.get(name)
     if isinstance(value, dict):
@@ -1285,6 +1382,232 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def basket_quote_items(matched_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, int] = {}
+    for item in matched_items:
+        product = item.get("product") if isinstance(item.get("product"), dict) else {}
+        product_id = product_id_for_quote(product)
+        if not product_id:
+            continue
+        merged[product_id] = merged.get(product_id, 0) + int(item.get("quantity") or 1)
+    return [{"product_id": product_id, "quantity": quantity} for product_id, quantity in merged.items()]
+
+
+def catalog_product_for_basket_item(
+    base_url: str,
+    item: dict[str, Any],
+    country: str,
+    catalog_limit: int,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    product_id = str(item.get("product_id") or "")
+    if product_id:
+        try:
+            product = command_product({"base_url": base_url, "product_id": product_id})
+        except SystemExit as exc:
+            return None, [{"product_id": product_id, "reason": "product request failed", "detail": str(exc)}]
+        if not product_ships_to_country(product, country):
+            return None, [{"product_id": product_id, "title": product.get("title"), "reason": f"merchant does not ship to {country}"}]
+        if product.get("eligible_for_agent_checkout", True) is False:
+            return None, [{"product_id": product_id, "title": product.get("title"), "reason": "product is not eligible for agent checkout"}]
+        if not product_matches_basket_item(product, item):
+            return None, [{"product_id": product_id, "title": product.get("title"), "reason": "product did not satisfy basket constraints"}]
+        return product, []
+    catalog = command_catalog({"base_url": base_url, "search": item["query"], "limit": catalog_limit})
+    return best_catalog_product_for_basket_item(catalog, item, country)
+
+
+def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
+    basket = basket_items_from_args(args)
+    ship_to = quote_ship_to_from_args(args)
+    country = str(ship_to.get("country") or "DE").upper()
+    max_candidates = bounded_int(args.get("max_candidates"), default=6, minimum=1, maximum=12)
+    catalog_limit = bounded_int(args.get("catalog_limit"), default=6, minimum=1, maximum=24)
+    allow_partial = args.get("allow_partial", False) is True
+    candidates: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+
+    for record in registry_records_from_args(args):
+        merchant_id = str(record.get("merchant_id") or "")
+        try:
+            resolved = resolve_record_for_discovery(record, args)
+        except SystemExit as exc:
+            rejected.append({"merchant_id": merchant_id, "reason": "registry verification failed", "detail": str(exc)})
+            continue
+        verification = resolved.get("verification") if isinstance(resolved.get("verification"), dict) else {}
+        if not resolved.get("ok") or verification.get("state") != "verified":
+            rejected.append(
+                {
+                    "merchant_id": merchant_id or resolved.get("merchant", {}).get("id"),
+                    "merchant_name": resolved.get("merchant", {}).get("name"),
+                    "reason": "merchant registry verification failed",
+                    "detail": verification,
+                }
+            )
+            continue
+        base_url = str(resolved.get("base_url") or "")
+        matched_items: list[dict[str, Any]] = []
+        missing_items: list[dict[str, Any]] = []
+        item_rejections: list[dict[str, Any]] = []
+        for item in basket:
+            try:
+                product, product_rejections = catalog_product_for_basket_item(base_url, item, country, catalog_limit)
+            except SystemExit as exc:
+                product, product_rejections = None, [{"reason": "catalog request failed", "detail": str(exc)}]
+            item_rejections.extend(
+                {
+                    "query": item["query"],
+                    **rejection,
+                }
+                for rejection in product_rejections
+            )
+            if product is None:
+                missing_items.append(
+                    {
+                        "query": item["query"],
+                        "quantity": item["quantity"],
+                        "required": item["required"],
+                    }
+                )
+                continue
+            matched_items.append(
+                {
+                    "query": item["query"],
+                    "quantity": item["quantity"],
+                    "required": item["required"],
+                    "product": product,
+                }
+            )
+        required_missing = [item for item in missing_items if item.get("required")]
+        if required_missing and not allow_partial:
+            rejected.append(
+                {
+                    "merchant_id": merchant_id,
+                    "merchant_name": resolved.get("merchant", {}).get("name"),
+                    "reason": "merchant could not satisfy required basket items",
+                    "missing_items": required_missing,
+                    "detail": item_rejections,
+                }
+            )
+            continue
+        quote_items = basket_quote_items(matched_items)
+        if not quote_items:
+            rejected.append(
+                {
+                    "merchant_id": merchant_id,
+                    "merchant_name": resolved.get("merchant", {}).get("name"),
+                    "reason": "merchant had no quotable basket items",
+                    "missing_items": missing_items,
+                    "detail": item_rejections,
+                }
+            )
+            continue
+        try:
+            quote = command_quote({"base_url": base_url, "items": quote_items, "ship_to": ship_to})
+            preflight = command_checkout_preflight(
+                {
+                    "quote": quote,
+                    "payment_rail": args.get("payment_rail"),
+                    "max_total_cents": args.get("max_total_cents"),
+                }
+            )
+        except SystemExit as exc:
+            rejected.append(
+                {
+                    "merchant_id": merchant_id,
+                    "merchant_name": resolved.get("merchant", {}).get("name"),
+                    "reason": "basket quote request failed",
+                    "detail": str(exc),
+                }
+            )
+            continue
+        if not preflight.get("ok") or not preflight.get("available_payment_methods"):
+            rejected.append(
+                {
+                    "merchant_id": merchant_id,
+                    "merchant_name": resolved.get("merchant", {}).get("name"),
+                    "quote_id": quote.get("id"),
+                    "reason": "merchant payment rail is unavailable",
+                    "detail": preflight,
+                }
+            )
+            continue
+        merchant = quote.get("merchant") if isinstance(quote.get("merchant"), dict) else {}
+        matched_products = [item["product"] for item in matched_items if isinstance(item.get("product"), dict)]
+        candidates.append(
+            {
+                "_quote": quote,
+                "_preflight": preflight,
+                "quote_id": str(quote.get("id") or ""),
+                "merchant_id": str(merchant.get("id") or merchant_id),
+                "merchant_name": str(merchant.get("name") or resolved.get("merchant", {}).get("name") or ""),
+                "matched_items": [
+                    {
+                        "query": item["query"],
+                        "quantity": item["quantity"],
+                        "product_id": product_id_for_quote(item["product"]),
+                        "title": item["product"].get("title"),
+                    }
+                    for item in matched_items
+                ],
+                "missing_items": missing_items,
+                "full_basket": not missing_items,
+                "total_cents": int(quote.get("total_cents") or 0),
+                "currency": str(quote.get("currency") or "EUR"),
+                "delivery": quote.get("delivery_window") or quote.get("delivery_estimate") or {},
+                "quote_hash": quote.get("quote_hash"),
+                "approval_hash": preflight.get("approval_hash"),
+                "payment_destination": preflight.get("payment_destination"),
+                "unit_values": basket_unit_values(matched_products, quote),
+                "registry": {
+                    "manifest_url": resolved.get("manifest_url"),
+                    "registry_record_hash": resolved.get("registry_record_hash"),
+                    "verification": verification,
+                    "paid_placement": False,
+                },
+                "rank_reasons": quote_rank_reasons(quote, resolved, preflight),
+                "item_rejections": item_rejections,
+            }
+        )
+
+    candidates.sort(
+        key=lambda candidate: (
+            not bool(candidate["full_basket"]),
+            int(candidate["total_cents"]),
+            quote_latest_delivery_key(candidate["_quote"]),
+            str(candidate["merchant_name"]),
+        )
+    )
+    public_candidates = []
+    for index, candidate in enumerate(candidates[:max_candidates], start=1):
+        public = {key: value for key, value in candidate.items() if not key.startswith("_")}
+        public["rank"] = index
+        public["winner"] = index == 1
+        public["quote_summary"] = compact_quote(candidate["_quote"])
+        public_candidates.append(public)
+    winner = None
+    if public_candidates:
+        raw_winner = candidates[0]
+        winner = {
+            **public_candidates[0],
+            "quote": raw_winner["_quote"],
+            "approval_packet": approval_packet(raw_winner["_quote"], payment_rail=args.get("payment_rail")),
+        }
+    return {
+        "basket": basket,
+        "ship_to": ship_to,
+        "market_design": {
+            "registry_role": "public identity and integrity anchor",
+            "quote_request": "private whole-basket RFQ to verified merchants",
+            "ranking": "full baskets first, then final price, delivery, payment readiness, and policy; no paid placement",
+            "allow_partial": allow_partial,
+        },
+        "candidates": public_candidates,
+        "winner": winner,
+        "rejected": rejected,
+        "next_step": "Ask the human to approve winner.approval_packet.summary, then call checkout with the winner.quote and a matching payment receipt.",
+    }
+
+
 def command_approval_summary(args: dict[str, Any]) -> dict[str, Any]:
     packet = approval_packet(args["quote"], payment_rail=args.get("payment_rail"))
     return {"approval_required": True, **packet}
@@ -1484,6 +1807,8 @@ def main() -> None:
         compact = compact_quote(result) if args.get("compact") or args.get("format") == "toon" else result
     elif command == "discover_quotes":
         compact = command_discover_quotes(args)
+    elif command == "discover_basket_quotes":
+        compact = command_discover_basket_quotes(args)
     elif command == "approval_summary":
         compact = command_approval_summary(args)
     elif command == "approval_packet":

@@ -571,6 +571,135 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["rejected"][0]["reason"], "merchant registry verification failed")
         self.assertIn("domain_proof_record_hash_mismatch", result["rejected"][0]["detail"]["errors"])
 
+    def test_discover_basket_quotes_compares_complete_baskets_across_verified_merchants(self) -> None:
+        manifest_a, record_a, proof_a = registry_manifest_and_record(
+            merchant_id="shop-a",
+            name="Complete Grocery",
+            domain="complete.example",
+            stripe_profile_id="acct_complete",
+        )
+        manifest_b, record_b, proof_b = registry_manifest_and_record(
+            merchant_id="shop-b",
+            name="Tea Only Grocery",
+            domain="teaonly.example",
+            stripe_profile_id="acct_teaonly",
+        )
+        calls = []
+
+        def payment_requirements(profile_id):
+            return {
+                "verification": {"external_verifier_configured": True},
+                "protocols": [
+                    {
+                        "id": "stripe-card-mpp",
+                        "available": True,
+                        "network_id": profile_id,
+                        "stripe_profile_id": profile_id,
+                    }
+                ],
+            }
+
+        def catalog_product(product_id, title):
+            return {
+                "id": product_id,
+                "title": title,
+                "eligible_for_agent_checkout": True,
+                "shipping_regions": ["DE"],
+                "package_size": {
+                    "label": "1 unit",
+                    "normalized_quantity": 1,
+                    "normalized_unit": "unit",
+                },
+            }
+
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            calls.append({"path": path, "method": method, "payload": payload, "base_url": base_url})
+            if path.startswith("/wp-json/agentcart/v1/catalog"):
+                if base_url == "https://complete.example":
+                    if "filters" in path:
+                        return {"products": [catalog_product("complete-filters", "Coffee Filters")]}
+                    return {"products": [catalog_product("complete-tea", "Breakfast Tea")]}
+                if "filters" in path:
+                    return {"products": []}
+                return {"products": [catalog_product("teaonly-tea", "Breakfast Tea")]}
+            self.assertEqual(base_url, "https://complete.example")
+            self.assertEqual(
+                payload["items"],
+                [
+                    {"product_id": "complete-tea", "quantity": 1},
+                    {"product_id": "complete-filters", "quantity": 2},
+                ],
+            )
+            return sample_quote(
+                id="quote-complete",
+                merchant={"id": "shop-a", "name": "Complete Grocery"},
+                items=[
+                    {
+                        "product_id": "complete-tea",
+                        "title": "Breakfast Tea",
+                        "quantity": 1,
+                        "line_total_cents": 600,
+                    },
+                    {
+                        "product_id": "complete-filters",
+                        "title": "Coffee Filters",
+                        "quantity": 2,
+                        "line_total_cents": 400,
+                    },
+                ],
+                subtotal_cents=1000,
+                shipping={"amount_cents": 500},
+                total_cents=1500,
+                quote_hash="hash-complete",
+                payment_requirements=payment_requirements("acct_complete"),
+            )
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+            result = shopbridge_direct.command_discover_basket_quotes(
+                {
+                    "registry_records": [record_a, record_b],
+                    "manifest_snapshots": {"shop-a": manifest_a, "shop-b": manifest_b},
+                    "proof_snapshots": {"shop-a": proof_a, "shop-b": proof_b},
+                    "basket": [
+                        {"query": "tea", "quantity": 1},
+                        {"query": "filters", "quantity": 2},
+                    ],
+                    "country": "DE",
+                    "postal_code": "10115",
+                    "payment_rail": "stripe-card-mpp",
+                }
+            )
+
+        self.assertEqual(result["winner"]["quote_id"], "quote-complete")
+        self.assertTrue(result["winner"]["full_basket"])
+        self.assertEqual(len(result["winner"]["matched_items"]), 2)
+        self.assertEqual(result["winner"]["quote"]["total_cents"], 1500)
+        self.assertEqual(
+            result["winner"]["approval_packet"]["approval_material"]["payment_destination"]["stripe_profile_id"],
+            "acct_complete",
+        )
+        self.assertEqual(result["rejected"][0]["reason"], "merchant could not satisfy required basket items")
+        self.assertEqual(result["rejected"][0]["missing_items"][0]["query"], "filters")
+        self.assertEqual([call["base_url"] for call in calls if call["method"] == "POST"], ["https://complete.example"])
+
+    def test_discover_basket_quotes_rejects_unverified_merchants_before_catalog_or_quote(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+        proof["record_hash"] = "0" * 64
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+            result = shopbridge_direct.command_discover_basket_quotes(
+                {
+                    "registry_records": [record],
+                    "manifest_snapshots": {"merchant-tea-shop": manifest},
+                    "proof_snapshots": {"merchant-tea-shop": proof},
+                    "basket": [{"query": "tea", "quantity": 1}],
+                }
+            )
+
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(result["rejected"][0]["reason"], "merchant registry verification failed")
+        self.assertIn("domain_proof_record_hash_mismatch", result["rejected"][0]["detail"]["errors"])
+
     def test_order_status_sends_status_token_header(self) -> None:
         calls = []
 

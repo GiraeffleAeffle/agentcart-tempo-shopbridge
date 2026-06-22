@@ -189,8 +189,10 @@ aftercare state in the AgentCart service path.
 Current grocery alpha status: ShopBridge exposes structured package-size
 metadata from WooCommerce product weights, and the direct buyer skill can rank
 verified merchant quotes by package/unit value for comparable grocery products.
-Production still needs multi-item basket optimization, substitutions, dietary
-constraints, and pantry-aware replenishment.
+The direct buyer skill can also compare verified merchants by whole-basket
+quotes for required multi-item grocery lists. Production still needs stronger
+cross-merchant basket splitting, substitutions, dietary constraints, and
+pantry-aware replenishment.
 
 ### 6. Production Packaging
 

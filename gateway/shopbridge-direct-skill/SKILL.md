@@ -96,6 +96,17 @@ an approval packet. Use `rank_by:"unit_price"` or `rank_by:"value"` for
 grocery-style package comparisons when catalog products expose `package_size` or
 parseable `unit_size` metadata. Paid placement is not used.
 
+Verified multi-item basket discovery:
+
+```json
+{"command":"discover_basket_quotes","args":{"registry_records":[...],"basket":[{"query":"tea","quantity":1},{"query":"filters","quantity":2}],"country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
+```
+
+This resolves each registry record first, searches each verified merchant for
+every required basket item, requests one whole-basket quote from merchants that
+can satisfy the basket, and ranks full baskets by final total and delivery. Use
+`allow_partial:true` only when the human is willing to buy an incomplete basket.
+
 Approval summary:
 
 ```json
@@ -189,6 +200,10 @@ not call the merchant-token refund endpoint.
 - Use `discover_quotes` for skill-only quote comparison. It must reject
   merchants whose registry verification fails before making catalog or quote
   calls.
+- Use `discover_basket_quotes` for grocery-style multi-item baskets. It must
+  reject merchants whose registry verification fails before making catalog or
+  quote calls, and it must not call checkout until the human approves the
+  returned whole-basket approval packet.
 - Prefer JSON for payment/order calls. Use TOON only for compact agent-readable
   summaries.
 - Use `aftercare_summary` for buyer-facing follow-up. Do not call refund
