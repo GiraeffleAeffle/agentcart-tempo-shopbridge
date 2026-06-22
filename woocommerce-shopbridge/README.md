@@ -57,7 +57,10 @@ define('AGENTCART_STRIPE_PROFILE_ID', 'profile_test_...');
 define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/agentcart/tempo');
 define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
 define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
-define('AGENTCART_PRODUCT_EXPOSURE_MODE', 'tag'); // manual, tag, or all
+define('AGENTCART_RETURNS_URL', 'https://shop.example/returns');
+define('AGENTCART_SUBSTITUTION_POLICY', 'approval_required'); // approval_required, not_allowed, or merchant_allowed
+define('AGENTCART_CANCELLATION_WINDOW_MINUTES', 30);
+define('AGENTCART_PRODUCT_EXPOSURE_MODE', 'tag'); // manual, tag, category, or all
 define('AGENTCART_PRODUCT_EXPOSURE_TAG', 'agentcart-safe');
 ```
 
@@ -78,6 +81,8 @@ The settings page also shows:
 - discovery manifest URL
 - registry domain proof URL and configured state
 - catalog, quote, and paid-order endpoints
+- aftercare policy defaults for returns, substitutions, and cancellation
+  requests
 - whether the Tempo recipient is configured
 - whether Stripe/card MPP has a Stripe profile and verifier configured
 - whether the plugin is in demo token mode or external verifier mode
@@ -272,12 +277,17 @@ should use Stripe refund APIs. For Tempo/stablecoin, the verifier should create
 or verify the refund transfer back to the source wallet and return the refund
 transaction reference.
 
-Order status and refund policy responses include item-level commerce policy
-summaries. Perishable, deposit-bearing, final-sale, substitution-sensitive, and
-restricted items can require buyer-agent review before refunds, returns,
-cancellations, or substitutions. This is guidance and audit metadata for agents;
-real refund authority still stays with WooCommerce plus the configured payment
-verifier.
+Quotes include store-level aftercare policy defaults for returns, refunds,
+substitutions, and cancellation requests. The quote hash binds those defaults,
+and the paid order stores them so buyer-facing order status continues to reflect
+the terms that were approved at checkout.
+
+Order status and refund policy responses also include item-level commerce
+policy summaries. Perishable, deposit-bearing, final-sale,
+substitution-sensitive, and restricted items can require buyer-agent review
+before refunds, returns, cancellations, or substitutions. This is guidance and
+audit metadata for agents; real refund authority still stays with WooCommerce
+plus the configured payment verifier.
 
 ## Discovery
 

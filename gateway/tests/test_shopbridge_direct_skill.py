@@ -148,6 +148,27 @@ def sample_order_status(**overrides):
             "transaction_reference": "pi_test_123",
             "real_settlement_verified": True,
         },
+        "merchant_policy": {
+            "returns_url": "https://merchant.example/returns",
+            "refunds": {
+                "requires_merchant_review": True,
+                "rail_refund_requires_verifier": True,
+                "policy_url": "https://merchant.example/returns",
+            },
+            "cancellations": {
+                "buyer_request_allowed": True,
+                "request_window_minutes": 30,
+                "requires_merchant_review": True,
+                "policy_url": "https://merchant.example/returns",
+            },
+            "substitutions": {
+                "policy": "approval_required",
+                "label": "Substitutions require buyer approval.",
+                "requires_buyer_approval": True,
+                "not_allowed": False,
+                "merchant_may_substitute": False,
+            },
+        },
         "refund_policy": {
             "endpoint": "https://merchant.example/wp-json/agentcart/v1/orders/123/refunds",
             "requires_merchant_token": True,
@@ -841,10 +862,17 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["refund"]["remaining"], "14.80 EUR")
         self.assertTrue(result["refund"]["requires_merchant_or_gateway"])
         self.assertEqual(result["support"]["email"], "support@example.test")
+        self.assertEqual(result["merchant_policy"]["substitution_policy"], "approval_required")
+        self.assertTrue(result["merchant_policy"]["cancellation_request_allowed"])
         self.assertEqual(result["payment_proof"]["transaction_reference"], "pi_test_123")
         self.assertEqual(result["refund_request_draft"]["amount"], "5.00 EUR")
-        self.assertIn("does not call merchant-token refund endpoints", result["safety_note"])
+        self.assertIn("does not call merchant-token refund, cancellation, or order mutation endpoints", result["safety_note"])
         self.assertIn("request_refund", {action["id"] for action in result["next_actions"]})
+        self.assertIn("request_cancellation", {action["id"] for action in result["next_actions"]})
+        self.assertEqual(
+            result["refund_request_draft"]["trusted_gateway_payload_hint"]["merchant_policy"]["returns_url"],
+            "https://merchant.example/returns",
+        )
 
     def test_aftercare_summary_surfaces_item_policy_review(self) -> None:
         order = sample_order_status()

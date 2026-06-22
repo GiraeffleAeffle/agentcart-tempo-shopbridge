@@ -182,6 +182,9 @@ This is read-only. It summarizes fulfillment, tracking, refundability, support,
 payment proof, item-level commerce policy, and safe next actions. If refund
 fields are supplied, it creates a refund request draft for the merchant or
 trusted AgentCart gateway; it does not call the merchant-token refund endpoint.
+When the order exposes `merchant_policy`, the summary also surfaces store-level
+returns, substitution, and cancellation-request defaults that were bound into
+the approved quote.
 
 ## Safety Rules
 
@@ -224,6 +227,9 @@ trusted AgentCart gateway; it does not call the merchant-token refund endpoint.
   merchant token or trusted gateway approval. Treat perishable, deposit-bearing,
   final-sale, substitution-sensitive, or restricted item policy as a reason to
   ask for human review before refund, return, cancellation, or substitution.
+- Cancellation actions from this skill are request drafts only. They do not
+  cancel WooCommerce orders and must be reviewed by the merchant or trusted
+  AgentCart gateway.
 - Use the full AgentCart service path instead when the buyer needs durable
   household policy, multi-user approval, recurring budgets, delivery calendar,
   task sync, or a persistent audit trail.

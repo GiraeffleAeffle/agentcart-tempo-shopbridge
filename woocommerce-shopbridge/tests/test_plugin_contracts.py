@@ -264,6 +264,44 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'structured_commerce_policy_metadata'", capability_body)
         self.assertIn("'item_commerce_policy_metadata'", capability_body)
 
+    def test_merchant_aftercare_policy_is_configurable_quote_bound_and_preserved(self) -> None:
+        settings_body = function_body("register_settings")
+        render_body = function_body("render_settings_page")
+        quote_body = function_body("quote")
+        quote_hash_body = function_body("quote_hash_payload")
+        order_body = function_body("create_order")
+        order_status_body = function_body("serialize_order_status")
+        order_response_body = function_body("serialize_order_response")
+        stored_policy_body = function_body("stored_merchant_policy")
+        refund_policy_body = function_body("refund_policy")
+        registry_claim_body = function_body("registry_claim")
+        capability_body = function_body("capability_document")
+
+        for symbol in [
+            "RETURNS_URL_OPTION",
+            "SUBSTITUTION_POLICY_OPTION",
+            "CANCELLATION_WINDOW_MINUTES_OPTION",
+            "AGENTCART_RETURNS_URL",
+            "AGENTCART_SUBSTITUTION_POLICY",
+            "AGENTCART_CANCELLATION_WINDOW_MINUTES",
+        ]:
+            self.assertIn(symbol, SOURCE)
+        self.assertIn("sanitize_substitution_policy_setting", settings_body)
+        self.assertIn("sanitize_cancellation_window_minutes_setting", settings_body)
+        self.assertIn("render_aftercare_policy_setting_rows", render_body)
+        self.assertIn("'merchant_policy'", quote_body)
+        self.assertIn("'merchant_policy'", quote_hash_body)
+        self.assertIn("ORDER_MERCHANT_POLICY_META", order_body)
+        self.assertIn("'merchant_policy'", order_status_body)
+        self.assertIn("'merchant_policy'", order_response_body)
+        self.assertIn("ORDER_MERCHANT_POLICY_META", stored_policy_body)
+        self.assertIn("'merchant_policy'", refund_policy_body)
+        self.assertIn("'merchant_aftercare_policy_defaults'", capability_body)
+        self.assertIn("'merchant_substitution_policy'", capability_body)
+        self.assertIn("'merchant_cancellation_policy'", capability_body)
+        self.assertIn("'merchant_policy'", capability_body)
+        self.assertIn("'merchant_policy_hash'", registry_claim_body)
+
     def test_product_shipping_country_overrides_are_exposed_and_rechecked(self) -> None:
         product_body = function_body("serialize_product")
         quote_body = function_body("quote")

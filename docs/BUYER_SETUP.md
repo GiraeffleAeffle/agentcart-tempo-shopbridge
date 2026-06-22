@@ -80,6 +80,9 @@ Checkout safety:
 - Always create or inspect an `approval_packet` before checkout.
 - Do not call `checkout` until the human approves the exact merchant, items,
   total, delivery window, quote hash, and payment destination.
+- Treat aftercare actions such as refund or cancellation as request drafts
+  unless the buyer is using a trusted AgentCart gateway with merchant
+  authorization.
 - Production checkout must supply a verifier/payment receipt bound to amount,
   currency, quote hash, merchant recipient/profile, and transaction reference.
 - The Tempo demo proof is sandbox/testnet proof, not production EUR settlement.

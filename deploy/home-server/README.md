@@ -64,7 +64,9 @@ docker-compose --profile woocommerce-demo run --rm woocommerce-seed
 ```
 
 WooCommerce admin defaults come from `.env`: `WOO_ADMIN_USER` and
-`WOO_ADMIN_PASSWORD`.
+`WOO_ADMIN_PASSWORD`. AgentCart aftercare defaults for the demo shop are also
+set from `.env`: `AGENTCART_RETURNS_URL`, `AGENTCART_SUBSTITUTION_POLICY`, and
+`AGENTCART_CANCELLATION_WINDOW_MINUTES`.
 
 ## Files Expected In Repo Root
 

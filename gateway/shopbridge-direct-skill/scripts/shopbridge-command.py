@@ -412,6 +412,9 @@ def compact_quote(quote: dict[str, Any]) -> dict[str, Any]:
     shipping = quote.get("shipping") or {}
     payment = quote.get("payment_requirements") or {}
     protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
+    merchant_policy = compact_merchant_policy(
+        quote.get("merchant_policy") if isinstance(quote.get("merchant_policy"), dict) else merchant.get("merchant_policy")
+    )
     return {
         "quote_id": quote.get("id"),
         "merchant": merchant.get("name"),
@@ -430,6 +433,7 @@ def compact_quote(quote: dict[str, Any]) -> dict[str, Any]:
         "delivery": (quote.get("delivery_estimate") or {}).get("label"),
         "quote_hash": quote.get("quote_hash"),
         "payment_methods": [protocol.get("id") for protocol in protocols if isinstance(protocol, dict)],
+        "merchant_policy": merchant_policy,
     }
 
 
@@ -439,7 +443,10 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
     payment = order.get("payment_verification") if isinstance(order.get("payment_verification"), dict) else {}
     refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
     item_policy = aftercare_item_policy_summary(order, refund_policy)
+    merchant_policy = aftercare_merchant_policy(order, refund_policy, args)
     support = support_contact(order, args)
+    if not support.get("returns_url") and merchant_policy.get("returns_url"):
+        support["returns_url"] = str(merchant_policy["returns_url"])
     currency = str(refund_policy.get("currency") or args.get("currency") or "EUR")
     remaining_cents = int(refund_policy.get("remaining_refundable_cents") or 0)
     tracking_url = str(fulfillment.get("tracking_url") or "")
@@ -452,6 +459,14 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         next_actions.append({"id": "track_with_carrier", "label": f"Track shipment {tracking_number}"})
     else:
         next_actions.append({"id": "check_status_later", "label": "Check order status again later"})
+    if merchant_policy.get("cancellation_request_allowed") and str(fulfillment.get("state") or "") not in {"shipped", "fulfilled"}:
+        next_actions.append(
+            {
+                "id": "request_cancellation",
+                "label": "Ask merchant or trusted gateway to review cancellation",
+                "window_minutes": merchant_policy.get("cancellation_window_minutes"),
+            }
+        )
     if item_policy.get("merchant_review_required"):
         next_actions.append({"id": "review_item_policy", "label": "Review item-level return and substitution policy"})
     if remaining_cents > 0:
@@ -494,6 +509,7 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
             "existing_refunds": len([refund for refund in refunds if isinstance(refund, dict)]),
         },
         "item_policy": item_policy,
+        "merchant_policy": merchant_policy,
         "support": support,
         "payment_proof": {
             "rail": str(payment.get("rail") or ""),
@@ -502,7 +518,7 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         },
         "refund_request_draft": refund_request,
         "next_actions": next_actions,
-        "safety_note": "The direct buyer skill does not call merchant-token refund endpoints. Ask the merchant or a trusted AgentCart gateway to submit approved refunds, especially for perishable, deposit, restricted, or final-sale items.",
+        "safety_note": "The direct buyer skill does not call merchant-token refund, cancellation, or order mutation endpoints. Ask the merchant or a trusted AgentCart gateway to submit approved aftercare requests, especially for perishable, deposit, restricted, or final-sale items.",
     }
 
 
@@ -553,6 +569,38 @@ def aftercare_item_policy_summary(order: dict[str, Any], refund_policy: dict[str
     }
 
 
+def aftercare_merchant_policy(order: dict[str, Any], refund_policy: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    candidates = [
+        refund_policy.get("merchant_policy"),
+        order.get("merchant_policy"),
+        order.get("merchant", {}).get("merchant_policy") if isinstance(order.get("merchant"), dict) else None,
+        args.get("merchant", {}).get("merchant_policy") if isinstance(args.get("merchant"), dict) else None,
+        args.get("merchant_policy"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            return compact_merchant_policy(candidate)
+    return compact_merchant_policy({})
+
+
+def compact_merchant_policy(policy: dict[str, Any]) -> dict[str, Any]:
+    policy = policy if isinstance(policy, dict) else {}
+    substitutions = policy.get("substitutions") if isinstance(policy.get("substitutions"), dict) else {}
+    cancellations = policy.get("cancellations") if isinstance(policy.get("cancellations"), dict) else {}
+    refunds = policy.get("refunds") if isinstance(policy.get("refunds"), dict) else {}
+    return {
+        "returns_url": str(policy.get("returns_url") or refunds.get("policy_url") or cancellations.get("policy_url") or ""),
+        "substitution_policy": str(substitutions.get("policy") or ""),
+        "substitution_label": str(substitutions.get("label") or ""),
+        "substitution_requires_buyer_approval": bool(substitutions.get("requires_buyer_approval")),
+        "substitutions_not_allowed": bool(substitutions.get("not_allowed")),
+        "cancellation_request_allowed": bool(cancellations.get("buyer_request_allowed")),
+        "cancellation_window_minutes": bounded_int(cancellations.get("request_window_minutes"), default=0, minimum=0, maximum=10080),
+        "refund_requires_merchant_review": bool(refunds.get("requires_merchant_review", True)),
+        "rail_refund_requires_verifier": bool(refunds.get("rail_refund_requires_verifier", True)),
+    }
+
+
 def support_contact(order: dict[str, Any], args: dict[str, Any]) -> dict[str, str]:
     candidates = [
         args.get("merchant"),
@@ -595,6 +643,7 @@ def refund_request_draft(
             "reason": reason,
             "requested_reference": args.get("requested_reference") or f"buyer_refund_{order.get('id') or 'order'}",
             "item_policy_summary": aftercare_item_policy_summary(order, order.get("refund_policy") if isinstance(order.get("refund_policy"), dict) else {}),
+            "merchant_policy": aftercare_merchant_policy(order, order.get("refund_policy") if isinstance(order.get("refund_policy"), dict) else {}, args),
         },
     }
 

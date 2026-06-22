@@ -11,8 +11,10 @@ product-level checkout exclusion override, per-product shipping-country
 overrides, soft AgentCart quote holds for managed stock, structured
 restricted-goods metadata, and structured commerce-policy metadata for
 perishable, deposit-bearing, final-sale, and substitution-sensitive products in
-catalog, quote, order status, and refund policy payloads. Production merchant
-onboarding still needs the controls below.
+catalog, quote, order status, and refund policy payloads. Store-level
+aftercare policy defaults for returns, substitutions, and cancellation requests
+are configurable from the AgentCart settings page and bound into the quote hash.
+Production merchant onboarding still needs the controls below.
 
 ## Merchant Admin Readiness
 
@@ -39,10 +41,14 @@ shipping countries and soft quote holds are rechecked before paid order
 creation. Perishable, deposit-bearing, final-sale, and
 substitution-sensitive labels are surfaced as item policy metadata and
 preserved onto order status/refund policy responses for buyer-agent aftercare.
+Store-level returns, substitution, and cancellation-request defaults are also
+preserved onto paid AgentCart orders.
 Production should add richer product controls:
 
-- merchant-configurable return/refund policy overrides beyond inferred labels;
-- merchant-configurable substitution and cancellation policy;
+- product-specific return/refund/substitution policy overrides beyond inferred
+  labels and store defaults;
+- cancellation endpoint/state-machine support that can coordinate with
+  fulfillment before shipment;
 - merchant-side hard stock reservation integration for shops that need actual
   WooCommerce inventory holds before payment.
 

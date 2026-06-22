@@ -30,6 +30,8 @@ The seed script configures the demo shop with:
 - VAT rates for those demo countries;
 - a taxable `Tracked parcel` flat-rate shipping method at `4.90 EUR`;
 - terms and returns pages used by the ShopBridge manifest;
+- AgentCart aftercare defaults for returns, substitution approval, and
+  cancellation-request drafts;
 - demo tracking metadata for existing AgentCart-created Woo orders.
 
 Open:

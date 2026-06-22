@@ -21,6 +21,7 @@ final class AgentCart_ShopBridge {
     const REFUND_REQUESTED_REFERENCE_META = '_agentcart_refund_requested_reference';
     const REFUND_REFERENCE_META = '_agentcart_refund_reference';
     const ORDER_ITEMS_META = '_agentcart_quote_items';
+    const ORDER_MERCHANT_POLICY_META = '_agentcart_merchant_policy';
     const CHECKOUT_LOCK_PREFIX = 'agentcart_shopbridge_checkout_lock_';
     const QUOTE_LOCK_PREFIX = 'agentcart_shopbridge_quote_lock_';
     const REFUND_LOCK_PREFIX = 'agentcart_shopbridge_refund_lock_';
@@ -33,6 +34,9 @@ final class AgentCart_ShopBridge {
     const TEMPO_NETWORK_OPTION = 'agentcart_shopbridge_tempo_network';
     const STRIPE_PROFILE_ID_OPTION = 'agentcart_shopbridge_stripe_profile_id';
     const SUPPORT_EMAIL_OPTION = 'agentcart_shopbridge_support_email';
+    const RETURNS_URL_OPTION = 'agentcart_shopbridge_returns_url';
+    const SUBSTITUTION_POLICY_OPTION = 'agentcart_shopbridge_substitution_policy';
+    const CANCELLATION_WINDOW_MINUTES_OPTION = 'agentcart_shopbridge_cancellation_window_minutes';
     const REGISTRY_CLAIM_FINGERPRINT_OPTION = 'agentcart_shopbridge_registry_claim_fingerprint';
     const REGISTRY_UPDATED_AT_OPTION = 'agentcart_shopbridge_registry_updated_at';
     const PRODUCT_EXPOSURE_MODE_OPTION = 'agentcart_shopbridge_product_exposure_mode';
@@ -122,6 +126,21 @@ final class AgentCart_ShopBridge {
             'type' => 'string',
             'sanitize_callback' => 'sanitize_email',
             'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::RETURNS_URL_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'esc_url_raw',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::SUBSTITUTION_POLICY_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_substitution_policy_setting'],
+            'default' => 'approval_required',
+        ]);
+        register_setting('agentcart_shopbridge', self::CANCELLATION_WINDOW_MINUTES_OPTION, [
+            'type' => 'integer',
+            'sanitize_callback' => [__CLASS__, 'sanitize_cancellation_window_minutes_setting'],
+            'default' => 30,
         ]);
         register_setting('agentcart_shopbridge', self::TEMPO_NETWORK_OPTION, [
             'type' => 'string',
@@ -219,6 +238,16 @@ final class AgentCart_ShopBridge {
         return max(1, min(60, $minutes ?: 15));
     }
 
+    public static function sanitize_substitution_policy_setting($value) {
+        $policy = sanitize_key((string) $value);
+        return in_array($policy, ['approval_required', 'not_allowed', 'merchant_allowed'], true) ? $policy : 'approval_required';
+    }
+
+    public static function sanitize_cancellation_window_minutes_setting($value) {
+        $minutes = absint($value);
+        return min(10080, $minutes);
+    }
+
     public static function render_settings_page() {
         if (!current_user_can('manage_woocommerce')) {
             wp_die(esc_html__('You do not have permission to manage AgentCart ShopBridge.', 'agentcart-shopbridge'));
@@ -238,6 +267,9 @@ final class AgentCart_ShopBridge {
         $tempo_recipient = self::tempo_recipient();
         $stripe_profile_id = self::stripe_profile_id();
         $support_email = self::support_email();
+        $returns_url = self::returns_url();
+        $substitution_policy = self::substitution_policy();
+        $cancellation_window_minutes = self::cancellation_window_minutes();
         $product_exposure_mode = self::product_exposure_mode();
         $product_exposure_tag = self::product_exposure_tag();
         $product_exposure_categories = self::product_exposure_categories();
@@ -306,6 +338,11 @@ final class AgentCart_ShopBridge {
                         <td><?php echo self::admin_status_badge(self::legal_pages_configured(), 'Configured', 'Missing'); ?></td>
                     </tr>
                     <tr>
+                        <th scope="row">Aftercare policy</th>
+                        <td><?php echo esc_html(self::merchant_policy_summary()); ?></td>
+                        <td><?php echo self::admin_status_badge($returns_url !== '', 'Published', 'Needs returns URL'); ?></td>
+                    </tr>
+                    <tr>
                         <th scope="row">Tax and shipping</th>
                         <td><?php echo esc_html(self::tax_and_shipping_configured() ? 'WooCommerce tax and shipping countries are configured.' : 'Review WooCommerce tax and shipping setup before production.'); ?></td>
                         <td><?php echo self::admin_status_badge(self::tax_and_shipping_configured(), 'Configured', 'Needs setup'); ?></td>
@@ -363,6 +400,8 @@ final class AgentCart_ShopBridge {
                 <table class="form-table" role="presentation">
                     <?php self::render_text_setting_row('Merchant token', self::TOKEN_OPTION, self::merchant_token_value(), 'AGENTCART_SHOPBRIDGE_TOKEN', 'Shared secret for a trusted AgentCart gateway. Production public checkout should use a payment verifier.'); ?>
                     <?php self::render_text_setting_row('Support email', self::SUPPORT_EMAIL_OPTION, $support_email, 'AGENTCART_SUPPORT_EMAIL', 'Published in the merchant-of-record block for customer support.'); ?>
+                    <?php self::render_text_setting_row('Returns policy URL', self::RETURNS_URL_OPTION, $returns_url, 'AGENTCART_RETURNS_URL', 'Published to buyer agents for refunds, returns, cancellation requests, and support handoff. Defaults to /returns when no override is set.'); ?>
+                    <?php self::render_aftercare_policy_setting_rows($substitution_policy, $cancellation_window_minutes); ?>
                     <?php self::render_text_setting_row('Tempo network', self::TEMPO_NETWORK_OPTION, self::tempo_network(), 'AGENTCART_TEMPO_NETWORK', 'For the hackathon this is usually testnet.'); ?>
                     <?php self::render_text_setting_row('Tempo recipient address', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Merchant or payment-provider recipient used by the payment verifier.'); ?>
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
@@ -773,6 +812,8 @@ final class AgentCart_ShopBridge {
             'payment_recipient' => self::tempo_recipient(),
             'stripe_profile_id' => self::stripe_profile_id(),
             'ship_to_countries' => self::shipping_countries(),
+            'returns_url' => self::returns_url(),
+            'merchant_policy_hash' => self::canonical_json_hash(self::merchant_policy()),
             'proof_url' => self::registry_proof_url(),
         ];
     }
@@ -1002,6 +1043,59 @@ final class AgentCart_ShopBridge {
         <?php
     }
 
+    private static function render_aftercare_policy_setting_rows($substitution_policy, $cancellation_window_minutes) {
+        $substitution_constant_defined = defined('AGENTCART_SUBSTITUTION_POLICY');
+        $cancellation_constant_defined = defined('AGENTCART_CANCELLATION_WINDOW_MINUTES');
+        $policies = [
+            'approval_required' => 'Require buyer approval for substitutions',
+            'not_allowed' => 'Do not allow substitutions',
+            'merchant_allowed' => 'Merchant may substitute comparable items',
+        ];
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::SUBSTITUTION_POLICY_OPTION); ?>">Substitution policy</label></th>
+            <td>
+                <select
+                    id="<?php echo esc_attr(self::SUBSTITUTION_POLICY_OPTION); ?>"
+                    name="<?php echo esc_attr(self::SUBSTITUTION_POLICY_OPTION); ?>"
+                    <?php disabled($substitution_constant_defined); ?>
+                >
+                    <?php foreach ($policies as $value => $label): ?>
+                        <option value="<?php echo esc_attr($value); ?>" <?php selected($substitution_policy, $value); ?>><?php echo esc_html($label); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="description">
+                    Buyer agents use this store-level default when a product does not carry stricter item-level policy metadata.
+                    <?php if ($substitution_constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_SUBSTITUTION_POLICY</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::CANCELLATION_WINDOW_MINUTES_OPTION); ?>">Cancellation request window</label></th>
+            <td>
+                <input
+                    id="<?php echo esc_attr(self::CANCELLATION_WINDOW_MINUTES_OPTION); ?>"
+                    name="<?php echo esc_attr(self::CANCELLATION_WINDOW_MINUTES_OPTION); ?>"
+                    type="number"
+                    min="0"
+                    max="10080"
+                    step="1"
+                    value="<?php echo esc_attr((string) $cancellation_window_minutes); ?>"
+                    <?php disabled($cancellation_constant_defined); ?>
+                >
+                <p class="description">
+                    Minutes after checkout where buyer agents may surface a cancellation request action. Requests still require merchant review; 0 means no self-service cancellation window is advertised.
+                    <?php if ($cancellation_constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_CANCELLATION_WINDOW_MINUTES</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <?php
+    }
+
     private static function render_product_exposure_setting_rows($mode, $tag, $categories, $blocked_categories) {
         $mode_constant_defined = defined('AGENTCART_PRODUCT_EXPOSURE_MODE');
         $tag_constant_defined = defined('AGENTCART_PRODUCT_EXPOSURE_TAG');
@@ -1198,6 +1292,9 @@ final class AgentCart_ShopBridge {
                 'soft_quote_stock_holds' => self::stock_hold_enabled(),
                 'structured_restricted_goods_metadata' => true,
                 'structured_commerce_policy_metadata' => true,
+                'merchant_aftercare_policy_defaults' => true,
+                'merchant_substitution_policy' => true,
+                'merchant_cancellation_policy' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'agentcart_order_ip_minimized' => true,
@@ -1233,6 +1330,7 @@ final class AgentCart_ShopBridge {
                 'soft_stock_holds_accounted_in_quotes' => self::stock_hold_enabled(),
                 'soft_stock_holds_accounted_in_checkout' => self::stock_hold_enabled(),
             ],
+            'merchant_policy' => self::merchant_policy(),
             'delivery' => [
                 'ship_to_countries' => self::shipping_countries(),
                 'shipping_country_names' => self::shipping_country_names(),
@@ -1429,8 +1527,9 @@ final class AgentCart_ShopBridge {
             'stock_reserved_until' => ($stock_reservation['state'] ?? '') === 'soft_reserved' ? $expires_at : null,
             'stock_reservation' => $stock_reservation,
             'expires_at' => $expires_at,
-            'terms_url' => wc_get_page_permalink('terms') ?: home_url('/terms'),
-            'returns_url' => home_url('/returns'),
+            'terms_url' => self::terms_url(),
+            'returns_url' => self::returns_url(),
+            'merchant_policy' => self::merchant_policy(),
         ];
         $quote['quote_hash'] = self::quote_hash($quote);
         $quote['payment_requirements'] = self::payment_requirements($quote);
@@ -1615,6 +1714,7 @@ final class AgentCart_ShopBridge {
         $order->update_meta_data('_agentcart_reason', sanitize_text_field((string) ($body['reason'] ?? '')));
         $order->update_meta_data('_agentcart_quote_hash', $expected_quote_hash);
         $order->update_meta_data(self::ORDER_ITEMS_META, wp_json_encode($quote['items'] ?? []));
+        $order->update_meta_data(self::ORDER_MERCHANT_POLICY_META, wp_json_encode($quote['merchant_policy'] ?? self::merchant_policy()));
         $order->update_meta_data('_agentcart_payment_verification', wp_json_encode($payment_verification));
         if (!empty($payment_verification['transaction_reference'])) {
             $order->update_meta_data('_agentcart_payment_transaction_reference', sanitize_text_field((string) $payment_verification['transaction_reference']));
@@ -1779,6 +1879,7 @@ final class AgentCart_ShopBridge {
             'fulfillment' => self::serialize_fulfillment($order),
             'payment_verification' => is_array($payment_verification) ? $payment_verification : self::stored_payment_verification($order),
             'items' => self::serialize_order_items($order),
+            'merchant_policy' => self::stored_merchant_policy($order),
             'refund_policy' => self::refund_policy($order),
             'refunds' => self::serialize_refunds($order),
         ];
@@ -1813,10 +1914,17 @@ final class AgentCart_ShopBridge {
             'payment_method' => $order->get_payment_method(),
             'fulfillment' => self::serialize_fulfillment($order),
             'items' => self::serialize_order_items($order),
+            'merchant_policy' => self::stored_merchant_policy($order),
             'refund_policy' => self::refund_policy($order),
             'refunds' => self::serialize_refunds($order),
             'updated_at' => $order->get_date_modified() ? $order->get_date_modified()->date('c') : null,
         ];
+    }
+
+    private static function stored_merchant_policy(WC_Order $order) {
+        $raw = $order->get_meta(self::ORDER_MERCHANT_POLICY_META, true);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        return is_array($decoded) ? $decoded : self::merchant_policy();
     }
 
     private static function serialize_order_items(WC_Order $order) {
@@ -2407,6 +2515,7 @@ final class AgentCart_ShopBridge {
 
     private static function refund_policy(WC_Order $order) {
         $item_policy_summary = self::order_item_policy_summary($order);
+        $merchant_policy = self::stored_merchant_policy($order);
         return [
             'endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/refunds'),
             'requires_merchant_token' => true,
@@ -2415,6 +2524,7 @@ final class AgentCart_ShopBridge {
             'demo_mode_records_woo_refund_only' => self::payment_verifier_url() === '',
             'production_requires_rail_refund_verification' => true,
             'rails' => self::payment_rails(),
+            'merchant_policy' => $merchant_policy,
             'item_policy_summary' => $item_policy_summary,
             'merchant_review_required' => !empty($item_policy_summary['merchant_review_required']),
         ];
@@ -2471,11 +2581,12 @@ final class AgentCart_ShopBridge {
 
     private static function quote_refund_policy() {
         return [
-            'returns_url' => self::merchant()['returns_url'],
+            'returns_url' => self::returns_url(),
             'refund_endpoint_template' => rest_url(self::API_NAMESPACE . '/orders/{id}/refunds'),
             'requires_merchant_token' => true,
             'demo_mode_records_woo_refund_only' => self::payment_verifier_url() === '',
             'production_requires_rail_refund_verification' => true,
+            'merchant_policy' => self::merchant_policy(),
         ];
     }
 
@@ -2605,6 +2716,9 @@ final class AgentCart_ShopBridge {
             'total_cents' => intval($quote['total_cents'] ?? 0),
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
             'expires_at' => (string) ($quote['expires_at'] ?? ''),
+            'terms_url' => (string) ($quote['terms_url'] ?? self::terms_url()),
+            'returns_url' => (string) ($quote['returns_url'] ?? self::returns_url()),
+            'merchant_policy' => $quote['merchant_policy'] ?? self::merchant_policy(),
             'payment_profile' => [
                 'verification_mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
                 'tempo_network' => self::tempo_network(),
@@ -2772,6 +2886,80 @@ final class AgentCart_ShopBridge {
         return sanitize_email((string) get_option(self::SUPPORT_EMAIL_OPTION, ''));
     }
 
+    private static function terms_url() {
+        return wc_get_page_permalink('terms') ?: home_url('/terms');
+    }
+
+    private static function returns_url() {
+        if (defined('AGENTCART_RETURNS_URL')) {
+            $value = esc_url_raw((string) AGENTCART_RETURNS_URL);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        $configured = esc_url_raw((string) get_option(self::RETURNS_URL_OPTION, ''));
+        return $configured !== '' ? $configured : home_url('/returns');
+    }
+
+    private static function substitution_policy() {
+        if (defined('AGENTCART_SUBSTITUTION_POLICY')) {
+            return self::sanitize_substitution_policy_setting((string) AGENTCART_SUBSTITUTION_POLICY);
+        }
+        return self::sanitize_substitution_policy_setting((string) get_option(self::SUBSTITUTION_POLICY_OPTION, 'approval_required'));
+    }
+
+    private static function cancellation_window_minutes() {
+        if (defined('AGENTCART_CANCELLATION_WINDOW_MINUTES')) {
+            return self::sanitize_cancellation_window_minutes_setting(AGENTCART_CANCELLATION_WINDOW_MINUTES);
+        }
+        return self::sanitize_cancellation_window_minutes_setting(get_option(self::CANCELLATION_WINDOW_MINUTES_OPTION, 30));
+    }
+
+    private static function merchant_policy_summary() {
+        $policy = self::merchant_policy();
+        $substitutions = $policy['substitutions']['label'];
+        $cancellation = intval($policy['cancellations']['request_window_minutes']);
+        return $substitutions . '; cancellation requests advertised for ' . $cancellation . ' minutes after checkout.';
+    }
+
+    private static function merchant_policy() {
+        $substitution_policy = self::substitution_policy();
+        $substitution_labels = [
+            'approval_required' => 'Substitutions require buyer approval.',
+            'not_allowed' => 'Substitutions are not allowed by default.',
+            'merchant_allowed' => 'Merchant may substitute comparable items.',
+        ];
+        $cancellation_minutes = self::cancellation_window_minutes();
+        return [
+            'source' => 'woocommerce_shopbridge_settings',
+            'terms_url' => self::terms_url(),
+            'returns_url' => self::returns_url(),
+            'refunds' => [
+                'requires_merchant_review' => true,
+                'rail_refund_requires_verifier' => true,
+                'policy_url' => self::returns_url(),
+                'note' => 'Refund requests require merchant review and real-funds refunds require the configured payment verifier.',
+            ],
+            'cancellations' => [
+                'buyer_request_allowed' => $cancellation_minutes > 0,
+                'request_window_minutes' => $cancellation_minutes,
+                'requires_merchant_review' => true,
+                'policy_url' => self::returns_url(),
+                'note' => $cancellation_minutes > 0
+                    ? 'Buyer agents may surface a cancellation request during the advertised window; the merchant still decides before fulfillment.'
+                    : 'No self-service cancellation window is advertised. Contact merchant support.',
+            ],
+            'substitutions' => [
+                'policy' => $substitution_policy,
+                'label' => $substitution_labels[$substitution_policy] ?? $substitution_labels['approval_required'],
+                'requires_buyer_approval' => $substitution_policy === 'approval_required',
+                'not_allowed' => $substitution_policy === 'not_allowed',
+                'merchant_may_substitute' => $substitution_policy === 'merchant_allowed',
+                'stricter_item_policy_wins' => true,
+            ],
+        ];
+    }
+
     private static function shipping_countries() {
         if (!class_exists('WooCommerce') || !WC() || !WC()->countries) {
             return ['DE'];
@@ -2818,8 +3006,9 @@ final class AgentCart_ShopBridge {
                 'vat_id' => get_option('woocommerce_store_vat_number') ?: 'demo-vat',
                 'support_email' => self::support_email(),
             ],
-            'terms_url' => wc_get_page_permalink('terms') ?: home_url('/terms'),
-            'returns_url' => home_url('/returns'),
+            'terms_url' => self::terms_url(),
+            'returns_url' => self::returns_url(),
+            'merchant_policy' => self::merchant_policy(),
         ];
     }
 
