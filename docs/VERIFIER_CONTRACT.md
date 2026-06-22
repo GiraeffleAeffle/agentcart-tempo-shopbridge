@@ -87,7 +87,8 @@ ShopBridge sends:
     "amount_cents": 1480,
     "currency": "EUR",
     "reason": "Customer requested refund",
-    "rail": "stripe-card-mpp"
+    "rail": "stripe-card-mpp",
+    "requested_reference": "refund-order-123-1"
   },
   "expected": {
     "amount_cents": 1480,
@@ -114,9 +115,14 @@ return:
 }
 ```
 
-ShopBridge rejects mismatched `quote_hash`, original transaction reference,
-rail, amount, currency, or missing refund reference. Production verifier
-implementations should also reject reused refund references.
+ShopBridge requires a refund idempotency key before calling the verifier. It
+rejects refund amounts above the remaining refundable amount, exact idempotent
+replays return the existing WooCommerce refund, and conflicting replays fail
+closed. ShopBridge also rejects mismatched `quote_hash`, original transaction
+reference, rail, amount, currency, missing refund reference, or a reused refund
+reference already recorded on the same order. Production verifier
+implementations should also reject reused refund references globally for the
+payment rail/account.
 
 ## Current Demo Scope
 

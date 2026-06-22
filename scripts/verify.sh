@@ -25,6 +25,7 @@ if command -v php >/dev/null 2>&1; then
 else
   printf 'php not installed; skipping php -l\n'
 fi
+python3 -m unittest discover -s "$ROOT_DIR/woocommerce-shopbridge/tests"
 
 section "Stripe MPP verifier syntax"
 (
@@ -46,7 +47,8 @@ docker compose \
 
 section "Package WooCommerce plugin"
 "$ROOT_DIR/scripts/package-woocommerce-plugin.sh"
-unzip -l "$ROOT_DIR/dist/agentcart-shopbridge.zip" | grep -q "agentcart-shopbridge/agentcart-shopbridge.php"
+zip_listing="$(unzip -l "$ROOT_DIR/dist/agentcart-shopbridge.zip")"
+grep -q "agentcart-shopbridge/agentcart-shopbridge.php" <<<"$zip_listing"
 
 section "Gateway Docker image"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then

@@ -64,6 +64,11 @@ requested -> verifier_pending -> rail_refunded -> woo_refund_recorded
 
 ## Refund Verification Requirements
 
+ShopBridge refunds require an idempotency key. Exact replays return the
+existing WooCommerce refund, conflicting replays are rejected, and amounts above
+the remaining refundable amount fail closed before verifier or Woo refund
+creation.
+
 For Stripe/card:
 
 - use Stripe refund APIs;

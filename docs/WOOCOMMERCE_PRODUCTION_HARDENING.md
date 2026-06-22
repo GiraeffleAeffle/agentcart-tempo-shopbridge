@@ -39,17 +39,27 @@ controls:
 - Keep token mode for trusted local gateways only.
 - Rate-limit quote and order endpoints.
 - Store and reject used transaction references.
-- Add idempotency keys for order creation and refunds.
+- Require idempotency keys for order creation and refunds.
 - Bind order creation to stored quote hash and expiry.
+- Reject refund amounts above the remaining refundable amount.
+- Reject reused refund references before creating WooCommerce refund records.
 - Keep privacy defaults: do not store requester IP/user-agent unless merchant
   config and disclosures require it.
 
 ## Tests To Add
 
+The repo currently has source-level plugin contract tests plus PHP syntax
+checks. A production plugin still needs a WordPress/WooCommerce integration test
+harness for end-to-end endpoint behavior.
+
 - order endpoint rejects expired quotes;
 - order endpoint rejects amount/currency/quote hash mismatch;
-- replayed transaction reference is rejected;
+- replayed payment transaction reference is rejected;
+- refund endpoint requires an idempotency key;
 - refund endpoint rejects amount above paid total;
+- refund endpoint returns existing refund for exact idempotent replay;
+- refund endpoint rejects conflicting idempotent replay;
+- reused external refund reference is rejected;
 - refund verifier failure does not create Woo refund;
 - unsupported destination country fails before payment;
 - disabled product is absent from catalog and rejected in quote;

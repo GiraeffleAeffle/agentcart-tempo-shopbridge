@@ -162,11 +162,18 @@ Request:
 
 ```json
 {
+  "refund_idempotency_key": "refund-order-123-1",
   "amount_cents": 1480,
   "reason": "Customer requested refund",
-  "rail": "stripe-card-mpp"
+  "rail": "stripe-card-mpp",
+  "requested_reference": "refund-order-123-1"
 }
 ```
+
+`refund_idempotency_key`, `idempotency_key`, `requested_reference`, or the
+`Idempotency-Key` header is required. Exact replays return the existing refund.
+Conflicting replays are rejected. Refund amounts above the remaining refundable
+amount are rejected instead of silently clamped.
 
 In trusted-token demo mode, the endpoint creates a WooCommerce refund record and
 returns `real_refund_verified: false`. No card, EUR, Tempo, stablecoin, or Stripe
@@ -189,10 +196,11 @@ verify the rail refund and return:
 }
 ```
 
-Only after that does the plugin record the WooCommerce refund metadata. For
-Stripe/card, the verifier should use Stripe refund APIs. For Tempo/stablecoin,
-the verifier should create or verify the refund transfer back to the source
-wallet and return the refund transaction reference.
+Only after that does the plugin record the WooCommerce refund metadata. Reused
+refund references on the same order are rejected. For Stripe/card, the verifier
+should use Stripe refund APIs. For Tempo/stablecoin, the verifier should create
+or verify the refund transfer back to the source wallet and return the refund
+transaction reference.
 
 ## Discovery
 

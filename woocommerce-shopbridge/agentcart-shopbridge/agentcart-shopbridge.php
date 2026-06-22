@@ -17,7 +17,11 @@ final class AgentCart_ShopBridge {
     const QUOTE_TRANSIENT_PREFIX = 'agentcart_shopbridge_quote_';
     const STATUS_TOKEN_META = '_agentcart_order_status_token';
     const IDEMPOTENCY_KEY_META = '_agentcart_idempotency_key';
+    const REFUND_IDEMPOTENCY_KEY_META = '_agentcart_refund_idempotency_key';
+    const REFUND_REQUESTED_REFERENCE_META = '_agentcart_refund_requested_reference';
+    const REFUND_REFERENCE_META = '_agentcart_refund_reference';
     const CHECKOUT_LOCK_PREFIX = 'agentcart_shopbridge_checkout_lock_';
+    const REFUND_LOCK_PREFIX = 'agentcart_shopbridge_refund_lock_';
     const CHECKOUT_LOCK_TTL_SECONDS = 120;
     const PAYMENT_VERIFIER_URL_OPTION = 'agentcart_shopbridge_payment_verifier_url';
     const PAYMENT_VERIFIER_TOKEN_OPTION = 'agentcart_shopbridge_payment_verifier_token';
@@ -1144,66 +1148,112 @@ final class AgentCart_ShopBridge {
 
         $body = $request->get_json_params();
         $body = is_array($body) ? $body : [];
-        $remaining_cents = self::cents((float) $order->get_remaining_refund_amount());
-        if ($remaining_cents <= 0) {
-            return new WP_Error('agentcart_refund_unavailable', 'This order has no refundable amount remaining.', ['status' => 409]);
+        $refund_idempotency_key = self::refund_idempotency_key($body, $request);
+        if (is_wp_error($refund_idempotency_key)) {
+            return $refund_idempotency_key;
         }
-        $amount_cents = isset($body['amount_cents']) ? intval($body['amount_cents']) : $remaining_cents;
-        $amount_cents = max(1, min($amount_cents, $remaining_cents));
+        if ($refund_idempotency_key === '') {
+            return new WP_Error('agentcart_refund_idempotency_key_required', 'refund_idempotency_key, idempotency_key, requested_reference, or Idempotency-Key header is required for refunds.', ['status' => 400]);
+        }
+        $amount_cents = isset($body['amount_cents']) ? intval($body['amount_cents']) : 0;
         $reason = sanitize_text_field((string) ($body['reason'] ?? 'AgentCart merchant-approved refund'));
         $rail = sanitize_key((string) ($body['rail'] ?? self::payment_rail_from_order($order)));
+        $requested_reference = sanitize_text_field((string) ($body['requested_reference'] ?? ''));
 
-        $refund_verification = self::verify_refund_request($order, $amount_cents, $reason, $rail, $body);
-        if (is_wp_error($refund_verification)) {
-            return $refund_verification;
+        $existing_refund = self::find_existing_refund($order, $refund_idempotency_key);
+        if ($existing_refund) {
+            $replay_error = self::validate_existing_refund_replay($order, $existing_refund, $amount_cents, $rail, $refund_idempotency_key, $requested_reference);
+            if (is_wp_error($replay_error)) {
+                return $replay_error;
+            }
+            return self::serialize_refund_response($order, $existing_refund, 'refund_idempotent_replay');
         }
 
-        $refund = wc_create_refund([
-            'amount' => $amount_cents / 100,
-            'reason' => $reason,
-            'order_id' => $order->get_id(),
-            'refund_payment' => false,
-            'restock_items' => false,
-        ]);
-        if (is_wp_error($refund)) {
-            return $refund;
+        $lock = self::acquire_refund_lock($refund_idempotency_key);
+        if (is_wp_error($lock)) {
+            return $lock;
         }
+        try {
+            $existing_refund = self::find_existing_refund($order, $refund_idempotency_key);
+            if ($existing_refund) {
+                $replay_error = self::validate_existing_refund_replay($order, $existing_refund, $amount_cents, $rail, $refund_idempotency_key, $requested_reference);
+                if (is_wp_error($replay_error)) {
+                    return $replay_error;
+                }
+                return self::serialize_refund_response($order, $existing_refund, 'refund_idempotent_replay');
+            }
 
-        $refund->update_meta_data('_agentcart_refund_verification', wp_json_encode($refund_verification));
-        $refund->update_meta_data('_agentcart_refund_rail', $rail);
-        $refund->save();
+            $remaining_cents = self::cents((float) $order->get_remaining_refund_amount());
+            if ($remaining_cents <= 0) {
+                return new WP_Error('agentcart_refund_unavailable', 'This order has no refundable amount remaining.', ['status' => 409]);
+            }
+            if (!isset($body['amount_cents'])) {
+                $amount_cents = $remaining_cents;
+            }
+            if ($amount_cents <= 0) {
+                return new WP_Error('agentcart_refund_amount_invalid', 'Refund amount must be greater than zero.', ['status' => 400]);
+            }
+            if ($amount_cents > $remaining_cents) {
+                return new WP_Error('agentcart_refund_amount_exceeds_remaining', 'Refund amount exceeds the remaining refundable amount.', ['status' => 409]);
+            }
 
-        $refunds = self::stored_refund_events($order);
-        $refunds[] = [
-            'refund_id' => (string) $refund->get_id(),
-            'amount_cents' => $amount_cents,
-            'currency' => $order->get_currency(),
-            'rail' => $rail,
-            'reason' => $reason,
-            'verification' => $refund_verification,
-            'created_at' => gmdate('c'),
-        ];
-        $order->update_meta_data('_agentcart_refunds', wp_json_encode($refunds));
-        $order->add_order_note(
-            'AgentCart refund recorded: '
-            . wc_price($amount_cents / 100, ['currency' => $order->get_currency()])
-            . ' via ' . $rail . '. Rail verification state: '
-            . sanitize_text_field((string) ($refund_verification['state'] ?? 'unknown')) . '.'
-        );
-        $order->save();
+            $refund_verification = self::verify_refund_request($order, $amount_cents, $reason, $rail, $body);
+            if (is_wp_error($refund_verification)) {
+                return $refund_verification;
+            }
+            $refund_reference = sanitize_text_field((string) ($refund_verification['refund_reference'] ?? ''));
+            if ($refund_reference !== '' && self::refund_reference_used($order, $refund_reference)) {
+                return new WP_Error('agentcart_refund_replay', 'Refund reference has already been used for this order.', ['status' => 409]);
+            }
 
-        return [
-            'platform' => 'woocommerce-agentcart-plugin',
-            'state' => 'refund_recorded',
-            'order_id' => (string) $order->get_id(),
-            'refund_id' => (string) $refund->get_id(),
-            'amount_cents' => $amount_cents,
-            'currency' => $order->get_currency(),
-            'rail' => $rail,
-            'real_refund_verified' => !empty($refund_verification['real_refund_verified']),
-            'verification' => $refund_verification,
-            'refunds' => self::serialize_refunds($order),
-        ];
+            $refund = wc_create_refund([
+                'amount' => $amount_cents / 100,
+                'reason' => $reason,
+                'order_id' => $order->get_id(),
+                'refund_payment' => false,
+                'restock_items' => false,
+            ]);
+            if (is_wp_error($refund)) {
+                return $refund;
+            }
+
+            $refund->update_meta_data('_agentcart_refund_verification', wp_json_encode($refund_verification));
+            $refund->update_meta_data('_agentcart_refund_rail', $rail);
+            $refund->update_meta_data(self::REFUND_IDEMPOTENCY_KEY_META, $refund_idempotency_key);
+            if ($refund_reference !== '') {
+                $refund->update_meta_data(self::REFUND_REFERENCE_META, $refund_reference);
+            }
+            if ($requested_reference !== '') {
+                $refund->update_meta_data(self::REFUND_REQUESTED_REFERENCE_META, $requested_reference);
+            }
+            $refund->save();
+
+            $refunds = self::stored_refund_events($order);
+            $refunds[] = [
+                'refund_id' => (string) $refund->get_id(),
+                'amount_cents' => $amount_cents,
+                'currency' => $order->get_currency(),
+                'rail' => $rail,
+                'reason' => $reason,
+                'idempotency_key' => $refund_idempotency_key,
+                'requested_reference' => $requested_reference,
+                'refund_reference' => $refund_reference,
+                'verification' => $refund_verification,
+                'created_at' => gmdate('c'),
+            ];
+            $order->update_meta_data('_agentcart_refunds', wp_json_encode($refunds));
+            $order->add_order_note(
+                'AgentCart refund recorded: '
+                . wc_price($amount_cents / 100, ['currency' => $order->get_currency()])
+                . ' via ' . $rail . '. Rail verification state: '
+                . sanitize_text_field((string) ($refund_verification['state'] ?? 'unknown')) . '.'
+            );
+            $order->save();
+
+            return self::serialize_refund_response($order, $refund, 'refund_recorded');
+        } finally {
+            self::release_refund_lock($refund_idempotency_key);
+        }
     }
 
     private static function serialize_order_response(WC_Order $order, $state = 'created', $payment_verification = null) {
@@ -1221,6 +1271,25 @@ final class AgentCart_ShopBridge {
             'fulfillment' => self::serialize_fulfillment($order),
             'payment_verification' => is_array($payment_verification) ? $payment_verification : self::stored_payment_verification($order),
             'refund_policy' => self::refund_policy($order),
+            'refunds' => self::serialize_refunds($order),
+        ];
+    }
+
+    private static function serialize_refund_response(WC_Order $order, $refund, $state = 'refund_recorded') {
+        $verification = self::stored_refund_verification($refund);
+        return [
+            'platform' => 'woocommerce-agentcart-plugin',
+            'state' => $state,
+            'order_id' => (string) $order->get_id(),
+            'refund_id' => (string) $refund->get_id(),
+            'amount_cents' => self::cents((float) $refund->get_amount()),
+            'currency' => $order->get_currency(),
+            'rail' => (string) $refund->get_meta('_agentcart_refund_rail', true),
+            'idempotency_key' => (string) $refund->get_meta(self::REFUND_IDEMPOTENCY_KEY_META, true),
+            'requested_reference' => (string) $refund->get_meta(self::REFUND_REQUESTED_REFERENCE_META, true),
+            'refund_reference' => (string) $refund->get_meta(self::REFUND_REFERENCE_META, true),
+            'real_refund_verified' => is_array($verification) && !empty($verification['real_refund_verified']),
+            'verification' => $verification,
             'refunds' => self::serialize_refunds($order),
         ];
     }
@@ -1346,6 +1415,69 @@ final class AgentCart_ShopBridge {
         return true;
     }
 
+    private static function refund_idempotency_key($body, WP_REST_Request $request) {
+        $body_key = sanitize_text_field((string) ($body['refund_idempotency_key'] ?? $body['idempotency_key'] ?? $body['requested_reference'] ?? ''));
+        $header_key = sanitize_text_field((string) $request->get_header('idempotency-key'));
+        if ($body_key !== '' && $header_key !== '' && !hash_equals($body_key, $header_key)) {
+            return new WP_Error('agentcart_refund_idempotency_key_mismatch', 'Refund idempotency key does not match the Idempotency-Key header.', ['status' => 409]);
+        }
+        return $body_key !== '' ? $body_key : $header_key;
+    }
+
+    private static function find_existing_refund(WC_Order $order, $refund_idempotency_key) {
+        if ($refund_idempotency_key === '') {
+            return null;
+        }
+        foreach ($order->get_refunds() as $refund) {
+            $stored_key = (string) $refund->get_meta(self::REFUND_IDEMPOTENCY_KEY_META, true);
+            if ($stored_key !== '' && hash_equals($stored_key, $refund_idempotency_key)) {
+                return $refund;
+            }
+        }
+        return null;
+    }
+
+    private static function refund_reference_used(WC_Order $order, $refund_reference) {
+        if ($refund_reference === '') {
+            return false;
+        }
+        foreach ($order->get_refunds() as $refund) {
+            $stored_reference = (string) $refund->get_meta(self::REFUND_REFERENCE_META, true);
+            if ($stored_reference !== '' && hash_equals($stored_reference, $refund_reference)) {
+                return true;
+            }
+            $verification = self::stored_refund_verification($refund);
+            $verified_reference = is_array($verification) ? (string) ($verification['refund_reference'] ?? '') : '';
+            if ($verified_reference !== '' && hash_equals($verified_reference, $refund_reference)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function validate_existing_refund_replay(WC_Order $order, $refund, $amount_cents, $rail, $refund_idempotency_key, $requested_reference = '') {
+        $stored_key = (string) $refund->get_meta(self::REFUND_IDEMPOTENCY_KEY_META, true);
+        if ($refund_idempotency_key !== '' && $stored_key !== '' && !hash_equals($stored_key, $refund_idempotency_key)) {
+            return new WP_Error('agentcart_refund_idempotency_conflict', 'Refund idempotency key is already bound to a different refund.', ['status' => 409]);
+        }
+
+        if ($amount_cents > 0 && $amount_cents !== self::cents((float) $refund->get_amount())) {
+            return new WP_Error('agentcart_refund_idempotency_conflict', 'Replay refund amount does not match the existing refund.', ['status' => 409]);
+        }
+
+        $stored_rail = (string) $refund->get_meta('_agentcart_refund_rail', true);
+        if ($rail !== '' && $stored_rail !== '' && $rail !== $stored_rail) {
+            return new WP_Error('agentcart_refund_idempotency_conflict', 'Replay refund rail does not match the existing refund.', ['status' => 409]);
+        }
+
+        $stored_requested_reference = (string) $refund->get_meta(self::REFUND_REQUESTED_REFERENCE_META, true);
+        if ($requested_reference !== '' && $stored_requested_reference !== '' && !hash_equals($stored_requested_reference, $requested_reference)) {
+            return new WP_Error('agentcart_refund_idempotency_conflict', 'Replay refund requested_reference does not match the existing refund.', ['status' => 409]);
+        }
+
+        return true;
+    }
+
     private static function acquire_checkout_lock($idempotency_key) {
         $option_name = self::checkout_lock_option_name($idempotency_key);
         $now = time();
@@ -1366,6 +1498,28 @@ final class AgentCart_ShopBridge {
 
     private static function checkout_lock_option_name($idempotency_key) {
         return self::CHECKOUT_LOCK_PREFIX . hash('sha256', (string) $idempotency_key);
+    }
+
+    private static function acquire_refund_lock($refund_idempotency_key) {
+        $option_name = self::refund_lock_option_name($refund_idempotency_key);
+        $now = time();
+        if (add_option($option_name, (string) $now, '', 'no')) {
+            return true;
+        }
+        $existing = intval(get_option($option_name, 0));
+        if ($existing > 0 && $existing < ($now - self::CHECKOUT_LOCK_TTL_SECONDS)) {
+            update_option($option_name, (string) $now, false);
+            return true;
+        }
+        return new WP_Error('agentcart_refund_in_progress', 'A refund with this idempotency key is already in progress.', ['status' => 409]);
+    }
+
+    private static function release_refund_lock($refund_idempotency_key) {
+        delete_option(self::refund_lock_option_name($refund_idempotency_key));
+    }
+
+    private static function refund_lock_option_name($refund_idempotency_key) {
+        return self::REFUND_LOCK_PREFIX . hash('sha256', (string) $refund_idempotency_key);
     }
 
     private static function verify_payment_receipt($quote, $receipt, $body, WP_REST_Request $request) {
@@ -1652,18 +1806,25 @@ final class AgentCart_ShopBridge {
         return is_array($decoded) ? $decoded : [];
     }
 
+    private static function stored_refund_verification($refund) {
+        $raw = $refund->get_meta('_agentcart_refund_verification', true);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        return is_array($decoded) ? $decoded : null;
+    }
+
     private static function serialize_refunds(WC_Order $order) {
         $result = [];
         foreach ($order->get_refunds() as $refund) {
-            $verification_raw = $refund->get_meta('_agentcart_refund_verification', true);
-            $verification = is_string($verification_raw) ? json_decode($verification_raw, true) : null;
             $result[] = [
                 'id' => (string) $refund->get_id(),
                 'amount_cents' => self::cents((float) $refund->get_amount()),
                 'currency' => $order->get_currency(),
                 'reason' => $refund->get_reason(),
                 'rail' => (string) $refund->get_meta('_agentcart_refund_rail', true),
-                'verification' => is_array($verification) ? $verification : null,
+                'idempotency_key' => (string) $refund->get_meta(self::REFUND_IDEMPOTENCY_KEY_META, true),
+                'requested_reference' => (string) $refund->get_meta(self::REFUND_REQUESTED_REFERENCE_META, true),
+                'refund_reference' => (string) $refund->get_meta(self::REFUND_REFERENCE_META, true),
+                'verification' => self::stored_refund_verification($refund),
                 'created_at' => $refund->get_date_created() ? $refund->get_date_created()->date('c') : null,
             ];
         }
