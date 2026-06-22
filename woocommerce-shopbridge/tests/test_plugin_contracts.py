@@ -102,14 +102,17 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         checkout_body = function_body("authorize_checkout")
         status_body = function_body("authorize_order_status")
         refund_body = function_body("authorize_refund")
+        cancellation_body = function_body("authorize_cancellation")
 
         self.assertIn("enforce_rate_limit", public_body)
         self.assertIn("enforce_rate_limit($request, 'checkout')", checkout_body)
         self.assertIn("enforce_rate_limit($request, 'order_status')", status_body)
         self.assertIn("enforce_rate_limit($request, 'refund')", refund_body)
+        self.assertIn("enforce_rate_limit($request, 'cancellation')", cancellation_body)
         self.assertLess(checkout_body.index("enforce_rate_limit"), checkout_body.index("has_valid_merchant_token"))
         self.assertLess(status_body.index("enforce_rate_limit"), status_body.index("wc_get_order"))
         self.assertLess(refund_body.index("enforce_rate_limit"), refund_body.index("has_valid_merchant_token"))
+        self.assertLess(cancellation_body.index("enforce_rate_limit"), cancellation_body.index("has_valid_merchant_token"))
 
     def test_rate_limiter_has_endpoint_policies_and_retry_metadata(self) -> None:
         policy_body = function_body("rate_limit_policy")
@@ -117,7 +120,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         key_body = function_body("rate_limit_client_key")
         capability_body = function_body("capability_document")
 
-        for bucket in ["'catalog'", "'quote'", "'checkout'", "'order_status'", "'refund'"]:
+        for bucket in ["'catalog'", "'quote'", "'checkout'", "'order_status'", "'refund'", "'cancellation'"]:
             self.assertIn(bucket, policy_body)
         self.assertIn("agentcart_rate_limited", limiter_body)
         self.assertIn("'retry_after_seconds'", limiter_body)
@@ -301,6 +304,38 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'merchant_cancellation_policy'", capability_body)
         self.assertIn("'merchant_policy'", capability_body)
         self.assertIn("'merchant_policy_hash'", registry_claim_body)
+
+    def test_cancellation_endpoint_is_idempotent_merchant_only_and_refund_safe(self) -> None:
+        routes_body = function_body("register_routes")
+        cancellation_body = function_body("create_cancellation")
+        key_body = function_body("cancellation_idempotency_key")
+        eligibility_body = function_body("cancellation_eligibility")
+        policy_body = function_body("cancellation_policy")
+        response_body = function_body("serialize_cancellation_response")
+        status_body = function_body("serialize_order_status")
+        order_response_body = function_body("serialize_order_response")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("/orders/(?P<id>[\\d]+)/cancellations", routes_body)
+        self.assertIn("authorize_cancellation", routes_body)
+        self.assertIn("cancellation_idempotency_key", cancellation_body)
+        self.assertIn("agentcart_cancellation_idempotency_key_required", cancellation_body)
+        self.assertIn("find_existing_cancellation_event", cancellation_body)
+        self.assertIn("validate_existing_cancellation_replay", cancellation_body)
+        self.assertIn("acquire_cancellation_lock", cancellation_body)
+        self.assertIn("cancellation_eligibility", cancellation_body)
+        self.assertIn("update_status('cancelled'", cancellation_body)
+        self.assertIn("'real_refund_verified' => false", cancellation_body + response_body)
+        self.assertIn("'refund_required'", cancellation_body + response_body)
+        self.assertIn("does_not_execute_refund", policy_body + capability_body)
+        self.assertIn("fulfillment_tracking_attached", eligibility_body)
+        self.assertIn("terminal_order_status", eligibility_body)
+        self.assertIn("requested_reference", key_body + cancellation_body)
+        self.assertIn("'cancellation_policy'", status_body)
+        self.assertIn("'cancellations'", status_body)
+        self.assertIn("'cancellation_policy'", order_response_body)
+        self.assertIn("'cancellations'", order_response_body)
+        self.assertIn("'cancellation_endpoint'", capability_body)
 
     def test_product_shipping_country_overrides_are_exposed_and_rechecked(self) -> None:
         product_body = function_body("serialize_product")

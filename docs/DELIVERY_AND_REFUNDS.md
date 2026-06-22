@@ -62,6 +62,21 @@ requested -> verifier_pending -> rail_refunded -> woo_refund_recorded
                          \-> manual_review
 ```
 
+## Cancellation State
+
+ShopBridge cancellations are separate from refunds:
+
+```text
+requested -> merchant_approved -> woo_order_cancelled -> refund_required
+                                  \-> no_refund_due
+```
+
+The WooCommerce plugin rejects cancellation after terminal order states or when
+shipment tracking is already attached. A successful cancellation can change the
+WooCommerce order status to `cancelled`, but it does not move card, Tempo,
+stablecoin, or EUR funds. Paid orders still need a separate verified refund
+flow before the agent can say money was returned.
+
 ## Refund Verification Requirements
 
 ShopBridge refunds require an idempotency key. Exact replays return the
@@ -98,3 +113,5 @@ The agent should say:
 - "Refund recorded" for demo refunds.
 - "Refund executed" only when the rail verifier returned a real refund
   reference.
+- "Order cancelled" only for Woo order state; mention separately when a refund
+  is still required.

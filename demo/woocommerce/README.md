@@ -88,3 +88,4 @@ Endpoints:
 - `GET /wp-json/agentcart/v1/products/{id}`
 - `POST /wp-json/agentcart/v1/quote`
 - `POST /wp-json/agentcart/v1/orders`
+- `POST /wp-json/agentcart/v1/orders/{id}/cancellations`

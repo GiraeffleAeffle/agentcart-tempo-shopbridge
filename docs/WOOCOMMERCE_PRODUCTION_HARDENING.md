@@ -42,13 +42,16 @@ creation. Perishable, deposit-bearing, final-sale, and
 substitution-sensitive labels are surfaced as item policy metadata and
 preserved onto order status/refund policy responses for buyer-agent aftercare.
 Store-level returns, substitution, and cancellation-request defaults are also
-preserved onto paid AgentCart orders.
+preserved onto paid AgentCart orders. A merchant-token-protected cancellation
+endpoint can cancel eligible AgentCart-created Woo orders before fulfillment
+tracking or terminal order states, records an idempotent cancellation event, and
+does not execute refunds.
 Production should add richer product controls:
 
 - product-specific return/refund/substitution policy overrides beyond inferred
   labels and store defaults;
-- cancellation endpoint/state-machine support that can coordinate with
-  fulfillment before shipment;
+- cancellation state-machine support that coordinates with shipment providers,
+  picker/packer workflows, and rail refund execution;
 - merchant-side hard stock reservation integration for shops that need actual
   WooCommerce inventory holds before payment.
 
@@ -82,6 +85,9 @@ harness for end-to-end endpoint behavior.
 - refund endpoint rejects conflicting idempotent replay;
 - reused external refund reference is rejected;
 - refund verifier failure does not create Woo refund;
+- cancellation endpoint requires an idempotency key;
+- cancellation endpoint rejects shipped or terminal orders;
+- cancellation endpoint never claims real refund execution;
 - public REST endpoints return `429` after rate-limit exhaustion;
 - unsupported destination country fails before payment;
 - products outside the selected exposure mode are absent from catalog and

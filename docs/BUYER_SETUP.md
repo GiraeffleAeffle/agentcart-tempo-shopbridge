@@ -82,7 +82,8 @@ Checkout safety:
   total, delivery window, quote hash, and payment destination.
 - Treat aftercare actions such as refund or cancellation as request drafts
   unless the buyer is using a trusted AgentCart gateway with merchant
-  authorization.
+  authorization. ShopBridge cancellation changes Woo order state only; paid
+  orders still need a separate rail-verified refund.
 - Production checkout must supply a verifier/payment receipt bound to amount,
   currency, quote hash, merchant recipient/profile, and transaction reference.
 - The Tempo demo proof is sandbox/testnet proof, not production EUR settlement.

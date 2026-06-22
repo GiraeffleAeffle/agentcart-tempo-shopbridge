@@ -185,7 +185,25 @@ def sample_order_status(**overrides):
                 "buyer_agent_note": "Standard merchant refund policy applies.",
             },
         },
+        "cancellation_policy": {
+            "endpoint": "https://merchant.example/wp-json/agentcart/v1/orders/123/cancellations",
+            "requires_merchant_token": True,
+            "idempotency_required": True,
+            "eligible": True,
+            "does_not_execute_refund": True,
+            "paid_order_requires_separate_refund": True,
+            "refund_endpoint": "https://merchant.example/wp-json/agentcart/v1/orders/123/refunds",
+            "eligibility": {
+                "eligible": True,
+                "status": "processing",
+                "blocking_reasons": [],
+                "within_advertised_buyer_request_window": True,
+                "advertised_request_window_minutes": 30,
+                "refund_required_if_cancelled": True,
+            },
+        },
         "items": [],
+        "cancellations": [],
         "refunds": [],
     }
     order.update(overrides)
@@ -854,6 +872,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 },
                 "refund_reason": "Item damaged",
                 "refund_amount_cents": 500,
+                "cancellation_reason": "Ordered by mistake",
             }
         )
 
@@ -869,6 +888,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertIn("does not call merchant-token refund, cancellation, or order mutation endpoints", result["safety_note"])
         self.assertIn("request_refund", {action["id"] for action in result["next_actions"]})
         self.assertIn("request_cancellation", {action["id"] for action in result["next_actions"]})
+        self.assertTrue(result["cancellation"]["eligible"])
+        self.assertTrue(result["cancellation"]["does_not_execute_refund"])
+        self.assertEqual(result["cancellation_request_draft"]["trusted_gateway_payload_hint"]["endpoint"], "https://merchant.example/wp-json/agentcart/v1/orders/123/cancellations")
+        self.assertTrue(result["cancellation_request_draft"]["trusted_gateway_payload_hint"]["refund_required_after_cancellation"])
         self.assertEqual(
             result["refund_request_draft"]["trusted_gateway_payload_hint"]["merchant_policy"]["returns_url"],
             "https://merchant.example/returns",

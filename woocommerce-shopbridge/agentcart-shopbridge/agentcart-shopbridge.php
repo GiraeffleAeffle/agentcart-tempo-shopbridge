@@ -22,9 +22,11 @@ final class AgentCart_ShopBridge {
     const REFUND_REFERENCE_META = '_agentcart_refund_reference';
     const ORDER_ITEMS_META = '_agentcart_quote_items';
     const ORDER_MERCHANT_POLICY_META = '_agentcart_merchant_policy';
+    const CANCELLATION_EVENTS_META = '_agentcart_cancellations';
     const CHECKOUT_LOCK_PREFIX = 'agentcart_shopbridge_checkout_lock_';
     const QUOTE_LOCK_PREFIX = 'agentcart_shopbridge_quote_lock_';
     const REFUND_LOCK_PREFIX = 'agentcart_shopbridge_refund_lock_';
+    const CANCELLATION_LOCK_PREFIX = 'agentcart_shopbridge_cancellation_lock_';
     const RATE_LIMIT_TRANSIENT_PREFIX = 'agentcart_shopbridge_rate_';
     const CHECKOUT_LOCK_TTL_SECONDS = 120;
     const RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -102,6 +104,11 @@ final class AgentCart_ShopBridge {
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [__CLASS__, 'create_refund'],
             'permission_callback' => [__CLASS__, 'authorize_refund'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/orders/(?P<id>[\d]+)/cancellations', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [__CLASS__, 'create_cancellation'],
+            'permission_callback' => [__CLASS__, 'authorize_cancellation'],
         ]);
     }
 
@@ -621,6 +628,24 @@ final class AgentCart_ShopBridge {
         );
     }
 
+    public static function authorize_cancellation(WP_REST_Request $request) {
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
+        }
+        $rate_limit = self::enforce_rate_limit($request, 'cancellation');
+        if (is_wp_error($rate_limit)) {
+            return $rate_limit;
+        }
+        if (self::has_valid_merchant_token($request)) {
+            return true;
+        }
+        return new WP_Error(
+            'agentcart_unauthorized',
+            'Cancellation creation requires the merchant token. Buyer-facing cancellation requests should be approved by the merchant or trusted gateway before this endpoint is called.',
+            ['status' => 401]
+        );
+    }
+
     private static function has_valid_merchant_token(WP_REST_Request $request) {
         $configured = self::merchant_token_value();
         $supplied = $request->get_header('x-agentcart-merchant-token');
@@ -663,6 +688,7 @@ final class AgentCart_ShopBridge {
             'checkout' => ['bucket' => 'checkout', 'limit' => 12, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
             'order_status' => ['bucket' => 'order_status', 'limit' => 60, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
             'refund' => ['bucket' => 'refund', 'limit' => 10, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'cancellation' => ['bucket' => 'cancellation', 'limit' => 10, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
             'public_read' => ['bucket' => 'public_read', 'limit' => 120, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
         ];
         return $policies[$bucket] ?? $policies['public_read'];
@@ -670,7 +696,7 @@ final class AgentCart_ShopBridge {
 
     private static function public_rate_limits_document() {
         $document = [];
-        foreach (['capability', 'catalog', 'product', 'quote', 'checkout', 'order_status', 'refund'] as $bucket) {
+        foreach (['capability', 'catalog', 'product', 'quote', 'checkout', 'order_status', 'refund', 'cancellation'] as $bucket) {
             $policy = self::rate_limit_policy($bucket);
             $document[$bucket] = [
                 'limit' => intval($policy['limit']),
@@ -1301,6 +1327,8 @@ final class AgentCart_ShopBridge {
                 'endpoint_rate_limits' => true,
                 'refund_endpoint' => true,
                 'refunds_remain_in_woocommerce_with_external_rail_verification' => true,
+                'cancellation_endpoint' => true,
+                'cancellations_do_not_execute_refunds' => true,
             ],
             'rate_limits' => self::public_rate_limits_document(),
             'product_exposure' => [
@@ -1346,6 +1374,7 @@ final class AgentCart_ShopBridge {
                 'orders' => rest_url(self::API_NAMESPACE . '/orders'),
                 'order_status' => rest_url(self::API_NAMESPACE . '/orders/{id}/status'),
                 'refunds' => rest_url(self::API_NAMESPACE . '/orders/{id}/refunds'),
+                'cancellations' => rest_url(self::API_NAMESPACE . '/orders/{id}/cancellations'),
             ],
             'discovery' => [
                 'well_known' => '/.well-known/agentcart.json',
@@ -1375,6 +1404,13 @@ final class AgentCart_ShopBridge {
                 'demo_mode_records_woo_refund_only' => self::payment_verifier_url() === '',
                 'production_requires_rail_refund_verification' => true,
                 'item_commerce_policy_metadata' => true,
+            ],
+            'cancellation_policy' => [
+                'endpoint' => rest_url(self::API_NAMESPACE . '/orders/{id}/cancellations'),
+                'requires_merchant_token' => true,
+                'idempotency_required' => true,
+                'does_not_execute_refund' => true,
+                'rejects_after_fulfillment_tracking' => true,
             ],
         ];
     }
@@ -1864,6 +1900,101 @@ final class AgentCart_ShopBridge {
         }
     }
 
+    public static function create_cancellation(WP_REST_Request $request) {
+        $order = wc_get_order(intval($request['id']));
+        if (!$order) {
+            return new WP_Error('agentcart_not_found', 'Order not found.', ['status' => 404]);
+        }
+        if ((string) $order->get_meta('_agentcart_order_id', true) === '') {
+            return new WP_Error('agentcart_not_agentcart_order', 'Only AgentCart-created orders can use the AgentCart cancellation endpoint.', ['status' => 409]);
+        }
+
+        $body = $request->get_json_params();
+        $body = is_array($body) ? $body : [];
+        $cancellation_idempotency_key = self::cancellation_idempotency_key($body, $request);
+        if (is_wp_error($cancellation_idempotency_key)) {
+            return $cancellation_idempotency_key;
+        }
+        if ($cancellation_idempotency_key === '') {
+            return new WP_Error('agentcart_cancellation_idempotency_key_required', 'cancellation_idempotency_key, idempotency_key, requested_reference, or Idempotency-Key header is required for cancellations.', ['status' => 400]);
+        }
+
+        $reason = sanitize_text_field((string) ($body['reason'] ?? 'AgentCart merchant-approved cancellation'));
+        $requested_reference = sanitize_text_field((string) ($body['requested_reference'] ?? ''));
+
+        $existing_event = self::find_existing_cancellation_event($order, $cancellation_idempotency_key);
+        if ($existing_event) {
+            $replay_error = self::validate_existing_cancellation_replay($existing_event, $reason, $requested_reference);
+            if (is_wp_error($replay_error)) {
+                return $replay_error;
+            }
+            return self::serialize_cancellation_response($order, $existing_event, 'cancellation_idempotent_replay');
+        }
+
+        $lock = self::acquire_cancellation_lock($cancellation_idempotency_key);
+        if (is_wp_error($lock)) {
+            return $lock;
+        }
+        try {
+            $existing_event = self::find_existing_cancellation_event($order, $cancellation_idempotency_key);
+            if ($existing_event) {
+                $replay_error = self::validate_existing_cancellation_replay($existing_event, $reason, $requested_reference);
+                if (is_wp_error($replay_error)) {
+                    return $replay_error;
+                }
+                return self::serialize_cancellation_response($order, $existing_event, 'cancellation_idempotent_replay');
+            }
+
+            $eligibility = self::cancellation_eligibility($order);
+            if (empty($eligibility['eligible'])) {
+                return new WP_Error(
+                    'agentcart_cancellation_unavailable',
+                    'This order is not eligible for AgentCart cancellation.',
+                    ['status' => 409, 'eligibility' => $eligibility]
+                );
+            }
+
+            $previous_status = $order->get_status();
+            $refund_required = $order->is_paid() && self::cents((float) $order->get_remaining_refund_amount()) > 0;
+            $event = [
+                'id' => 'cancel_' . wp_generate_uuid4(),
+                'state' => $refund_required ? 'order_cancelled_refund_required' : 'order_cancelled',
+                'order_id' => (string) $order->get_id(),
+                'previous_status' => $previous_status,
+                'new_status' => 'cancelled',
+                'reason' => $reason,
+                'idempotency_key' => $cancellation_idempotency_key,
+                'requested_reference' => $requested_reference,
+                'refund_required' => $refund_required,
+                'real_refund_verified' => false,
+                'refund_endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/refunds'),
+                'note' => $refund_required
+                    ? 'WooCommerce order was cancelled. A separate rail-verified refund is still required before claiming money moved back.'
+                    : 'WooCommerce order was cancelled. No refundable paid amount remains.',
+                'created_at' => gmdate('c'),
+            ];
+
+            $events = self::stored_cancellation_events($order);
+            $events[] = $event;
+            $order->update_meta_data(self::CANCELLATION_EVENTS_META, wp_json_encode($events));
+            $order->add_order_note(
+                'AgentCart cancellation approved: ' . $reason
+                . '. Refund required: ' . ($refund_required ? 'yes' : 'no')
+                . '. No payment refund was executed by this cancellation endpoint.'
+            );
+            try {
+                $order->update_status('cancelled', 'AgentCart changed order status to cancelled after merchant-approved cancellation.', true);
+            } catch (Exception $exception) {
+                return new WP_Error('agentcart_cancellation_failed', $exception->getMessage(), ['status' => 500]);
+            }
+            $order->save();
+
+            return self::serialize_cancellation_response($order, $event, 'cancellation_recorded');
+        } finally {
+            self::release_cancellation_lock($cancellation_idempotency_key);
+        }
+    }
+
     private static function serialize_order_response(WC_Order $order, $state = 'created', $payment_verification = null) {
         $status_token = (string) $order->get_meta(self::STATUS_TOKEN_META, true);
         return [
@@ -1880,7 +2011,9 @@ final class AgentCart_ShopBridge {
             'payment_verification' => is_array($payment_verification) ? $payment_verification : self::stored_payment_verification($order),
             'items' => self::serialize_order_items($order),
             'merchant_policy' => self::stored_merchant_policy($order),
+            'cancellation_policy' => self::cancellation_policy($order),
             'refund_policy' => self::refund_policy($order),
+            'cancellations' => self::serialize_cancellations($order),
             'refunds' => self::serialize_refunds($order),
         ];
     }
@@ -1904,18 +2037,37 @@ final class AgentCart_ShopBridge {
         ];
     }
 
+    private static function serialize_cancellation_response(WC_Order $order, $event, $state = 'cancellation_recorded') {
+        $event = is_array($event) ? $event : [];
+        return [
+            'platform' => 'woocommerce-agentcart-plugin',
+            'state' => $state,
+            'order_id' => (string) $order->get_id(),
+            'order_status' => $order->get_status(),
+            'cancellation' => $event,
+            'refund_required' => !empty($event['refund_required']),
+            'real_refund_verified' => false,
+            'refund_policy' => self::refund_policy($order),
+            'cancellation_policy' => self::cancellation_policy($order),
+            'cancellations' => self::serialize_cancellations($order),
+        ];
+    }
+
     private static function serialize_order_status(WC_Order $order) {
         return [
             'platform' => 'woocommerce-agentcart-plugin',
             'id' => (string) $order->get_id(),
             'number' => $order->get_order_number(),
             'status' => $order->get_status(),
+            'created_at' => $order->get_date_created() ? $order->get_date_created()->date('c') : null,
             'payment_status' => $order->is_paid() ? 'paid' : 'unpaid',
             'payment_method' => $order->get_payment_method(),
             'fulfillment' => self::serialize_fulfillment($order),
             'items' => self::serialize_order_items($order),
             'merchant_policy' => self::stored_merchant_policy($order),
+            'cancellation_policy' => self::cancellation_policy($order),
             'refund_policy' => self::refund_policy($order),
+            'cancellations' => self::serialize_cancellations($order),
             'refunds' => self::serialize_refunds($order),
             'updated_at' => $order->get_date_modified() ? $order->get_date_modified()->date('c') : null,
         ];
@@ -2138,6 +2290,44 @@ final class AgentCart_ShopBridge {
         return true;
     }
 
+    private static function cancellation_idempotency_key($body, WP_REST_Request $request) {
+        $body_key = sanitize_text_field((string) ($body['cancellation_idempotency_key'] ?? $body['idempotency_key'] ?? $body['requested_reference'] ?? ''));
+        $header_key = sanitize_text_field((string) $request->get_header('idempotency-key'));
+        if ($body_key !== '' && $header_key !== '' && !hash_equals($body_key, $header_key)) {
+            return new WP_Error('agentcart_cancellation_idempotency_key_mismatch', 'Cancellation idempotency key does not match the Idempotency-Key header.', ['status' => 409]);
+        }
+        return $body_key !== '' ? $body_key : $header_key;
+    }
+
+    private static function find_existing_cancellation_event(WC_Order $order, $cancellation_idempotency_key) {
+        if ($cancellation_idempotency_key === '') {
+            return null;
+        }
+        foreach (self::stored_cancellation_events($order) as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+            $stored_key = (string) ($event['idempotency_key'] ?? '');
+            if ($stored_key !== '' && hash_equals($stored_key, $cancellation_idempotency_key)) {
+                return $event;
+            }
+        }
+        return null;
+    }
+
+    private static function validate_existing_cancellation_replay($event, $reason, $requested_reference = '') {
+        $event = is_array($event) ? $event : [];
+        $stored_reason = (string) ($event['reason'] ?? '');
+        if ($reason !== '' && $stored_reason !== '' && !hash_equals($stored_reason, $reason)) {
+            return new WP_Error('agentcart_cancellation_idempotency_conflict', 'Replay cancellation reason does not match the existing cancellation.', ['status' => 409]);
+        }
+        $stored_requested_reference = (string) ($event['requested_reference'] ?? '');
+        if ($requested_reference !== '' && $stored_requested_reference !== '' && !hash_equals($stored_requested_reference, $requested_reference)) {
+            return new WP_Error('agentcart_cancellation_idempotency_conflict', 'Replay cancellation requested_reference does not match the existing cancellation.', ['status' => 409]);
+        }
+        return true;
+    }
+
     private static function acquire_checkout_lock($idempotency_key) {
         $option_name = self::checkout_lock_option_name($idempotency_key);
         $now = time();
@@ -2202,6 +2392,28 @@ final class AgentCart_ShopBridge {
 
     private static function refund_lock_option_name($refund_idempotency_key) {
         return self::REFUND_LOCK_PREFIX . hash('sha256', (string) $refund_idempotency_key);
+    }
+
+    private static function acquire_cancellation_lock($cancellation_idempotency_key) {
+        $option_name = self::cancellation_lock_option_name($cancellation_idempotency_key);
+        $now = time();
+        if (add_option($option_name, (string) $now, '', 'no')) {
+            return true;
+        }
+        $existing = intval(get_option($option_name, 0));
+        if ($existing > 0 && $existing < ($now - self::CHECKOUT_LOCK_TTL_SECONDS)) {
+            update_option($option_name, (string) $now, false);
+            return true;
+        }
+        return new WP_Error('agentcart_cancellation_in_progress', 'A cancellation with this idempotency key is already in progress.', ['status' => 409]);
+    }
+
+    private static function release_cancellation_lock($cancellation_idempotency_key) {
+        delete_option(self::cancellation_lock_option_name($cancellation_idempotency_key));
+    }
+
+    private static function cancellation_lock_option_name($cancellation_idempotency_key) {
+        return self::CANCELLATION_LOCK_PREFIX . hash('sha256', (string) $cancellation_idempotency_key);
     }
 
     private static function verify_payment_receipt($quote, $receipt, $body, WP_REST_Request $request) {
@@ -2488,6 +2700,12 @@ final class AgentCart_ShopBridge {
         return is_array($decoded) ? $decoded : [];
     }
 
+    private static function stored_cancellation_events(WC_Order $order) {
+        $raw = $order->get_meta(self::CANCELLATION_EVENTS_META, true);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        return is_array($decoded) ? array_values(array_filter($decoded, 'is_array')) : [];
+    }
+
     private static function stored_refund_verification($refund) {
         $raw = $refund->get_meta('_agentcart_refund_verification', true);
         $decoded = is_string($raw) ? json_decode($raw, true) : null;
@@ -2511,6 +2729,57 @@ final class AgentCart_ShopBridge {
             ];
         }
         return $result;
+    }
+
+    private static function serialize_cancellations(WC_Order $order) {
+        return self::stored_cancellation_events($order);
+    }
+
+    private static function cancellation_policy(WC_Order $order) {
+        $eligibility = self::cancellation_eligibility($order);
+        $merchant_policy = self::stored_merchant_policy($order);
+        return [
+            'endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/cancellations'),
+            'requires_merchant_token' => true,
+            'idempotency_required' => true,
+            'eligible' => !empty($eligibility['eligible']),
+            'eligibility' => $eligibility,
+            'merchant_policy' => $merchant_policy,
+            'does_not_execute_refund' => true,
+            'paid_order_requires_separate_refund' => $order->is_paid() && self::cents((float) $order->get_remaining_refund_amount()) > 0,
+            'refund_endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/refunds'),
+        ];
+    }
+
+    private static function cancellation_eligibility(WC_Order $order) {
+        $status = $order->get_status();
+        $tracking = self::tracking_from_order_meta($order);
+        $merchant_policy = self::stored_merchant_policy($order);
+        $cancellations = isset($merchant_policy['cancellations']) && is_array($merchant_policy['cancellations']) ? $merchant_policy['cancellations'] : [];
+        $window_minutes = intval($cancellations['request_window_minutes'] ?? 0);
+        $created = $order->get_date_created();
+        $within_window = $window_minutes > 0 && $created
+            ? time() <= ($created->getTimestamp() + ($window_minutes * 60))
+            : $window_minutes > 0;
+        $reasons = [];
+        if ($status === 'cancelled') {
+            $reasons[] = 'already_cancelled';
+        }
+        if (in_array($status, ['completed', 'refunded', 'failed'], true)) {
+            $reasons[] = 'terminal_order_status';
+        }
+        if (!empty($tracking['tracking_number']) || !empty($tracking['tracking_url'])) {
+            $reasons[] = 'fulfillment_tracking_attached';
+        }
+        return [
+            'eligible' => empty($reasons),
+            'status' => $status,
+            'blocking_reasons' => $reasons,
+            'fulfillment_locked' => !empty($reasons),
+            'within_advertised_buyer_request_window' => $within_window,
+            'advertised_request_window_minutes' => $window_minutes,
+            'refund_required_if_cancelled' => $order->is_paid() && self::cents((float) $order->get_remaining_refund_amount()) > 0,
+        ];
     }
 
     private static function refund_policy(WC_Order $order) {

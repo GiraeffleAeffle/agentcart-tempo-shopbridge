@@ -10,6 +10,7 @@ AgentCart ShopBridge exposes an opt-in WooCommerce store to household or agentic
 - paid order creation: `/wp-json/agentcart/v1/orders`
 - order status and tracking: `/wp-json/agentcart/v1/orders/{id}/status`
 - merchant-approved refund recording: `/wp-json/agentcart/v1/orders/{id}/refunds`
+- merchant-approved cancellation recording: `/wp-json/agentcart/v1/orders/{id}/cancellations`
 
 The merchant remains merchant of record. WooCommerce remains the source of truth for products, stock, tax setup, shipping, fulfillment, refunds, and customer support.
 
@@ -276,6 +277,34 @@ refund references on the same order are rejected. For Stripe/card, the verifier
 should use Stripe refund APIs. For Tempo/stablecoin, the verifier should create
 or verify the refund transfer back to the source wallet and return the refund
 transaction reference.
+
+## Cancellations
+
+The cancellation endpoint is merchant-token protected:
+
+```text
+POST /wp-json/agentcart/v1/orders/{id}/cancellations
+```
+
+Request:
+
+```json
+{
+  "cancellation_idempotency_key": "cancel-order-123-1",
+  "reason": "Customer requested cancellation",
+  "requested_reference": "cancel-order-123-1"
+}
+```
+
+The endpoint only applies to AgentCart-created WooCommerce orders. It rejects
+orders that are already cancelled, completed, refunded, failed, or have shipment
+tracking attached. Successful cancellation changes the WooCommerce order status
+to `cancelled`, stores an AgentCart cancellation event, and returns whether a
+separate rail refund is still required.
+
+Cancellation does not move money. Paid orders still need a separate refund
+through `/refunds` and the configured external verifier before agents or
+merchants should claim that real funds were returned.
 
 Quotes include store-level aftercare policy defaults for returns, refunds,
 substitutions, and cancellation requests. The quote hash binds those defaults,
