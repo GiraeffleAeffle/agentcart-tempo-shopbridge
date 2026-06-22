@@ -153,7 +153,18 @@ def sample_order_status(**overrides):
             "requires_merchant_token": True,
             "remaining_refundable_cents": 1480,
             "currency": "EUR",
+            "merchant_review_required": False,
+            "item_policy_summary": {
+                "commerce_policy_codes": [],
+                "restricted_goods_codes": [],
+                "perishable_item_count": 0,
+                "deposit_item_count": 0,
+                "non_returnable_item_count": 0,
+                "merchant_review_required": False,
+                "buyer_agent_note": "Standard merchant refund policy applies.",
+            },
         },
+        "items": [],
         "refunds": [],
     }
     order.update(overrides)
@@ -834,6 +845,44 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["refund_request_draft"]["amount"], "5.00 EUR")
         self.assertIn("does not call merchant-token refund endpoints", result["safety_note"])
         self.assertIn("request_refund", {action["id"] for action in result["next_actions"]})
+
+    def test_aftercare_summary_surfaces_item_policy_review(self) -> None:
+        order = sample_order_status()
+        order["items"] = [
+            {
+                "product_id": "woo_22",
+                "title": "Fresh yogurt bottle",
+                "commerce_policy": {
+                    "flags": [
+                        {"code": "perishable", "summary": "Perishable goods."},
+                        {"code": "deposit", "summary": "Deposit-bearing packaging."},
+                    ],
+                    "returnable_by_default": False,
+                },
+                "restricted_goods": [],
+            }
+        ]
+        order["refund_policy"]["item_policy_summary"] = {
+            "commerce_policy_codes": ["perishable", "deposit"],
+            "restricted_goods_codes": [],
+            "perishable_item_count": 1,
+            "deposit_item_count": 1,
+            "non_returnable_item_count": 1,
+            "merchant_review_required": True,
+            "buyer_agent_note": "Review item-level policy before refund, return, cancellation, or substitution.",
+        }
+        order["refund_policy"]["merchant_review_required"] = True
+
+        result = shopbridge_direct.command_aftercare_summary({"order": order, "refund_reason": "Spoiled"})
+
+        self.assertTrue(result["refund"]["merchant_review_required"])
+        self.assertEqual(result["item_policy"]["commerce_policy_codes"], ["deposit", "perishable"])
+        self.assertEqual(result["item_policy"]["perishable_item_count"], 1)
+        self.assertIn("review_item_policy", {action["id"] for action in result["next_actions"]})
+        self.assertEqual(
+            result["refund_request_draft"]["trusted_gateway_payload_hint"]["item_policy_summary"]["deposit_item_count"],
+            1,
+        )
 
     def test_aftercare_summary_can_fetch_order_status(self) -> None:
         calls = []

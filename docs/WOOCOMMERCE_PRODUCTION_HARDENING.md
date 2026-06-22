@@ -8,8 +8,10 @@ product exposure modes: manual per-product opt-in, WooCommerce product tag, or
 WooCommerce product categories, or all published simple products. It also
 supports blocked category slugs, per-product AgentCart max quantities, a
 product-level checkout exclusion override, per-product shipping-country
-overrides, soft AgentCart quote holds for managed stock, and structured
-restricted-goods metadata in catalog and quote payloads. Production merchant
+overrides, soft AgentCart quote holds for managed stock, structured
+restricted-goods metadata, and structured commerce-policy metadata for
+perishable, deposit-bearing, final-sale, and substitution-sensitive products in
+catalog, quote, order status, and refund policy payloads. Production merchant
 onboarding still needs the controls below.
 
 ## Merchant Admin Readiness
@@ -34,10 +36,13 @@ quote or checkout quantities above each product's AgentCart limit. Blocked
 category slugs are excluded across every exposure mode, and restricted-goods
 metadata tells buyer agents when human review is required. Product-specific
 shipping countries and soft quote holds are rechecked before paid order
-creation. Production should add richer product controls:
+creation. Perishable, deposit-bearing, final-sale, and
+substitution-sensitive labels are surfaced as item policy metadata and
+preserved onto order status/refund policy responses for buyer-agent aftercare.
+Production should add richer product controls:
 
-- perishable/deposit handling;
-- return/refund policy overrides;
+- merchant-configurable return/refund policy overrides beyond inferred labels;
+- merchant-configurable substitution and cancellation policy;
 - merchant-side hard stock reservation integration for shops that need actual
   WooCommerce inventory holds before payment.
 

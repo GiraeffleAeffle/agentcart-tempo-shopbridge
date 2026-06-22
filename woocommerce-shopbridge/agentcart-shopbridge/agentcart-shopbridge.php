@@ -20,6 +20,7 @@ final class AgentCart_ShopBridge {
     const REFUND_IDEMPOTENCY_KEY_META = '_agentcart_refund_idempotency_key';
     const REFUND_REQUESTED_REFERENCE_META = '_agentcart_refund_requested_reference';
     const REFUND_REFERENCE_META = '_agentcart_refund_reference';
+    const ORDER_ITEMS_META = '_agentcart_quote_items';
     const CHECKOUT_LOCK_PREFIX = 'agentcart_shopbridge_checkout_lock_';
     const QUOTE_LOCK_PREFIX = 'agentcart_shopbridge_quote_lock_';
     const REFUND_LOCK_PREFIX = 'agentcart_shopbridge_refund_lock_';
@@ -1196,6 +1197,7 @@ final class AgentCart_ShopBridge {
                 'per_product_shipping_country_overrides' => true,
                 'soft_quote_stock_holds' => self::stock_hold_enabled(),
                 'structured_restricted_goods_metadata' => true,
+                'structured_commerce_policy_metadata' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'agentcart_order_ip_minimized' => true,
@@ -1221,6 +1223,9 @@ final class AgentCart_ShopBridge {
                 'blocked_categories_absent_from_catalog' => true,
                 'restricted_goods_metadata' => true,
                 'restricted_goods_require_human_review' => true,
+                'commerce_policy_metadata' => true,
+                'perishable_deposit_final_sale_detection' => true,
+                'item_policy_preserved_on_order' => true,
                 'product_shipping_country_meta_key' => self::PRODUCT_SHIPPING_COUNTRIES_META,
                 'shipping_country_overrides_rechecked_on_order' => true,
                 'stock_hold_mode' => self::stock_hold_mode(),
@@ -1271,6 +1276,7 @@ final class AgentCart_ShopBridge {
                 'requires_merchant_token' => true,
                 'demo_mode_records_woo_refund_only' => self::payment_verifier_url() === '',
                 'production_requires_rail_refund_verification' => true,
+                'item_commerce_policy_metadata' => true,
             ],
         ];
     }
@@ -1608,6 +1614,7 @@ final class AgentCart_ShopBridge {
         $order->update_meta_data('_agentcart_payment_rail', $payment_rail);
         $order->update_meta_data('_agentcart_reason', sanitize_text_field((string) ($body['reason'] ?? '')));
         $order->update_meta_data('_agentcart_quote_hash', $expected_quote_hash);
+        $order->update_meta_data(self::ORDER_ITEMS_META, wp_json_encode($quote['items'] ?? []));
         $order->update_meta_data('_agentcart_payment_verification', wp_json_encode($payment_verification));
         if (!empty($payment_verification['transaction_reference'])) {
             $order->update_meta_data('_agentcart_payment_transaction_reference', sanitize_text_field((string) $payment_verification['transaction_reference']));
@@ -1771,6 +1778,7 @@ final class AgentCart_ShopBridge {
             'status_token' => $status_token,
             'fulfillment' => self::serialize_fulfillment($order),
             'payment_verification' => is_array($payment_verification) ? $payment_verification : self::stored_payment_verification($order),
+            'items' => self::serialize_order_items($order),
             'refund_policy' => self::refund_policy($order),
             'refunds' => self::serialize_refunds($order),
         ];
@@ -1804,10 +1812,39 @@ final class AgentCart_ShopBridge {
             'payment_status' => $order->is_paid() ? 'paid' : 'unpaid',
             'payment_method' => $order->get_payment_method(),
             'fulfillment' => self::serialize_fulfillment($order),
+            'items' => self::serialize_order_items($order),
             'refund_policy' => self::refund_policy($order),
             'refunds' => self::serialize_refunds($order),
             'updated_at' => $order->get_date_modified() ? $order->get_date_modified()->date('c') : null,
         ];
+    }
+
+    private static function serialize_order_items(WC_Order $order) {
+        $raw = $order->get_meta(self::ORDER_ITEMS_META, true);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        if (is_array($decoded)) {
+            return array_values(array_filter($decoded, 'is_array'));
+        }
+        $items = [];
+        foreach ($order->get_items() as $item) {
+            $product = method_exists($item, 'get_product') ? $item->get_product() : null;
+            $serialized = $product instanceof WC_Product ? self::serialize_product($product) : [];
+            $items[] = [
+                'product_id' => $serialized['product_id'] ?? '',
+                'source_product_id' => $product instanceof WC_Product ? $product->get_id() : 0,
+                'sku' => $serialized['sku'] ?? '',
+                'title' => method_exists($item, 'get_name') ? wp_strip_all_tags($item->get_name()) : '',
+                'quantity' => method_exists($item, 'get_quantity') ? intval($item->get_quantity()) : 1,
+                'line_total_cents' => method_exists($item, 'get_total') ? self::cents((float) $item->get_total()) : 0,
+                'currency' => $order->get_currency(),
+                'category' => $serialized['category'] ?? '',
+                'category_slugs' => $serialized['category_slugs'] ?? [],
+                'restricted_goods' => $serialized['restricted_goods'] ?? [],
+                'commerce_policy' => $serialized['commerce_policy'] ?? null,
+                'agentcart_policy' => $serialized['agentcart_policy'] ?? null,
+            ];
+        }
+        return $items;
     }
 
     private static function minimize_order_network_metadata(WC_Order $order) {
@@ -2369,6 +2406,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function refund_policy(WC_Order $order) {
+        $item_policy_summary = self::order_item_policy_summary($order);
         return [
             'endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/refunds'),
             'requires_merchant_token' => true,
@@ -2377,6 +2415,57 @@ final class AgentCart_ShopBridge {
             'demo_mode_records_woo_refund_only' => self::payment_verifier_url() === '',
             'production_requires_rail_refund_verification' => true,
             'rails' => self::payment_rails(),
+            'item_policy_summary' => $item_policy_summary,
+            'merchant_review_required' => !empty($item_policy_summary['merchant_review_required']),
+        ];
+    }
+
+    private static function order_item_policy_summary(WC_Order $order) {
+        $codes = [];
+        $restricted_codes = [];
+        $non_returnable_count = 0;
+        $deposit_count = 0;
+        $perishable_count = 0;
+        foreach (self::serialize_order_items($order) as $item) {
+            $commerce_policy = isset($item['commerce_policy']) && is_array($item['commerce_policy']) ? $item['commerce_policy'] : [];
+            $flags = isset($commerce_policy['flags']) && is_array($commerce_policy['flags']) ? $commerce_policy['flags'] : [];
+            foreach ($flags as $flag) {
+                if (!is_array($flag) || empty($flag['code'])) {
+                    continue;
+                }
+                $code = (string) $flag['code'];
+                if (!in_array($code, $codes, true)) {
+                    $codes[] = $code;
+                }
+                if ($code === 'perishable') {
+                    $perishable_count++;
+                }
+                if ($code === 'deposit') {
+                    $deposit_count++;
+                }
+            }
+            if (isset($commerce_policy['returnable_by_default']) && !$commerce_policy['returnable_by_default']) {
+                $non_returnable_count++;
+            }
+            $restricted_goods = isset($item['restricted_goods']) && is_array($item['restricted_goods']) ? $item['restricted_goods'] : [];
+            foreach ($restricted_goods as $flag) {
+                if (is_array($flag) && !empty($flag['code']) && !in_array((string) $flag['code'], $restricted_codes, true)) {
+                    $restricted_codes[] = (string) $flag['code'];
+                }
+            }
+        }
+        sort($codes);
+        sort($restricted_codes);
+        return [
+            'commerce_policy_codes' => $codes,
+            'restricted_goods_codes' => $restricted_codes,
+            'perishable_item_count' => $perishable_count,
+            'deposit_item_count' => $deposit_count,
+            'non_returnable_item_count' => $non_returnable_count,
+            'merchant_review_required' => !empty($codes) || !empty($restricted_codes),
+            'buyer_agent_note' => (!empty($codes) || !empty($restricted_codes))
+                ? 'Review item-level policy before refund, return, cancellation, or substitution.'
+                : 'Standard merchant refund policy applies.',
         ];
     }
 
@@ -3148,6 +3237,7 @@ final class AgentCart_ShopBridge {
                 'category_slugs' => $serialized['category_slugs'],
                 'vat_rate_bps' => self::vat_rate_bps($product),
                 'restricted_goods' => $serialized['restricted_goods'],
+                'commerce_policy' => $serialized['commerce_policy'],
                 'agentcart_policy' => $serialized['agentcart_policy'],
             ];
         }
@@ -3453,6 +3543,87 @@ final class AgentCart_ShopBridge {
         return $flags;
     }
 
+    private static function commerce_policy_rules() {
+        return [
+            'perishable' => [
+                'labels' => ['perishable', 'fresh', 'chilled', 'refrigerated', 'frozen', 'dairy', 'meat', 'seafood', 'fish', 'produce', 'fruit', 'vegetable', 'bakery'],
+                'summary' => 'Perishable or temperature-sensitive goods may have shorter cancellation, return, or refund windows.',
+                'returnable' => false,
+            ],
+            'deposit' => [
+                'labels' => ['deposit', 'pfand', 'bottle-deposit', 'bottle-deposits', 'crate', 'returnable-bottle', 'returnable-bottles'],
+                'summary' => 'Deposit-bearing goods may include a refundable container or packaging deposit.',
+                'returnable' => true,
+            ],
+            'final_sale' => [
+                'labels' => ['final-sale', 'non-returnable', 'nonreturnable', 'no-returns', 'custom', 'personalized', 'made-to-order'],
+                'summary' => 'Merchant labels indicate final-sale or non-returnable handling.',
+                'returnable' => false,
+            ],
+            'substitution_sensitive' => [
+                'labels' => ['no-substitution', 'no-substitutions', 'substitution-sensitive', 'brand-specific'],
+                'summary' => 'Substitutions should not be made without explicit buyer approval.',
+                'returnable' => true,
+            ],
+        ];
+    }
+
+    private static function product_commerce_policy(WC_Product $product, $agent_labels = null) {
+        $agent_labels = is_array($agent_labels) ? $agent_labels : self::product_agent_labels($product);
+        $labels = array_values(array_unique(array_merge(
+            $agent_labels['labels'] ?? [],
+            self::product_category_slugs($product)
+        )));
+        $flags = [];
+        $returnable = true;
+        foreach (self::commerce_policy_rules() as $code => $rule) {
+            $matches = array_values(array_intersect($labels, $rule['labels']));
+            if (!$matches) {
+                continue;
+            }
+            if (empty($rule['returnable'])) {
+                $returnable = false;
+            }
+            $flags[] = [
+                'code' => $code,
+                'summary' => $rule['summary'],
+                'matched_terms' => $matches,
+                'requires_human_review' => true,
+            ];
+        }
+        $refund_conditions = [
+            'merchant_review_required' => !empty($flags),
+            'rail_refund_requires_verifier' => true,
+        ];
+        if (!$returnable) {
+            $refund_conditions['return_handling'] = 'merchant_review_or_exception_only';
+        } elseif ($flags) {
+            $refund_conditions['return_handling'] = 'review_policy_before_return';
+        } else {
+            $refund_conditions['return_handling'] = 'standard_merchant_policy';
+        }
+        return [
+            'flags' => $flags,
+            'returnable_by_default' => $returnable,
+            'refund_conditions' => $refund_conditions,
+            'substitution_requires_approval' => self::commerce_policy_has_flag($flags, 'substitution_sensitive'),
+            'deposit_possible' => self::commerce_policy_has_flag($flags, 'deposit'),
+            'perishable' => self::commerce_policy_has_flag($flags, 'perishable'),
+            'buyer_agent_aftercare_note' => $flags
+                ? 'Review item-level merchant policy before refund, return, cancellation, or substitution.'
+                : 'Use standard merchant return and refund policy.',
+        ];
+    }
+
+    private static function commerce_policy_has_flag($flags, $code) {
+        foreach ($flags as $flag) {
+            if (is_array($flag) && ($flag['code'] ?? '') === $code) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static function serialize_product(WC_Product $product) {
         $category = 'household.supplies';
         $category_ids = $product->get_category_ids();
@@ -3475,6 +3646,7 @@ final class AgentCart_ShopBridge {
         $category_slugs = self::product_category_slugs($product);
         $blocked_category_matches = self::product_blocked_category_matches($product);
         $restricted_goods = self::product_restricted_goods($product, $agent_labels);
+        $commerce_policy = self::product_commerce_policy($product, $agent_labels);
         return [
             'id' => 'woo_' . $product->get_id(),
             'product_id' => 'woo_' . $product->get_id(),
@@ -3493,6 +3665,7 @@ final class AgentCart_ShopBridge {
             'dietary_tags' => $agent_labels['dietary_tags'],
             'allergens' => $agent_labels['allergens'],
             'restricted_goods' => $restricted_goods,
+            'commerce_policy' => $commerce_policy,
             'image_urls' => $image_urls,
             'price_cents' => self::cents((float) wc_get_price_including_tax($product, ['qty' => 1])),
             'currency' => get_woocommerce_currency(),
@@ -3509,7 +3682,8 @@ final class AgentCart_ShopBridge {
                 'exposure_mode' => self::product_exposure_mode(),
                 'exposure_categories' => self::product_exposure_mode() === 'category' ? self::product_exposure_categories() : [],
                 'restricted_goods' => $restricted_goods,
-                'requires_human_review' => !empty($restricted_goods),
+                'commerce_policy' => $commerce_policy,
+                'requires_human_review' => !empty($restricted_goods) || !empty($commerce_policy['flags']),
             ],
         ];
     }

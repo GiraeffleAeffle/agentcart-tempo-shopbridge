@@ -179,9 +179,9 @@ Or fetch status first, then summarize:
 ```
 
 This is read-only. It summarizes fulfillment, tracking, refundability, support,
-payment proof, and safe next actions. If refund fields are supplied, it creates
-a refund request draft for the merchant or trusted AgentCart gateway; it does
-not call the merchant-token refund endpoint.
+payment proof, item-level commerce policy, and safe next actions. If refund
+fields are supplied, it creates a refund request draft for the merchant or
+trusted AgentCart gateway; it does not call the merchant-token refund endpoint.
 
 ## Safety Rules
 
@@ -221,7 +221,9 @@ not call the merchant-token refund endpoint.
   summaries.
 - Use `aftercare_summary` for buyer-facing follow-up. Do not call refund
   endpoints from this direct buyer skill; ShopBridge refund endpoints require a
-  merchant token or trusted gateway approval.
+  merchant token or trusted gateway approval. Treat perishable, deposit-bearing,
+  final-sale, substitution-sensitive, or restricted item policy as a reason to
+  ask for human review before refund, return, cancellation, or substitution.
 - Use the full AgentCart service path instead when the buyer needs durable
   household policy, multi-user approval, recurring budgets, delivery calendar,
   task sync, or a persistent audit trail.

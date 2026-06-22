@@ -106,7 +106,8 @@ Deliverables:
 - enforce per-product quantity limits, checkout exclusion overrides, category
   blocklists, product shipping-country overrides, soft quote stock holds, and
   structured restricted-goods metadata;
-- add richer product controls for perishables, deposits, and substitutions.
+- expose perishable, deposit-bearing, final-sale, and substitution-sensitive
+  handling metadata from normal WooCommerce tags, attributes, and categories.
 
 Definition of done:
 
@@ -183,9 +184,11 @@ Definition of done:
 
 Current alpha status: the direct ShopBridge skill can summarize order status,
 fulfillment/tracking, refundability, merchant support, payment proof, and a
-refund request draft without calling merchant-token refund endpoints. Production
-still needs cancellation support, richer refund workflows, and durable household
-aftercare state in the AgentCart service path.
+refund request draft without calling merchant-token refund endpoints. It also
+surfaces item-level policy review for perishable, deposit-bearing, final-sale,
+substitution-sensitive, or restricted products. Production still needs
+cancellation support, richer refund workflows, and durable household aftercare
+state in the AgentCart service path.
 
 Current grocery alpha status: ShopBridge exposes structured package-size
 metadata from WooCommerce product weights and structured tag/dietary/allergen

@@ -236,6 +236,34 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'restricted_goods'", quote_cart_body)
         self.assertIn("'agentcart_policy'", quote_cart_body)
 
+    def test_catalog_quote_order_and_refunds_expose_commerce_policy_metadata(self) -> None:
+        product_body = function_body("serialize_product")
+        policy_body = function_body("product_commerce_policy")
+        rules_body = function_body("commerce_policy_rules")
+        quote_cart_body = function_body("quote_from_cart")
+        order_body = function_body("create_order")
+        order_response_body = function_body("serialize_order_response")
+        order_status_body = function_body("serialize_order_status")
+        order_items_body = function_body("serialize_order_items")
+        refund_policy_body = function_body("refund_policy")
+        policy_summary_body = function_body("order_item_policy_summary")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("product_commerce_policy", product_body)
+        for code in ["'perishable'", "'deposit'", "'final_sale'", "'substitution_sensitive'"]:
+            self.assertIn(code, rules_body)
+        for field in ["'commerce_policy'", "'refund_conditions'", "'buyer_agent_aftercare_note'"]:
+            self.assertIn(field, product_body + policy_body)
+        self.assertIn("'commerce_policy'", quote_cart_body)
+        self.assertIn("ORDER_ITEMS_META", order_body)
+        self.assertIn("ORDER_ITEMS_META", order_items_body)
+        self.assertIn("'items'", order_response_body)
+        self.assertIn("'items'", order_status_body)
+        self.assertIn("order_item_policy_summary", refund_policy_body)
+        self.assertIn("'merchant_review_required'", policy_summary_body)
+        self.assertIn("'structured_commerce_policy_metadata'", capability_body)
+        self.assertIn("'item_commerce_policy_metadata'", capability_body)
+
     def test_product_shipping_country_overrides_are_exposed_and_rechecked(self) -> None:
         product_body = function_body("serialize_product")
         quote_body = function_body("quote")

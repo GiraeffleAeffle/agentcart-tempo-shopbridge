@@ -114,6 +114,9 @@ Woo fields into an agent-readable product schema:
 - structured `restricted_goods` policy metadata for age-restricted, medical,
   weapon/fireworks, and stored-value categories when normal Woo labels indicate
   those risks
+- structured `commerce_policy` metadata for perishable, deposit-bearing,
+  final-sale, and substitution-sensitive products when normal Woo tags,
+  attributes, or categories indicate those handling rules
 - image URLs
 - VAT-inclusive price hint
 - stock/availability
@@ -135,8 +138,12 @@ Product-specific AgentCart shipping countries are optional; empty values inherit
 the store's WooCommerce shipping countries. Quote and checkout both reject
 products whose override no longer permits the destination country.
 
-Future hardening can add deposit/perishable workflows and richer merchant-side
-policy review, but the default product seam remains merchant-controlled and
+Deposit, perishable, final-sale, and substitution-sensitive labels are surfaced
+as policy metadata, not hidden checkout logic. Buyer agents can ask for approval
+or show aftercare warnings, while the merchant still uses normal WooCommerce
+products, tags, attributes, categories, refund settings, and support workflows.
+Future hardening can add richer merchant-side policy overrides and return
+automation, but the default product seam remains merchant-controlled and
 fail-closed.
 
 ## Quote Binding
@@ -264,6 +271,13 @@ refund references on the same order are rejected. For Stripe/card, the verifier
 should use Stripe refund APIs. For Tempo/stablecoin, the verifier should create
 or verify the refund transfer back to the source wallet and return the refund
 transaction reference.
+
+Order status and refund policy responses include item-level commerce policy
+summaries. Perishable, deposit-bearing, final-sale, substitution-sensitive, and
+restricted items can require buyer-agent review before refunds, returns,
+cancellations, or substitutions. This is guidance and audit metadata for agents;
+real refund authority still stays with WooCommerce plus the configured payment
+verifier.
 
 ## Discovery
 

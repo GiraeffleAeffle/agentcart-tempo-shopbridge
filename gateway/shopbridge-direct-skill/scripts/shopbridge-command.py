@@ -438,6 +438,7 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
     refund_policy = order.get("refund_policy") if isinstance(order.get("refund_policy"), dict) else {}
     payment = order.get("payment_verification") if isinstance(order.get("payment_verification"), dict) else {}
     refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
+    item_policy = aftercare_item_policy_summary(order, refund_policy)
     support = support_contact(order, args)
     currency = str(refund_policy.get("currency") or args.get("currency") or "EUR")
     remaining_cents = int(refund_policy.get("remaining_refundable_cents") or 0)
@@ -451,6 +452,8 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         next_actions.append({"id": "track_with_carrier", "label": f"Track shipment {tracking_number}"})
     else:
         next_actions.append({"id": "check_status_later", "label": "Check order status again later"})
+    if item_policy.get("merchant_review_required"):
+        next_actions.append({"id": "review_item_policy", "label": "Review item-level return and substitution policy"})
     if remaining_cents > 0:
         next_actions.append(
             {
@@ -486,9 +489,11 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
             "available": remaining_cents > 0,
             "remaining": money(remaining_cents, currency),
             "requires_merchant_or_gateway": bool(refund_policy.get("requires_merchant_token", True)),
+            "merchant_review_required": bool(refund_policy.get("merchant_review_required") or item_policy.get("merchant_review_required")),
             "endpoint_for_trusted_gateway": str(refund_policy.get("endpoint") or ""),
             "existing_refunds": len([refund for refund in refunds if isinstance(refund, dict)]),
         },
+        "item_policy": item_policy,
         "support": support,
         "payment_proof": {
             "rail": str(payment.get("rail") or ""),
@@ -497,7 +502,54 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         },
         "refund_request_draft": refund_request,
         "next_actions": next_actions,
-        "safety_note": "The direct buyer skill does not call merchant-token refund endpoints. Ask the merchant or a trusted AgentCart gateway to submit approved refunds.",
+        "safety_note": "The direct buyer skill does not call merchant-token refund endpoints. Ask the merchant or a trusted AgentCart gateway to submit approved refunds, especially for perishable, deposit, restricted, or final-sale items.",
+    }
+
+
+def aftercare_item_policy_summary(order: dict[str, Any], refund_policy: dict[str, Any]) -> dict[str, Any]:
+    policy_summary = refund_policy.get("item_policy_summary") if isinstance(refund_policy.get("item_policy_summary"), dict) else {}
+    codes = set(str(code) for code in policy_summary.get("commerce_policy_codes", []) if str(code))
+    restricted = set(str(code) for code in policy_summary.get("restricted_goods_codes", []) if str(code))
+    item_notes = []
+    order_items = order.get("items") if isinstance(order.get("items"), list) else []
+    for item in order_items:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("product_id") or "item")
+        commerce_policy = item.get("commerce_policy") if isinstance(item.get("commerce_policy"), dict) else {}
+        commerce_flags = commerce_policy.get("flags") if isinstance(commerce_policy.get("flags"), list) else []
+        for flag in commerce_flags:
+            if not isinstance(flag, dict):
+                continue
+            code = str(flag.get("code") or "")
+            if code:
+                codes.add(code)
+                item_notes.append({"product": title, "code": code, "summary": str(flag.get("summary") or "")})
+        restricted_goods = item.get("restricted_goods") if isinstance(item.get("restricted_goods"), list) else []
+        for flag in restricted_goods:
+            if not isinstance(flag, dict):
+                continue
+            code = str(flag.get("code") or "")
+            if code:
+                restricted.add(code)
+                item_notes.append({"product": title, "code": code, "summary": str(flag.get("summary") or "")})
+    merchant_review = bool(policy_summary.get("merchant_review_required") or codes or restricted)
+    return {
+        "merchant_review_required": merchant_review,
+        "commerce_policy_codes": sorted(codes),
+        "restricted_goods_codes": sorted(restricted),
+        "perishable_item_count": bounded_int(policy_summary.get("perishable_item_count"), default=0, minimum=0, maximum=999),
+        "deposit_item_count": bounded_int(policy_summary.get("deposit_item_count"), default=0, minimum=0, maximum=999),
+        "non_returnable_item_count": bounded_int(policy_summary.get("non_returnable_item_count"), default=0, minimum=0, maximum=999),
+        "item_notes": item_notes[:8],
+        "buyer_agent_note": str(
+            policy_summary.get("buyer_agent_note")
+            or (
+                "Review item-level policy before refund, return, cancellation, or substitution."
+                if merchant_review
+                else "Standard merchant refund policy applies."
+            )
+        ),
     }
 
 
@@ -542,6 +594,7 @@ def refund_request_draft(
             "currency": currency,
             "reason": reason,
             "requested_reference": args.get("requested_reference") or f"buyer_refund_{order.get('id') or 'order'}",
+            "item_policy_summary": aftercare_item_policy_summary(order, order.get("refund_policy") if isinstance(order.get("refund_policy"), dict) else {}),
         },
     }
 
