@@ -1988,6 +1988,79 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def payment_receipt_requirements(destination: dict[str, Any]) -> dict[str, Any]:
+    rail = str(destination.get("rail") or "")
+    fields = ["method", "status", "amount_cents", "currency", "quote_hash"]
+    alternatives = ["transaction_reference", "authorization", "credential"]
+    if rail == "stripe-card-mpp":
+        fields.extend(["stripe_profile_id"])
+        alternatives = ["authorization", "credential", "transaction_reference"]
+    elif rail == "tempo-mpp":
+        fields.extend(["network", "recipient"])
+        alternatives = ["transaction_reference", "explorer_url"]
+    return {
+        "required_fields": fields,
+        "one_of": alternatives,
+        "must_match_quote": ["amount_cents", "currency", "quote_hash"],
+        "must_match_payment_destination": [
+            key
+            for key in ("stripe_profile_id", "network_id", "network", "recipient")
+            if destination.get(key)
+        ],
+    }
+
+
+def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
+    if not args.get("approved"):
+        raise SystemExit("approved=true is required before creating a payment handoff")
+    quote = args["quote"]
+    approval = approval_packet(quote, payment_rail=args.get("payment_rail"))
+    supplied_approval_hash = str(args.get("approval_hash") or "")
+    if supplied_approval_hash != approval["approval_hash"]:
+        raise SystemExit("approval_hash does not match the current quote approval packet")
+
+    preflight = command_checkout_preflight(args)
+    if not preflight["ok"]:
+        return {
+            "ok": False,
+            "issues": preflight["issues"],
+            "approval_hash": approval["approval_hash"],
+            "approval_summary": approval["summary"],
+            "payment_destination": preflight["payment_destination"],
+            "next_step": "Resolve these issues before sending the buyer to a payment provider.",
+        }
+
+    merchant = quote.get("merchant") if isinstance(quote.get("merchant"), dict) else {}
+    destination = preflight["payment_destination"]
+    payment_request = {
+        "rail": destination.get("rail"),
+        "amount_cents": int(quote["total_cents"]),
+        "currency": str(quote["currency"]).upper(),
+        "quote_hash": str(quote["quote_hash"]),
+        "merchant_quote_id": str(quote["id"]),
+        "merchant": {
+            "id": str(merchant.get("id") or ""),
+            "name": str(merchant.get("name") or ""),
+        },
+        "payment_destination": destination,
+        "description": f"Quote-bound AgentCart payment for {quote_title(quote)}",
+        "receipt_requirements": payment_receipt_requirements(destination),
+    }
+    return {
+        "ok": True,
+        "approval_hash": approval["approval_hash"],
+        "approval_summary": approval["summary"],
+        "payment_request": payment_request,
+        "payment_handoff_hash": sha256_hex(payment_request),
+        "checkout_contract": {
+            "next_command": "checkout",
+            "required_args": ["quote", "approved", "approval_hash", "payment_receipt"],
+            "receipt_validation": "checkout requires the returned receipt to match amount, currency, quote_hash, and payment_destination",
+        },
+        "safety_note": "This handoff does not move money and does not contain secret keys. It is the structured instruction for a payment-capable agent or provider, and the resulting receipt is still verified by ShopBridge before WooCommerce creates a paid order.",
+    }
+
+
 def validate_receipt_destination(receipt: dict[str, Any], destination: dict[str, Any]) -> None:
     rail = destination.get("rail")
     if rail == "stripe-card-mpp":
@@ -2145,6 +2218,8 @@ def main() -> None:
         compact = approval_packet(args["quote"], payment_rail=args.get("payment_rail"))
     elif command == "checkout_preflight":
         compact = command_checkout_preflight(args)
+    elif command == "payment_handoff":
+        compact = command_payment_handoff(args)
     elif command == "checkout":
         result = command_checkout(args)
         compact = result

@@ -80,6 +80,11 @@ Checkout safety:
 - Always create or inspect an `approval_packet` before checkout.
 - Do not call `checkout` until the human approves the exact merchant, items,
   total, delivery window, quote hash, and payment destination.
+- After approval, call `payment_handoff` to get the structured payment request
+  for the wallet, payment-capable agent, or provider. The request is not a
+  secret and does not move money; it says exactly which rail, amount, currency,
+  quote hash, and merchant profile/recipient the resulting receipt must bind.
+- Pass only the resulting quote-bound `payment_receipt` to `checkout`.
 - Treat aftercare actions such as refund or cancellation as request drafts
   unless the buyer is using a trusted AgentCart gateway with merchant
   authorization. ShopBridge cancellation changes Woo order state only; paid
@@ -87,6 +92,13 @@ Checkout safety:
 - Production checkout must supply a verifier/payment receipt bound to amount,
   currency, quote hash, merchant recipient/profile, and transaction reference.
 - The Tempo demo proof is sandbox/testnet proof, not production EUR settlement.
+
+Skill-only production sequence:
+
+```text
+resolve_merchant -> catalog/quote -> approval_packet -> human approval
+  -> payment_handoff -> external payment receipt -> checkout -> order_status
+```
 
 ## AgentCart Service Setup
 

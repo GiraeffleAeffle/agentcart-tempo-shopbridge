@@ -19,10 +19,27 @@ fi
 
 mkdir -p "$DIST_DIR"
 rm -f "$ZIP_PATH"
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+STAGING_DIR="$TMP_DIR/$SKILL_SLUG"
+mkdir -p "$STAGING_DIR"
+
 (
-  cd "$ROOT_DIR/gateway"
-  zip -qr "$ZIP_PATH" "$SKILL_SLUG" \
-    -x "*/.DS_Store" "*/__MACOSX/*" "*/__pycache__/*" "*.pyc"
+  cd "$SKILL_DIR"
+  find . -type f | LC_ALL=C sort | while IFS= read -r path; do
+    rel="${path#./}"
+    case "$rel" in
+      .DS_Store|__MACOSX/*|*/.DS_Store|*/__MACOSX/*|__pycache__/*|*/__pycache__/*|*.pyc) continue ;;
+    esac
+    mkdir -p "$STAGING_DIR/$(dirname "$rel")"
+    cp -p "$path" "$STAGING_DIR/$rel"
+  done
+)
+find "$STAGING_DIR" -exec touch -t 202001010000 {} +
+(
+  cd "$TMP_DIR"
+  find "$SKILL_SLUG" -type f | LC_ALL=C sort | zip -X -q "$ZIP_PATH" -@
 )
 
 echo "Created $ZIP_PATH"

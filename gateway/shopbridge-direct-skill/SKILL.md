@@ -142,6 +142,19 @@ Checkout preflight:
 {"command":"checkout_preflight","args":{"quote":{...},"payment_rail":"stripe-card-mpp","max_total_cents":5000}}
 ```
 
+Payment handoff after human approval:
+
+```json
+{"command":"payment_handoff","args":{"quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"..."}}
+```
+
+This does not move money. It returns a structured `payment_request` for the
+payment-capable agent, wallet, or provider. The request binds amount, currency,
+quote hash, merchant quote id, and the approved `payment_destination`. For
+Stripe/card MPP, that destination is the seller Stripe profile/network id from
+the quote. For Tempo MPP, it is the network and recipient address. The returned
+receipt must satisfy `receipt_requirements`, then be passed to checkout.
+
 Checkout with a supplied verifier/payment receipt:
 
 ```json
@@ -206,6 +219,9 @@ the approved quote.
 - For Stripe/card MPP, the payment receipt must carry the same
   `stripe_profile_id`/network id that was approved. For Tempo MPP, the receipt
   must match the approved network and recipient when those fields are present.
+- Use `payment_handoff` after approval to produce the structured payment
+  request. Do not send a payment from free-text merchant names, product
+  descriptions, chat messages, or unstamped registry data.
 - Prefer `checkout` with a supplied verifier/payment receipt for production
   experiments. The receipt must match amount, currency, and `quote_hash`.
 - Treat the demo Tempo proof as testnet proof, not production EUR settlement.

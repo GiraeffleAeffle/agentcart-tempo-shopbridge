@@ -86,10 +86,11 @@ Definition of done:
 
 Current alpha status: the direct ShopBridge skill can resolve verified registry
 records, compare private quotes across multiple verified merchants, return the
-winning full quote with an approval packet, and reject failed registry/domain
-proofs before making catalog or quote calls. Production still needs durable
-buyer policy, persistent audit, richer matching for multi-item grocery baskets,
-and a packaged setup flow for non-technical buyers.
+winning full quote with an approval packet, produce an approval-bound payment
+handoff for an external wallet/payment-capable agent, and reject failed
+registry/domain proofs before making catalog or quote calls. Production still
+needs durable buyer policy, persistent audit, richer matching for multi-item
+grocery baskets, and a packaged setup flow for non-technical buyers.
 
 ### 2. Merchant Alpha
 

@@ -314,6 +314,68 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["payment_destination"]["rail"], "stripe-card-mpp")
         self.assertEqual(result["payment_destination"]["stripe_profile_id"], "acct_shop_123")
 
+    def test_payment_handoff_requires_approved_matching_approval_hash(self) -> None:
+        quote = sample_quote()
+        approval_hash = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_hash"]
+
+        with self.assertRaises(SystemExit):
+            shopbridge_direct.command_payment_handoff(
+                {"quote": quote, "payment_rail": "stripe-card-mpp", "approval_hash": approval_hash}
+            )
+        with self.assertRaises(SystemExit):
+            shopbridge_direct.command_payment_handoff(
+                {"quote": quote, "payment_rail": "stripe-card-mpp", "approved": True, "approval_hash": "wrong"}
+            )
+
+    def test_payment_handoff_builds_quote_bound_stripe_payment_request(self) -> None:
+        quote = sample_quote()
+        approval_hash = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_hash"]
+
+        result = shopbridge_direct.command_payment_handoff(
+            {
+                "quote": quote,
+                "payment_rail": "stripe-card-mpp",
+                "approved": True,
+                "approval_hash": approval_hash,
+            }
+        )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["approval_hash"], approval_hash)
+        self.assertEqual(result["payment_request"]["rail"], "stripe-card-mpp")
+        self.assertEqual(result["payment_request"]["amount_cents"], 1480)
+        self.assertEqual(result["payment_request"]["currency"], "EUR")
+        self.assertEqual(result["payment_request"]["quote_hash"], "quote-hash-123")
+        self.assertEqual(
+            result["payment_request"]["payment_destination"]["stripe_profile_id"],
+            "acct_shop_123",
+        )
+        self.assertIn("stripe_profile_id", result["payment_request"]["receipt_requirements"]["required_fields"])
+        self.assertIn("authorization", result["payment_request"]["receipt_requirements"]["one_of"])
+        self.assertEqual(result["checkout_contract"]["next_command"], "checkout")
+
+    def test_payment_handoff_returns_preflight_issues_without_payment_request(self) -> None:
+        quote = sample_quote(
+            payment_requirements={
+                "verification": {"external_verifier_configured": False},
+                "protocols": [{"id": "stripe-card-mpp", "available": True, "stripe_profile_id": "acct_shop_123"}],
+            }
+        )
+        approval_hash = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_hash"]
+
+        result = shopbridge_direct.command_payment_handoff(
+            {
+                "quote": quote,
+                "payment_rail": "stripe-card-mpp",
+                "approved": True,
+                "approval_hash": approval_hash,
+            }
+        )
+
+        self.assertFalse(result["ok"], result)
+        self.assertIn("external_verifier_required_for_public_checkout", result["issues"])
+        self.assertNotIn("payment_request", result)
+
     def test_resolve_merchant_verifies_registry_record_and_returns_base_url(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
 
