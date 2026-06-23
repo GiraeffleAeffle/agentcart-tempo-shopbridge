@@ -158,6 +158,7 @@ The plugin exposes:
 - `/.well-known/agentcart.json`
 - `/.well-known/agentcart-registry-proof.json`
 - `/.well-known/agentcart-registry-revocations.json`
+- `/.well-known/agentcart-registry-bundle.json`
 - `/wp-json/agentcart/v1/catalog`
 - `/wp-json/agentcart/v1/quote`
 - `/wp-json/agentcart/v1/orders`
@@ -165,10 +166,12 @@ The plugin exposes:
 - `/wp-json/agentcart/v1/orders/{id}/refunds`
 - `/wp-json/agentcart/v1/orders/{id}/cancellations`
 
-Registry operators can build and verify merchant records from a ShopBridge
-manifest without hand-writing JSON:
+Registry operators can ingest the plugin-generated registry bundle directly, or
+build and verify merchant records from a ShopBridge manifest without
+hand-writing JSON:
 
 ```sh
+curl https://shop.example/.well-known/agentcart-registry-bundle.json
 python3 gateway/scripts/registry_record.py build --manifest-url https://shop.example/.well-known/agentcart.json
 python3 gateway/scripts/registry_record.py verify --record-file merchant-registry-record.json
 ```

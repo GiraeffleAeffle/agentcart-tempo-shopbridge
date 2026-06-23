@@ -23,6 +23,7 @@ fulfillment, refunds, and support. The plugin exposes:
 * `/.well-known/agentcart.json`
 * `/.well-known/agentcart-registry-proof.json`
 * `/.well-known/agentcart-registry-revocations.json`
+* `/.well-known/agentcart-registry-bundle.json`
 * `/wp-json/agentcart/v1/catalog`
 * `/wp-json/agentcart/v1/quote`
 * `/wp-json/agentcart/v1/orders`
@@ -53,7 +54,8 @@ actions.
   final-sale goods, substitutions, refunds, and cancellations, inferred from
   WooCommerce tags, categories, and attributes with optional explicit product
   overrides.
-* Auto-managed domain-proof and revocation fields for an AgentCart merchant registry.
+* Auto-managed domain-proof, revocation, and registry-onboarding bundle fields
+  for an AgentCart merchant registry.
 
 == Installation ==
 
@@ -64,7 +66,8 @@ actions.
    checkout mode, and product exposure mode.
 5. Add normal WooCommerce products and expose only the products that are safe
    for agent checkout.
-6. Test the manifest, catalog, quote, and a non-production checkout path before
+6. Share the registry bundle URL with a registry or local buyer-agent test.
+7. Test the manifest, catalog, quote, and a non-production checkout path before
    public use.
 
 == Frequently Asked Questions ==

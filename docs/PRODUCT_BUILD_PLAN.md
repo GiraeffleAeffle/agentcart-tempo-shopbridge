@@ -88,9 +88,11 @@ Current alpha status: the direct ShopBridge skill can resolve verified registry
 records, compare private quotes across multiple verified merchants, return the
 winning full quote with an approval packet, produce an approval-bound payment
 handoff for an external wallet/payment-capable agent, and reject failed
-registry/domain proofs before making catalog or quote calls. Production still
-needs durable buyer policy, persistent audit, richer matching for multi-item
-grocery baskets, and a packaged setup flow for non-technical buyers.
+registry/domain proofs before making catalog or quote calls. It can also ingest
+the ShopBridge registry onboarding bundle as a registry source for local
+single-merchant tests. Production still needs durable buyer policy, persistent
+audit, richer matching for multi-item grocery baskets, and a packaged setup
+flow for non-technical buyers.
 
 ### 2. Merchant Alpha
 
@@ -124,13 +126,16 @@ stock, and order APIs; exposes merchant-controlled product exposure modes;
 publishes automatic and explicit item-level aftercare policy metadata; and
 renders a guided setup checklist in `WooCommerce -> AgentCart` for identity,
 agent-safe products, tax/shipping, payment verifier, registry proof, and sandbox
-testing. The same setup guide is included in the public capability document for
-remote onboarding tools. The repo also includes an opt-in live smoke script for
-checking manifest/capability setup state, catalog exposure, and WooCommerce
-quote totals against a seeded or staging shop, plus a one-command WooCommerce
-demo smoke wrapper that starts, seeds, and verifies the bundled local shop.
-Production still needs a polished setup wizard, WP/Woo integration tests, and
-stronger hosted registry/payment-provider onboarding.
+testing. The plugin publishes a registry onboarding bundle with the suggested
+record, proof, revocation document, and one-entry feed so registries can ingest
+the shop without merchant-side hash copy/paste. The same setup guide is
+included in the public capability document for remote onboarding tools. The repo
+also includes an opt-in live smoke script for checking manifest/capability setup
+state, catalog exposure, and WooCommerce quote totals against a seeded or
+staging shop, plus a one-command WooCommerce demo smoke wrapper that starts,
+seeds, and verifies the bundled local shop. Production still needs a polished
+setup wizard, WP/Woo integration tests, and stronger hosted registry/payment-
+provider onboarding.
 
 ### 3. Idempotent Order And Replay Safety
 

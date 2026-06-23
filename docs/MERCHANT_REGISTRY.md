@@ -153,6 +153,12 @@ The WooCommerce ShopBridge plugin exposes this proof at
 claim hash, record hash, `updated_at` timestamp, and revocation URL from stable
 settings, so merchants do not paste registry hashes during normal onboarding.
 
+The plugin also publishes `/.well-known/agentcart-registry-bundle.json`, which
+contains the same `registry_record`, `record_hash`, expected proof document,
+empty revocation document, and a one-entry `registry_feed`. A central registry,
+self-hosted registry, or local buyer-agent test can ingest that bundle directly
+instead of asking the merchant to run a helper script.
+
 ## Merchant-Owned Revocation
 
 When a registry record includes `revocation_url`, AgentCart requires that URL to
@@ -193,7 +199,14 @@ omit `revocation_url`, but public records should include it.
 
 ## Registry Record Helper
 
-The registry operator should build records from the merchant manifest instead
+For current ShopBridge merchants, the lowest-friction path is to consume the
+merchant's bundle:
+
+```sh
+curl https://shop.example/.well-known/agentcart-registry-bundle.json
+```
+
+The registry operator can also build records from the merchant manifest instead
 of asking merchants to hand-write JSON or copy hashes. The helper uses the same
 canonical JSON hashing and verifier code as the gateway:
 
@@ -231,8 +244,8 @@ python3 gateway/scripts/registry_record.py verify \
 ```
 
 This keeps merchant onboarding close to the normal WooCommerce flow: install the
-plugin, configure payment/support settings, enable products, share the manifest
-URL, and let the registry consume the plugin-generated claim.
+plugin, configure payment/support settings, enable products, share the registry
+bundle URL, and let the registry consume the plugin-generated claim.
 
 ## Agent Safety Model
 

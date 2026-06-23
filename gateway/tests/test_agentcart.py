@@ -283,6 +283,29 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(entries["signed-tea-shop"]["verification"]["signature_alg"], "https-domain-proof")
             self.assertIn("signed-tea-shop", service.adapters)
 
+    def test_registry_source_can_load_shopbridge_onboarding_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            registry_path = tmp / "registry-bundle.json"
+            registry_path.write_text(
+                json.dumps({
+                    "type": "agentcart-registry-onboarding-bundle",
+                    "registry_record": record,
+                    "record_hash": agentcart.registry_record_hash(record),
+                }),
+                encoding="utf-8",
+            )
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertIn("signed-tea-shop", entries)
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
+            self.assertIn("signed-tea-shop", service.adapters)
+
     def test_domain_proof_registry_record_verifies_with_empty_revocation_document(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = pathlib.Path(raw_tmp)

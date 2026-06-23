@@ -310,6 +310,25 @@ def registry_record_hash(record: dict[str, Any]) -> str:
     return canonical_json_hash(registry_signature_payload(record))
 
 
+def registry_records_from_document(document: Any) -> list[dict[str, Any]]:
+    if isinstance(document, list):
+        return [record for record in document if isinstance(record, dict)]
+    if isinstance(document, dict):
+        if isinstance(document.get("entries"), list):
+            return [record for record in document["entries"] if isinstance(record, dict)]
+        registry_feed = document.get("registry_feed")
+        if isinstance(registry_feed, dict) and isinstance(registry_feed.get("entries"), list):
+            return [record for record in registry_feed["entries"] if isinstance(record, dict)]
+        registry_record = document.get("registry_record")
+        if isinstance(registry_record, dict):
+            return [registry_record]
+        if document.get("merchant_id") and document.get("manifest_url"):
+            return [document]
+    raise UpstreamError(
+        "merchant registry source must be a record, a list of records, an object with entries[], or a ShopBridge registry bundle"
+    )
+
+
 def hmac_registry_signature(record: dict[str, Any], secret: str) -> str:
     digest = hmac.new(
         secret.encode(),
@@ -1909,10 +1928,7 @@ class AgentCartService:
             raw = self.http_json(self.config.merchant_registry_url, method="GET", token="", timeout=10)
         else:
             return []
-        records = raw.get("entries") if isinstance(raw, dict) else raw
-        if not isinstance(records, list):
-            raise UpstreamError("merchant registry source must be a list or an object with entries[]")
-        return [record for record in records if isinstance(record, dict)]
+        return registry_records_from_document(raw)
 
     def registry_source_entries(self) -> list[dict[str, Any]]:
         entries = []

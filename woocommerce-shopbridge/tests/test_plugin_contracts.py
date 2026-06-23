@@ -54,6 +54,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             "/.well-known/agentcart.json",
             "/.well-known/agentcart-registry-proof.json",
             "/.well-known/agentcart-registry-revocations.json",
+            "/.well-known/agentcart-registry-bundle.json",
             "/wp-json/agentcart/v1/catalog",
             "/wp-json/agentcart/v1/quote",
             "/wp-json/agentcart/v1/orders",
@@ -291,6 +292,25 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'registry_revocations' => self::registry_revocation_url()", capability_body)
         self.assertIn("'revocation_url' => self::registry_revocation_url()", capability_body)
         self.assertIn("'revocation_snapshot'", signature_payload_body)
+
+    def test_registry_onboarding_bundle_is_auto_published(self) -> None:
+        well_known_body = function_body("maybe_serve_well_known_manifest")
+        render_body = function_body("render_settings_page")
+        bundle_body = function_body("registry_onboarding_bundle")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("agentcart-registry-bundle.json", well_known_body)
+        self.assertIn("registry_bundle_url", render_body)
+        self.assertIn("'type' => 'agentcart-registry-onboarding-bundle'", bundle_body)
+        self.assertIn("'registry_record' => $record", bundle_body)
+        self.assertIn("'record_hash' => self::registry_record_hash($record)", bundle_body)
+        self.assertIn("'proof_document_expected' => self::registry_domain_proof()", bundle_body)
+        self.assertIn("'registry_feed'", bundle_body)
+        self.assertIn("'entries' => [$record]", bundle_body)
+        self.assertIn("'merchant_action' => 'none'", bundle_body)
+        self.assertIn("'registry_bundle' => self::registry_bundle_url()", capability_body)
+        self.assertIn("'registry_bundle_url' => self::registry_bundle_url()", capability_body)
+        self.assertIn("'registry_onboarding_bundle' => self::registry_onboarding_bundle()", capability_body)
 
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)

@@ -450,6 +450,46 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["base_url"], "https://merchant.example")
         self.assertEqual(result["merchant"]["id"], "merchant-tea-shop")
 
+    def test_resolve_merchant_can_use_shopbridge_registry_bundle_path(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            registry_path = Path(raw_tmp) / "registry-bundle.json"
+            registry_path.write_text(
+                json.dumps({
+                    "type": "agentcart-registry-onboarding-bundle",
+                    "registry_record": record,
+                    "record_hash": shopbridge_direct.registry_record_hash(record),
+                }),
+                encoding="utf-8",
+            )
+
+            result = shopbridge_direct.command_resolve_merchant(
+                {
+                    "registry_path": str(registry_path),
+                    "manifest_snapshot": manifest,
+                    "proof_snapshot": proof,
+                }
+            )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["base_url"], "https://merchant.example")
+        self.assertEqual(result["merchant"]["id"], "merchant-tea-shop")
+
+    def test_registry_record_url_can_use_shopbridge_registry_bundle(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        bundle = {
+            "type": "agentcart-registry-onboarding-bundle",
+            "registry_record": record,
+            "record_hash": shopbridge_direct.registry_record_hash(record),
+        }
+
+        with mock.patch.object(shopbridge_direct, "fetch_json_url", return_value=bundle):
+            resolved = shopbridge_direct.registry_record_from_args(
+                {"registry_record_url": "https://merchant.example/.well-known/agentcart-registry-bundle.json"}
+            )
+
+        self.assertEqual(resolved["merchant_id"], "merchant-tea-shop")
+
     def test_resolve_merchant_rejects_bad_domain_proof_hash(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
         proof["record_hash"] = "0" * 64

@@ -281,6 +281,7 @@ final class AgentCart_ShopBridge {
         $manifest_url = home_url('/.well-known/agentcart.json');
         $registry_proof_url = self::registry_proof_url();
         $registry_revocation_url = self::registry_revocation_url();
+        $registry_bundle_url = self::registry_bundle_url();
         $registry_record_hash = self::registry_record_hash_value();
         $registry_updated_at = self::registry_updated_at();
         $registry_claim_hash = self::registry_claim_hash();
@@ -340,6 +341,11 @@ final class AgentCart_ShopBridge {
                         <th scope="row">Registry revocations</th>
                         <td><code><?php echo esc_html($registry_revocation_url); ?></code></td>
                         <td><?php echo self::admin_status_badge(true, 'Published'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Registry onboarding bundle</th>
+                        <td><code><?php echo esc_html($registry_bundle_url); ?></code></td>
+                        <td><?php echo self::admin_status_badge(self::registry_domain_proof_configured(), 'Ready'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Merchant token</th>
@@ -415,6 +421,7 @@ final class AgentCart_ShopBridge {
                     <tr><th scope="row">Manifest</th><td><code><?php echo esc_html($manifest_url); ?></code></td></tr>
                     <tr><th scope="row">Registry proof</th><td><code><?php echo esc_html($registry_proof_url); ?></code></td></tr>
                     <tr><th scope="row">Registry revocations</th><td><code><?php echo esc_html($registry_revocation_url); ?></code></td></tr>
+                    <tr><th scope="row">Registry bundle</th><td><code><?php echo esc_html($registry_bundle_url); ?></code></td></tr>
                     <tr><th scope="row">Catalog</th><td><code><?php echo esc_html($catalog_url); ?></code></td></tr>
                     <tr><th scope="row">Quote</th><td><code><?php echo esc_html($quote_url); ?></code></td></tr>
                     <tr><th scope="row">Paid order</th><td><code><?php echo esc_html($orders_url); ?></code></td></tr>
@@ -433,6 +440,7 @@ final class AgentCart_ShopBridge {
                 <tbody>
                     <tr><th scope="row">Proof URL</th><td><code><?php echo esc_html($registry_proof_url); ?></code></td></tr>
                     <tr><th scope="row">Revocation URL</th><td><code><?php echo esc_html($registry_revocation_url); ?></code></td></tr>
+                    <tr><th scope="row">Registry bundle URL</th><td><code><?php echo esc_html($registry_bundle_url); ?></code></td></tr>
                     <tr><th scope="row">Registry claim hash</th><td><code><?php echo esc_html($registry_claim_hash); ?></code></td></tr>
                     <tr><th scope="row">Registry record hash</th><td><code><?php echo esc_html($registry_record_hash); ?></code></td></tr>
                     <tr><th scope="row">Registry updated_at</th><td><code><?php echo esc_html($registry_updated_at); ?></code></td></tr>
@@ -490,7 +498,7 @@ final class AgentCart_ShopBridge {
                 <li>Add normal WooCommerce products, prices, stock, VAT/tax, and shipping countries.</li>
                 <li>Choose a Product exposure mode: manual product checkbox, WooCommerce tag, or all published simple products.</li>
                 <li>Configure this page with support, Tempo recipient, and payment verification settings.</li>
-                <li>Share the manifest URL with the AgentCart discovery registry, or use a future hosted registry connection.</li>
+                <li>Share the registry bundle URL with the AgentCart discovery registry, or use a future hosted registry connection.</li>
                 <li>The registry proof hash and timestamp are maintained automatically by the plugin.</li>
                 <li>Run a sandbox quote and order test before allowing public agent checkout.</li>
             </ol>
@@ -601,7 +609,7 @@ final class AgentCart_ShopBridge {
 
     public static function maybe_serve_well_known_manifest() {
         $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
-        if (!in_array($path, ['/.well-known/agentcart.json', '/.well-known/agentcart-registry-proof.json', '/.well-known/agentcart-registry-revocations.json'], true)) {
+        if (!in_array($path, ['/.well-known/agentcart.json', '/.well-known/agentcart-registry-proof.json', '/.well-known/agentcart-registry-revocations.json', '/.well-known/agentcart-registry-bundle.json'], true)) {
             return;
         }
         if (!class_exists('WooCommerce')) {
@@ -612,6 +620,9 @@ final class AgentCart_ShopBridge {
         }
         if ($path === '/.well-known/agentcart-registry-revocations.json') {
             wp_send_json(self::registry_revocations());
+        }
+        if ($path === '/.well-known/agentcart-registry-bundle.json') {
+            wp_send_json(self::registry_onboarding_bundle());
         }
         wp_send_json(self::capability_document());
     }
@@ -880,6 +891,10 @@ final class AgentCart_ShopBridge {
         return home_url('/.well-known/agentcart-registry-revocations.json');
     }
 
+    private static function registry_bundle_url() {
+        return home_url('/.well-known/agentcart-registry-bundle.json');
+    }
+
     private static function public_origin_host() {
         $host = wp_parse_url(home_url('/'), PHP_URL_HOST);
         return is_string($host) ? strtolower($host) : '';
@@ -913,6 +928,30 @@ final class AgentCart_ShopBridge {
             'domain' => self::public_origin_host(),
             'updated_at' => self::registry_updated_at(),
             'revocations' => [],
+        ];
+    }
+
+    private static function registry_onboarding_bundle() {
+        $record = self::suggested_registry_record();
+        return [
+            'type' => 'agentcart-registry-onboarding-bundle',
+            'version' => '0.1',
+            'merchant_id' => self::merchant()['id'],
+            'manifest_url' => home_url('/.well-known/agentcart.json'),
+            'registry_record' => $record,
+            'record_hash' => self::registry_record_hash($record),
+            'merchant_action' => 'none',
+            'proof_document_expected' => self::registry_domain_proof(),
+            'revocation_document' => self::registry_revocations(),
+            'registry_feed' => [
+                'entries' => [$record],
+            ],
+            'next_steps' => [
+                'Add registry_record to a public AgentCart registry, append-only feed, or onchain registry adapter.',
+                'Keep this bundle URL available so registries can refresh the auto-managed claim.',
+                'Only expose the catalog and quote endpoints after products, shipping, and payment verifier settings are ready.',
+                'Run registry verification after HTTPS is configured for the shop domain.',
+            ],
         ];
     }
 
@@ -1669,6 +1708,7 @@ final class AgentCart_ShopBridge {
                 'manifest' => home_url('/.well-known/agentcart.json'),
                 'registry_proof' => self::registry_proof_url(),
                 'registry_revocations' => self::registry_revocation_url(),
+                'registry_bundle' => self::registry_bundle_url(),
                 'capability' => rest_url(self::API_NAMESPACE . '/capability'),
                 'catalog' => rest_url(self::API_NAMESPACE . '/catalog'),
                 'product' => rest_url(self::API_NAMESPACE . '/products/{id}'),
@@ -1685,6 +1725,7 @@ final class AgentCart_ShopBridge {
                     'url' => self::registry_proof_url(),
                 ],
                 'revocation_url' => self::registry_revocation_url(),
+                'registry_bundle_url' => self::registry_bundle_url(),
                 'registry_claim_hash_alg' => 'sha-256',
                 'registry_claim_hash' => self::registry_claim_hash(),
                 'registry_claim' => self::registry_claim(),
@@ -1692,6 +1733,7 @@ final class AgentCart_ShopBridge {
                 'registry_updated_at' => self::registry_updated_at(),
                 'registry_ready' => true,
                 'suggested_registry_record' => self::suggested_registry_record(),
+                'registry_onboarding_bundle' => self::registry_onboarding_bundle(),
             ],
             'payment_verification' => [
                 'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',

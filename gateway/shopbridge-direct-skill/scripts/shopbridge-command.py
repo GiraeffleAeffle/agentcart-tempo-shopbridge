@@ -397,13 +397,12 @@ def registry_record_from_args(args: dict[str, Any]) -> dict[str, Any]:
     if record_url:
         validate_registry_source_url(record_url, field="registry_record_url")
         loaded = fetch_json_url(record_url)
-        if isinstance(loaded.get("entries"), list):
-            merchant_id = str(args.get("merchant_id") or "")
-            for entry in loaded["entries"]:
-                if isinstance(entry, dict) and (not merchant_id or str(entry.get("merchant_id") or "") == merchant_id):
-                    return entry
-            raise SystemExit("registry_record_url did not contain the requested merchant_id")
-        return loaded
+        loaded_records = registry_records_from_document(loaded)
+        merchant_id = str(args.get("merchant_id") or "")
+        for entry in loaded_records:
+            if not merchant_id or str(entry.get("merchant_id") or "") == merchant_id:
+                return entry
+        raise SystemExit("registry_record_url did not contain the requested merchant_id")
     records = registry_records_from_source(args)
     merchant_id = str(args.get("merchant_id") or "")
     if not records:
@@ -424,8 +423,15 @@ def registry_records_from_document(document: Any) -> list[dict[str, Any]]:
     if isinstance(document, dict):
         if isinstance(document.get("entries"), list):
             return [record for record in document["entries"] if isinstance(record, dict)]
-        return [document]
-    raise SystemExit("registry source must be a record, a list of records, or an object with entries[]")
+        registry_feed = document.get("registry_feed")
+        if isinstance(registry_feed, dict) and isinstance(registry_feed.get("entries"), list):
+            return [record for record in registry_feed["entries"] if isinstance(record, dict)]
+        registry_record = document.get("registry_record")
+        if isinstance(registry_record, dict):
+            return [registry_record]
+        if document.get("merchant_id") and document.get("manifest_url"):
+            return [document]
+    raise SystemExit("registry source must be a record, a list of records, an object with entries[], or a ShopBridge registry bundle")
 
 
 def configured_registry_url(args: dict[str, Any]) -> str:

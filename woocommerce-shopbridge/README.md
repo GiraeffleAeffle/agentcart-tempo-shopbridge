@@ -4,6 +4,7 @@ AgentCart ShopBridge exposes an opt-in WooCommerce store to household or agentic
 
 - public discovery: `/.well-known/agentcart.json`
 - public registry domain proof: `/.well-known/agentcart-registry-proof.json`
+- public registry onboarding bundle: `/.well-known/agentcart-registry-bundle.json`
 - public catalog: `/wp-json/agentcart/v1/catalog`
 - public product details: `/wp-json/agentcart/v1/products/{id}`
 - public quote: `/wp-json/agentcart/v1/quote`
@@ -111,6 +112,7 @@ The settings page also shows:
 
 - discovery manifest URL
 - registry domain proof URL and configured state
+- registry onboarding bundle URL for registry or local buyer-agent ingestion
 - catalog, quote, and paid-order endpoints
 - aftercare policy defaults for returns, substitutions, and cancellation
   requests
@@ -366,10 +368,11 @@ https://shop.example/.well-known/agentcart.json
 Agents and directories can crawl this, validate the manifest, and index the catalog endpoint.
 
 For registry-based discovery, the plugin also serves a merchant-owned domain
-proof:
+proof and a registry onboarding bundle:
 
 ```text
 https://shop.example/.well-known/agentcart-registry-proof.json
+https://shop.example/.well-known/agentcart-registry-bundle.json
 ```
 
 The proof document is used with `signature_alg: https-domain-proof`. It binds
@@ -378,9 +381,14 @@ auto-generates the stable registry claim, claim hash, record hash, and
 `updated_at` timestamp from merchant identity, payment, shipping, and endpoint
 settings.
 
-1. Open `WooCommerce -> AgentCart` and copy the manifest URL.
-2. Ask the AgentCart registry operator to build the final registry record from
-   that manifest URL, or use a future hosted AgentCart registry connection.
+The bundle contains `registry_record`, `record_hash`, the expected proof
+document, an empty revocation document, and a one-entry `registry_feed`.
+Registries can ingest that bundle directly, and local buyer-agent tests can use
+it as `SHOPBRIDGE_REGISTRY_URL`.
+
+1. Open `WooCommerce -> AgentCart` and copy the registry bundle URL.
+2. Ask the AgentCart registry operator to ingest the bundle, or use a future
+   hosted AgentCart registry connection.
    Operators can use:
    `python3 gateway/scripts/registry_record.py build --manifest-url https://shop.example/.well-known/agentcart.json`.
 3. The proof endpoint publishes the fields AgentCart verifies before including

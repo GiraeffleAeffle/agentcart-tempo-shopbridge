@@ -92,7 +92,12 @@ JSON
 
 That command uses `SHOPBRIDGE_REGISTRY_URL` or `SHOPBRIDGE_REGISTRY_PATH`.
 Alternatively, pass `registry_records`, `registry_url`, or `registry_path` in the
-command args for one-off tests.
+command args for one-off tests. Registry sources can be a normal feed with
+`entries[]`, a single registry record, or a ShopBridge registry bundle from:
+
+```text
+https://shop.example/.well-known/agentcart-registry-bundle.json
+```
 
 Checkout safety:
 
