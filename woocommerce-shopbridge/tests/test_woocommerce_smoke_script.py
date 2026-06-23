@@ -48,6 +48,7 @@ def sample_capability():
             ],
         },
         "endpoints": {
+            "registry_bundle": "http://shop/.well-known/agentcart-registry-bundle.json",
             "catalog": "http://shop/wp-json/agentcart/v1/catalog",
             "quote": "http://shop/wp-json/agentcart/v1/quote",
         },
@@ -61,7 +62,67 @@ def sample_manifest():
             "catalog": "http://shop/wp-json/agentcart/v1/catalog",
             "quote": "http://shop/wp-json/agentcart/v1/quote",
         },
-        "discovery": {"registry_claim_hash": "abc123"},
+        "discovery": {
+            "registry_claim_hash": "abc123",
+            "registry_bundle_url": "http://shop/.well-known/agentcart-registry-bundle.json",
+        },
+    }
+
+
+def sample_registry_record():
+    return {
+        "merchant_id": "woocommerce-demo-shop",
+        "name": "Woo Demo Shop",
+        "domain": "shop",
+        "manifest_url": "http://shop/.well-known/agentcart.json",
+        "registry_claim_hash_alg": "sha-256",
+        "registry_claim_hash": "abc123",
+        "updated_at": "2026-06-23T00:00:00Z",
+        "revoked_at": None,
+        "signature_alg": "https-domain-proof",
+        "signature": "",
+        "proof": {
+            "type": "https-well-known",
+            "url": "http://shop/.well-known/agentcart-registry-proof.json",
+        },
+    }
+
+
+def sample_registry_bundle(record=None):
+    record = record or sample_registry_record()
+    record_hash = smoke.registry_record_hash(record)
+    return {
+        "type": "agentcart-registry-onboarding-bundle",
+        "registry_record": record,
+        "record_hash": record_hash,
+        "proof_document_expected": sample_registry_proof(record),
+        "registry_feed": {"entries": [record]},
+    }
+
+
+def sample_registry_proof(record=None):
+    record = record or sample_registry_record()
+    return {
+        "type": "https-well-known",
+        "merchant_id": record["merchant_id"],
+        "domain": record["domain"],
+        "manifest_url": record["manifest_url"],
+        "registry_claim_hash": record["registry_claim_hash"],
+        "payment_network": "",
+        "payment_recipient": "",
+        "updated_at": record["updated_at"],
+        "record_hash": smoke.registry_record_hash(record),
+    }
+
+
+def sample_registry_revocations(record=None):
+    record = record or sample_registry_record()
+    return {
+        "type": "agentcart-registry-revocations",
+        "merchant_id": record["merchant_id"],
+        "domain": record["domain"],
+        "updated_at": record["updated_at"],
+        "revocations": [],
     }
 
 
@@ -113,6 +174,32 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
     def test_capability_and_manifest_require_setup_and_endpoint_contracts(self) -> None:
         smoke.validate_capability(sample_capability())
         smoke.validate_manifest(sample_manifest())
+
+    def test_registry_bundle_validator_accepts_matching_proof_and_revocations(self) -> None:
+        record = sample_registry_record()
+
+        result = smoke.validate_registry_bundle(
+            sample_registry_bundle(record),
+            manifest=sample_manifest(),
+            proof=sample_registry_proof(record),
+            revocations=sample_registry_revocations(record),
+        )
+
+        self.assertEqual(result["merchant_id"], "woocommerce-demo-shop")
+        self.assertEqual(result["record_hash"], smoke.registry_record_hash(record))
+
+    def test_registry_bundle_validator_rejects_hash_drift(self) -> None:
+        record = sample_registry_record()
+        bundle = sample_registry_bundle(record)
+        bundle["record_hash"] = "0" * 64
+
+        with self.assertRaises(smoke.SmokeError):
+            smoke.validate_registry_bundle(
+                bundle,
+                manifest=sample_manifest(),
+                proof=sample_registry_proof(record),
+                revocations=sample_registry_revocations(record),
+            )
 
     def test_select_product_rejects_empty_or_ineligible_catalogs(self) -> None:
         with self.assertRaises(smoke.SmokeError):

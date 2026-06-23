@@ -98,8 +98,9 @@ python3 scripts/woocommerce-shopbridge-smoke.py \
 ```
 
 Set `AGENTCART_WOO_SMOKE_BASE_URL` to make `./scripts/verify.sh` include this
-live check. The smoke test validates manifest/capability setup state, catalog
-exposure, and WooCommerce-backed quote totals without creating an order.
+live check. The smoke test validates manifest/capability setup state, registry
+bundle/proof/revocation hash binding, catalog exposure, and WooCommerce-backed
+quote totals without creating an order.
 
 For the hackathon demo, `AGENTCART_SHOPBRIDGE_TOKEN` lets a trusted AgentCart gateway create orders after its own approval and payment proof flow.
 

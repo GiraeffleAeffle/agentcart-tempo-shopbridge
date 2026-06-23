@@ -73,9 +73,10 @@ python3 scripts/woocommerce-shopbridge-smoke.py \
   --require-vat-lines
 ```
 
-This checks the public manifest/capability setup guide, catalog product
-exposure, and a real WooCommerce-backed quote whose total equals gross product
-subtotal plus WooCommerce shipping.
+This checks the public manifest/capability setup guide, registry
+bundle/proof/revocation hash binding, catalog product exposure, and a real
+WooCommerce-backed quote whose total equals gross product subtotal plus
+WooCommerce shipping.
 
 Open:
 

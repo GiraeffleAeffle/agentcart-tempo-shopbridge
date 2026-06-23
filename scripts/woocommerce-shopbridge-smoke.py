@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -13,6 +14,16 @@ from typing import Any
 
 class SmokeError(AssertionError):
     pass
+
+
+REGISTRY_HASH_EXCLUDED_KEYS = {
+    "signature",
+    "verification",
+    "manifest",
+    "manifest_snapshot",
+    "proof_snapshot",
+    "revocation_snapshot",
+}
 
 
 def http_json(
@@ -54,6 +65,26 @@ def require(condition: bool, message: str) -> None:
         raise SmokeError(message)
 
 
+def canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def sha256_hex(value: Any) -> str:
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in record.items()
+        if key not in REGISTRY_HASH_EXCLUDED_KEYS
+    }
+
+
+def registry_record_hash(record: dict[str, Any]) -> str:
+    return sha256_hex(registry_signature_payload(record))
+
+
 def validate_capability(capability: dict[str, Any]) -> None:
     require(isinstance(capability.get("merchant"), dict), "capability.merchant must be present")
     require(isinstance(capability.get("readiness"), dict), "capability.readiness must be present")
@@ -65,7 +96,7 @@ def validate_capability(capability: dict[str, Any]) -> None:
         require(expected in step_ids, f"setup_guide missing step: {expected}")
     endpoints = capability.get("endpoints")
     require(isinstance(endpoints, dict), "capability.endpoints must be present")
-    for endpoint in ["catalog", "quote"]:
+    for endpoint in ["registry_bundle", "catalog", "quote"]:
         require(bool(endpoints.get(endpoint)), f"capability.endpoints.{endpoint} must be present")
 
 
@@ -76,6 +107,56 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     require(bool(manifest["endpoints"].get("quote")), "manifest quote endpoint missing")
     require(isinstance(manifest.get("discovery"), dict), "manifest.discovery must be present")
     require(bool(manifest["discovery"].get("registry_claim_hash")), "manifest registry claim hash missing")
+    require(bool(manifest["discovery"].get("registry_bundle_url")), "manifest registry bundle URL missing")
+
+
+def validate_registry_bundle(
+    bundle: dict[str, Any],
+    *,
+    manifest: dict[str, Any],
+    proof: dict[str, Any],
+    revocations: dict[str, Any],
+) -> dict[str, Any]:
+    require(bundle.get("type") == "agentcart-registry-onboarding-bundle", "registry bundle type mismatch")
+    record = bundle.get("registry_record")
+    require(isinstance(record, dict), "registry bundle registry_record must be present")
+    record_hash = registry_record_hash(record)
+    require(bundle.get("record_hash") == record_hash, "registry bundle record_hash does not match registry_record")
+
+    merchant = manifest.get("merchant") if isinstance(manifest.get("merchant"), dict) else {}
+    require(str(record.get("merchant_id") or "") == str(merchant.get("id") or ""), "registry record merchant_id must match manifest merchant.id")
+    discovery = manifest.get("discovery") if isinstance(manifest.get("discovery"), dict) else {}
+    require(
+        str(record.get("registry_claim_hash") or "") == str(discovery.get("registry_claim_hash") or ""),
+        "registry record claim hash must match manifest discovery claim hash",
+    )
+    if manifest.get("manifest_url"):
+        require(str(record.get("manifest_url") or "") == str(manifest.get("manifest_url") or ""), "registry record manifest_url must match manifest")
+
+    proof_from_bundle = bundle.get("proof_document_expected")
+    require(isinstance(proof_from_bundle, dict), "registry bundle proof_document_expected must be present")
+    for candidate, label in [(proof_from_bundle, "bundle proof"), (proof, "live proof")]:
+        require(candidate.get("record_hash") == record_hash, f"{label} record_hash must match registry record")
+        require(str(candidate.get("merchant_id") or "") == str(record.get("merchant_id") or ""), f"{label} merchant_id must match registry record")
+        require(str(candidate.get("domain") or "") == str(record.get("domain") or ""), f"{label} domain must match registry record")
+        require(str(candidate.get("manifest_url") or "") == str(record.get("manifest_url") or ""), f"{label} manifest_url must match registry record")
+
+    require(revocations.get("type") == "agentcart-registry-revocations", "revocation document type mismatch")
+    require(str(revocations.get("merchant_id") or "") == str(record.get("merchant_id") or ""), "revocation merchant_id must match registry record")
+    require(isinstance(revocations.get("revocations"), list), "revocation document revocations must be a list")
+    revoked_hashes = {
+        str(item.get("record_hash") or "")
+        for item in revocations.get("revocations", [])
+        if isinstance(item, dict)
+    }
+    require(record_hash not in revoked_hashes, "registry record is listed in merchant revocation document")
+
+    registry_feed = bundle.get("registry_feed")
+    require(isinstance(registry_feed, dict), "registry bundle registry_feed must be present")
+    entries = registry_feed.get("entries")
+    require(isinstance(entries, list) and entries, "registry bundle registry_feed.entries must be non-empty")
+    require(any(isinstance(entry, dict) and registry_record_hash(entry) == record_hash for entry in entries), "registry_feed.entries must include the registry_record")
+    return {"record_hash": record_hash, "merchant_id": str(record.get("merchant_id") or "")}
 
 
 def catalog_products(catalog: dict[str, Any]) -> list[dict[str, Any]]:
@@ -163,6 +244,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     validate_capability(capability)
     manifest = http_json(base_url, "/.well-known/agentcart.json")
     validate_manifest(manifest)
+    registry_bundle = http_json(base_url, "/.well-known/agentcart-registry-bundle.json")
+    registry_proof = http_json(base_url, "/.well-known/agentcart-registry-proof.json")
+    registry_revocations = http_json(base_url, "/.well-known/agentcart-registry-revocations.json")
+    registry = validate_registry_bundle(
+        registry_bundle,
+        manifest=manifest,
+        proof=registry_proof,
+        revocations=registry_revocations,
+    )
     catalog_query = urllib.parse.urlencode({"search": args.search, "limit": args.limit})
     catalog = http_json(base_url, f"/wp-json/agentcart/v1/catalog?{catalog_query}")
     product = select_product(catalog, args.product_id)
@@ -185,6 +275,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "vat_line_count": len(quote.get("vat_lines") or []),
             "quote_hash": quote.get("quote_hash"),
         },
+        "registry": registry,
         "setup_next_step": (capability.get("setup_guide") or {}).get("next_step"),
     }
 
