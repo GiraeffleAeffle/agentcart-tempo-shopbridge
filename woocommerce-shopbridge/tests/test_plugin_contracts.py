@@ -222,6 +222,30 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("get_option(self::MERCHANT_ID_OPTION", merchant_id_body)
         self.assertIn("'woocommerce-demo-shop'", merchant_id_body)
 
+    def test_admin_credential_actions_rotate_local_tokens(self) -> None:
+        render_body = function_body("render_settings_page")
+        action_body = function_body("maybe_handle_credential_action")
+        forms_body = function_body("render_credential_action_forms")
+        setting_row_body = function_body("render_setting_row")
+
+        self.assertIn("maybe_handle_credential_action", render_body)
+        self.assertIn("render_credential_action_forms", render_body)
+        self.assertIn('id="agentcart-credentials"', SOURCE)
+        self.assertIn("agentcart_credential_action", action_body + forms_body)
+        self.assertIn("agentcart_shopbridge_credential_action", action_body + forms_body)
+        self.assertIn("rotate_merchant_token", action_body + forms_body)
+        self.assertIn("rotate_payment_verifier_token", action_body + forms_body)
+        self.assertIn("AGENTCART_SHOPBRIDGE_TOKEN", action_body + forms_body)
+        self.assertIn("AGENTCART_PAYMENT_VERIFIER_TOKEN", action_body + forms_body)
+        self.assertIn("update_option(self::TOKEN_OPTION, wp_generate_password(48, false, false), false)", action_body)
+        self.assertIn(
+            "update_option(self::PAYMENT_VERIFIER_TOKEN_OPTION, wp_generate_password(48, false, false), false)",
+            action_body,
+        )
+        self.assertIn("Managed in wp-config.php", forms_body)
+        self.assertIn("input.type === 'password' ? 'text' : 'password'", setting_row_body)
+        self.assertIn("esc_js($option)", setting_row_body)
+
     def test_rate_limiter_has_endpoint_policies_and_retry_metadata(self) -> None:
         policy_body = function_body("rate_limit_policy")
         limiter_body = function_body("enforce_rate_limit")

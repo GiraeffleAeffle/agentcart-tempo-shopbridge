@@ -136,8 +136,10 @@ also includes an opt-in live smoke script for checking manifest/capability setup
 state, registry bundle/proof/revocation hash binding, catalog exposure, and
 WooCommerce quote totals against a seeded or staging shop, plus a one-command
 WooCommerce demo smoke wrapper that starts, seeds, and verifies the bundled
-local shop. Production still needs a polished setup wizard, WP/Woo integration
-tests, and stronger hosted registry/payment-provider onboarding.
+local shop. The admin page can generate or rotate local merchant and verifier
+tokens while respecting secrets managed through `wp-config.php`. Production
+still needs a polished setup wizard, WP/Woo integration tests, and stronger
+hosted registry/payment-provider onboarding.
 
 ### 3. Idempotent Order And Replay Safety
 

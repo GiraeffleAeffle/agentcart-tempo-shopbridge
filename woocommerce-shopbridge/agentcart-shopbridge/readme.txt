@@ -48,6 +48,8 @@ actions.
 * External payment verifier hook for quote-bound Tempo MPP, Stripe/card MPP, or
   other rails.
 * Merchant-token-protected refund and cancellation endpoints.
+* Admin actions to generate or rotate local merchant and verifier tokens while
+  respecting secrets managed in wp-config.php.
 * Normalized fulfillment tracking adapter metadata from common WooCommerce
   shipment/tracking plugin fields.
 * Structured policy metadata for restricted goods, perishables, deposits,
@@ -64,6 +66,8 @@ actions.
 3. Open `WooCommerce -> AgentCart`.
 4. Configure stable merchant id, support email, payment recipient or Stripe
    profile, verifier URL, checkout mode, and product exposure mode.
+   Use Credential Actions on the same page to generate or rotate local tokens
+   when they are not managed through wp-config.php.
 5. Add normal WooCommerce products and expose only the products that are safe
    for agent checkout.
 6. Share the registry bundle URL with a registry or local buyer-agent test.

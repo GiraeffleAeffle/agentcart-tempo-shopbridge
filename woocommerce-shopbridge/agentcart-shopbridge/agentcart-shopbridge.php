@@ -291,6 +291,7 @@ final class AgentCart_ShopBridge {
         }
         self::ensure_token();
         $product_action_notice = self::maybe_handle_product_exposure_action();
+        $credential_action_notice = self::maybe_handle_credential_action();
         $manifest_url = home_url('/.well-known/agentcart.json');
         $registry_proof_url = self::registry_proof_url();
         $registry_revocation_url = self::registry_revocation_url();
@@ -321,9 +322,11 @@ final class AgentCart_ShopBridge {
         ?>
         <div class="wrap">
             <h1>AgentCart ShopBridge</h1>
-            <?php if ($product_action_notice !== null) : ?>
-                <div class="notice notice-success is-dismissible"><p><?php echo esc_html($product_action_notice); ?></p></div>
-            <?php endif; ?>
+            <?php foreach ([$product_action_notice, $credential_action_notice] as $notice) : ?>
+                <?php if ($notice !== null) : ?>
+                    <div class="notice notice-success is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
+                <?php endif; ?>
+            <?php endforeach; ?>
             <p>
                 Expose this WooCommerce store to household agents through machine-readable discovery,
                 catalog, quote, paid-order, and order-status endpoints. WooCommerce stays the source of
@@ -482,6 +485,14 @@ final class AgentCart_ShopBridge {
                 <?php submit_button('Save AgentCart settings'); ?>
             </form>
 
+            <h2 id="agentcart-credentials">Credential Actions</h2>
+            <p style="max-width: 760px;">
+                Generate or rotate local ShopBridge secrets without editing code. Values managed
+                in <code>wp-config.php</code> stay locked here so production deployments can keep
+                using infrastructure-managed secrets.
+            </p>
+            <?php self::render_credential_action_forms(); ?>
+
             <h2 id="agentcart-product-exposure">Product Exposure</h2>
             <p style="max-width: 760px;">
                 Products are private by default in manual mode. Merchants can also expose products
@@ -538,6 +549,82 @@ final class AgentCart_ShopBridge {
             return sprintf('%d published simple products are no longer exposed through AgentCart.', $count);
         }
         return null;
+    }
+
+    private static function maybe_handle_credential_action() {
+        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+            return null;
+        }
+        if (empty($_POST['agentcart_credential_action'])) {
+            return null;
+        }
+        check_admin_referer('agentcart_shopbridge_credential_action');
+        $action = sanitize_key((string) wp_unslash($_POST['agentcart_credential_action']));
+
+        if ($action === 'rotate_merchant_token') {
+            if (defined('AGENTCART_SHOPBRIDGE_TOKEN')) {
+                return 'Merchant token is managed in wp-config.php and was not changed.';
+            }
+            update_option(self::TOKEN_OPTION, wp_generate_password(48, false, false), false);
+            return 'Merchant token rotated. Update any trusted AgentCart gateway before using private-token checkout.';
+        }
+
+        if ($action === 'rotate_payment_verifier_token') {
+            if (defined('AGENTCART_PAYMENT_VERIFIER_TOKEN')) {
+                return 'Payment verifier token is managed in wp-config.php and was not changed.';
+            }
+            update_option(self::PAYMENT_VERIFIER_TOKEN_OPTION, wp_generate_password(48, false, false), false);
+            return 'Payment verifier token generated. Configure the same bearer token on the external verifier.';
+        }
+
+        return null;
+    }
+
+    private static function render_credential_action_forms() {
+        ?>
+        <table class="widefat striped" style="max-width: 980px;">
+            <tbody>
+                <tr>
+                    <th scope="row">Trusted gateway merchant token</th>
+                    <td>
+                        Private shared secret for demo or gateway-backed checkout. Rotating it
+                        does not change existing WooCommerce orders, but trusted gateways must be
+                        updated before they can create new token-authorized orders.
+                    </td>
+                    <td>
+                        <?php if (defined('AGENTCART_SHOPBRIDGE_TOKEN')) : ?>
+                            <?php echo self::admin_status_badge(true, 'Managed in wp-config.php'); ?>
+                        <?php else : ?>
+                            <form method="post">
+                                <?php wp_nonce_field('agentcart_shopbridge_credential_action'); ?>
+                                <input type="hidden" name="agentcart_credential_action" value="rotate_merchant_token" />
+                                <?php submit_button('Rotate merchant token', 'secondary', 'submit', false); ?>
+                            </form>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Payment verifier bearer token</th>
+                    <td>
+                        Shared secret sent from ShopBridge to the external verifier. Use this
+                        when the verifier validates quote-bound Tempo, Stripe/card MPP, or future
+                        payment/refund credentials before WooCommerce records a paid order or refund.
+                    </td>
+                    <td>
+                        <?php if (defined('AGENTCART_PAYMENT_VERIFIER_TOKEN')) : ?>
+                            <?php echo self::admin_status_badge(true, 'Managed in wp-config.php'); ?>
+                        <?php else : ?>
+                            <form method="post">
+                                <?php wp_nonce_field('agentcart_shopbridge_credential_action'); ?>
+                                <input type="hidden" name="agentcart_credential_action" value="rotate_payment_verifier_token" />
+                                <?php submit_button('Generate / rotate verifier token', 'secondary', 'submit', false); ?>
+                            </form>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <?php
     }
 
     public static function render_product_agentcart_options() {
@@ -1346,6 +1433,13 @@ final class AgentCart_ShopBridge {
                     autocomplete="off"
                     <?php disabled($constant_defined); ?>
                 >
+                <?php if ($type === 'password') : ?>
+                    <button
+                        type="button"
+                        class="button"
+                        onclick="var input=document.getElementById('<?php echo esc_js($option); ?>'); input.type = input.type === 'password' ? 'text' : 'password'; this.textContent = input.type === 'password' ? 'Show' : 'Hide';"
+                    >Show</button>
+                <?php endif; ?>
                 <p class="description">
                     <?php echo esc_html($description); ?>
                     <?php if ($constant_defined): ?>
