@@ -221,6 +221,16 @@ checkout events. This makes skill-only mode exportable into a future AgentCart
 service or household audit log without requiring a long-running buyer service
 at purchase time.
 
+When an AgentCart service is available later, import the checkout packet with:
+
+```json
+{"audit_packet":{...},"source":"shopbridge-direct-skill"}
+```
+
+POST that JSON to `/v1/audit/import` on the service. The service verifies
+`audit_packet_hash` and treats repeated imports with the same hash as
+idempotent replays.
+
 Build a checkout payload without sending it:
 
 ```json

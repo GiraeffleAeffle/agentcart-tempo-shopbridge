@@ -1838,6 +1838,7 @@ class AgentCartService:
             self.state.setdefault("challenges", {})
             self.state.setdefault("idempotency", {})
             self.state.setdefault("audit_tail", [])
+            self.state.setdefault("audit_imports", {})
             stock = self.state.setdefault("stock", {})
             for adapter in self.adapters.values():
                 for product_id, quantity in adapter.initial_stock().items():
@@ -1890,6 +1891,9 @@ class AgentCartService:
             "policy_result": policy_result,
             "timestamp": isoformat(utcnow()),
         }
+        return self.append_audit_event(event)
+
+    def append_audit_event(self, event: dict[str, Any]) -> dict[str, Any]:
         self.config.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.config.audit_log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, sort_keys=True, default=json_default) + "\n")
@@ -1899,6 +1903,133 @@ class AgentCartService:
             del tail[:-100]
             self.save_state()
         return event
+
+    def import_audit_packet(self, request: dict[str, Any]) -> dict[str, Any]:
+        packet = request.get("audit_packet") if isinstance(request.get("audit_packet"), dict) else request
+        if not isinstance(packet, dict):
+            raise BadRequest("audit_packet object is required")
+        if packet.get("schema") != "agentcart.skill_audit_packet.v1":
+            raise BadRequest("unsupported audit packet schema")
+        packet_hash = str(packet.get("audit_packet_hash") or "")
+        if not packet_hash:
+            raise BadRequest("audit_packet_hash is required")
+        if not hmac.compare_digest(packet_hash, hash_without(packet, "audit_packet_hash")):
+            raise BadRequest("audit_packet_hash is invalid")
+        quote_id = str(packet.get("quote_id") or request.get("purchase_id") or "").strip()
+        if not quote_id:
+            raise BadRequest("audit packet quote_id is required")
+        for required in ("approval_hash", "approval_record_hash", "approval_decision_hash"):
+            if not str(packet.get(required) or "").strip():
+                raise BadRequest(f"audit packet {required} is required")
+        raw_events = packet.get("events")
+        if not isinstance(raw_events, list) or not raw_events:
+            raise BadRequest("audit packet events must be a non-empty list")
+        if len(raw_events) > 50:
+            raise BadRequest("audit packet events must contain at most 50 events")
+
+        source = str(request.get("source") or packet.get("mode") or "skill_only").strip() or "skill_only"
+        with self.lock:
+            imports = self.state.setdefault("audit_imports", {})
+            existing = imports.get(packet_hash)
+            if existing and existing.get("state") == "imported":
+                return {
+                    "imported": False,
+                    "event_count": 0,
+                    "audit_packet_hash": packet_hash,
+                    "existing_import": existing,
+                }
+            imports[packet_hash] = {
+                "state": "importing",
+                "quote_id": quote_id,
+                "source": source,
+                "started_at": isoformat(utcnow()),
+            }
+            self.save_state()
+
+        imported_events = [
+            self.imported_audit_event(
+                raw_event,
+                packet=packet,
+                packet_hash=packet_hash,
+                quote_id=quote_id,
+                source=source,
+                index=index,
+            )
+            for index, raw_event in enumerate(raw_events, 1)
+        ]
+        for imported_event in imported_events:
+            self.append_audit_event(imported_event)
+
+        completed = {
+            "state": "imported",
+            "quote_id": quote_id,
+            "source": source,
+            "event_count": len(imported_events),
+            "event_ids": [event["id"] for event in imported_events],
+            "imported_at": isoformat(utcnow()),
+        }
+        with self.lock:
+            self.state.setdefault("audit_imports", {})[packet_hash] = completed
+            self.save_state()
+        return {
+            "imported": True,
+            "event_count": len(imported_events),
+            "audit_packet_hash": packet_hash,
+            "quote_id": quote_id,
+            "events": imported_events,
+        }
+
+    def imported_audit_event(
+        self,
+        raw_event: Any,
+        *,
+        packet: dict[str, Any],
+        packet_hash: str,
+        quote_id: str,
+        source: str,
+        index: int,
+    ) -> dict[str, Any]:
+        if not isinstance(raw_event, dict):
+            raise BadRequest("audit packet events must be objects")
+        event_type = str(raw_event.get("event_type") or "").strip()
+        if not re.match(r"^[A-Za-z0-9_.-]{1,120}$", event_type):
+            raise BadRequest("audit packet event_type is invalid")
+        actor = str(raw_event.get("actor") or source or "skill_only").strip()[:120] or "skill_only"
+        timestamp = str(raw_event.get("timestamp") or "").strip()
+        if timestamp:
+            try:
+                timestamp = isoformat(parse_time(timestamp))
+            except ValueError as exc:
+                raise BadRequest("audit packet event timestamp is invalid") from exc
+        else:
+            timestamp = isoformat(utcnow())
+        refs = raw_event.get("refs") if isinstance(raw_event.get("refs"), dict) else {}
+        refs = json.loads(json.dumps(refs, default=json_default))
+        refs.update(
+            {
+                "audit_packet_hash": packet_hash,
+                "approval_hash": packet.get("approval_hash"),
+                "approval_record_hash": packet.get("approval_record_hash"),
+                "approval_decision_hash": packet.get("approval_decision_hash"),
+                "quote_hash": packet.get("quote_hash"),
+            }
+        )
+        return {
+            "id": f"audit_import_{packet_hash[:16]}_{index:02d}",
+            "event_type": event_type,
+            "actor": actor,
+            "reason": str(raw_event.get("reason") or f"Imported skill-only event: {event_type}").strip()[:500],
+            "purchase_id": quote_id,
+            "refs": refs,
+            "policy_result": raw_event.get("policy_result") if isinstance(raw_event.get("policy_result"), dict) else None,
+            "timestamp": timestamp,
+            "import": {
+                "schema": "agentcart.audit_import.v1",
+                "source": source,
+                "audit_packet_hash": packet_hash,
+                "original_event_index": index,
+            },
+        }
 
     def list_audit_events(self, purchase_id: str | None = None) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
@@ -2810,6 +2941,11 @@ class AgentCartService:
                 },
                 "orders": True,
                 "audit_log": True,
+                "audit_import": {
+                    "skill_audit_packet": True,
+                    "endpoint": "/v1/audit/import",
+                    "idempotency": "audit_packet_hash",
+                },
                 "open_tasks": bool(self.config.vikunja_api_url and self.config.vikunja_token),
                 "energy_surplus_check": bool(self.config.homeassistant_url and self.config.homeassistant_token),
                 "energy_offer_demo": {
@@ -2833,6 +2969,7 @@ class AgentCartService:
                 "checkout": "/v1/checkout",
                 "orders": "/v1/orders/{order_id}",
                 "audit": "/v1/audit/{purchase_id}",
+                "audit_import": "/v1/audit/import",
                 "openapi": "/openapi.json",
                 "llms": "/llms.txt",
                 "registry": "/v1/registry",
@@ -3080,6 +3217,31 @@ class AgentCartService:
                         "summary": "Get audit log for a quote/purchase",
                         "parameters": [{"name": "purchase_id", "in": "path", "required": True, "schema": {"type": "string"}}],
                         "responses": {"200": {"description": "Audit events"}},
+                    }
+                },
+                "/v1/audit/import": {
+                    "post": {
+                        "operationId": "importSkillAuditPacket",
+                        "summary": "Import a hash-linked skill-only audit packet",
+                        "requestBody": {
+                            "required": True,
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "audit_packet": {"type": "object"},
+                                            "source": {"type": "string"},
+                                        },
+                                        "required": ["audit_packet"],
+                                    }
+                                }
+                            },
+                        },
+                        "responses": {
+                            "201": {"description": "Audit packet imported"},
+                            "200": {"description": "Audit packet was already imported"},
+                        },
                     }
                 },
                 "/v1/integrations/status": {
@@ -3496,11 +3658,14 @@ Recommended flow:
 6. Checkout approved quote: POST /v1/checkout
 7. On 402, retry with Authorization: Payment credential.
 8. Read order, delivery window, shipment status, calendar sync state, and audit log.
+9. If a purchase happened through the skill-only path, import its checkout audit_packet:
+   - POST /v1/audit/import
 
 Safety rules:
 - A quote can only contain one merchant in this MVP.
 - Policy is evaluated at quote and checkout.
 - Human approval is required by default and can be delivered by API, web, chat, or Home Assistant.
+- Skill-only audit imports must carry a valid audit_packet_hash and are idempotent by that hash.
 - Merchant remains merchant of record.
 - Payment provider: {provider["name"]}
 - Real settlement: {str(provider["real_settlement"]).lower()}
@@ -6041,6 +6206,10 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         approval_decision_match = APPROVAL_DECISION_ROUTE.match(path)
         if approval_decision_match:
             self.send_json(self.service.decide_approval(approval_decision_match.group(1), payload))
+            return
+        if path == "/v1/audit/import":
+            result = self.service.import_audit_packet(payload)
+            self.send_json(result, status=201 if result.get("imported") else 200)
             return
         if path == "/v1/checkout":
             headers = {key.lower(): value for key, value in self.headers.items()}

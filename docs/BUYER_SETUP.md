@@ -145,6 +145,21 @@ Checkout safety:
   reference or credential.
 - The Tempo demo proof is sandbox/testnet proof, not production EUR settlement.
 
+Audit import into an AgentCart service:
+
+If the buyer later runs the AgentCart service, import the skill-only checkout
+packet with:
+
+```sh
+curl -sS -X POST "$AGENTCART_URL/v1/audit/import" \
+  -H "X-AgentCart-Token: $AGENTCART_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"audit_packet":{...},"source":"shopbridge-direct-skill"}'
+```
+
+The service verifies `audit_packet_hash` and ignores duplicate imports with the
+same packet hash.
+
 Skill-only production sequence:
 
 ```text

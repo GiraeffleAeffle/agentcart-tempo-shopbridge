@@ -188,6 +188,50 @@ def domain_proof_registry_record(
     return record
 
 
+def skill_audit_packet(quote_id: str = "woo_quote_123") -> dict[str, object]:
+    packet: dict[str, object] = {
+        "schema": "agentcart.skill_audit_packet.v1",
+        "mode": "skill_only",
+        "quote_id": quote_id,
+        "quote_hash": "quote-hash-123",
+        "approval_hash": "approval-hash-123",
+        "approval_record_hash": "approval-record-hash-123",
+        "approval_decision_hash": "approval-decision-hash-123",
+        "events": [
+            {
+                "event_type": "approval.approved",
+                "actor": "human",
+                "timestamp": "2026-06-23T10:00:00Z",
+                "refs": {
+                    "approval_record_hash": "approval-record-hash-123",
+                    "approval_decision_hash": "approval-decision-hash-123",
+                },
+            },
+            {
+                "event_type": "payment.receipt_supplied",
+                "actor": "payment_capable_agent_or_provider",
+                "timestamp": "2026-06-23T10:01:00Z",
+                "refs": {
+                    "payment_receipt_id": "skill_payrcpt_123",
+                    "amount_cents": 1480,
+                    "currency": "EUR",
+                },
+            },
+            {
+                "event_type": "checkout.payload_created",
+                "actor": "shopbridge_direct_skill",
+                "timestamp": "2026-06-23T10:02:00Z",
+                "refs": {
+                    "agentcart_order_id": "skill_approval123",
+                    "quote_hash": "quote-hash-123",
+                },
+            },
+        ],
+    }
+    packet["audit_packet_hash"] = agentcart.hash_without(packet, "audit_packet_hash")
+    return packet
+
+
 class AgentCartTests(unittest.TestCase):
     def test_catalog_search_returns_demo_tea_products(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -215,6 +259,8 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("x-service-info", openapi)
             self.assertIn("/v1/registry", openapi["paths"])
             self.assertIn("/v1/quote-tournament", openapi["paths"])
+            self.assertIn("/v1/audit/import", openapi["paths"])
+            self.assertEqual(service.capability_document()["endpoints"]["audit_import"], "/v1/audit/import")
             self.assertIn("/openapi.json", service.llms_text())
 
     def test_registry_document_is_identity_anchor_not_ad_marketplace(self) -> None:
@@ -1232,6 +1278,74 @@ class AgentCartTests(unittest.TestCase):
             self.assertFalse(refund["real_refund_verified"])
             self.assertEqual(result["order"]["refund_state"], "demo_refund_recorded")
             self.assertEqual(result["order"]["refunds"][0]["id"], refund["id"])
+
+    def test_skill_audit_packet_import_is_hash_checked_and_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+            packet = skill_audit_packet()
+
+            result = service.import_audit_packet({"audit_packet": packet, "source": "shopbridge-direct-skill"})
+
+            self.assertTrue(result["imported"])
+            self.assertEqual(result["event_count"], 3)
+            events = service.list_audit_events("woo_quote_123")
+            self.assertEqual([event["event_type"] for event in events], [
+                "approval.approved",
+                "payment.receipt_supplied",
+                "checkout.payload_created",
+            ])
+            self.assertTrue(all(event["refs"]["audit_packet_hash"] == packet["audit_packet_hash"] for event in events))
+            self.assertTrue(all(event["import"]["source"] == "shopbridge-direct-skill" for event in events))
+
+            replay = service.import_audit_packet({"audit_packet": packet, "source": "shopbridge-direct-skill"})
+
+            self.assertFalse(replay["imported"])
+            self.assertEqual(replay["event_count"], 0)
+            self.assertEqual(len(service.list_audit_events("woo_quote_123")), 3)
+
+            tampered = json.loads(json.dumps(packet))
+            tampered["quote_hash"] = "changed"
+            with self.assertRaises(agentcart.BadRequest):
+                service.import_audit_packet({"audit_packet": tampered})
+
+    def test_skill_audit_packet_import_route_requires_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            service = make_service(tmp, agentcart_token="secret-token")
+            server = agentcart.AgentCartServer(("127.0.0.1", 0), service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            body = json.dumps({"audit_packet": skill_audit_packet()}).encode()
+            try:
+                unauthenticated = urllib.request.Request(
+                    f"{base_url}/v1/audit/import",
+                    data=body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(unauthenticated, timeout=5)
+                self.assertEqual(raised.exception.code, 401)
+                raised.exception.close()
+
+                authenticated = urllib.request.Request(
+                    f"{base_url}/v1/audit/import",
+                    data=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-AgentCart-Token": "secret-token",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(authenticated, timeout=5) as response:
+                    self.assertEqual(response.status, 201)
+                    imported = json.loads(response.read())
+                self.assertTrue(imported["imported"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
 
     def test_agentcash_mock_value_proof_is_attached_to_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
