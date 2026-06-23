@@ -18,6 +18,16 @@ import uuid
 from typing import Any
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 BASE_URL = os.getenv("SHOPBRIDGE_BASE_URL", "http://127.0.0.1:8098").rstrip("/")
 MPP_PROOF_URL = os.getenv("SHOPBRIDGE_MPP_PROOF_URL", "").strip()
 MPP_COMMAND = os.getenv("SHOPBRIDGE_MPP_COMMAND", "npx mppx").strip()
@@ -28,6 +38,10 @@ REGISTRY_URL = (
     or os.getenv("AGENTCART_MERCHANT_REGISTRY_URL")
     or ""
 ).strip()
+REGISTRY_MAX_AGE_DAYS = env_int(
+    "SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS",
+    env_int("AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS", 180),
+)
 REGISTRY_PATH = (
     os.getenv("SHOPBRIDGE_REGISTRY_PATH")
     or os.getenv("AGENTCART_MERCHANT_REGISTRY_PATH")
@@ -111,6 +125,10 @@ def parse_time(value: Any) -> dt.datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc)
+
+
+def utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
 
 
 def fetch_json_url(url: str) -> dict[str, Any]:
@@ -345,6 +363,32 @@ def verify_registry_revocation(
     return errors
 
 
+def registry_max_age_days(args: dict[str, Any]) -> int:
+    raw = args.get("registry_max_age_days", args.get("max_age_days", REGISTRY_MAX_AGE_DAYS))
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return REGISTRY_MAX_AGE_DAYS
+
+
+def verify_registry_updated_at(record: dict[str, Any], args: dict[str, Any]) -> list[str]:
+    updated_at = str(record.get("updated_at") or "")
+    if not updated_at:
+        return ["missing_updated_at"]
+    parsed = parse_time(updated_at)
+    if parsed is None:
+        return ["updated_at_invalid"]
+
+    errors: list[str] = []
+    now = utcnow()
+    if parsed > now + dt.timedelta(minutes=10):
+        errors.append("updated_at_in_future")
+    max_age_days = registry_max_age_days(args)
+    if max_age_days > 0 and parsed < now - dt.timedelta(days=max_age_days):
+        errors.append("record_stale")
+    return errors
+
+
 def registry_record_from_args(args: dict[str, Any]) -> dict[str, Any]:
     record = args.get("registry_record")
     if isinstance(record, dict):
@@ -454,6 +498,7 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
     parsed_manifest = parsed_url(manifest_url)
     if record.get("revoked_at"):
         errors.append("record_revoked")
+    errors.extend(verify_registry_updated_at(record, args))
     if parsed_manifest.scheme not in {"http", "https"} or not parsed_manifest.netloc:
         errors.append("manifest_url_invalid")
     elif parsed_manifest.scheme != "https" and not local_registry_host(parsed_manifest.hostname or ""):

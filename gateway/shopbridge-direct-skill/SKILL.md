@@ -24,6 +24,8 @@ Optional environment for verified merchant discovery:
 
 - `SHOPBRIDGE_REGISTRY_URL`: trusted HTTPS registry feed with `entries[]`
 - `SHOPBRIDGE_REGISTRY_PATH`: local registry JSON file for self-hosted or test fixtures
+- `SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS`: registry record freshness window; default
+  `180`, set `0` only for local fixtures
 
 Optional environment for demo checkout:
 
@@ -109,9 +111,10 @@ With a configured registry source, omit `registry_records`:
 ```
 
 This resolves each registry record first, rejects failed registry/domain-proof
-or revocation checks before catalog or quote calls, requests private merchant
-quotes, ranks by final total and delivery by default, and returns the winning
-full quote plus an approval packet. Use `rank_by:"unit_price"` or `rank_by:"value"` for
+or revocation checks, stale records, and future-dated records before catalog or
+quote calls, requests private merchant quotes, ranks by final total and delivery
+by default, and returns the winning full quote plus an approval packet. Use
+`rank_by:"unit_price"` or `rank_by:"value"` for
 grocery-style package comparisons when catalog products expose `package_size` or
 parseable `unit_size` metadata. Paid placement is not used.
 

@@ -61,6 +61,11 @@ For local/self-hosted testing without a public registry:
 export SHOPBRIDGE_REGISTRY_PATH=/path/to/merchant-registry.json
 ```
 
+The direct skill rejects records with missing/invalid timestamps, records dated
+more than 10 minutes in the future, and records older than
+`SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS` days. The default is `180`; use `0` only for
+local fixtures where you intentionally want to disable the freshness window.
+
 Smoke test a known merchant:
 
 ```sh

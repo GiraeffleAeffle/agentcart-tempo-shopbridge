@@ -17,6 +17,10 @@ sys.modules[SPEC.name] = shopbridge_direct
 SPEC.loader.exec_module(shopbridge_direct)
 
 
+def registry_updated_at() -> str:
+    return shopbridge_direct.utcnow().replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def sample_quote(**overrides):
     quote = {
         "id": "woo_quote_123",
@@ -64,7 +68,9 @@ def registry_manifest_and_record(
     name: str = "Merchant Tea Shop",
     domain: str = "merchant.example",
     stripe_profile_id: str = "acct_shop_123",
+    updated_at: str | None = None,
 ):
+    updated_at = updated_at or registry_updated_at()
     claim = {
         "merchant_id": merchant_id,
         "name": name,
@@ -86,7 +92,7 @@ def registry_manifest_and_record(
         **claim,
         "registry_claim_hash_alg": "sha-256",
         "registry_claim_hash": shopbridge_direct.sha256_hex(claim),
-        "updated_at": "2999-01-01T00:00:00Z",
+        "updated_at": updated_at,
         "revoked_at": None,
         "signature_alg": "https-domain-proof",
         "signature": "",
@@ -458,6 +464,36 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
         self.assertFalse(result["ok"], result)
         self.assertIn("domain_proof_record_hash_mismatch", result["verification"]["errors"])
+
+    def test_resolve_merchant_rejects_stale_registry_record(self) -> None:
+        manifest, record, proof = registry_manifest_and_record(updated_at="2000-01-01T00:00:00Z")
+
+        result = shopbridge_direct.command_resolve_merchant(
+            {
+                "registry_record": record,
+                "manifest_snapshot": manifest,
+                "proof_snapshot": proof,
+                "registry_max_age_days": 180,
+            }
+        )
+
+        self.assertFalse(result["ok"], result)
+        self.assertIn("record_stale", result["verification"]["errors"])
+
+    def test_resolve_merchant_rejects_future_registry_record(self) -> None:
+        future = (shopbridge_direct.utcnow() + shopbridge_direct.dt.timedelta(days=1)).replace(microsecond=0)
+        manifest, record, proof = registry_manifest_and_record(updated_at=future.isoformat().replace("+00:00", "Z"))
+
+        result = shopbridge_direct.command_resolve_merchant(
+            {
+                "registry_record": record,
+                "manifest_snapshot": manifest,
+                "proof_snapshot": proof,
+            }
+        )
+
+        self.assertFalse(result["ok"], result)
+        self.assertIn("updated_at_in_future", result["verification"]["errors"])
 
     def test_resolve_merchant_rejects_matching_revocation_document(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
