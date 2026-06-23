@@ -109,12 +109,16 @@ Checkout safety:
   secret and does not move money; it says exactly which rail, amount, currency,
   quote hash, and merchant profile/recipient the resulting receipt must bind.
 - Pass only the resulting quote-bound `payment_receipt` to `checkout`.
+- The direct skill rejects underspecified supplied receipts. Do not rely on the
+  skill to fill amount, currency, quote hash, destination, or transaction
+  reference from the quote.
 - Treat aftercare actions such as refund or cancellation as request drafts
   unless the buyer is using a trusted AgentCart gateway with merchant
   authorization. ShopBridge cancellation changes Woo order state only; paid
   orders still need a separate rail-verified refund.
-- Production checkout must supply a verifier/payment receipt bound to amount,
-  currency, quote hash, merchant recipient/profile, and transaction reference.
+- Production checkout must supply a verifier/payment receipt explicitly bound
+  to amount, currency, quote hash, merchant recipient/profile, and transaction
+  reference or credential.
 - The Tempo demo proof is sandbox/testnet proof, not production EUR settlement.
 
 Skill-only production sequence:

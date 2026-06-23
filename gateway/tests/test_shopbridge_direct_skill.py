@@ -62,6 +62,20 @@ def sample_quote(**overrides):
     return quote
 
 
+def sample_payment_receipt(**overrides):
+    receipt = {
+        "method": "stripe-card-mpp",
+        "status": "succeeded",
+        "amount_cents": 1480,
+        "currency": "EUR",
+        "quote_hash": "quote-hash-123",
+        "stripe_profile_id": "acct_shop_123",
+        "authorization": "opaque-test-credential",
+    }
+    receipt.update(overrides)
+    return receipt
+
+
 def registry_manifest_and_record(
     *,
     merchant_id: str = "merchant-tea-shop",
@@ -310,20 +324,55 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
     def test_payment_receipt_must_match_quote(self) -> None:
         quote = sample_quote()
-        approval_hash = shopbridge_direct.approval_packet(quote)["approval_hash"]
+        approval_hash = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_hash"]
         with self.assertRaises(SystemExit):
             shopbridge_direct.checkout_payload(
                 {
                     "quote": quote,
+                    "payment_rail": "stripe-card-mpp",
                     "approved": True,
                     "approval_hash": approval_hash,
-                    "payment_receipt": {
-                        "amount_cents": 1479,
-                        "currency": "EUR",
-                        "quote_hash": "quote-hash-123",
-                    },
+                    "payment_receipt": sample_payment_receipt(amount_cents=1479),
                 }
             )
+
+    def test_payment_receipt_must_explicitly_bind_amount_currency_and_quote_hash(self) -> None:
+        quote = sample_quote()
+        approval_hash = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_hash"]
+        receipt = sample_payment_receipt()
+        del receipt["amount_cents"]
+
+        with self.assertRaises(SystemExit) as raised:
+            shopbridge_direct.checkout_payload(
+                {
+                    "quote": quote,
+                    "payment_rail": "stripe-card-mpp",
+                    "approved": True,
+                    "approval_hash": approval_hash,
+                    "payment_receipt": receipt,
+                }
+            )
+
+        self.assertIn("payment_receipt missing required field(s): amount_cents", str(raised.exception))
+
+    def test_payment_receipt_must_include_rail_reference_or_credential(self) -> None:
+        quote = sample_quote()
+        approval_hash = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_hash"]
+        receipt = sample_payment_receipt()
+        del receipt["authorization"]
+
+        with self.assertRaises(SystemExit) as raised:
+            shopbridge_direct.checkout_payload(
+                {
+                    "quote": quote,
+                    "payment_rail": "stripe-card-mpp",
+                    "approved": True,
+                    "approval_hash": approval_hash,
+                    "payment_receipt": receipt,
+                }
+            )
+
+        self.assertIn("payment_receipt must include one of: authorization, credential, transaction_reference", str(raised.exception))
 
     def test_mppx_output_fails_closed_without_reference(self) -> None:
         receipt = shopbridge_direct.base64.urlsafe_b64encode(

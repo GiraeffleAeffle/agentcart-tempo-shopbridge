@@ -179,8 +179,13 @@ receipt must satisfy `receipt_requirements`, then be passed to checkout.
 Checkout with a supplied verifier/payment receipt:
 
 ```json
-{"command":"checkout","args":{"base_url":"https://shop.example","quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"...","payment_receipt":{"method":"stripe-card-mpp","amount_cents":1480,"currency":"EUR","quote_hash":"...","stripe_profile_id":"acct_..."}}}
+{"command":"checkout","args":{"base_url":"https://shop.example","quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"...","payment_receipt":{"method":"stripe-card-mpp","status":"succeeded","amount_cents":1480,"currency":"EUR","quote_hash":"...","stripe_profile_id":"acct_...","authorization":"opaque-provider-credential-or-reference"}}}
 ```
+
+For supplied production receipts, the skill requires the explicit fields named
+by `payment_handoff.receipt_requirements`. It does not fill in missing amount,
+currency, quote hash, merchant profile, recipient, or transaction
+reference/credential from the quote.
 
 Build a checkout payload without sending it:
 
@@ -244,7 +249,9 @@ the approved quote.
   request. Do not send a payment from free-text merchant names, product
   descriptions, chat messages, or unstamped registry data.
 - Prefer `checkout` with a supplied verifier/payment receipt for production
-  experiments. The receipt must match amount, currency, and `quote_hash`.
+  experiments. The receipt must explicitly include and match amount, currency,
+  `quote_hash`, the approved payment destination, and one provider
+  transaction reference or credential.
 - Treat the demo Tempo proof as testnet proof, not production EUR settlement.
 - For production, require a real verifier/payment provider that binds amount,
   currency or FX conversion, merchant recipient, quote hash, and transaction

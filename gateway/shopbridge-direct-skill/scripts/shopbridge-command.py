@@ -2298,6 +2298,29 @@ def payment_receipt_requirements(destination: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def receipt_field_present(receipt: dict[str, Any], field: str) -> bool:
+    value = receipt.get(field)
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    return True
+
+
+def require_supplied_receipt_contract(receipt: dict[str, Any], destination: dict[str, Any]) -> None:
+    requirements = payment_receipt_requirements(destination)
+    missing = [field for field in requirements["required_fields"] if not receipt_field_present(receipt, field)]
+    if missing:
+        raise SystemExit(f"payment_receipt missing required field(s): {', '.join(missing)}")
+    alternatives = [field for field in requirements["one_of"] if receipt_field_present(receipt, field)]
+    if not alternatives:
+        raise SystemExit(f"payment_receipt must include one of: {', '.join(requirements['one_of'])}")
+    status = str(receipt.get("status") or "").strip().lower()
+    accepted_statuses = {"succeeded", "success", "authorized", "paid", "settled", "verified", "ok"}
+    if status not in accepted_statuses:
+        raise SystemExit("payment_receipt.status must be succeeded, authorized, paid, settled, verified, or ok")
+
+
 def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("approved"):
         raise SystemExit("approved=true is required before creating a payment handoff")
@@ -2374,12 +2397,13 @@ def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dic
     if not isinstance(receipt, dict):
         raise SystemExit("payment_receipt is required unless use_tempo_demo_proof=true")
     destination = payment_destination(quote, args.get("payment_rail"))
+    require_supplied_receipt_contract(receipt, destination)
     expected_amount = int(quote["total_cents"])
     expected_currency = str(quote["currency"]).upper()
-    supplied_amount = receipt.get("amount_cents")
-    supplied_currency = str(receipt.get("currency") or expected_currency).upper()
-    supplied_hash = str(receipt.get("quote_hash") or quote["quote_hash"])
-    if supplied_amount is not None and int(supplied_amount) != expected_amount:
+    supplied_amount = int(receipt["amount_cents"])
+    supplied_currency = str(receipt["currency"]).upper()
+    supplied_hash = str(receipt["quote_hash"])
+    if supplied_amount != expected_amount:
         raise SystemExit("payment_receipt.amount_cents does not match quote.total_cents")
     if supplied_currency != expected_currency:
         raise SystemExit("payment_receipt.currency does not match quote.currency")

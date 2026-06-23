@@ -88,8 +88,10 @@ Current alpha status: the direct ShopBridge skill can resolve verified registry
 records, compare private quotes across multiple verified merchants, return the
 winning full quote with an approval packet, produce an approval-bound payment
 handoff for an external wallet/payment-capable agent, and reject failed
-registry/domain proofs before making catalog or quote calls. It can also ingest
-the ShopBridge registry onboarding bundle as a registry source for local
+registry/domain proofs before making catalog or quote calls. It rejects
+underspecified supplied payment receipts instead of filling missing amount,
+currency, quote hash, destination, or rail reference from the quote. It can also
+ingest the ShopBridge registry onboarding bundle as a registry source for local
 single-merchant tests. Production still needs durable buyer policy, persistent
 audit, richer matching for multi-item grocery baskets, and a packaged setup
 flow for non-technical buyers.
