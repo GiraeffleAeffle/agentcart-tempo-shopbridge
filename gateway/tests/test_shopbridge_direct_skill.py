@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -424,6 +425,25 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["merchant"]["id"], "merchant-tea-shop")
         self.assertEqual(result["verification"]["state"], "verified")
 
+    def test_resolve_merchant_can_use_configured_registry_path(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            registry_path = Path(raw_tmp) / "registry.json"
+            registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
+
+            result = shopbridge_direct.command_resolve_merchant(
+                {
+                    "registry_path": str(registry_path),
+                    "merchant_id": "merchant-tea-shop",
+                    "manifest_snapshot": manifest,
+                    "proof_snapshot": proof,
+                }
+            )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["base_url"], "https://merchant.example")
+        self.assertEqual(result["merchant"]["id"], "merchant-tea-shop")
+
     def test_resolve_merchant_rejects_bad_domain_proof_hash(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
         proof["record_hash"] = "0" * 64
@@ -500,6 +520,13 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertFalse(result["ok"], result)
         self.assertIn("manifest_url_requires_https", result["verification"]["errors"])
         self.assertIn("domain_proof_url_requires_https", result["verification"]["errors"])
+
+    def test_registry_feed_url_requires_https_before_fetching(self) -> None:
+        with mock.patch.object(shopbridge_direct, "fetch_json_url", side_effect=AssertionError("unexpected fetch")):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_args({"registry_url": "http://registry.example/agentcart.json"})
+
+        self.assertEqual(str(raised.exception), "registry_url_requires_https")
 
     def test_catalog_uses_resolved_base_url(self) -> None:
         calls = []
@@ -629,6 +656,60 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["candidates"][0]["rank"], 1)
         self.assertFalse(result["winner"]["registry"]["paid_placement"])
         self.assertEqual([call["base_url"] for call in calls if call["method"] == "POST"], ["https://alpha.example", "https://beta.example"])
+
+    def test_discover_quotes_uses_configured_registry_path_without_inline_records(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            if path.startswith("/wp-json/agentcart/v1/catalog"):
+                return {
+                    "merchant": {"id": "merchant-tea-shop", "name": "Merchant Tea Shop"},
+                    "products": [
+                        {
+                            "id": "merchant-tea",
+                            "title": "Merchant Tea",
+                            "eligible_for_agent_checkout": True,
+                            "shipping_regions": ["DE"],
+                        }
+                    ],
+                }
+            return sample_quote(
+                id="quote-merchant",
+                merchant={"id": "merchant-tea-shop", "name": "Merchant Tea Shop"},
+                items=[
+                    {
+                        "product_id": "merchant-tea",
+                        "title": "Merchant Tea",
+                        "quantity": 1,
+                        "line_total_cents": 990,
+                    }
+                ],
+                subtotal_cents=990,
+                total_cents=1480,
+                quote_hash="quote-hash-merchant",
+            )
+
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            registry_path = Path(raw_tmp) / "registry.json"
+            registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
+            with (
+                mock.patch.object(shopbridge_direct, "REGISTRY_PATH", str(registry_path)),
+                mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+            ):
+                result = shopbridge_direct.command_discover_quotes(
+                    {
+                        "manifest_snapshots": {"merchant-tea-shop": manifest},
+                        "proof_snapshots": {"merchant-tea-shop": proof},
+                        "query": "tea",
+                        "country": "DE",
+                        "postal_code": "10115",
+                        "payment_rail": "stripe-card-mpp",
+                    }
+                )
+
+        self.assertEqual(result["winner"]["quote_id"], "quote-merchant")
+        self.assertEqual(result["winner"]["merchant_id"], "merchant-tea-shop")
+        self.assertTrue(result["winner"]["registry"]["registry_record_hash"])
 
     def test_discover_quotes_can_rank_by_unit_price_for_grocery_value(self) -> None:
         manifest_a, record_a, proof_a = registry_manifest_and_record(

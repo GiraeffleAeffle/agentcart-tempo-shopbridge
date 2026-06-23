@@ -102,7 +102,9 @@ install the direct ShopBridge skill:
 ```
 
 This creates `dist/shopbridge-direct-skill.zip`. See `docs/BUYER_SETUP.md` for
-skill-only and service-backed setup.
+skill-only and service-backed setup. For verified multi-merchant discovery in
+skill-only mode, configure `SHOPBRIDGE_REGISTRY_URL` or
+`SHOPBRIDGE_REGISTRY_PATH` once instead of passing registry records every time.
 
 When `AGENTCART_TOKEN` is set, open protected browser pages with the token once:
 
@@ -155,6 +157,7 @@ The plugin exposes:
 
 - `/.well-known/agentcart.json`
 - `/.well-known/agentcart-registry-proof.json`
+- `/.well-known/agentcart-registry-revocations.json`
 - `/wp-json/agentcart/v1/catalog`
 - `/wp-json/agentcart/v1/quote`
 - `/wp-json/agentcart/v1/orders`

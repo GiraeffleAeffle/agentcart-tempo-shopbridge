@@ -23,6 +23,16 @@ MPP_PROOF_URL = os.getenv("SHOPBRIDGE_MPP_PROOF_URL", "").strip()
 MPP_COMMAND = os.getenv("SHOPBRIDGE_MPP_COMMAND", "npx mppx").strip()
 MPP_NETWORK = os.getenv("SHOPBRIDGE_MPP_NETWORK", "testnet").strip()
 MPP_ACCOUNT = os.getenv("SHOPBRIDGE_MPP_ACCOUNT", "agentcart-test").strip()
+REGISTRY_URL = (
+    os.getenv("SHOPBRIDGE_REGISTRY_URL")
+    or os.getenv("AGENTCART_MERCHANT_REGISTRY_URL")
+    or ""
+).strip()
+REGISTRY_PATH = (
+    os.getenv("SHOPBRIDGE_REGISTRY_PATH")
+    or os.getenv("AGENTCART_MERCHANT_REGISTRY_PATH")
+    or ""
+).strip()
 
 
 def base_url_from_args(args: dict[str, Any] | None = None) -> str:
@@ -123,6 +133,18 @@ def fetch_json_url(url: str) -> dict[str, Any]:
     return data
 
 
+def load_json_path(path: str) -> Any:
+    if not path:
+        raise SystemExit("registry path is required")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except OSError as exc:
+        raise SystemExit(json.dumps({"error": {"path": path, "detail": str(exc)}}, indent=2))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(json.dumps({"error": {"path": path, "detail": f"invalid JSON: {exc}"}}, indent=2))
+
+
 def parsed_url(value: str) -> urllib.parse.ParseResult:
     return urllib.parse.urlparse(str(value or ""))
 
@@ -135,6 +157,14 @@ def origin_for_url(value: str) -> str:
 def local_registry_host(host: str) -> bool:
     host = host.lower()
     return host in {"localhost", "127.0.0.1", "::1"} or host.startswith("192.168.") or host.endswith(".local")
+
+
+def validate_registry_source_url(url: str, *, field: str = "registry_url") -> None:
+    parsed = parsed_url(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SystemExit(f"{field}_invalid")
+    if parsed.scheme != "https" and not local_registry_host(parsed.hostname or ""):
+        raise SystemExit(f"{field}_requires_https")
 
 
 def domain_matches(domain: str, parsed: urllib.parse.ParseResult) -> bool:
@@ -321,6 +351,7 @@ def registry_record_from_args(args: dict[str, Any]) -> dict[str, Any]:
         return record
     record_url = str(args.get("registry_record_url") or "")
     if record_url:
+        validate_registry_source_url(record_url, field="registry_record_url")
         loaded = fetch_json_url(record_url)
         if isinstance(loaded.get("entries"), list):
             merchant_id = str(args.get("merchant_id") or "")
@@ -329,27 +360,79 @@ def registry_record_from_args(args: dict[str, Any]) -> dict[str, Any]:
                     return entry
             raise SystemExit("registry_record_url did not contain the requested merchant_id")
         return loaded
-    raise SystemExit("registry_record or registry_record_url is required")
+    records = registry_records_from_source(args)
+    merchant_id = str(args.get("merchant_id") or "")
+    if not records:
+        raise SystemExit("configured registry source did not contain any records")
+    if merchant_id:
+        for entry in records:
+            if str(entry.get("merchant_id") or "") == merchant_id:
+                return entry
+        raise SystemExit("configured registry source did not contain the requested merchant_id")
+    if len(records) == 1:
+        return records[0]
+    raise SystemExit("merchant_id is required when the configured registry source has multiple records")
+
+
+def registry_records_from_document(document: Any) -> list[dict[str, Any]]:
+    if isinstance(document, list):
+        return [record for record in document if isinstance(record, dict)]
+    if isinstance(document, dict):
+        if isinstance(document.get("entries"), list):
+            return [record for record in document["entries"] if isinstance(record, dict)]
+        return [document]
+    raise SystemExit("registry source must be a record, a list of records, or an object with entries[]")
+
+
+def configured_registry_url(args: dict[str, Any]) -> str:
+    return str(
+        args.get("registry_url")
+        or args.get("registry_feed_url")
+        or REGISTRY_URL
+        or ""
+    ).strip()
+
+
+def configured_registry_path(args: dict[str, Any]) -> str:
+    return str(
+        args.get("registry_path")
+        or args.get("registry_file")
+        or REGISTRY_PATH
+        or ""
+    ).strip()
+
+
+def registry_records_from_source(args: dict[str, Any]) -> list[dict[str, Any]]:
+    registry_path = configured_registry_path(args)
+    registry_url = configured_registry_url(args)
+    if registry_path:
+        return registry_records_from_document(load_json_path(registry_path))
+    if registry_url:
+        validate_registry_source_url(registry_url)
+        return registry_records_from_document(fetch_json_url(registry_url))
+    return []
 
 
 def registry_records_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
     raw_records = args.get("registry_records")
     if isinstance(raw_records, list):
-        records = [record for record in raw_records if isinstance(record, dict)]
-    elif isinstance(args.get("registry"), dict) and isinstance(args["registry"].get("entries"), list):
-        records = [record for record in args["registry"]["entries"] if isinstance(record, dict)]
+        records = registry_records_from_document(raw_records)
+    elif isinstance(args.get("registry"), dict):
+        records = registry_records_from_document(args["registry"])
     elif args.get("registry_record") or args.get("registry_record_url"):
         record_url = str(args.get("registry_record_url") or "")
         if record_url:
-            loaded = fetch_json_url(record_url)
-            if isinstance(loaded.get("entries"), list):
-                records = [record for record in loaded["entries"] if isinstance(record, dict)]
-            else:
-                records = [loaded]
+            validate_registry_source_url(record_url, field="registry_record_url")
+            records = registry_records_from_document(fetch_json_url(record_url))
         else:
             records = [registry_record_from_args(args)]
     else:
-        raise SystemExit("registry_records, registry.entries, registry_record, or registry_record_url is required")
+        records = registry_records_from_source(args)
+        if not records:
+            raise SystemExit(
+                "registry_records, registry.entries, registry_record, registry_record_url, "
+                "registry_url, registry_path, SHOPBRIDGE_REGISTRY_URL, or SHOPBRIDGE_REGISTRY_PATH is required"
+            )
     merchant_ids = {
         str(value)
         for value in args.get("merchant_ids", [])

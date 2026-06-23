@@ -49,6 +49,18 @@ the skill commands instead of relying on `SHOPBRIDGE_BASE_URL`. A verified
 record binds the merchant domain, manifest URL, payment destination, proof URL,
 and revocation URL before the skill calls catalog or quote.
 
+For a normal skill-only install, configure one trusted registry source once:
+
+```sh
+export SHOPBRIDGE_REGISTRY_URL=https://registry.example/agentcart.json
+```
+
+For local/self-hosted testing without a public registry:
+
+```sh
+export SHOPBRIDGE_REGISTRY_PATH=/path/to/merchant-registry.json
+```
+
 Smoke test a known merchant:
 
 ```sh
@@ -69,13 +81,13 @@ For groceries, prefer whole-basket discovery:
 
 ```sh
 python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
-{"command":"discover_basket_quotes","args":{"registry_records":[],"basket":[{"query":"tea","quantity":1},{"query":"filters","quantity":2}],"country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
+{"command":"discover_basket_quotes","args":{"basket":[{"query":"tea","quantity":1},{"query":"filters","quantity":2}],"country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
 JSON
 ```
 
-The empty `registry_records` example is intentionally incomplete. A real
-multi-merchant run must supply registry records from a trusted registry feed or
-explicit local test fixtures.
+That command uses `SHOPBRIDGE_REGISTRY_URL` or `SHOPBRIDGE_REGISTRY_PATH`.
+Alternatively, pass `registry_records`, `registry_url`, or `registry_path` in the
+command args for one-off tests.
 
 Checkout safety:
 

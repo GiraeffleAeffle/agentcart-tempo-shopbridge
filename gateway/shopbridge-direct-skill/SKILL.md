@@ -20,6 +20,11 @@ Required environment for single-merchant alpha/testing:
 
 - `SHOPBRIDGE_BASE_URL`: optional merchant WordPress origin override, for example `http://192.168.178.150:8098`
 
+Optional environment for verified merchant discovery:
+
+- `SHOPBRIDGE_REGISTRY_URL`: trusted HTTPS registry feed with `entries[]`
+- `SHOPBRIDGE_REGISTRY_PATH`: local registry JSON file for self-hosted or test fixtures
+
 Optional environment for demo checkout:
 
 - `SHOPBRIDGE_MPP_PROOF_URL`: Tempo MPP paid endpoint, for example `http://127.0.0.1:4250/paid`
@@ -41,6 +46,13 @@ For a registry JSON document with multiple `entries`, pass a URL and optional me
 
 ```json
 {"command":"resolve_merchant","args":{"registry_record_url":"https://registry.example/agentcart.json","merchant_id":"merchant-tea-shop"}}
+```
+
+If `SHOPBRIDGE_REGISTRY_URL` or `SHOPBRIDGE_REGISTRY_PATH` is configured, the
+agent can resolve by merchant id without passing a record each time:
+
+```json
+{"command":"resolve_merchant","args":{"merchant_id":"merchant-tea-shop"}}
 ```
 
 Only continue when the result has `"ok": true`. Pass the returned `base_url` to
@@ -88,6 +100,12 @@ Verified multi-merchant discovery:
 
 ```json
 {"command":"discover_quotes","args":{"registry_records":[...],"query":"tea","country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","rank_by":"unit_price","format":"toon"}}
+```
+
+With a configured registry source, omit `registry_records`:
+
+```json
+{"command":"discover_quotes","args":{"query":"tea","country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
 ```
 
 This resolves each registry record first, rejects failed registry/domain-proof
