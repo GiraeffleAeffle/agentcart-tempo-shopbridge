@@ -139,6 +139,7 @@ services:
         define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', getenv('AGENTCART_TEMPO_RECIPIENT_ADDRESS') ?: '');
         define('AGENTCART_STRIPE_PROFILE_ID', getenv('AGENTCART_STRIPE_PROFILE_ID') ?: '');
         define('AGENTCART_PAYMENT_VERIFIER_URL', getenv('AGENTCART_PAYMENT_VERIFIER_URL') ?: '');
+        define('AGENTCART_CHECKOUT_MODE', getenv('AGENTCART_CHECKOUT_MODE') ?: 'trusted_token_or_verifier');
         define('AGENTCART_SUPPORT_EMAIL', getenv('AGENTCART_SUPPORT_EMAIL') ?: '');
         define('AGENTCART_RETURNS_URL', getenv('AGENTCART_RETURNS_URL') ?: '');
         define('AGENTCART_SUBSTITUTION_POLICY', getenv('AGENTCART_SUBSTITUTION_POLICY') ?: 'approval_required');
@@ -154,6 +155,7 @@ services:
       AGENTCART_TEMPO_RECIPIENT_ADDRESS: ${AGENTCART_TEMPO_RECIPIENT_ADDRESS:-}
       AGENTCART_STRIPE_PROFILE_ID: ${AGENTCART_STRIPE_PROFILE_ID:-}
       AGENTCART_PAYMENT_VERIFIER_URL: ${AGENTCART_PAYMENT_VERIFIER_URL:-}
+      AGENTCART_CHECKOUT_MODE: ${AGENTCART_CHECKOUT_MODE:-trusted_token_or_verifier}
     volumes:
       - woocommerce_data:/var/www/html
       - ../../woocommerce-shopbridge/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro

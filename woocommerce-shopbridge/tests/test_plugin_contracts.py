@@ -165,6 +165,39 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertLess(refund_body.index("enforce_rate_limit"), refund_body.index("has_valid_merchant_token"))
         self.assertLess(cancellation_body.index("enforce_rate_limit"), cancellation_body.index("has_valid_merchant_token"))
 
+    def test_checkout_mode_can_require_external_verifier_before_token_fallback(self) -> None:
+        settings_body = function_body("register_settings")
+        render_body = function_body("render_settings_page")
+        checkout_body = function_body("authorize_checkout")
+        payment_body = function_body("verify_payment_receipt")
+        readiness_body = function_body("readiness")
+        guide_body = function_body("setup_guide")
+        capability_body = function_body("capability_document")
+        quote_hash_body = function_body("quote_hash_payload")
+        requirements_body = function_body("payment_requirements")
+        uninstall = UNINSTALL.read_text()
+
+        for symbol in [
+            "CHECKOUT_MODE_OPTION",
+            "AGENTCART_CHECKOUT_MODE",
+            "external_verifier_only",
+            "trusted_token_or_verifier",
+        ]:
+            self.assertIn(symbol, SOURCE)
+        self.assertIn("sanitize_checkout_mode_setting", settings_body)
+        self.assertIn("render_checkout_mode_setting_row", render_body)
+        self.assertIn("agentcart_shopbridge_checkout_mode", uninstall)
+        self.assertIn("external_verifier_required_for_checkout", checkout_body)
+        self.assertLess(checkout_body.index("external_verifier_required_for_checkout"), checkout_body.index("has_valid_merchant_token"))
+        self.assertIn("agentcart_payment_verifier_required", checkout_body)
+        self.assertIn("external_verifier_required_for_checkout", payment_body)
+        self.assertLess(payment_body.index("external_verifier_required_for_checkout"), payment_body.index("has_valid_merchant_token"))
+        self.assertIn("external-verifier-only checkout mode", readiness_body)
+        self.assertIn("external_verifier_required_for_checkout", guide_body)
+        self.assertIn("'checkout_mode'", capability_body + quote_hash_body + requirements_body)
+        self.assertIn("'trusted_token_checkout_enabled'", capability_body + requirements_body)
+        self.assertIn("'external_verifier_required_for_checkout'", capability_body + quote_hash_body + requirements_body)
+
     def test_rate_limiter_has_endpoint_policies_and_retry_metadata(self) -> None:
         policy_body = function_body("rate_limit_policy")
         limiter_body = function_body("enforce_rate_limit")

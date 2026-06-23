@@ -61,7 +61,7 @@ actions.
 2. Activate `AgentCart ShopBridge for WooCommerce`.
 3. Open `WooCommerce -> AgentCart`.
 4. Configure support email, payment recipient or Stripe profile, verifier URL,
-   and product exposure mode.
+   checkout mode, and product exposure mode.
 5. Add normal WooCommerce products and expose only the products that are safe
    for agent checkout.
 6. Test the manifest, catalog, quote, and a non-production checkout path before
@@ -79,8 +79,8 @@ WooCommerce checkout and payment gateways.
 
 No. The plugin creates paid WooCommerce orders only after a trusted token flow
 or external verifier confirms a quote-bound payment receipt. Production
-settlement and refunds must be performed or verified by the configured payment
-rail/verifier.
+checkout should use external-verifier-only mode, and settlement/refunds must be
+performed or verified by the configured payment rail/verifier.
 
 = Are refunds and cancellations public? =
 

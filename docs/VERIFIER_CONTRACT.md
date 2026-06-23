@@ -8,6 +8,11 @@ The hackathon demo has two payment modes:
 - `external_verifier`: production shape. ShopBridge calls an external verifier
   before creating a paid WooCommerce order or recording a rail-verified refund.
 
+For production order creation, ShopBridge should also be configured with
+checkout mode `external_verifier_only`. That keeps the merchant token available
+for private gateway/admin operations without allowing token-authenticated demo
+checkout to mark a WooCommerce order paid.
+
 The verifier is intentionally a separate module because the checks are
 rail-specific. Tempo stablecoin, Stripe/card MPP, Lightning, bank, or custom
 rails should not change the catalog, quote, approval, order, delivery, and audit

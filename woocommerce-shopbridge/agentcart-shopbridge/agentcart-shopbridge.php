@@ -34,6 +34,7 @@ final class AgentCart_ShopBridge {
     const RATE_LIMIT_WINDOW_SECONDS = 60;
     const PAYMENT_VERIFIER_URL_OPTION = 'agentcart_shopbridge_payment_verifier_url';
     const PAYMENT_VERIFIER_TOKEN_OPTION = 'agentcart_shopbridge_payment_verifier_token';
+    const CHECKOUT_MODE_OPTION = 'agentcart_shopbridge_checkout_mode';
     const TEMPO_RECIPIENT_OPTION = 'agentcart_shopbridge_tempo_recipient';
     const TEMPO_NETWORK_OPTION = 'agentcart_shopbridge_tempo_network';
     const STRIPE_PROFILE_ID_OPTION = 'agentcart_shopbridge_stripe_profile_id';
@@ -180,6 +181,11 @@ final class AgentCart_ShopBridge {
             'sanitize_callback' => 'sanitize_text_field',
             'default' => '',
         ]);
+        register_setting('agentcart_shopbridge', self::CHECKOUT_MODE_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_checkout_mode_setting'],
+            'default' => 'trusted_token_or_verifier',
+        ]);
         register_setting('agentcart_shopbridge', self::PRODUCT_EXPOSURE_MODE_OPTION, [
             'type' => 'string',
             'sanitize_callback' => [__CLASS__, 'sanitize_product_exposure_mode_setting'],
@@ -256,6 +262,11 @@ final class AgentCart_ShopBridge {
         return in_array($policy, ['approval_required', 'not_allowed', 'merchant_allowed'], true) ? $policy : 'approval_required';
     }
 
+    public static function sanitize_checkout_mode_setting($value) {
+        $mode = sanitize_key((string) $value);
+        return in_array($mode, ['trusted_token_or_verifier', 'external_verifier_only'], true) ? $mode : 'trusted_token_or_verifier';
+    }
+
     public static function sanitize_cancellation_window_minutes_setting($value) {
         $minutes = absint($value);
         return min(10080, $minutes);
@@ -278,6 +289,7 @@ final class AgentCart_ShopBridge {
         $quote_url = rest_url(self::API_NAMESPACE . '/quote');
         $orders_url = rest_url(self::API_NAMESPACE . '/orders');
         $payment_verifier_url = self::payment_verifier_url();
+        $checkout_mode = self::checkout_mode();
         $tempo_recipient = self::tempo_recipient();
         $stripe_profile_id = self::stripe_profile_id();
         $support_email = self::support_email();
@@ -343,6 +355,11 @@ final class AgentCart_ShopBridge {
                         <th scope="row">Payment verifier</th>
                         <td><code><?php echo esc_html($payment_verifier_url ?: 'trusted gateway token mode'); ?></code></td>
                         <td><?php echo self::admin_status_badge($payment_verifier_url !== '', 'Production shape', 'Demo mode'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Checkout mode</th>
+                        <td><?php echo esc_html(self::checkout_mode_label($checkout_mode)); ?></td>
+                        <td><?php echo self::admin_status_badge(self::external_verifier_required_for_checkout(), 'Verifier only', 'Token fallback enabled'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Stripe/card MPP</th>
@@ -436,6 +453,7 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
                     <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
                     <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
+                    <?php self::render_checkout_mode_setting_row($checkout_mode); ?>
                     <?php self::render_product_exposure_setting_rows($product_exposure_mode, $product_exposure_tag, $product_exposure_categories, $product_blocked_categories); ?>
                     <?php self::render_stock_hold_setting_rows($stock_hold_mode, $stock_hold_minutes); ?>
                 </table>
@@ -626,6 +644,16 @@ final class AgentCart_ShopBridge {
         $rate_limit = self::enforce_rate_limit($request, 'checkout');
         if (is_wp_error($rate_limit)) {
             return $rate_limit;
+        }
+        if (self::external_verifier_required_for_checkout()) {
+            if (self::payment_verifier_url() !== '') {
+                return true;
+            }
+            return new WP_Error(
+                'agentcart_payment_verifier_required',
+                'External-verifier-only checkout requires a payment verifier URL.',
+                ['status' => 401]
+            );
         }
         if (self::has_valid_merchant_token($request)) {
             return true;
@@ -1033,7 +1061,8 @@ final class AgentCart_ShopBridge {
         $readiness = is_array($readiness) ? $readiness : self::readiness();
         $payment_configured = self::payment_verifier_url() !== ''
             && self::payment_verifier_token() !== ''
-            && (self::tempo_recipient() !== '' || self::stripe_profile_id() !== '');
+            && (self::tempo_recipient() !== '' || self::stripe_profile_id() !== '')
+            && self::external_verifier_required_for_checkout();
         $registry_ready = self::public_origin_is_https() && self::registry_domain_proof_configured();
         $steps = [
             self::setup_guide_step(
@@ -1067,7 +1096,7 @@ final class AgentCart_ShopBridge {
                 'payment_verifier',
                 'Quote-bound payment verifier',
                 $payment_configured,
-                'Configure an external verifier plus a Tempo recipient or Stripe/card profile before public checkout.',
+                'Configure an external verifier, a Tempo recipient or Stripe/card profile, and external-verifier-only checkout before public agents create paid orders.',
                 'Review payment settings',
                 '#agentcart-settings',
                 ['production']
@@ -1157,6 +1186,9 @@ final class AgentCart_ShopBridge {
         if (self::payment_verifier_url() && !self::payment_verifier_token()) {
             $missing_production[] = 'payment verifier token';
         }
+        if (!self::external_verifier_required_for_checkout()) {
+            $missing_production[] = 'external-verifier-only checkout mode';
+        }
         if (self::tempo_recipient() === '' && self::stripe_profile_id() === '') {
             $missing_production[] = 'Tempo recipient or Stripe profile';
         }
@@ -1177,6 +1209,9 @@ final class AgentCart_ShopBridge {
             'demo_ready' => empty($missing_demo),
             'production_ready' => empty($missing_production),
             'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token_demo',
+            'checkout_mode' => self::checkout_mode(),
+            'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
+            'trusted_token_checkout_enabled' => !self::external_verifier_required_for_checkout(),
             'agentcart_enabled_product_count' => $enabled_product_count,
             'product_exposure_mode' => self::product_exposure_mode(),
             'product_exposure_tag' => self::product_exposure_mode() === 'tag' ? self::product_exposure_tag() : null,
@@ -1265,6 +1300,36 @@ final class AgentCart_ShopBridge {
                     <?php echo esc_html($description); ?>
                     <?php if ($constant_defined): ?>
                         <br><strong>Configured in wp-config.php via <code><?php echo esc_html($constant); ?></code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <?php
+    }
+
+    private static function render_checkout_mode_setting_row($checkout_mode) {
+        $constant_defined = defined('AGENTCART_CHECKOUT_MODE');
+        $modes = [
+            'trusted_token_or_verifier' => 'Trusted gateway token or external verifier',
+            'external_verifier_only' => 'External verifier only',
+        ];
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::CHECKOUT_MODE_OPTION); ?>">Checkout mode</label></th>
+            <td>
+                <select
+                    id="<?php echo esc_attr(self::CHECKOUT_MODE_OPTION); ?>"
+                    name="<?php echo esc_attr(self::CHECKOUT_MODE_OPTION); ?>"
+                    <?php disabled($constant_defined); ?>
+                >
+                    <?php foreach ($modes as $value => $label): ?>
+                        <option value="<?php echo esc_attr($value); ?>" <?php selected($checkout_mode, $value); ?>><?php echo esc_html($label); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="description">
+                    Use trusted gateway token mode for private demos. Use external verifier only before allowing public buyer agents to create paid WooCommerce orders.
+                    <?php if ($constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_CHECKOUT_MODE</code>.</strong>
                     <?php endif; ?>
                 </p>
             </td>
@@ -1508,6 +1573,7 @@ final class AgentCart_ShopBridge {
                 'paid_order_creation' => true,
                 'idempotent_order_creation' => true,
                 'checkout_replay_conflict_detection' => true,
+                'external_verifier_only_checkout_mode' => self::external_verifier_required_for_checkout(),
                 'merchant_of_record' => true,
                 'guest_checkout' => true,
                 'shipping_address_on_order' => true,
@@ -1630,6 +1696,9 @@ final class AgentCart_ShopBridge {
             'payment_verification' => [
                 'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
                 'external_verifier_configured' => self::payment_verifier_url() !== '',
+                'checkout_mode' => self::checkout_mode(),
+                'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
+                'trusted_token_checkout_enabled' => !self::external_verifier_required_for_checkout(),
                 'tempo_recipient_configured' => self::tempo_recipient() !== '',
                 'tempo_network' => self::tempo_network(),
                 'stripe_profile_configured' => self::stripe_profile_id() !== '',
@@ -2679,6 +2748,14 @@ final class AgentCart_ShopBridge {
             return $verification;
         }
 
+        if (self::external_verifier_required_for_checkout()) {
+            return new WP_Error(
+                'agentcart_payment_verifier_required',
+                'External-verifier-only checkout requires an external payment verifier.',
+                ['status' => 401]
+            );
+        }
+
         if (!self::has_valid_merchant_token($request)) {
             return new WP_Error(
                 'agentcart_payment_verifier_required',
@@ -3463,6 +3540,8 @@ final class AgentCart_ShopBridge {
             'merchant_policy' => $quote['merchant_policy'] ?? self::merchant_policy(),
             'payment_profile' => [
                 'verification_mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
+                'checkout_mode' => self::checkout_mode(),
+                'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
                 'tempo_network' => self::tempo_network(),
                 'tempo_recipient' => self::tempo_recipient(),
                 'stripe_profile_id' => self::stripe_profile_id(),
@@ -3484,6 +3563,9 @@ final class AgentCart_ShopBridge {
             'verification' => [
                 'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
                 'external_verifier_configured' => self::payment_verifier_url() !== '',
+                'checkout_mode' => self::checkout_mode(),
+                'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
+                'trusted_token_checkout_enabled' => !self::external_verifier_required_for_checkout(),
             ],
             'protocols' => [
                 [
@@ -3545,6 +3627,26 @@ final class AgentCart_ShopBridge {
             }
         }
         return trim((string) get_option(self::PAYMENT_VERIFIER_TOKEN_OPTION, ''));
+    }
+
+    private static function checkout_mode() {
+        if (defined('AGENTCART_CHECKOUT_MODE')) {
+            $value = self::sanitize_checkout_mode_setting((string) AGENTCART_CHECKOUT_MODE);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return self::sanitize_checkout_mode_setting((string) get_option(self::CHECKOUT_MODE_OPTION, 'trusted_token_or_verifier'));
+    }
+
+    private static function external_verifier_required_for_checkout() {
+        return self::checkout_mode() === 'external_verifier_only';
+    }
+
+    private static function checkout_mode_label($mode) {
+        return $mode === 'external_verifier_only'
+            ? 'External verifier only'
+            : 'Trusted gateway token or external verifier';
     }
 
     private static function tempo_recipient() {

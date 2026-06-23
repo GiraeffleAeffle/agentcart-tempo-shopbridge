@@ -57,6 +57,7 @@ define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', '0x...');
 define('AGENTCART_STRIPE_PROFILE_ID', 'profile_test_...');
 define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/agentcart/tempo');
 define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
+define('AGENTCART_CHECKOUT_MODE', 'external_verifier_only'); // trusted_token_or_verifier or external_verifier_only
 define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
 define('AGENTCART_RETURNS_URL', 'https://shop.example/returns');
 define('AGENTCART_SUBSTITUTION_POLICY', 'approval_required'); // approval_required, not_allowed, or merchant_allowed
@@ -101,7 +102,10 @@ exposure, and WooCommerce-backed quote totals without creating an order.
 
 For the hackathon demo, `AGENTCART_SHOPBRIDGE_TOKEN` lets a trusted AgentCart gateway create orders after its own approval and payment proof flow.
 
-For production, configure `AGENTCART_PAYMENT_VERIFIER_URL`. Public agents can then create orders only when the verifier confirms the quote-bound receipt.
+For production, configure `AGENTCART_PAYMENT_VERIFIER_URL` and set checkout mode
+to `external_verifier_only`. Public agents can then create orders only when the
+verifier confirms the quote-bound receipt; the merchant token no longer falls
+back to demo settlement for order creation.
 
 The settings page also shows:
 
@@ -112,7 +116,7 @@ The settings page also shows:
   requests
 - whether the Tempo recipient is configured
 - whether Stripe/card MPP has a Stripe profile and verifier configured
-- whether the plugin is in demo token mode or external verifier mode
+- whether checkout allows trusted token fallback or requires an external verifier
 - a merchant onboarding checklist
 
 ## Product Exposure
@@ -219,10 +223,17 @@ proxy, CDN/WAF, or host-level rate limiting on public shops.
 
 ## Payment Verification
 
-There are two modes:
+There are two payment verification modes:
 
 - `trusted_agentcart_token`: hackathon/demo mode. The merchant token authenticates the gateway, and the plugin checks receipt amount/currency against the stored quote. This is not sufficient for production settlement.
 - `external_verifier`: production shape. The plugin POSTs quote, quote hash, expected amount/currency/merchant, and receipt to `AGENTCART_PAYMENT_VERIFIER_URL`. Only verifier responses with `ok: true` create a paid WooCommerce order.
+
+There are also two checkout authorization modes:
+
+- `trusted_token_or_verifier`: local/private mode. A trusted gateway token can
+  create quote-bound demo orders when no verifier is configured.
+- `external_verifier_only`: production mode. Order creation requires an external
+  verifier; the merchant token cannot create a paid order through demo fallback.
 
 The verifier response must bind the payment to the exact quote and transaction.
 See `../docs/VERIFIER_CONTRACT.md` for the production verifier contract. Minimal
