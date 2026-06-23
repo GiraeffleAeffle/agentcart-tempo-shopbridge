@@ -124,7 +124,7 @@ Definition of done:
 Current alpha status: ShopBridge quotes through WooCommerce cart, tax, shipping,
 stock, and order APIs; exposes merchant-controlled product exposure modes;
 publishes automatic and explicit item-level aftercare policy metadata; and
-renders a guided setup checklist in `WooCommerce -> AgentCart` for identity,
+renders a guided setup checklist in `WooCommerce -> AgentCart` for merchant id,
 agent-safe products, tax/shipping, payment verifier, registry proof, and sandbox
 testing. The plugin publishes a registry onboarding bundle with the suggested
 record, proof, revocation document, and one-entry feed so registries can ingest

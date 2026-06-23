@@ -14,6 +14,7 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 global $wpdb;
 
 $options = [
+    'agentcart_shopbridge_merchant_id',
     'agentcart_shopbridge_token',
     'agentcart_shopbridge_payment_verifier_url',
     'agentcart_shopbridge_payment_verifier_token',

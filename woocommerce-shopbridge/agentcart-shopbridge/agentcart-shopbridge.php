@@ -32,6 +32,7 @@ final class AgentCart_ShopBridge {
     const RATE_LIMIT_TRANSIENT_PREFIX = 'agentcart_shopbridge_rate_';
     const CHECKOUT_LOCK_TTL_SECONDS = 120;
     const RATE_LIMIT_WINDOW_SECONDS = 60;
+    const MERCHANT_ID_OPTION = 'agentcart_shopbridge_merchant_id';
     const PAYMENT_VERIFIER_URL_OPTION = 'agentcart_shopbridge_payment_verifier_url';
     const PAYMENT_VERIFIER_TOKEN_OPTION = 'agentcart_shopbridge_payment_verifier_token';
     const CHECKOUT_MODE_OPTION = 'agentcart_shopbridge_checkout_mode';
@@ -131,6 +132,11 @@ final class AgentCart_ShopBridge {
     }
 
     public static function register_settings() {
+        register_setting('agentcart_shopbridge', self::MERCHANT_ID_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_merchant_id_setting'],
+            'default' => '',
+        ]);
         register_setting('agentcart_shopbridge', self::TOKEN_OPTION, [
             'type' => 'string',
             'sanitize_callback' => 'sanitize_text_field',
@@ -265,6 +271,13 @@ final class AgentCart_ShopBridge {
     public static function sanitize_checkout_mode_setting($value) {
         $mode = sanitize_key((string) $value);
         return in_array($mode, ['trusted_token_or_verifier', 'external_verifier_only'], true) ? $mode : 'trusted_token_or_verifier';
+    }
+
+    public static function sanitize_merchant_id_setting($value) {
+        $value = strtolower(trim(sanitize_text_field((string) $value)));
+        $value = preg_replace('/[^a-z0-9._-]+/', '-', $value);
+        $value = trim((string) $value, '.-_');
+        return substr($value, 0, 96);
     }
 
     public static function sanitize_cancellation_window_minutes_setting($value) {
@@ -452,6 +465,7 @@ final class AgentCart_ShopBridge {
             <form id="agentcart-settings-form" method="post" action="options.php">
                 <?php settings_fields('agentcart_shopbridge'); ?>
                 <table class="form-table" role="presentation">
+                    <?php self::render_text_setting_row('Merchant id', self::MERCHANT_ID_OPTION, self::merchant_id(), 'AGENTCART_MERCHANT_ID', 'Stable public id for registry records, quote approvals, payment verification, and order audit. Use a domain-like or slug value such as shop.example or my-shop.'); ?>
                     <?php self::render_text_setting_row('Merchant token', self::TOKEN_OPTION, self::merchant_token_value(), 'AGENTCART_SHOPBRIDGE_TOKEN', 'Shared secret for a trusted AgentCart gateway. Production public checkout should use a payment verifier.'); ?>
                     <?php self::render_text_setting_row('Support email', self::SUPPORT_EMAIL_OPTION, $support_email, 'AGENTCART_SUPPORT_EMAIL', 'Published in the merchant-of-record block for customer support.'); ?>
                     <?php self::render_text_setting_row('Returns policy URL', self::RETURNS_URL_OPTION, $returns_url, 'AGENTCART_RETURNS_URL', 'Published to buyer agents for refunds, returns, cancellation requests, and support handoff. Defaults to /returns when no override is set.'); ?>
@@ -1266,10 +1280,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function stable_merchant_id_configured() {
-        if (!defined('AGENTCART_MERCHANT_ID')) {
-            return false;
-        }
-        $merchant_id = sanitize_key((string) AGENTCART_MERCHANT_ID);
+        $merchant_id = self::merchant_id();
         return $merchant_id !== '' && $merchant_id !== 'woocommerce-demo-shop';
     }
 
@@ -3884,7 +3895,7 @@ final class AgentCart_ShopBridge {
 
     private static function merchant() {
         return [
-            'id' => defined('AGENTCART_MERCHANT_ID') ? AGENTCART_MERCHANT_ID : 'woocommerce-demo-shop',
+            'id' => self::merchant_id(),
             'name' => get_bloginfo('name') ?: 'WooCommerce Demo Shop',
             'merchant_of_record' => [
                 'name' => get_bloginfo('name') ?: 'WooCommerce Demo Shop',
@@ -3896,6 +3907,17 @@ final class AgentCart_ShopBridge {
             'returns_url' => self::returns_url(),
             'merchant_policy' => self::merchant_policy(),
         ];
+    }
+
+    private static function merchant_id() {
+        if (defined('AGENTCART_MERCHANT_ID')) {
+            $value = self::sanitize_merchant_id_setting((string) AGENTCART_MERCHANT_ID);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        $value = self::sanitize_merchant_id_setting((string) get_option(self::MERCHANT_ID_OPTION, ''));
+        return $value !== '' ? $value : 'woocommerce-demo-shop';
     }
 
     private static function agentcart_enabled_meta_query() {

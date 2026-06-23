@@ -62,8 +62,8 @@ actions.
 1. Upload `agentcart-shopbridge.zip` from WordPress admin under `Plugins -> Add New -> Upload Plugin`.
 2. Activate `AgentCart ShopBridge for WooCommerce`.
 3. Open `WooCommerce -> AgentCart`.
-4. Configure support email, payment recipient or Stripe profile, verifier URL,
-   checkout mode, and product exposure mode.
+4. Configure stable merchant id, support email, payment recipient or Stripe
+   profile, verifier URL, checkout mode, and product exposure mode.
 5. Add normal WooCommerce products and expose only the products that are safe
    for agent checkout.
 6. Share the registry bundle URL with a registry or local buyer-agent test.

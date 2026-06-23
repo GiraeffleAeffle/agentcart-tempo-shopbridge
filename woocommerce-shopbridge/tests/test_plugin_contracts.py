@@ -199,6 +199,29 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'trusted_token_checkout_enabled'", capability_body + requirements_body)
         self.assertIn("'external_verifier_required_for_checkout'", capability_body + quote_hash_body + requirements_body)
 
+    def test_stable_merchant_id_is_admin_configurable(self) -> None:
+        settings_body = function_body("register_settings")
+        render_body = function_body("render_settings_page")
+        sanitizer_body = function_body("sanitize_merchant_id_setting")
+        readiness_body = function_body("stable_merchant_id_configured")
+        merchant_body = function_body("merchant")
+        merchant_id_body = function_body("merchant_id")
+        uninstall = UNINSTALL.read_text()
+
+        self.assertIn("MERCHANT_ID_OPTION", SOURCE)
+        self.assertIn("agentcart_shopbridge_merchant_id", uninstall)
+        self.assertIn("sanitize_merchant_id_setting", settings_body)
+        self.assertIn("AGENTCART_MERCHANT_ID", render_body)
+        self.assertIn("Merchant id", render_body)
+        self.assertIn("/[^a-z0-9._-]+/", sanitizer_body)
+        self.assertIn("substr($value, 0, 96)", sanitizer_body)
+        self.assertIn("self::merchant_id()", readiness_body)
+        self.assertNotIn("!defined('AGENTCART_MERCHANT_ID')", readiness_body)
+        self.assertIn("'id' => self::merchant_id()", merchant_body)
+        self.assertIn("AGENTCART_MERCHANT_ID", merchant_id_body)
+        self.assertIn("get_option(self::MERCHANT_ID_OPTION", merchant_id_body)
+        self.assertIn("'woocommerce-demo-shop'", merchant_id_body)
+
     def test_rate_limiter_has_endpoint_policies_and_retry_metadata(self) -> None:
         policy_body = function_body("rate_limit_policy")
         limiter_body = function_body("enforce_rate_limit")

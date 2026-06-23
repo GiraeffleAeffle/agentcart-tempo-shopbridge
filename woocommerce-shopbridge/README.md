@@ -26,7 +26,7 @@ The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_suppo
 1. Download or build `dist/agentcart-shopbridge.zip`.
 2. In WordPress admin, open `Plugins -> Add New -> Upload Plugin`.
 3. Select the ZIP, install, and activate `AgentCart ShopBridge for WooCommerce`.
-4. Open `WooCommerce -> AgentCart` and configure support, Tempo, verifier, and gateway settings.
+4. Open `WooCommerce -> AgentCart` and configure merchant id, support, Tempo or Stripe/card profile, verifier, and gateway settings.
 5. Add or edit normal WooCommerce products.
 6. Choose a product exposure mode: manual product checkbox, WooCommerce product tag, or all published simple products.
 
@@ -68,6 +68,10 @@ define('AGENTCART_PRODUCT_EXPOSURE_TAG', 'agentcart-safe');
 ```
 
 Constants override values saved from the WordPress admin settings page.
+Merchants who do not manage settings through deployment config can set the same
+stable merchant id from `WooCommerce -> AgentCart`. The id is published in the
+manifest, registry bundle, quote approvals, payment verification payloads, and
+WooCommerce order audit metadata.
 
 ### WordPress Plugin Directory
 
@@ -83,7 +87,7 @@ payment verification metadata, and product-level AgentCart metadata so merchants
 retain their commerce audit trail.
 
 The `WooCommerce -> AgentCart` admin page includes a guided setup checklist for
-merchant identity/support, agent-safe product exposure, WooCommerce tax and
+merchant id/support, agent-safe product exposure, WooCommerce tax and
 shipping setup, payment verifier configuration, registry proof publication, and
 sandbox quote/order testing. The same public-safe setup state is also exposed in
 the capability document for remote onboarding tools.
@@ -112,6 +116,7 @@ back to demo settlement for order creation.
 The settings page also shows:
 
 - discovery manifest URL
+- stable merchant id
 - registry domain proof URL and configured state
 - registry onboarding bundle URL for registry or local buyer-agent ingestion
 - catalog, quote, and paid-order endpoints
