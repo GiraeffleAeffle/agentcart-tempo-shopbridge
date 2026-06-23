@@ -123,6 +123,26 @@ def registry_manifest_and_record(
     return manifest, record, proof
 
 
+def attach_revocation_url(manifest, record, proof, *, domain: str = "merchant.example"):
+    revocation_url = f"https://{domain}/.well-known/agentcart-registry-revocations.json"
+    claim = manifest["discovery"]["registry_claim"]
+    claim["revocation_url"] = revocation_url
+    record["revocation_url"] = revocation_url
+    record["registry_claim_hash"] = shopbridge_direct.sha256_hex(claim)
+    manifest["discovery"]["registry_claim_hash"] = record["registry_claim_hash"]
+    manifest["discovery"]["suggested_registry_record"] = record
+    proof["registry_claim_hash"] = record["registry_claim_hash"]
+    proof["revocation_url"] = revocation_url
+    proof["record_hash"] = shopbridge_direct.registry_record_hash(record)
+    return {
+        "type": "agentcart-registry-revocations",
+        "merchant_id": record["merchant_id"],
+        "domain": record["domain"],
+        "updated_at": record["updated_at"],
+        "revocations": [],
+    }
+
+
 def sample_order_status(**overrides):
     order = {
         "id": "123",
@@ -418,6 +438,56 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
         self.assertFalse(result["ok"], result)
         self.assertIn("domain_proof_record_hash_mismatch", result["verification"]["errors"])
+
+    def test_resolve_merchant_rejects_matching_revocation_document(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+        revocation = attach_revocation_url(manifest, record, proof)
+        revocation["revocations"].append(
+            {
+                "record_hash": shopbridge_direct.registry_record_hash(record),
+                "revoked_at": "2999-01-02T00:00:00Z",
+            }
+        )
+
+        result = shopbridge_direct.command_resolve_merchant(
+            {
+                "registry_record": record,
+                "manifest_snapshot": manifest,
+                "proof_snapshot": proof,
+                "revocation_snapshot": revocation,
+            }
+        )
+
+        self.assertFalse(result["ok"], result)
+        self.assertIn("record_revoked_by_revocation_document", result["verification"]["errors"])
+
+    def test_discover_quotes_rejects_revoked_registry_record_before_catalog(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+        revocation = attach_revocation_url(manifest, record, proof)
+        revocation["revocations"].append(
+            {
+                "record_hash": shopbridge_direct.registry_record_hash(record),
+                "revoked_at": "2999-01-02T00:00:00Z",
+            }
+        )
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected catalog call")):
+            result = shopbridge_direct.command_discover_quotes(
+                {
+                    "registry_records": [record],
+                    "manifest_snapshots": {"merchant-tea-shop": manifest},
+                    "proof_snapshots": {"merchant-tea-shop": proof},
+                    "revocation_snapshots": {"merchant-tea-shop": revocation},
+                    "query": "tea",
+                    "country": "DE",
+                    "postal_code": "10115",
+                    "payment_rail": "stripe-card-mpp",
+                }
+            )
+
+        self.assertIsNone(result["winner"])
+        self.assertEqual(result["rejected"][0]["merchant_id"], "merchant-tea-shop")
+        self.assertIn("record_revoked_by_revocation_document", result["rejected"][0]["detail"]["errors"])
 
     def test_resolve_merchant_rejects_external_http_without_fetching(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()

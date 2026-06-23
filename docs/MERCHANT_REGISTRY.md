@@ -1,7 +1,7 @@
 # Merchant Registry And Discovery
 
 > Status: alpha implemented. The current gateway can load a signed off-chain
-> registry JSON feed, verify claim/domain/payment/shipping bindings,
+> registry JSON feed, verify claim/domain/payment/shipping/revocation bindings,
 > and exclude unverified external merchants from quote tournaments by default.
 > The same verifier interface is intended to sit behind an onchain or
 > append-only registry later.
@@ -36,7 +36,7 @@ marketplace and not a product catalog.
   "ship_to_countries": ["DE", "AT"],
   "updated_at": "2026-06-18T00:00:00Z",
   "revoked_at": null,
-  "revocation_url": "https://shop.example/.well-known/agentcart-revocations.json",
+  "revocation_url": "https://shop.example/.well-known/agentcart-registry-revocations.json",
   "signature_alg": "https-domain-proof",
   "signature": "",
   "proof": {
@@ -89,7 +89,8 @@ eligible merchants, but final bidding should not leak household demand broadly.
    stable registry claim hash.
 3. Agent fetches the registry record from an allowlisted off-chain feed or
    onchain registry.
-4. Agent rejects revoked or stale records.
+4. Agent rejects stale records, records with `revoked_at`, or records listed in
+   the merchant-hosted revocation document.
 5. Agent verifies that `manifest_url` host matches the registered domain.
 6. Agent fetches the manifest from the merchant domain.
 7. Agent canonicalizes the stable registry claim inside the manifest and
@@ -134,6 +135,7 @@ the registered merchant domain under `/.well-known/`:
   "payment_network": "tempo-testnet",
   "payment_recipient": "0x...",
   "updated_at": "2026-06-18T00:00:00Z",
+  "revocation_url": "https://shop.example/.well-known/agentcart-registry-revocations.json",
   "record_hash": "def456..."
 }
 ```
@@ -148,8 +150,46 @@ another verifier behind the same proof seam.
 
 The WooCommerce ShopBridge plugin exposes this proof at
 `/.well-known/agentcart-registry-proof.json`. It automatically maintains the
-claim hash, record hash, and `updated_at` timestamp from stable settings, so
-merchants do not paste registry hashes during normal onboarding.
+claim hash, record hash, `updated_at` timestamp, and revocation URL from stable
+settings, so merchants do not paste registry hashes during normal onboarding.
+
+## Merchant-Owned Revocation
+
+When a registry record includes `revocation_url`, AgentCart requires that URL to
+be HTTPS, on the registered merchant domain, and under `/.well-known/`. The
+current ShopBridge plugin publishes an empty revocation document by default:
+
+```json
+{
+  "type": "agentcart-registry-revocations",
+  "merchant_id": "tea-shop.example",
+  "domain": "shop.example",
+  "updated_at": "2026-06-18T00:00:00Z",
+  "revocations": []
+}
+```
+
+To revoke a bad or compromised record, the document can include the canonical
+record hash:
+
+```json
+{
+  "type": "agentcart-registry-revocations",
+  "merchant_id": "tea-shop.example",
+  "domain": "shop.example",
+  "updated_at": "2026-06-18T01:00:00Z",
+  "revocations": [
+    {
+      "record_hash": "def456...",
+      "revoked_at": "2026-06-18T01:00:00Z"
+    }
+  ]
+}
+```
+
+Buyer verifiers fail closed when the revocation pointer is invalid, unreachable,
+off-domain, or lists the current record hash. Existing local/test records can
+omit `revocation_url`, but public records should include it.
 
 ## Registry Record Helper
 
@@ -186,7 +226,8 @@ For reproducible local tests, use snapshots instead of network fetches:
 python3 gateway/scripts/registry_record.py verify \
   --record-file merchant-registry-record.json \
   --manifest-file manifest.json \
-  --proof-file proof.json
+  --proof-file proof.json \
+  --revocation-file revocations.json
 ```
 
 This keeps merchant onboarding close to the normal WooCommerce flow: install the
@@ -226,7 +267,7 @@ The gateway now:
 - fetches each manifest, or reads `manifest_snapshot` for reproducible local
   tests;
 - canonicalizes and hashes either the stable registry claim or legacy manifest;
-- verifies domain, hash, signature/proof, revocation, updated timestamp,
+- verifies domain, hash, signature/proof, revocation URL/document, updated timestamp,
   payment recipient, and shipping country scope;
 - verifies `hmac-sha256` private-feed records and `https-domain-proof`
   merchant-owned records;
@@ -242,7 +283,7 @@ feed to an onchain registry without changing buyer or merchant adapters.
 
 - Should registry updates be wallet-signed, DNS-based, or both?
 - How should merchants rotate payment recipients?
-- How should compromised manifests be revoked?
+- Should revocation documents be mirrored into an append-only transparency log?
 - Should there be a neutral allowlist for consumer-protection-compliant shops?
 - How can small merchants stay discoverable without recreating ad-market
   dynamics?

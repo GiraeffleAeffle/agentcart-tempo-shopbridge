@@ -267,7 +267,8 @@ Deliverables:
 - fetch the manifest from the registered merchant domain and verify the
   canonical hash before catalog or quote calls;
 - fail closed on domain mismatch, claim/manifest hash mismatch, revoked records,
-  invalid signature/proof, or payment-recipient mismatch;
+  invalid/missing advertised revocation document, invalid signature/proof, or
+  payment-recipient mismatch;
 - keep product catalog, prices, stock, buyer intent, address, and quotes
   off-chain and out of the public registry;
 - mark merchant/product text as untrusted data so it can be summarized or
@@ -277,8 +278,9 @@ Definition of done:
 
 - quote tournaments only include verified merchants unless the user explicitly
   supplies a local override;
-- tests cover valid record, hash mismatch, domain mismatch, revoked record,
-  payment-recipient mismatch, and hostile product text.
+- tests cover valid record, hash mismatch, domain mismatch, revoked record and
+  matching revocation document, payment-recipient mismatch, and hostile product
+  text.
 
 ## Architecture Deepening
 

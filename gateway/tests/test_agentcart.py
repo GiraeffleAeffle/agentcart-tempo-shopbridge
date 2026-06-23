@@ -145,7 +145,7 @@ def signed_registry_record(
 
 
 def domain_proof_document(record: dict[str, object], *, record_hash: str | None = None) -> dict[str, object]:
-    return {
+    proof = {
         "merchant_id": record["merchant_id"],
         "domain": record["domain"],
         "manifest_url": record["manifest_url"],
@@ -154,6 +154,19 @@ def domain_proof_document(record: dict[str, object], *, record_hash: str | None 
         "payment_recipient": record["payment_recipient"],
         "updated_at": record["updated_at"],
         "record_hash": record_hash or agentcart.registry_record_hash(record),
+    }
+    if record.get("revocation_url"):
+        proof["revocation_url"] = record["revocation_url"]
+    return proof
+
+
+def revocation_document(record: dict[str, object], revocations: list[dict[str, object]] | None = None) -> dict[str, object]:
+    return {
+        "type": "agentcart-registry-revocations",
+        "merchant_id": record["merchant_id"],
+        "domain": record["domain"],
+        "updated_at": record["updated_at"],
+        "revocations": revocations or [],
     }
 
 
@@ -269,6 +282,53 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
             self.assertEqual(entries["signed-tea-shop"]["verification"]["signature_alg"], "https-domain-proof")
             self.assertIn("signed-tea-shop", service.adapters)
+
+    def test_domain_proof_registry_record_verifies_with_empty_revocation_document(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(
+                manifest,
+                revocation_url="https://signed.example/.well-known/agentcart-registry-revocations.json",
+            )
+            record["revocation_snapshot"] = revocation_document(record)
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
+            self.assertIn("signed-tea-shop", service.adapters)
+
+    def test_domain_proof_registry_record_rejects_revocation_document_match(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(
+                manifest,
+                revocation_url="https://signed.example/.well-known/agentcart-registry-revocations.json",
+            )
+            record["revocation_snapshot"] = revocation_document(
+                record,
+                [
+                    {
+                        "record_hash": agentcart.registry_record_hash(record),
+                        "revoked_at": agentcart.isoformat(agentcart.utcnow()),
+                    }
+                ],
+            )
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertIn("record_revoked_by_revocation_document", entries["signed-tea-shop"]["verification"]["errors"])
+            self.assertNotIn("signed-tea-shop", service.adapters)
 
     def test_domain_proof_rejects_wrong_record_hash(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

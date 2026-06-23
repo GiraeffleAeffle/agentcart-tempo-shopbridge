@@ -67,6 +67,7 @@ def shopbridge_manifest_with_published_claim() -> dict[str, object]:
         }
     }
     claim = registry_record_tool.registry_claim(manifest)
+    claim["revocation_url"] = "https://merchant.example/.well-known/agentcart-registry-revocations.json"
     record = {
         **claim,
         "registry_claim_hash_alg": "sha-256",
@@ -92,8 +93,19 @@ def shopbridge_manifest_with_published_claim() -> dict[str, object]:
         "registry_updated_at": record["updated_at"],
         "registry_ready": True,
         "suggested_registry_record": record,
+        "revocation_url": record["revocation_url"],
     }
     return manifest
+
+
+def revocation_document(record: dict[str, object], revocations: list[dict[str, object]] | None = None) -> dict[str, object]:
+    return {
+        "type": "agentcart-registry-revocations",
+        "merchant_id": record["merchant_id"],
+        "domain": record["domain"],
+        "updated_at": record["updated_at"],
+        "revocations": revocations or [],
+    }
 
 
 class RegistryRecordToolTests(unittest.TestCase):
@@ -173,11 +185,36 @@ class RegistryRecordToolTests(unittest.TestCase):
             record,
             manifest_snapshot=manifest,
             proof_snapshot=proof,
+            revocation_snapshot=revocation_document(record),
         )
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["verification"]["state"], "verified")
         self.assertEqual(result["entry"]["registry_claim_hash"], record["registry_claim_hash"])
+
+    def test_revoked_auto_managed_shopbridge_registry_record_is_rejected(self) -> None:
+        manifest = shopbridge_manifest_with_published_claim()
+        record = registry_record_tool.build_registry_record(manifest)
+        proof = registry_record_tool.domain_proof_document(record)
+        revocation = revocation_document(
+            record,
+            [
+                {
+                    "record_hash": registry_record_tool.agentcart.registry_record_hash(record),
+                    "revoked_at": registry_record_tool.iso_now(),
+                }
+            ],
+        )
+
+        result = registry_record_tool.verify_registry_record(
+            record,
+            manifest_snapshot=manifest,
+            proof_snapshot=proof,
+            revocation_snapshot=revocation,
+        )
+
+        self.assertFalse(result["ok"], result)
+        self.assertIn("record_revoked_by_revocation_document", result["verification"]["errors"])
 
     def test_generated_domain_proof_record_verifies_with_snapshots(self) -> None:
         manifest = shopbridge_manifest()

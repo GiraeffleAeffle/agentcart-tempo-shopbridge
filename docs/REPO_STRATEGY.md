@@ -22,7 +22,7 @@ agentcart/
 
 Why this is best for the hackathon:
 
-- one URL for judges;
+- one URL for reviewers;
 - one README and one demo script;
 - easier to explain how the household agent and merchant plugin fit together;
 - less coordination overhead during the final polish.

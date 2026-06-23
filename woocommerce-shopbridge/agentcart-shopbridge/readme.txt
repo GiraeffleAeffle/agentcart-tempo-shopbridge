@@ -22,6 +22,7 @@ fulfillment, refunds, and support. The plugin exposes:
 
 * `/.well-known/agentcart.json`
 * `/.well-known/agentcart-registry-proof.json`
+* `/.well-known/agentcart-registry-revocations.json`
 * `/wp-json/agentcart/v1/catalog`
 * `/wp-json/agentcart/v1/quote`
 * `/wp-json/agentcart/v1/orders`
@@ -52,7 +53,7 @@ actions.
   final-sale goods, substitutions, refunds, and cancellations, inferred from
   WooCommerce tags, categories, and attributes with optional explicit product
   overrides.
-* Domain-proof fields for a future AgentCart merchant registry.
+* Auto-managed domain-proof and revocation fields for an AgentCart merchant registry.
 
 == Installation ==
 

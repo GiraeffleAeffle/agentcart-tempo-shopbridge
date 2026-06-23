@@ -52,6 +52,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             self.assertIn(field, readme)
         for endpoint in [
             "/.well-known/agentcart.json",
+            "/.well-known/agentcart-registry-proof.json",
+            "/.well-known/agentcart-registry-revocations.json",
             "/wp-json/agentcart/v1/catalog",
             "/wp-json/agentcart/v1/quote",
             "/wp-json/agentcart/v1/orders",
@@ -240,6 +242,22 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("#agentcart-settings", SOURCE)
         self.assertIn("#agentcart-product-exposure", SOURCE)
         self.assertNotIn("admin_url(", guide_body)
+
+    def test_registry_revocation_endpoint_is_auto_published_and_bound(self) -> None:
+        well_known_body = function_body("maybe_serve_well_known_manifest")
+        proof_body = function_body("registry_domain_proof")
+        revocations_body = function_body("registry_revocations")
+        claim_body = function_body("registry_claim")
+        capability_body = function_body("capability_document")
+        signature_payload_body = function_body("registry_signature_payload")
+
+        self.assertIn("agentcart-registry-revocations.json", well_known_body)
+        self.assertIn("registry_revocation_url", proof_body)
+        self.assertIn("'revocations' => []", revocations_body)
+        self.assertIn("'revocation_url' => self::registry_revocation_url()", claim_body)
+        self.assertIn("'registry_revocations' => self::registry_revocation_url()", capability_body)
+        self.assertIn("'revocation_url' => self::registry_revocation_url()", capability_body)
+        self.assertIn("'revocation_snapshot'", signature_payload_body)
 
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)

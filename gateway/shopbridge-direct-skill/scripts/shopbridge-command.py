@@ -73,7 +73,15 @@ def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in record.items()
-        if key not in {"signature", "verification", "manifest", "manifest_snapshot", "proof_snapshot"}
+        if key
+        not in {
+            "signature",
+            "verification",
+            "manifest",
+            "manifest_snapshot",
+            "proof_snapshot",
+            "revocation_snapshot",
+        }
     }
 
 
@@ -183,6 +191,7 @@ def verify_registry_claim(record: dict[str, Any], manifest: dict[str, Any]) -> l
         "payment_recipient",
         "stripe_profile_id",
         "proof_url",
+        "revocation_url",
     ):
         expected = str(record.get(field) or "")
         supplied = str(claim.get(field) or "")
@@ -202,6 +211,8 @@ def verify_domain_proof(record: dict[str, Any], proof: dict[str, Any]) -> list[s
     elif supplied_hash != expected_hash:
         errors.append("domain_proof_record_hash_mismatch")
     fields = ["merchant_id", "domain", "manifest_url", "payment_network", "payment_recipient", "updated_at"]
+    if record.get("revocation_url"):
+        fields.append("revocation_url")
     fields.append("registry_claim_hash" if record.get("registry_claim_hash") else "manifest_hash")
     for field in fields:
         expected = str(record.get(field) or "")
@@ -210,6 +221,97 @@ def verify_domain_proof(record: dict[str, Any], proof: dict[str, Any]) -> list[s
             errors.append(f"domain_proof_{field}_mismatch")
         elif expected and not supplied:
             errors.append(f"domain_proof_{field}_missing")
+    return errors
+
+
+def validate_revocation_document(record: dict[str, Any], document: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    expected_merchant_id = str(record.get("merchant_id") or "")
+    supplied_merchant_id = str(document.get("merchant_id") or "")
+    if supplied_merchant_id and expected_merchant_id and supplied_merchant_id != expected_merchant_id:
+        errors.append("revocation_merchant_id_mismatch")
+    expected_domain = str(record.get("domain") or "")
+    supplied_domain = str(document.get("domain") or "")
+    if supplied_domain and expected_domain and supplied_domain.lower() != expected_domain.lower():
+        errors.append("revocation_domain_mismatch")
+    return errors
+
+
+def revocation_document_revokes_record(record: dict[str, Any], document: dict[str, Any]) -> bool:
+    candidates: list[dict[str, Any]] = [document]
+    for key in ("revocations", "revoked_records", "records"):
+        value = document.get(key)
+        if isinstance(value, list):
+            candidates.extend(entry for entry in value if isinstance(entry, dict))
+
+    expected_hash = registry_record_hash(record)
+    merchant_id = str(record.get("merchant_id") or "")
+    domain = str(record.get("domain") or "").lower()
+    for candidate in candidates:
+        revoked = bool(candidate.get("revoked")) or bool(candidate.get("revoked_at"))
+        if not revoked:
+            continue
+        supplied_hash = str(candidate.get("record_hash") or candidate.get("registry_record_hash") or "")
+        if supplied_hash:
+            if supplied_hash == expected_hash:
+                return True
+            continue
+        supplied_merchant_id = str(candidate.get("merchant_id") or "")
+        supplied_domain = str(candidate.get("domain") or "").lower()
+        applies_to = str(candidate.get("applies_to") or "").lower()
+        if (
+            applies_to in {"merchant", "all_records"}
+            and merchant_id
+            and supplied_merchant_id == merchant_id
+            and (not supplied_domain or supplied_domain == domain)
+        ):
+            return True
+    return False
+
+
+def revocation_url_errors(record: dict[str, Any], revocation_url: str) -> list[str]:
+    errors: list[str] = []
+    domain = str(record.get("domain") or "")
+    parsed_revocation = parsed_url(revocation_url)
+    if parsed_revocation.scheme not in {"http", "https"} or not parsed_revocation.netloc:
+        errors.append("revocation_url_invalid")
+    else:
+        if parsed_revocation.scheme != "https" and not local_registry_host(parsed_revocation.hostname or ""):
+            errors.append("revocation_url_requires_https")
+        if domain and not domain_matches(domain, parsed_revocation):
+            errors.append("revocation_url_domain_mismatch")
+        if not parsed_revocation.path.startswith("/.well-known/"):
+            errors.append("revocation_url_requires_well_known_path")
+    return errors
+
+
+def verify_registry_revocation(
+    record: dict[str, Any],
+    revocation_document: dict[str, Any] | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    revocation_url = str(record.get("revocation_url") or "")
+    if not revocation_url:
+        return errors
+    errors.extend(revocation_url_errors(record, revocation_url))
+    if errors:
+        return errors
+
+    if revocation_document is None and isinstance(record.get("revocation_snapshot"), dict):
+        revocation_document = record["revocation_snapshot"]
+    if revocation_document is None:
+        try:
+            revocation_document = fetch_json_url(revocation_url)
+        except SystemExit:
+            errors.append("revocation_fetch_failed")
+            return errors
+    if not isinstance(revocation_document, dict):
+        errors.append("revocation_not_object")
+        return errors
+
+    errors.extend(validate_revocation_document(record, revocation_document))
+    if revocation_document_revokes_record(record, revocation_document):
+        errors.append("record_revoked_by_revocation_document")
     return errors
 
 
@@ -267,6 +369,8 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
     manifest_url = str(record.get("manifest_url") or "")
     domain = str(record.get("domain") or "")
     parsed_manifest = parsed_url(manifest_url)
+    if record.get("revoked_at"):
+        errors.append("record_revoked")
     if parsed_manifest.scheme not in {"http", "https"} or not parsed_manifest.netloc:
         errors.append("manifest_url_invalid")
     elif parsed_manifest.scheme != "https" and not local_registry_host(parsed_manifest.hostname or ""):
@@ -294,14 +398,18 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
 
     manifest = args.get("manifest_snapshot") if isinstance(args.get("manifest_snapshot"), dict) else None
     proof_document = args.get("proof_snapshot") if isinstance(args.get("proof_snapshot"), dict) else None
+    revocation_document = args.get("revocation_snapshot") if isinstance(args.get("revocation_snapshot"), dict) else None
     if manifest is None and isinstance(record.get("manifest_snapshot"), dict):
         manifest = record["manifest_snapshot"]
     if proof_document is None and isinstance(record.get("proof_snapshot"), dict):
         proof_document = record["proof_snapshot"]
+    if revocation_document is None and isinstance(record.get("revocation_snapshot"), dict):
+        revocation_document = record["revocation_snapshot"]
     if manifest is None and not any(error.startswith("manifest_") for error in errors):
         manifest = fetch_json_url(manifest_url)
     if proof_document is None and not any(error.startswith("domain_proof_url_") for error in errors):
         proof_document = fetch_json_url(proof_url)
+    errors.extend(verify_registry_revocation(record, revocation_document))
 
     if isinstance(manifest, dict):
         errors.extend(verify_registry_claim(record, manifest))
@@ -1485,10 +1593,13 @@ def resolve_record_for_discovery(record: dict[str, Any], args: dict[str, Any]) -
     }
     manifest_snapshot = merchant_snapshot_arg(args, "manifest_snapshots", merchant_id)
     proof_snapshot = merchant_snapshot_arg(args, "proof_snapshots", merchant_id)
+    revocation_snapshot = merchant_snapshot_arg(args, "revocation_snapshots", merchant_id)
     if manifest_snapshot:
         resolve_args["manifest_snapshot"] = manifest_snapshot
     if proof_snapshot:
         resolve_args["proof_snapshot"] = proof_snapshot
+    if revocation_snapshot:
+        resolve_args["revocation_snapshot"] = revocation_snapshot
     return command_resolve_merchant(resolve_args)
 
 

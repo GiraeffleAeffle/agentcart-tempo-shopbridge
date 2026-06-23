@@ -82,6 +82,20 @@ def proof_url_for(manifest: dict[str, Any], manifest_url: str, supplied_url: str
     return origin_for(manifest_url) + "/.well-known/agentcart-registry-proof.json"
 
 
+def revocation_url_for(manifest: dict[str, Any], manifest_url: str, supplied_url: str = "") -> str:
+    if supplied_url:
+        return supplied_url
+    discovery = manifest_discovery(manifest)
+    revocation_url = str(discovery.get("revocation_url") or "")
+    if revocation_url:
+        return revocation_url
+    claim = discovery.get("registry_claim") if isinstance(discovery.get("registry_claim"), dict) else {}
+    revocation_url = str(claim.get("revocation_url") or "")
+    if revocation_url:
+        return revocation_url
+    return ""
+
+
 def manifest_discovery(manifest: dict[str, Any]) -> dict[str, Any]:
     return manifest.get("discovery") if isinstance(manifest.get("discovery"), dict) else {}
 
@@ -150,6 +164,7 @@ def registry_claim(
     *,
     manifest_url: str = "",
     proof_url: str = "",
+    revocation_url: str = "",
 ) -> dict[str, Any]:
     discovery = manifest_discovery(manifest)
     published_claim = discovery.get("registry_claim")
@@ -171,6 +186,7 @@ def registry_claim(
         "stripe_profile_id": "",
         "ship_to_countries": shipping_countries(manifest),
         "proof_url": proof_url_for(manifest, final_manifest_url, proof_url),
+        "revocation_url": revocation_url_for(manifest, final_manifest_url, revocation_url),
     }
     for protocol in manifest.get("protocols", []) if isinstance(manifest.get("protocols"), list) else []:
         if isinstance(protocol, dict) and str(protocol.get("id") or "") == "stripe-card-mpp":
@@ -184,6 +200,7 @@ def build_registry_record(
     manifest_url: str = "",
     updated_at: str = "",
     proof_url: str = "",
+    revocation_url: str = "",
     signature_alg: str = "https-domain-proof",
     hmac_secret: str = "",
     include_manifest_snapshot: bool = False,
@@ -194,13 +211,20 @@ def build_registry_record(
             record["updated_at"] = updated_at
         if proof_url:
             record["proof"] = {"type": "https-well-known", "url": proof_url}
+        if revocation_url:
+            record["revocation_url"] = revocation_url
         record["signature_alg"] = signature_alg
         record["signature"] = ""
     else:
         merchant = merchant_block(manifest)
         discovery = manifest_discovery(manifest)
         if isinstance(discovery.get("registry_claim"), dict):
-            claim = registry_claim(manifest, manifest_url=manifest_url, proof_url=proof_url)
+            claim = registry_claim(
+                manifest,
+                manifest_url=manifest_url,
+                proof_url=proof_url,
+                revocation_url=revocation_url,
+            )
             record = {
                 **claim,
                 "registry_claim_hash_alg": "sha-256",
@@ -225,6 +249,7 @@ def build_registry_record(
                 "payment_network": payment_network,
                 "payment_recipient": payment_recipient,
                 "ship_to_countries": shipping_countries(manifest),
+                "revocation_url": revocation_url_for(manifest, final_manifest_url, revocation_url),
                 "updated_at": updated_at or iso_now(),
                 "revoked_at": None,
                 "signature_alg": signature_alg,
@@ -264,6 +289,8 @@ def domain_proof_document(record: dict[str, Any]) -> dict[str, Any]:
         "updated_at": str(record.get("updated_at") or ""),
         "record_hash": agentcart.registry_record_hash(record),
     }
+    if record.get("revocation_url"):
+        proof["revocation_url"] = str(record.get("revocation_url") or "")
     if record.get("registry_claim_hash"):
         proof["registry_claim_hash"] = str(record.get("registry_claim_hash") or "")
     else:
@@ -362,6 +389,7 @@ def verify_registry_record(
     *,
     manifest_snapshot: dict[str, Any] | None = None,
     proof_snapshot: dict[str, Any] | None = None,
+    revocation_snapshot: dict[str, Any] | None = None,
     hmac_secret: str = "",
     max_age_days: int = 180,
 ) -> dict[str, Any]:
@@ -370,6 +398,8 @@ def verify_registry_record(
         candidate["manifest_snapshot"] = manifest_snapshot
     if proof_snapshot is not None:
         candidate["proof_snapshot"] = proof_snapshot
+    if revocation_snapshot is not None:
+        candidate["revocation_snapshot"] = revocation_snapshot
     with tempfile.TemporaryDirectory() as raw_tmp:
         service = agentcart.AgentCartService(
             minimal_config(pathlib.Path(raw_tmp), hmac_secret=hmac_secret, max_age_days=max_age_days)
@@ -401,6 +431,7 @@ def build_command(args: argparse.Namespace) -> int:
         manifest_url=args.manifest_url,
         updated_at=args.updated_at,
         proof_url=args.proof_url,
+        revocation_url=args.revocation_url,
         signature_alg=args.signature_alg,
         hmac_secret=args.hmac_secret,
         include_manifest_snapshot=args.include_manifest_snapshot,
@@ -427,10 +458,12 @@ def verify_command(args: argparse.Namespace) -> int:
     record = load_json_file(args.record_file)
     manifest = load_json_file(args.manifest_file) if args.manifest_file else None
     proof = load_json_file(args.proof_file) if args.proof_file else None
+    revocation = load_json_file(args.revocation_file) if args.revocation_file else None
     result = verify_registry_record(
         record,
         manifest_snapshot=manifest,
         proof_snapshot=proof,
+        revocation_snapshot=revocation,
         hmac_secret=args.hmac_secret,
         max_age_days=args.max_age_days,
     )
@@ -450,6 +483,7 @@ def build_parser() -> argparse.ArgumentParser:
     manifest_source.add_argument("--manifest-file", type=pathlib.Path, help="Local manifest JSON file")
     build.add_argument("--updated-at", default="", help="Registry record timestamp, for example 2026-06-22T10:00:00Z")
     build.add_argument("--proof-url", default="", help="Override the domain-proof URL")
+    build.add_argument("--revocation-url", default="", help="Override the registry revocation URL")
     build.add_argument(
         "--signature-alg",
         default="https-domain-proof",
@@ -465,6 +499,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--record-file", type=pathlib.Path, required=True)
     verify.add_argument("--manifest-file", type=pathlib.Path, help="Use a local manifest snapshot instead of fetching")
     verify.add_argument("--proof-file", type=pathlib.Path, help="Use a local domain-proof snapshot instead of fetching")
+    verify.add_argument("--revocation-file", type=pathlib.Path, help="Use a local revocation snapshot instead of fetching")
     verify.add_argument("--hmac-secret", default="", help="Shared secret for hmac-sha256 private feeds")
     verify.add_argument("--max-age-days", type=int, default=180)
     verify.add_argument("--output", type=pathlib.Path, help="Write output to a file instead of stdout")

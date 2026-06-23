@@ -45,7 +45,9 @@ export SHOPBRIDGE_BASE_URL=http://127.0.0.1:8098
 ```
 
 For production-style multi-merchant discovery, pass verified registry records to
-the skill commands instead of relying on `SHOPBRIDGE_BASE_URL`.
+the skill commands instead of relying on `SHOPBRIDGE_BASE_URL`. A verified
+record binds the merchant domain, manifest URL, payment destination, proof URL,
+and revocation URL before the skill calls catalog or quote.
 
 Smoke test a known merchant:
 
@@ -99,6 +101,9 @@ Skill-only production sequence:
 resolve_merchant -> catalog/quote -> approval_packet -> human approval
   -> payment_handoff -> external payment receipt -> checkout -> order_status
 ```
+
+`resolve_merchant` must reject stale records, failed domain proofs, off-domain
+endpoints, and matching merchant-hosted revocation documents.
 
 ## AgentCart Service Setup
 

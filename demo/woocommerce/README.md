@@ -1,6 +1,6 @@
 # AgentCart WooCommerce Demo Shop
 
-This is the hackathon fake-shop path recommended by the judges:
+This is the local fake-shop path for validating the WooCommerce integration:
 
 ```text
 WooCommerce merchant installs AgentCart ShopBridge

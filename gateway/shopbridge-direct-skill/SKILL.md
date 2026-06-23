@@ -91,9 +91,9 @@ Verified multi-merchant discovery:
 ```
 
 This resolves each registry record first, rejects failed registry/domain-proof
-records before catalog or quote calls, requests private merchant quotes, ranks
-by final total and delivery by default, and returns the winning full quote plus
-an approval packet. Use `rank_by:"unit_price"` or `rank_by:"value"` for
+or revocation checks before catalog or quote calls, requests private merchant
+quotes, ranks by final total and delivery by default, and returns the winning
+full quote plus an approval packet. Use `rank_by:"unit_price"` or `rank_by:"value"` for
 grocery-style package comparisons when catalog products expose `package_size` or
 parseable `unit_size` metadata. Paid placement is not used.
 
@@ -235,12 +235,12 @@ the approved quote.
   `manifest`, `catalog`, or `quote`. A bare `SHOPBRIDGE_BASE_URL` is only a
   local override or user-specified shop.
 - Use `discover_quotes` for skill-only quote comparison. It must reject
-  merchants whose registry verification fails before making catalog or quote
-  calls.
+  merchants whose registry verification or revocation checks fail before making
+  catalog or quote calls.
 - Use `discover_basket_quotes` for grocery-style multi-item baskets. It must
-  reject merchants whose registry verification fails before making catalog or
-  quote calls, and it must not call checkout until the human approves the
-  returned whole-basket approval packet.
+  reject merchants whose registry verification or revocation checks fail before
+  making catalog or quote calls, and it must not call checkout until the human
+  approves the returned whole-basket approval packet.
 - Substitutions are allowed only when the basket item includes explicit
   `alternatives` or `substitutions`. Product descriptions, category labels, and
   merchant support text are not permission to substitute.

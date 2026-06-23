@@ -294,7 +294,15 @@ def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in record.items()
-        if key not in {"signature", "verification", "manifest", "manifest_snapshot", "proof_snapshot"}
+        if key
+        not in {
+            "signature",
+            "verification",
+            "manifest",
+            "manifest_snapshot",
+            "proof_snapshot",
+            "revocation_snapshot",
+        }
     }
 
 
@@ -1928,6 +1936,7 @@ class AgentCartService:
             errors.append("missing_domain")
         if record.get("revoked_at"):
             errors.append("record_revoked")
+        errors.extend(self.verify_registry_revocation(record))
         updated_at = str(record.get("updated_at") or "")
         if not updated_at:
             errors.append("missing_updated_at")
@@ -2074,6 +2083,8 @@ class AgentCartService:
             "payment_recipient",
             "updated_at",
         ]
+        if record.get("revocation_url"):
+            required_fields.append("revocation_url")
         if record.get("registry_claim_hash"):
             required_fields.append("registry_claim_hash")
         else:
@@ -2086,6 +2097,91 @@ class AgentCartService:
             elif expected and not supplied:
                 errors.append(f"domain_proof_{field}_missing")
         return errors
+
+    def verify_registry_revocation(self, record: dict[str, Any]) -> list[str]:
+        errors: list[str] = []
+        revocation_url = str(record.get("revocation_url") or "")
+        if not revocation_url:
+            return errors
+
+        domain = str(record.get("domain") or "")
+        parsed = urllib.parse.urlparse(revocation_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            errors.append("revocation_url_invalid")
+        elif parsed.scheme != "https" and not self.is_local_registry_host(parsed.hostname or ""):
+            errors.append("revocation_url_requires_https")
+        if parsed.netloc and domain and not self.registry_domain_matches(domain, parsed):
+            errors.append("revocation_url_domain_mismatch")
+        if not parsed.path.startswith("/.well-known/"):
+            errors.append("revocation_url_requires_well_known_path")
+        if errors:
+            return errors
+
+        revocation_snapshot = record.get("revocation_snapshot")
+        document: dict[str, Any] | None = revocation_snapshot if isinstance(revocation_snapshot, dict) else None
+        if document is None:
+            try:
+                raw_document = self.http_json(revocation_url, method="GET", token="", timeout=10)
+                if isinstance(raw_document, dict):
+                    document = raw_document
+                else:
+                    errors.append("revocation_not_object")
+            except AgentCartError:
+                errors.append("revocation_fetch_failed")
+        if document is None:
+            return errors
+
+        errors.extend(self.validate_registry_revocation_document(record, document))
+        if self.revocation_document_revokes_record(record, document):
+            errors.append("record_revoked_by_revocation_document")
+        return errors
+
+    def validate_registry_revocation_document(
+        self,
+        record: dict[str, Any],
+        document: dict[str, Any],
+    ) -> list[str]:
+        errors: list[str] = []
+        expected_merchant_id = str(record.get("merchant_id") or "")
+        supplied_merchant_id = str(document.get("merchant_id") or "")
+        if supplied_merchant_id and expected_merchant_id and supplied_merchant_id != expected_merchant_id:
+            errors.append("revocation_merchant_id_mismatch")
+        expected_domain = str(record.get("domain") or "")
+        supplied_domain = str(document.get("domain") or "")
+        if supplied_domain and expected_domain and supplied_domain.lower() != expected_domain.lower():
+            errors.append("revocation_domain_mismatch")
+        return errors
+
+    def revocation_document_revokes_record(self, record: dict[str, Any], document: dict[str, Any]) -> bool:
+        candidates: list[dict[str, Any]] = [document]
+        for key in ("revocations", "revoked_records", "records"):
+            value = document.get(key)
+            if isinstance(value, list):
+                candidates.extend(entry for entry in value if isinstance(entry, dict))
+
+        expected_hash = registry_record_hash(record)
+        merchant_id = str(record.get("merchant_id") or "")
+        domain = str(record.get("domain") or "").lower()
+        for candidate in candidates:
+            revoked = bool(candidate.get("revoked")) or bool(candidate.get("revoked_at"))
+            if not revoked:
+                continue
+            supplied_hash = str(candidate.get("record_hash") or candidate.get("registry_record_hash") or "")
+            if supplied_hash:
+                if hmac.compare_digest(expected_hash, supplied_hash):
+                    return True
+                continue
+            supplied_merchant_id = str(candidate.get("merchant_id") or "")
+            supplied_domain = str(candidate.get("domain") or "").lower()
+            applies_to = str(candidate.get("applies_to") or "").lower()
+            if (
+                applies_to in {"merchant", "all_records"}
+                and merchant_id
+                and supplied_merchant_id == merchant_id
+                and (not supplied_domain or supplied_domain == domain)
+            ):
+                return True
+        return False
 
     def verify_registry_claim_binding(self, record: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
         expected_hash = str(record.get("registry_claim_hash") or "")
@@ -2112,6 +2208,7 @@ class AgentCartService:
             "payment_recipient",
             "stripe_profile_id",
             "proof_url",
+            "revocation_url",
         ):
             expected = str(record.get(field) or "")
             supplied = str(claim.get(field) or "")
