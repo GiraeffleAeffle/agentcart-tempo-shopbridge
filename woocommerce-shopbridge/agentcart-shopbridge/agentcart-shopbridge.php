@@ -535,14 +535,14 @@ final class AgentCart_ShopBridge {
     }
 
     private static function maybe_handle_product_exposure_action() {
-        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+        if (strtoupper((string) wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
             return null;
         }
         if (empty($_POST['agentcart_product_action'])) {
             return null;
         }
         check_admin_referer('agentcart_shopbridge_product_action');
-        $action = sanitize_key((string) $_POST['agentcart_product_action']);
+        $action = sanitize_key((string) wp_unslash($_POST['agentcart_product_action']));
         if ($action === 'enable_all_published_simple') {
             $count = self::set_agentcart_exposure_for_published_simple_products('yes');
             return sprintf('%d published simple products are now AgentCart-enabled.', $count);
@@ -555,7 +555,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function maybe_handle_credential_action() {
-        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+        if (strtoupper((string) wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
             return null;
         }
         if (empty($_POST['agentcart_credential_action'])) {
@@ -703,7 +703,7 @@ final class AgentCart_ShopBridge {
         $product->update_meta_data(self::PRODUCT_DEPOSIT_META, isset($_POST[self::PRODUCT_DEPOSIT_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_FINAL_SALE_META, isset($_POST[self::PRODUCT_FINAL_SALE_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_SUBSTITUTION_SENSITIVE_META, isset($_POST[self::PRODUCT_SUBSTITUTION_SENSITIVE_META]) ? 'yes' : 'no');
-        $max_quantity = isset($_POST[self::PRODUCT_MAX_QUANTITY_META]) ? absint($_POST[self::PRODUCT_MAX_QUANTITY_META]) : 20;
+        $max_quantity = isset($_POST[self::PRODUCT_MAX_QUANTITY_META]) ? absint(wp_unslash($_POST[self::PRODUCT_MAX_QUANTITY_META])) : 20;
         $product->update_meta_data(self::PRODUCT_MAX_QUANTITY_META, (string) max(1, min(999, $max_quantity ?: 20)));
         $shipping_countries = isset($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META])
             ? self::sanitize_country_list_setting(wp_unslash($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META]))
@@ -712,7 +712,7 @@ final class AgentCart_ShopBridge {
     }
 
     public static function maybe_serve_well_known_manifest() {
-        $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+        $path = parse_url((string) wp_unslash($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
         if (!in_array($path, ['/.well-known/agentcart.json', '/.well-known/agentcart-registry-proof.json', '/.well-known/agentcart-registry-revocations.json', '/.well-known/agentcart-registry-bundle.json'], true)) {
             return;
         }
@@ -931,8 +931,8 @@ final class AgentCart_ShopBridge {
     }
 
     private static function rate_limit_client_key(WP_REST_Request $request) {
-        $ip = sanitize_text_field((string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-        $agent = sanitize_text_field((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        $ip = sanitize_text_field((string) wp_unslash($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        $agent = sanitize_text_field((string) wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
         $token_hint = '';
         if (self::has_valid_merchant_token($request)) {
             $token_hint = hash('sha256', self::merchant_token_value());

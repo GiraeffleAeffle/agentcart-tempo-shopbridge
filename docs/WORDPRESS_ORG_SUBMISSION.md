@@ -57,7 +57,13 @@ The local package check is:
 ./scripts/check-wordpress-plugin-package.py --zip dist/agentcart-shopbridge.zip
 ```
 
-It checks:
+The local review-risk check is:
+
+```sh
+./scripts/check-wordpress-plugin-review.py
+```
+
+The package check verifies:
 
 - ZIP exists and is under 10 MB;
 - all files live under the expected plugin folder;
@@ -70,8 +76,19 @@ It checks:
 - the ZIP does not include obvious development, platform, or secret-looking
   files.
 
-This checker is not a substitute for WordPress Plugin Check or manual review.
-It is a project-specific guard for the generated package.
+The review-risk check verifies project-specific patterns that WordPress Plugin
+Check or PHPCS would otherwise catch later:
+
+- `$_POST` values are unslashed before sanitization;
+- `$_SERVER` values are unslashed before use;
+- custom admin POST actions have nonce fields and nonce checks;
+- outbound HTTP calls are limited to the configured payment/refund verifier
+  wrappers and use WordPress HTTP APIs, JSON headers, timeouts, response-code
+  checks, and error handling;
+- admin badge HTML escapes generated attributes and labels.
+
+These checks are not substitutes for WordPress Plugin Check, PHPCS, or manual
+review. They are project-specific guards for this plugin and generated package.
 
 ## External Service Disclosure
 
@@ -96,7 +113,7 @@ that URL, so the readme must make that responsibility explicit.
    ./scripts/verify.sh
    ```
 
-4. Run WordPress Plugin Check or the WordPress.org review tooling locally when
+4. Run WordPress Plugin Check and PHPCS/WordPress Coding Standards locally when
    added to the project. Treat warnings about escaping, sanitization, nonces,
    HTTP calls, text domains, licensing, and external services as blockers.
 5. Upload `dist/agentcart-shopbridge.zip` at the WordPress.org add-plugin page.

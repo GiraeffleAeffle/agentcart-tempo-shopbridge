@@ -137,9 +137,12 @@ state, registry bundle/proof/revocation hash binding, catalog exposure, and
 WooCommerce quote totals against a seeded or staging shop, plus a one-command
 WooCommerce demo smoke wrapper that starts, seeds, and verifies the bundled
 local shop. The admin page can generate or rotate local merchant and verifier
-tokens while respecting secrets managed through `wp-config.php`. Production
-still needs a polished setup wizard, WP/Woo integration tests, and stronger
-hosted registry/payment-provider onboarding.
+tokens while respecting secrets managed through `wp-config.php`. The pipeline
+also runs project-specific WordPress.org package and review-risk guards for
+headers, readme metadata, external service disclosure, superglobal unslashing,
+custom admin nonces, and verifier HTTP-call boundaries. Production still needs
+a polished setup wizard, WP/Woo integration tests, official Plugin Check/PHPCS,
+and stronger hosted registry/payment-provider onboarding.
 
 ### 3. Idempotent Order And Replay Safety
 
@@ -254,14 +257,15 @@ Definition of done:
 Current alpha status: the repo packages the WooCommerce plugin ZIP and the
 skill-only buyer ZIP under `dist/`, includes WordPress release metadata
 (`readme.txt`) and conservative uninstall cleanup, verifies both artifacts in
-the main pipeline, generates `dist/agentcart-release.json` with component
-versions and artifact checksums, and documents skill-only plus home-server buyer
-setup and upgrade/rollback in `docs/BUYER_SETUP.md` and `docs/RELEASES.md`. A
-release verifier checks manifest schema, component versions, artifact sizes,
-SHA-256s, optional trusted manifest/source pins, and optional detached HMAC
-release signatures for private/self-hosted release channels. Production still
-needs PHPCS/WP integration tests, public asymmetric release signing or a managed
-update channel, plus a non-technical setup wizard.
+the main pipeline, runs local WordPress.org package/review-risk guards, generates
+`dist/agentcart-release.json` with component versions and artifact checksums,
+and documents skill-only plus home-server buyer setup and upgrade/rollback in
+`docs/BUYER_SETUP.md` and `docs/RELEASES.md`. A release verifier checks manifest
+schema, component versions, artifact sizes, SHA-256s, optional trusted
+manifest/source pins, and optional detached HMAC release signatures for
+private/self-hosted release channels. Production still needs official Plugin
+Check/PHPCS, WP integration tests, public asymmetric release signing or a
+managed update channel, plus a non-technical setup wizard.
 
 ### 7. Registry Alpha
 
