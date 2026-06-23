@@ -160,6 +160,14 @@ curl -sS -X POST "$AGENTCART_URL/v1/audit/import" \
 The service verifies `audit_packet_hash` and ignores duplicate imports with the
 same packet hash.
 
+The imported trail is then visible in the dashboard audit table and can be
+exported as JSON with:
+
+```sh
+curl -sS "$AGENTCART_URL/v1/audit/<quote_id>/export" \
+  -H "X-AgentCart-Token: $AGENTCART_TOKEN"
+```
+
 Skill-only production sequence:
 
 ```text

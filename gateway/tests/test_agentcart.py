@@ -260,7 +260,12 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("/v1/registry", openapi["paths"])
             self.assertIn("/v1/quote-tournament", openapi["paths"])
             self.assertIn("/v1/audit/import", openapi["paths"])
+            self.assertIn("/v1/audit/{purchase_id}/export", openapi["paths"])
             self.assertEqual(service.capability_document()["endpoints"]["audit_import"], "/v1/audit/import")
+            self.assertEqual(
+                service.capability_document()["endpoints"]["audit_export"],
+                "/v1/audit/{purchase_id}/export",
+            )
             self.assertIn("/openapi.json", service.llms_text())
 
     def test_registry_document_is_identity_anchor_not_ad_marketplace(self) -> None:
@@ -1296,6 +1301,16 @@ class AgentCartTests(unittest.TestCase):
             ])
             self.assertTrue(all(event["refs"]["audit_packet_hash"] == packet["audit_packet_hash"] for event in events))
             self.assertTrue(all(event["import"]["source"] == "shopbridge-direct-skill" for event in events))
+            export = service.audit_export("woo_quote_123")
+            self.assertEqual(export["schema"], "agentcart.audit_export.v1")
+            self.assertEqual(export["event_count"], 3)
+            self.assertEqual(export["imported_packet_count"], 1)
+            self.assertEqual(export["imported_packets"][0]["audit_packet_hash"], packet["audit_packet_hash"])
+            self.assertRegex(export["audit_export_hash"], r"^[0-9a-f]{64}$")
+
+            html = agentcart.render_dashboard(service.dashboard_state())
+            self.assertIn("Imported: shopbridge-direct-skill", html)
+            self.assertIn("/v1/audit/woo_quote_123/export", html)
 
             replay = service.import_audit_packet({"audit_packet": packet, "source": "shopbridge-direct-skill"})
 
@@ -1342,6 +1357,16 @@ class AgentCartTests(unittest.TestCase):
                     self.assertEqual(response.status, 201)
                     imported = json.loads(response.read())
                 self.assertTrue(imported["imported"])
+
+                export_request = urllib.request.Request(
+                    f"{base_url}/v1/audit/woo_quote_123/export",
+                    headers={"X-AgentCart-Token": "secret-token"},
+                )
+                with urllib.request.urlopen(export_request, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+                    exported = json.loads(response.read())
+                self.assertEqual(exported["schema"], "agentcart.audit_export.v1")
+                self.assertEqual(exported["imported_packet_count"], 1)
             finally:
                 server.shutdown()
                 server.server_close()
@@ -1899,11 +1924,20 @@ class AgentCartTests(unittest.TestCase):
                 "transaction_reference": "0x419813a47925f1533762a2af1a63fa45820b761821268ad0262566fac02b43da",
                 "body": {"amount": "0.01"},
             }
+            service.import_audit_packet(
+                {
+                    "audit_packet": skill_audit_packet(quote["id"]),
+                    "source": "shopbridge-direct-skill",
+                }
+            )
 
             html = agentcart.render_order_proof_page(service, order["id"])
 
             self.assertIn("Execution Proof", html)
             self.assertIn("https://explore.testnet.tempo.xyz/tx/0x419813a47925f1533762a2af1a63fa45820b761821268ad0262566fac02b43da", html)
+            self.assertIn("Imported Audit Packets", html)
+            self.assertIn("shopbridge-direct-skill", html)
+            self.assertIn(f"/v1/audit/{quote['id']}/export", html)
 
 
 if __name__ == "__main__":

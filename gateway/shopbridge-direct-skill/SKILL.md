@@ -229,7 +229,8 @@ When an AgentCart service is available later, import the checkout packet with:
 
 POST that JSON to `/v1/audit/import` on the service. The service verifies
 `audit_packet_hash` and treats repeated imports with the same hash as
-idempotent replays.
+idempotent replays. After import, the service exposes the trail in the
+dashboard and as `GET /v1/audit/{quote_id}/export`.
 
 Build a checkout payload without sending it:
 

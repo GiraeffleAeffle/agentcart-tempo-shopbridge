@@ -41,6 +41,7 @@ ORDER_REFRESH_ROUTE = re.compile(r"^/v1/orders/([A-Za-z0-9_-]+)/refresh$")
 ORDER_REFUND_ROUTE = re.compile(r"^/v1/orders/([A-Za-z0-9_-]+)/refunds$")
 ORDER_PAGE_ROUTE = re.compile(r"^/orders/([A-Za-z0-9_-]+)$")
 AUDIT_ROUTE = re.compile(r"^/v1/audit/([A-Za-z0-9_-]+)$")
+AUDIT_EXPORT_ROUTE = re.compile(r"^/v1/audit/([A-Za-z0-9_-]+)/export$")
 DEMO_CHECKOUT_ROUTE = re.compile(r"^/demo/checkout/([A-Za-z0-9_-]+)$")
 DEMO_ORDER_REFUND_ROUTE = re.compile(r"^/demo/orders/([A-Za-z0-9_-]+)/refund$")
 ENERGY_OFFER_ROUTE = re.compile(r"^/v1/energy/offers/([A-Za-z0-9_-]+)$")
@@ -2049,6 +2050,52 @@ class AgentCartService:
                     events.append(event)
         return events[-200:]
 
+    def audit_export(self, purchase_id: str) -> dict[str, Any]:
+        events = self.list_audit_events(purchase_id)
+        imported_packets = []
+        for packet_hash, metadata in self.state.get("audit_imports", {}).items():
+            if isinstance(metadata, dict) and metadata.get("quote_id") == purchase_id:
+                imported_packets.append(
+                    {
+                        "audit_packet_hash": packet_hash,
+                        "source": metadata.get("source"),
+                        "event_count": metadata.get("event_count"),
+                        "imported_at": metadata.get("imported_at"),
+                        "state": metadata.get("state"),
+                    }
+                )
+        linked_orders = [
+            {
+                "id": order.get("id"),
+                "merchant_order_id": order.get("merchant_order_id"),
+                "state": order.get("state"),
+                "approval_record_hash": order.get("approval_record_hash"),
+                "approval_decision_hash": order.get("approval_decision_hash"),
+            }
+            for order in self.state.get("orders", {}).values()
+            if isinstance(order, dict) and order.get("quote_id") == purchase_id
+        ]
+        linked_approval_ids = sorted(
+            {
+                str(event.get("refs", {}).get("approval_id"))
+                for event in events
+                if isinstance(event.get("refs"), dict) and event.get("refs", {}).get("approval_id")
+            }
+        )
+        export = {
+            "schema": "agentcart.audit_export.v1",
+            "purchase_id": purchase_id,
+            "generated_at": isoformat(utcnow()),
+            "event_count": len(events),
+            "imported_packet_count": len(imported_packets),
+            "imported_packets": imported_packets,
+            "linked_approval_ids": linked_approval_ids,
+            "linked_orders": linked_orders,
+            "events": events,
+        }
+        export["audit_export_hash"] = hash_without(export, "audit_export_hash")
+        return export
+
     def registry_source_configured(self) -> bool:
         return bool(self.config.merchant_registry_path or self.config.merchant_registry_url)
 
@@ -2946,6 +2993,10 @@ class AgentCartService:
                     "endpoint": "/v1/audit/import",
                     "idempotency": "audit_packet_hash",
                 },
+                "audit_export": {
+                    "endpoint": "/v1/audit/{purchase_id}/export",
+                    "format": "agentcart.audit_export.v1",
+                },
                 "open_tasks": bool(self.config.vikunja_api_url and self.config.vikunja_token),
                 "energy_surplus_check": bool(self.config.homeassistant_url and self.config.homeassistant_token),
                 "energy_offer_demo": {
@@ -2969,6 +3020,7 @@ class AgentCartService:
                 "checkout": "/v1/checkout",
                 "orders": "/v1/orders/{order_id}",
                 "audit": "/v1/audit/{purchase_id}",
+                "audit_export": "/v1/audit/{purchase_id}/export",
                 "audit_import": "/v1/audit/import",
                 "openapi": "/openapi.json",
                 "llms": "/llms.txt",
@@ -3217,6 +3269,14 @@ class AgentCartService:
                         "summary": "Get audit log for a quote/purchase",
                         "parameters": [{"name": "purchase_id", "in": "path", "required": True, "schema": {"type": "string"}}],
                         "responses": {"200": {"description": "Audit events"}},
+                    }
+                },
+                "/v1/audit/{purchase_id}/export": {
+                    "get": {
+                        "operationId": "exportAuditLog",
+                        "summary": "Export audit events, imported packet summaries, and linked records for a quote/purchase",
+                        "parameters": [{"name": "purchase_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Audit export"}},
                     }
                 },
                 "/v1/audit/import": {
@@ -3660,12 +3720,15 @@ Recommended flow:
 8. Read order, delivery window, shipment status, calendar sync state, and audit log.
 9. If a purchase happened through the skill-only path, import its checkout audit_packet:
    - POST /v1/audit/import
+10. Export an audit bundle for a quote/purchase:
+   - GET /v1/audit/{{purchase_id}}/export
 
 Safety rules:
 - A quote can only contain one merchant in this MVP.
 - Policy is evaluated at quote and checkout.
 - Human approval is required by default and can be delivered by API, web, chat, or Home Assistant.
 - Skill-only audit imports must carry a valid audit_packet_hash and are idempotent by that hash.
+- Audit exports are read-only bundles for review, backup, or support handoff.
 - Merchant remains merchant of record.
 - Payment provider: {provider["name"]}
 - Real settlement: {str(provider["real_settlement"]).lower()}
@@ -6092,6 +6155,11 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             self.require_auth_if_configured()
             self.send_json(self.service.get_order(order_match.group(1)))
             return
+        audit_export_match = AUDIT_EXPORT_ROUTE.match(path)
+        if audit_export_match:
+            self.require_auth_if_configured()
+            self.send_json(self.service.audit_export(audit_export_match.group(1)))
+            return
         audit_match = AUDIT_ROUTE.match(path)
         if audit_match:
             self.require_auth_if_configured()
@@ -6487,6 +6555,23 @@ def sort_by_time(items: list[dict[str, Any]], field: str = "created_at") -> list
     return sorted(items, key=lambda item: str(item.get(field) or ""))
 
 
+def audit_event_source_label(event: dict[str, Any]) -> str:
+    imported = event.get("import") if isinstance(event.get("import"), dict) else {}
+    if imported:
+        source = str(imported.get("source") or "skill import")
+        packet_hash = str(imported.get("audit_packet_hash") or "")
+        return f"Imported: {source}" + (f" ({packet_hash[:10]}...)" if packet_hash else "")
+    return "AgentCart service"
+
+
+def audit_export_link(purchase_id: Any) -> str:
+    if not purchase_id:
+        return ""
+    purchase = str(purchase_id)
+    href = f"/v1/audit/{urllib.parse.quote(purchase, safe='')}/export"
+    return f"<a href=\"{esc(href)}\" target=\"_blank\" rel=\"noreferrer\">Export JSON</a>"
+
+
 def render_registry_page(service: AgentCartService, query_text: str = "", country: str = "DE", postal_code: str = "") -> str:
     registry = service.registry_document()
     entries = registry.get("entries", [])
@@ -6736,7 +6821,7 @@ def render_dashboard(state: dict[str, Any]) -> str:
         for offer in energy_offers[:8]
     )
     audit_rows = "\n".join(
-        f"<tr><td>{esc(event['timestamp'])}</td><td>{esc(event['event_type'])}</td><td>{esc(event['actor'])}</td><td>{esc(event['reason'])}</td></tr>"
+        f"<tr><td>{esc(event['timestamp'])}</td><td>{esc(event['event_type'])}</td><td>{esc(event['actor'])}</td><td>{esc(event['reason'])}</td><td>{esc(audit_event_source_label(event))}<br>{audit_export_link(event.get('purchase_id'))}</td></tr>"
         for event in audit[:12]
     )
     return f"""<!doctype html>
@@ -6810,7 +6895,7 @@ def render_dashboard(state: dict[str, Any]) -> str:
     <h2>Energy Offers</h2>
     <table><thead><tr><th>ID</th><th>State</th><th>Quantity</th><th>Price</th><th>Total</th><th>Settlement</th></tr></thead><tbody>{energy_rows or '<tr><td colspan="6">No energy offers yet.</td></tr>'}</tbody></table>
     <h2>Audit Log</h2>
-    <table><thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Reason</th></tr></thead><tbody>{audit_rows or '<tr><td colspan="4">No audit events yet.</td></tr>'}</tbody></table>
+    <table><thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Reason</th><th>Source</th></tr></thead><tbody>{audit_rows or '<tr><td colspan="5">No audit events yet.</td></tr>'}</tbody></table>
   </main>
 </body>
 </html>"""
@@ -7077,9 +7162,16 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
     calendar_event = order.get("calendar_event") if isinstance(order.get("calendar_event"), dict) else {}
     refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
     audit_events = service.list_audit_events(order["quote_id"])
+    audit_export = service.audit_export(order["quote_id"])
+    imported_packets = audit_export.get("imported_packets", [])
     audit_rows = "\n".join(
-        f"<tr><td>{esc(event['timestamp'])}</td><td>{esc(event['event_type'])}</td><td>{esc(event['actor'])}</td><td>{esc(event['reason'])}</td></tr>"
+        f"<tr><td>{esc(event['timestamp'])}</td><td>{esc(event['event_type'])}</td><td>{esc(event['actor'])}</td><td>{esc(event['reason'])}</td><td>{esc(audit_event_source_label(event))}</td></tr>"
         for event in audit_events
+    )
+    imported_packet_rows = "\n".join(
+        f"<tr><td><code>{esc(packet.get('audit_packet_hash') or '')}</code></td><td>{esc(packet.get('source') or '')}</td><td>{esc(packet.get('event_count') or '')}</td><td>{esc(packet.get('imported_at') or '')}</td></tr>"
+        for packet in imported_packets
+        if isinstance(packet, dict)
     )
     item_rows = "\n".join(
         f"<tr><td>{esc(item['quantity'])}x {esc(item['title'])}</td><td>{esc(money(item['line_total_cents'], item['currency']))}</td><td>{esc(item['category'])}</td></tr>"
@@ -7219,7 +7311,7 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
       <article class="proof-card"><h3>Vikunja Task</h3>{vikunja_link or esc(task.get('state') or '')}<p>{esc((task.get('matched_open_task') or {}).get('title') or '')}</p></article>
       <article class="proof-card"><h3>Delivery ETA</h3>{calendar_link or esc(calendar_event.get('state') or '')}<p>{esc(calendar_event.get('summary') or calendar_event.get('reason') or 'Merchant-estimated; no carrier tracking claimed.')}</p></article>
       <article class="proof-card"><h3>Refund Path</h3><a href="#refunds">Show refunds</a><p>{esc(str(len(refunds)))} refund records; rail verified: {esc(any(bool(refund.get('real_refund_verified')) for refund in refunds if isinstance(refund, dict)))}</p></article>
-      <article class="proof-card"><h3>Audit Trail</h3><a href="#audit">Show audit rows</a><p>{esc(str(len(audit_events)))} recorded events for this quote</p></article>
+      <article class="proof-card"><h3>Audit Trail</h3><a href="#audit">Show audit rows</a><br>{audit_export_link(order["quote_id"])}<p>{esc(str(len(audit_events)))} recorded events; {esc(str(len(imported_packets)))} imported packets</p></article>
     </section>
 
     <h2>Items</h2>
@@ -7244,8 +7336,11 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
       <tr><td>Delivery window</td><td>{esc(delivery.get('earliest_date') or '')} to {esc(delivery.get('latest_date') or shipment.get('estimated_delivery') or '')} ({esc(delivery.get('label') or shipment.get('status') or 'merchant-estimated')}; no carrier tracking claimed)</td></tr>
     </tbody></table>
 
+    <h2>Imported Audit Packets</h2>
+    <table><thead><tr><th>Packet Hash</th><th>Source</th><th>Events</th><th>Imported</th></tr></thead><tbody>{imported_packet_rows or '<tr><td colspan="4">No imported skill-only audit packets for this quote.</td></tr>'}</tbody></table>
+
     <h2 id="audit">Audit Trail</h2>
-    <table><thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Reason</th></tr></thead><tbody>{audit_rows or '<tr><td colspan="4">No audit events found.</td></tr>'}</tbody></table>
+    <table><thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Reason</th><th>Source</th></tr></thead><tbody>{audit_rows or '<tr><td colspan="5">No audit events found.</td></tr>'}</tbody></table>
   </main>
 </body>
 </html>"""

@@ -97,9 +97,10 @@ buyer-agent configuration checks. Skill-only and service-backed approval flows
 now share a portable `approval_record` / `approval_record_hash` shape; skill
 checkout also emits a hash-linked `audit_packet` for later import into a
 household audit trail, and the AgentCart service can import those packets
-idempotently through `/v1/audit/import`. Production still needs durable buyer
-policy, persistent audit review/export UX, richer matching for multi-item
-grocery baskets, and a packaged setup flow for non-technical buyers.
+idempotently through `/v1/audit/import` and export a quote/purchase audit
+bundle through `/v1/audit/{purchase_id}/export`. Production still needs durable
+buyer policy, stronger audit retention/search/permissions, richer matching for
+multi-item grocery baskets, and a packaged setup flow for non-technical buyers.
 
 ### 2. Merchant Alpha
 
