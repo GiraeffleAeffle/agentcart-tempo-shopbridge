@@ -24,6 +24,7 @@ const replayStorePath = (
   ""
 ).trim();
 const replayStoreLockTimeoutMs = Number(process.env.AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS || "5000");
+const requireDurableReplayStore = envFlag(process.env.AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY);
 const defaultCurrency = (process.env.STRIPE_MPP_CURRENCY || "eur").trim().toLowerCase();
 const paymentMethodTypes = (process.env.STRIPE_MPP_PAYMENT_METHOD_TYPES || "card,link")
   .split(",")
@@ -34,6 +35,10 @@ const stripeClient = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: "2026-02-25.preview" })
   : null;
 const memoryReplayStore = blankReplayStore();
+
+function envFlag(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
 
 function jsonResponse(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body, null, 2) + "\n", {
@@ -52,14 +57,18 @@ function missingConfig() {
   if (!stripeProfileId) missing.push("STRIPE_PROFILE_ID");
   if (!mppSecretKey) missing.push("MPP_SECRET_KEY");
   if (!verifierToken) missing.push("AGENTCART_PAYMENT_VERIFIER_TOKEN");
+  if (requireDurableReplayStore && !replayStorePath) {
+    missing.push("AGENTCART_VERIFIER_REPLAY_STORE_PATH");
+  }
   return missing;
 }
 
 function readiness() {
   const missing = missingConfig();
   const replay = replayStoreDiagnostics();
+  const ok = missing.length === 0 && !replay.error;
   return {
-    ok: missing.length === 0,
+    ok,
     service: "agentcart-stripe-mpp-verifier",
     mode: "sandbox",
     endpoints: {
@@ -74,6 +83,8 @@ function readiness() {
     token_required: verifierToken !== "",
     replay_store: replay.label,
     replay_store_kind: replay.kind,
+    replay_store_required: requireDurableReplayStore,
+    replay_store_durable: replay.durable,
     replay_store_locking: replay.locking,
     replay_store_counts: replay.counts,
     replay_store_error: replay.error,
@@ -82,13 +93,16 @@ function readiness() {
 }
 
 function requireReady() {
-  const missing = missingConfig();
-  if (missing.length) {
+  const status = readiness();
+  if (!status.ok) {
     return jsonResponse(
       {
         ok: false,
         error: "Stripe MPP verifier is not configured.",
-        missing,
+        missing: status.missing,
+        replay_store_required: status.replay_store_required,
+        replay_store_durable: status.replay_store_durable,
+        replay_store_error: status.replay_store_error,
       },
       503,
     );
@@ -243,6 +257,7 @@ function replayStoreDiagnostics() {
   const diagnostics = {
     label: replayStoreLabel(),
     kind: replayStorePath ? "file" : "memory",
+    durable: Boolean(replayStorePath),
     locking: replayStorePath ? "lockfile" : "process",
     counts: null,
     error: null,

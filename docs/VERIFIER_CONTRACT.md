@@ -163,11 +163,14 @@ python3 scripts/verify-verifier-fixtures.py
 The Stripe sandbox verifier supports lock-protected file-backed replay
 protection with `AGENTCART_VERIFIER_REPLAY_STORE_PATH` or
 `STRIPE_MPP_REPLAY_STORE_PATH`. If no path is configured, it keeps an in-memory
-replay store for the running process. `AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS`
-controls the local lock timeout. `/health` exposes replay-store kind, lock mode,
-bucket counts, and replay-store read errors. Provider failures are classified in
-JSON with `provider_error_class`, `provider_status`, `provider_code`,
-`request_id`, and `retryable` fields.
+replay store for the running process. Set
+`AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true` for production-shaped verifier
+runs; `/health` then fails closed unless a replay store path is configured.
+`AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS` controls the local lock timeout.
+`/health` exposes replay-store kind, whether durable replay is required and
+configured, lock mode, bucket counts, and replay-store read errors. Provider
+failures are classified in JSON with `provider_error_class`, `provider_status`,
+`provider_code`, `request_id`, and `retryable` fields.
 
 For production, use a durable store with transactional uniqueness constraints
 for payment transaction references, refund requested references, and refund
