@@ -38,6 +38,30 @@ Commands are sent as JSON on stdin to `scripts/shopbridge-command.py`.
 
 ## Commands
 
+Install/configuration doctor:
+
+```json
+{"command":"doctor","args":{"format":"toon"}}
+```
+
+This is the first command to run after installing the skill. It is read-only and
+does not call merchant endpoints unless `probe:true` is supplied. It reports
+whether the skill is configured for verified registry discovery, explicit
+single-merchant testing, or neither.
+
+For a local registry file:
+
+```json
+{"command":"doctor","args":{"registry_path":"/path/to/merchant-registry.json","format":"toon"}}
+```
+
+To also verify merchant domain proofs and revocation state for configured
+registry records:
+
+```json
+{"command":"doctor","args":{"verify_merchants":true,"format":"toon"}}
+```
+
 Resolve a merchant from a verified registry record:
 
 ```json

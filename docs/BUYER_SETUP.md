@@ -66,11 +66,28 @@ more than 10 minutes in the future, and records older than
 `SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS` days. The default is `180`; use `0` only for
 local fixtures where you intentionally want to disable the freshness window.
 
+Check the skill install and configuration first. This is read-only and does not
+call merchant endpoints unless `probe:true` is supplied:
+
+```sh
+python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
+{"command":"doctor","args":{"format":"toon"}}
+JSON
+```
+
 Smoke test a known merchant:
 
 ```sh
 python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
 {"command":"readiness","args":{"base_url":"http://127.0.0.1:8098","format":"toon"}}
+JSON
+```
+
+For a configured registry, verify merchant domain proofs before discovery:
+
+```sh
+python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
+{"command":"doctor","args":{"verify_merchants":true,"format":"toon"}}
 JSON
 ```
 

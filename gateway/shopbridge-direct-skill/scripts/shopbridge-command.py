@@ -28,7 +28,8 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
-BASE_URL = os.getenv("SHOPBRIDGE_BASE_URL", "http://127.0.0.1:8098").rstrip("/")
+DEFAULT_BASE_URL = "http://127.0.0.1:8098"
+BASE_URL = os.getenv("SHOPBRIDGE_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
 MPP_PROOF_URL = os.getenv("SHOPBRIDGE_MPP_PROOF_URL", "").strip()
 MPP_COMMAND = os.getenv("SHOPBRIDGE_MPP_COMMAND", "npx mppx").strip()
 MPP_NETWORK = os.getenv("SHOPBRIDGE_MPP_NETWORK", "testnet").strip()
@@ -53,6 +54,44 @@ def base_url_from_args(args: dict[str, Any] | None = None) -> str:
     args = args or {}
     raw = args.get("base_url") or args.get("shopbridge_base_url") or args.get("merchant_base_url") or BASE_URL
     return str(raw).rstrip("/")
+
+
+def configured_base_url(args: dict[str, Any] | None = None) -> dict[str, Any]:
+    args = args or {}
+    for key in ("base_url", "shopbridge_base_url", "merchant_base_url"):
+        raw = str(args.get(key) or "").strip()
+        if raw:
+            return {
+                "configured": True,
+                "source": f"args.{key}",
+                "effective": raw.rstrip("/"),
+                "is_default": False,
+            }
+    raw_env = os.getenv("SHOPBRIDGE_BASE_URL", "").strip()
+    if raw_env:
+        return {
+            "configured": True,
+            "source": "SHOPBRIDGE_BASE_URL",
+            "effective": raw_env.rstrip("/"),
+            "is_default": False,
+        }
+    return {
+        "configured": False,
+        "source": "default",
+        "effective": BASE_URL,
+        "is_default": BASE_URL == DEFAULT_BASE_URL,
+    }
+
+
+def arg_bool(args: dict[str, Any], name: str, default: bool = False) -> bool:
+    value = args.get(name)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def request_json(
@@ -1315,6 +1354,193 @@ def command_readiness(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def registry_source_configured(args: dict[str, Any]) -> bool:
+    return bool(
+        args.get("registry_records")
+        or args.get("registry")
+        or args.get("registry_record")
+        or args.get("registry_record_url")
+        or configured_registry_url(args)
+        or configured_registry_path(args)
+    )
+
+
+def doctor_next_commands(mode: str, base_url: str, has_registry: bool) -> list[dict[str, Any]]:
+    commands: list[dict[str, Any]] = []
+    if mode == "registry" or has_registry:
+        commands.extend(
+            [
+                {
+                    "command": "resolve_merchant",
+                    "purpose": "verify one merchant record before catalog or quote calls",
+                    "example_args": {"merchant_id": "<merchant-id>"},
+                },
+                {
+                    "command": "discover_basket_quotes",
+                    "purpose": "compare whole-basket quotes across verified merchants",
+                    "example_args": {
+                        "basket": [{"query": "tea", "quantity": 1}],
+                        "country": "DE",
+                        "postal_code": "10115",
+                        "payment_rail": "stripe-card-mpp",
+                        "format": "toon",
+                    },
+                },
+            ]
+        )
+    if mode == "single_merchant":
+        commands.extend(
+            [
+                {
+                    "command": "readiness",
+                    "purpose": "probe the merchant manifest and capability endpoint",
+                    "example_args": {"base_url": base_url, "format": "toon"},
+                },
+                {
+                    "command": "catalog",
+                    "purpose": "read opt-in products from the known merchant",
+                    "example_args": {"base_url": base_url, "search": "tea", "format": "toon"},
+                },
+            ]
+        )
+    if mode == "unconfigured":
+        commands.append(
+            {
+                "command": "doctor",
+                "purpose": "rerun after configuring a registry or explicit merchant base URL",
+                "example_args": {
+                    "registry_path": "/path/to/merchant-registry.json",
+                    "format": "toon",
+                },
+            }
+        )
+    return commands
+
+
+def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
+    base = configured_base_url(args)
+    registry_configured = registry_source_configured(args)
+    mode = "registry" if registry_configured else "single_merchant" if base["configured"] else "unconfigured"
+    checks: list[dict[str, Any]] = [
+        {
+            "id": "python_runtime",
+            "ok": True,
+            "detail": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        }
+    ]
+    records: list[dict[str, Any]] = []
+
+    if registry_configured:
+        try:
+            records = registry_records_from_args(args)
+            checks.append(
+                {
+                    "id": "registry_source",
+                    "ok": bool(records),
+                    "record_count": len(records),
+                    "source": configured_registry_path(args) or configured_registry_url(args) or "inline",
+                }
+            )
+        except SystemExit as exc:
+            checks.append({"id": "registry_source", "ok": False, "error": str(exc)})
+
+        if records and arg_bool(args, "verify_merchants", arg_bool(args, "probe", False)):
+            limit = bounded_int(args.get("verify_limit"), default=5, minimum=1, maximum=25)
+            resolved = []
+            for record in records[:limit]:
+                try:
+                    result = resolve_record_for_discovery(record, args)
+                    resolved.append(
+                        {
+                            "merchant_id": result.get("merchant", {}).get("id") if isinstance(result.get("merchant"), dict) else "",
+                            "ok": bool(result.get("ok")),
+                            "verification": result.get("verification"),
+                            "base_url": result.get("base_url"),
+                        }
+                    )
+                except SystemExit as exc:
+                    resolved.append(
+                        {
+                            "merchant_id": str(record.get("merchant_id") or ""),
+                            "ok": False,
+                            "error": str(exc),
+                        }
+                    )
+            checks.append(
+                {
+                    "id": "registry_record_verification",
+                    "ok": all(entry["ok"] for entry in resolved),
+                    "checked": len(resolved),
+                    "records": resolved,
+                }
+            )
+    elif base["configured"]:
+        checks.append(
+            {
+                "id": "single_merchant_override",
+                "ok": True,
+                "base_url": base["effective"],
+                "source": base["source"],
+                "note": "single-merchant mode is for local tests or user-specified shops; production discovery should use verified registry records",
+            }
+        )
+        if arg_bool(args, "probe", False):
+            readiness = command_readiness({"base_url": base["effective"]})
+            checks.append(
+                {
+                    "id": "merchant_readiness_probe",
+                    "ok": bool(readiness.get("manifest_ok") and readiness.get("capability_ok")),
+                    "readiness": readiness,
+                }
+            )
+    else:
+        checks.append(
+            {
+                "id": "buyer_configuration",
+                "ok": False,
+                "issue": "configure SHOPBRIDGE_REGISTRY_URL, SHOPBRIDGE_REGISTRY_PATH, registry args, or an explicit SHOPBRIDGE_BASE_URL",
+            }
+        )
+
+    issues = [check for check in checks if check.get("ok") is False]
+    return {
+        "ok": not issues,
+        "mode": mode,
+        "configuration": {
+            "base_url": base,
+            "registry_url_configured": bool(configured_registry_url(args)),
+            "registry_path_configured": bool(configured_registry_path(args)),
+            "registry_max_age_days": registry_max_age_days(args),
+            "tempo_demo_proof_url_configured": bool(MPP_PROOF_URL),
+            "tempo_demo_command": MPP_COMMAND,
+        },
+        "checks": checks,
+        "issues": issues,
+        "next_commands": doctor_next_commands(mode, str(base["effective"]), registry_configured),
+        "available_commands": [
+            "doctor",
+            "resolve_merchant",
+            "readiness",
+            "catalog",
+            "product",
+            "quote",
+            "discover_quotes",
+            "discover_basket_quotes",
+            "approval_packet",
+            "checkout_preflight",
+            "payment_handoff",
+            "checkout",
+            "order_status",
+            "aftercare_summary",
+        ],
+        "safety_notes": [
+            "Use verified registry records for multi-merchant discovery before catalog or quote calls.",
+            "Use SHOPBRIDGE_BASE_URL only as a local or human-specified single-shop override.",
+            "Do not call checkout until a human approves the approval_packet hash and an external payment receipt satisfies payment_handoff receipt requirements.",
+        ],
+    }
+
+
 def command_product(args: dict[str, Any]) -> dict[str, Any]:
     product_id = str(args.get("product_id") or args.get("id") or "").removeprefix("woo_")
     if not product_id:
@@ -2509,6 +2735,8 @@ def main() -> None:
         compact = result
     elif command == "readiness":
         compact = command_readiness(args)
+    elif command == "doctor":
+        compact = command_doctor(args)
     elif command == "resolve_merchant":
         compact = command_resolve_merchant(args)
     elif command == "catalog":

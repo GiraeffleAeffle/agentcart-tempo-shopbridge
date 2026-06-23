@@ -264,6 +264,76 @@ def sample_order_status(**overrides):
 
 
 class ShopBridgeDirectSkillTests(unittest.TestCase):
+    def test_doctor_reports_missing_buyer_configuration_without_network(self) -> None:
+        with (
+            mock.patch.dict(shopbridge_direct.os.environ, {}, clear=True),
+            mock.patch.object(shopbridge_direct, "REGISTRY_URL", ""),
+            mock.patch.object(shopbridge_direct, "REGISTRY_PATH", ""),
+            mock.patch.object(shopbridge_direct, "BASE_URL", shopbridge_direct.DEFAULT_BASE_URL),
+            mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")),
+        ):
+            result = shopbridge_direct.command_doctor({})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["mode"], "unconfigured")
+        self.assertIn("buyer_configuration", [check["id"] for check in result["checks"]])
+        self.assertFalse(result["configuration"]["base_url"]["configured"])
+
+    def test_doctor_reports_registry_path_record_count_without_verifying_merchants(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            registry_path = Path(raw_tmp) / "registry.json"
+            registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
+            with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+                result = shopbridge_direct.command_doctor({"registry_path": str(registry_path)})
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["mode"], "registry")
+        registry_check = next(check for check in result["checks"] if check["id"] == "registry_source")
+        self.assertEqual(registry_check["record_count"], 1)
+        self.assertEqual(result["next_commands"][0]["command"], "resolve_merchant")
+
+    def test_doctor_can_verify_configured_registry_records_when_requested(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+
+        result = shopbridge_direct.command_doctor(
+            {
+                "registry_records": [record],
+                "manifest_snapshots": {"merchant-tea-shop": manifest},
+                "proof_snapshots": {"merchant-tea-shop": proof},
+                "verify_merchants": True,
+            }
+        )
+
+        self.assertTrue(result["ok"], result)
+        verification_check = next(check for check in result["checks"] if check["id"] == "registry_record_verification")
+        self.assertEqual(verification_check["checked"], 1)
+        self.assertTrue(verification_check["records"][0]["ok"])
+        self.assertEqual(verification_check["records"][0]["base_url"], "https://merchant.example")
+
+    def test_doctor_can_probe_single_merchant_readiness_when_requested(self) -> None:
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            self.assertEqual(base_url, "https://merchant.example")
+            if path == "/.well-known/agentcart.json":
+                return {"merchant": {"id": "merchant-1", "name": "Merchant Tea Shop"}}
+            if path == "/wp-json/agentcart/v1/capability":
+                return {
+                    "merchant": {"id": "merchant-1", "name": "Merchant Tea Shop"},
+                    "payment": {
+                        "verification": {"external_verifier_configured": True},
+                        "protocols": [{"id": "stripe-card-mpp", "available": True}],
+                    },
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+            result = shopbridge_direct.command_doctor({"base_url": "https://merchant.example", "probe": True})
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["mode"], "single_merchant")
+        probe_check = next(check for check in result["checks"] if check["id"] == "merchant_readiness_probe")
+        self.assertTrue(probe_check["ok"])
+
     def test_approval_hash_changes_when_total_changes(self) -> None:
         first = shopbridge_direct.approval_packet(sample_quote())["approval_hash"]
         second = shopbridge_direct.approval_packet(sample_quote(total_cents=1490))["approval_hash"]

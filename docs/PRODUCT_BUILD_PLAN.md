@@ -92,9 +92,10 @@ registry/domain proofs before making catalog or quote calls. It rejects
 underspecified supplied payment receipts instead of filling missing amount,
 currency, quote hash, destination, or rail reference from the quote. It can also
 ingest the ShopBridge registry onboarding bundle as a registry source for local
-single-merchant tests. Production still needs durable buyer policy, persistent
-audit, richer matching for multi-item grocery baskets, and a packaged setup
-flow for non-technical buyers.
+single-merchant tests, and it has a read-only `doctor` command for first-run
+buyer-agent configuration checks. Production still needs durable buyer policy,
+persistent audit, richer matching for multi-item grocery baskets, and a
+packaged setup flow for non-technical buyers.
 
 ### 2. Merchant Alpha
 
