@@ -25,7 +25,7 @@ The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_suppo
 
 1. Download or build `dist/agentcart-shopbridge.zip`.
 2. In WordPress admin, open `Plugins -> Add New -> Upload Plugin`.
-3. Select the ZIP, install, and activate `AgentCart ShopBridge for WooCommerce`.
+3. Select the ZIP, install, and activate `AgentCart ShopBridge`.
 4. Open `WooCommerce -> AgentCart` and configure merchant id, support, Tempo or Stripe/card profile, verifier, and gateway settings.
 5. Add or edit normal WooCommerce products.
 6. Choose a product exposure mode: manual product checkbox, WooCommerce product tag, or all published simple products.
@@ -76,6 +76,13 @@ WooCommerce order audit metadata.
 ### WordPress Plugin Directory
 
 The ZIP works with WordPress admin's `Upload Plugin` flow today. It will not appear in the searchable `Plugins -> Add New` directory until it is submitted to and approved by the WordPress.org plugin directory. That production publication path requires WordPress.org plugin guidelines compliance, a `readme.txt`, licensing review, assets/screenshots, an SVN-based plugin repository, and ongoing update/security maintenance.
+
+See `docs/WORDPRESS_ORG_SUBMISSION.md` for the current submission checklist.
+Run the local package guard before submitting:
+
+```sh
+./scripts/check-wordpress-plugin-package.py --zip dist/agentcart-shopbridge.zip
+```
 
 For private merchant onboarding before WordPress.org approval, distribute the ZIP from a GitHub release or direct download page. Native update notifications require either WordPress.org hosting, a custom update server, or an updater mechanism; GitHub alone is not enough for standard WordPress plugin search/update discovery.
 

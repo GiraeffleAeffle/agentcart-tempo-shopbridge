@@ -74,6 +74,7 @@ zip_listing="$(unzip -l "$ROOT_DIR/dist/agentcart-shopbridge.zip")"
 grep -q "agentcart-shopbridge/agentcart-shopbridge.php" <<<"$zip_listing"
 grep -q "agentcart-shopbridge/readme.txt" <<<"$zip_listing"
 grep -q "agentcart-shopbridge/uninstall.php" <<<"$zip_listing"
+python3 "$ROOT_DIR/scripts/check-wordpress-plugin-package.py" --zip "$ROOT_DIR/dist/agentcart-shopbridge.zip"
 
 section "Package ShopBridge direct skill"
 bash -n "$ROOT_DIR/scripts/package-shopbridge-direct-skill.sh"

@@ -1,6 +1,6 @@
-=== AgentCart ShopBridge for WooCommerce ===
+=== AgentCart ShopBridge ===
 Contributors: agentcart
-Tags: woocommerce, agents, checkout, machine payments, mpp
+Tags: woocommerce, agents, checkout, machine-payments, mpp
 Requires at least: 6.4
 Tested up to: 6.6
 Requires PHP: 8.1
@@ -59,10 +59,27 @@ actions.
 * Auto-managed domain-proof, revocation, and registry-onboarding bundle fields
   for an AgentCart merchant registry.
 
+== External Services ==
+
+ShopBridge can call a merchant-configured payment verifier URL when creating a
+paid order or recording a verified refund. The verifier confirms that the buyer
+agent's payment or refund receipt matches the WooCommerce quote amount,
+currency, merchant id, quote hash, and configured payment destination.
+
+No verifier is contacted for public catalog or quote browsing. A verifier is
+called only after the merchant configures a Payment verifier URL in
+`WooCommerce -> AgentCart` or defines `AGENTCART_PAYMENT_VERIFIER_URL`.
+
+The verifier request can include the stored quote, selected order/refund fields,
+payment receipt fields supplied by the buyer agent, merchant id, payment rail,
+payment destination, amount, currency, quote hash, and idempotency/reference
+values. The exact destination, terms, and privacy policy depend on the verifier
+service configured by the merchant.
+
 == Installation ==
 
 1. Upload `agentcart-shopbridge.zip` from WordPress admin under `Plugins -> Add New -> Upload Plugin`.
-2. Activate `AgentCart ShopBridge for WooCommerce`.
+2. Activate `AgentCart ShopBridge`.
 3. Open `WooCommerce -> AgentCart`.
 4. Configure stable merchant id, support email, payment recipient or Stripe
    profile, verifier URL, checkout mode, and product exposure mode.

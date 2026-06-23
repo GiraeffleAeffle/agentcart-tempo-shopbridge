@@ -40,16 +40,31 @@ class ShopBridgePluginContractTests(unittest.TestCase):
 
         readme = README_TXT.read_text()
         for field in [
-            "=== AgentCart ShopBridge for WooCommerce ===",
+            "Plugin Name: AgentCart ShopBridge",
+            "Version: 0.1.0",
+            "Requires at least: 6.4",
+            "Requires PHP: 8.1",
+            "Requires Plugins: woocommerce",
+            "License: GPLv2 or later",
+            "License URI: https://www.gnu.org/licenses/gpl-2.0.html",
+            "Text Domain: agentcart-shopbridge",
+        ]:
+            self.assertIn(field, SOURCE)
+        for field in [
+            "=== AgentCart ShopBridge ===",
             "Requires at least:",
             "Requires PHP:",
             "Requires Plugins: woocommerce",
             "Stable tag: 0.1.0",
             "License:",
+            "Tags: woocommerce, agents, checkout, machine-payments, mpp",
+            "== External Services ==",
             "== Installation ==",
             "== Changelog ==",
         ]:
             self.assertIn(field, readme)
+        self.assertIn("Payment verifier URL", readme)
+        self.assertIn("AGENTCART_PAYMENT_VERIFIER_URL", readme)
         for endpoint in [
             "/.well-known/agentcart.json",
             "/.well-known/agentcart-registry-proof.json",

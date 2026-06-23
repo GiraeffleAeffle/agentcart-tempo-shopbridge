@@ -1,12 +1,15 @@
 <?php
 /**
- * Plugin Name: AgentCart ShopBridge for WooCommerce
+ * Plugin Name: AgentCart ShopBridge
  * Description: Exposes opt-in WooCommerce catalog, quote, and paid-order endpoints for AgentCart household agents.
  * Version: 0.1.0
+ * Requires at least: 6.4
+ * Requires PHP: 8.1
+ * Requires Plugins: woocommerce
  * Author: AgentCart
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
- * Requires Plugins: woocommerce
+ * Text Domain: agentcart-shopbridge
  */
 
 if (!defined('ABSPATH')) {
