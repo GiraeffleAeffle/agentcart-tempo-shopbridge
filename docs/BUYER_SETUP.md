@@ -121,11 +121,18 @@ Checkout safety:
 - Always create or inspect an `approval_packet` before checkout.
 - Do not call `checkout` until the human approves the exact merchant, items,
   total, delivery window, quote hash, and payment destination.
+- Store the returned `approval_record`/`approval_record_hash` when the buyer
+  agent supports durable memory. In skill-only mode this is the portable proof
+  of the approval contract that was shown to the human.
 - After approval, call `payment_handoff` to get the structured payment request
   for the wallet, payment-capable agent, or provider. The request is not a
   secret and does not move money; it says exactly which rail, amount, currency,
-  quote hash, and merchant profile/recipient the resulting receipt must bind.
+  quote hash, approval record, and merchant profile/recipient the resulting
+  receipt must bind.
 - Pass only the resulting quote-bound `payment_receipt` to `checkout`.
+- Preserve the checkout `audit_packet` when available. It hash-links the
+  approval decision, payment receipt, and checkout payload for later household
+  audit import.
 - The direct skill rejects underspecified supplied receipts. Do not rely on the
   skill to fill amount, currency, quote hash, destination, or transaction
   reference from the quote.
@@ -142,7 +149,8 @@ Skill-only production sequence:
 
 ```text
 resolve_merchant -> catalog/quote -> approval_packet -> human approval
-  -> payment_handoff -> external payment receipt -> checkout -> order_status
+  -> store approval_record -> payment_handoff -> external payment receipt
+  -> checkout/audit_packet -> order_status
 ```
 
 `resolve_merchant` must reject stale records, failed domain proofs, off-domain

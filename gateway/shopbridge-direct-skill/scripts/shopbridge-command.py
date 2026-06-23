@@ -132,6 +132,15 @@ def sha256_hex(value: Any) -> str:
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
+def hash_without(value: dict[str, Any], *excluded: str) -> str:
+    excluded_set = set(excluded)
+    return sha256_hex({key: child for key, child in value.items() if key not in excluded_set})
+
+
+def iso_now() -> str:
+    return utcnow().replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
@@ -1112,14 +1121,14 @@ def payment_destination_label(destination: dict[str, Any]) -> str:
     return str(rail or "unknown payment rail")
 
 
-def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -> dict[str, Any]:
+def approval_material(quote: dict[str, Any], *, payment_rail: str | None = None) -> dict[str, Any]:
     merchant = quote.get("merchant") or {}
     shipping = quote.get("shipping") or {}
     delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
     protocols = payment_protocols(quote)
     destination = payment_destination(quote, payment_rail)
     selected_rail = destination.get("rail") or payment_rail
-    material = {
+    return {
         "merchant": {
             "id": merchant.get("id"),
             "name": merchant.get("name"),
@@ -1145,14 +1154,58 @@ def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -
         "payment_destination": destination,
         "payment_methods": [protocol.get("id") for protocol in protocols if isinstance(protocol, dict)],
     }
+
+
+def approval_record_from_material(
+    material: dict[str, Any],
+    *,
+    approval_id: str | None = None,
+    mode: str = "skill_only",
+) -> dict[str, Any]:
     approval_hash = sha256_hex(material)
-    compact = compact_quote(quote)
-    return {
+    record = {
+        "schema": "agentcart.approval_record.v1",
+        "approval_id": approval_id or f"skill_approval_{approval_hash[:24]}",
+        "mode": mode,
         "approval_hash": approval_hash,
         "approval_material": material,
-        "summary": f"Approve {quote_title(quote)} from {compact['merchant']} for {compact['total']} via {payment_destination_label(destination)}?",
+        "human_approval_required": True,
+        "record_role": "approval_contract",
+        "safety_boundaries": [
+            "merchant",
+            "items",
+            "total_cents",
+            "currency",
+            "delivery",
+            "quote_hash",
+            "expires_at",
+            "payment_rail",
+            "payment_destination",
+        ],
+    }
+    record["approval_record_hash"] = hash_without(record, "approval_record_hash")
+    return record
+
+
+def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -> dict[str, Any]:
+    material = approval_material(quote, payment_rail=payment_rail)
+    record = approval_record_from_material(material)
+    compact = compact_quote(quote)
+    summary = (
+        f"Approve {quote_title(quote)} from {compact['merchant']} for {compact['total']} "
+        f"via {payment_destination_label(material['payment_destination'])}?"
+    )
+    record["summary"] = summary
+    record["quote_summary"] = compact
+    record["approval_record_hash"] = hash_without(record, "approval_record_hash")
+    return {
+        "approval_hash": record["approval_hash"],
+        "approval_record_hash": record["approval_record_hash"],
+        "approval_material": material,
+        "summary": summary,
         "quote": compact,
-        "approval_in_skill_only_mode": "Human approval happens in the agent chat; no AgentCart service policy or durable approval record is used.",
+        "approval_record": record,
+        "approval_in_skill_only_mode": "Human approval happens in the agent chat; this portable approval_record can be stored by the agent or exported into an AgentCart service audit trail.",
     }
 
 
@@ -2562,6 +2615,7 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
             "ok": False,
             "issues": preflight["issues"],
             "approval_hash": approval["approval_hash"],
+            "approval_record_hash": approval["approval_record_hash"],
             "approval_summary": approval["summary"],
             "payment_destination": preflight["payment_destination"],
             "next_step": "Resolve these issues before sending the buyer to a payment provider.",
@@ -2575,6 +2629,8 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
         "currency": str(quote["currency"]).upper(),
         "quote_hash": str(quote["quote_hash"]),
         "merchant_quote_id": str(quote["id"]),
+        "approval_hash": approval["approval_hash"],
+        "approval_record_hash": approval["approval_record_hash"],
         "merchant": {
             "id": str(merchant.get("id") or ""),
             "name": str(merchant.get("name") or ""),
@@ -2586,6 +2642,8 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "approval_hash": approval["approval_hash"],
+        "approval_record_hash": approval["approval_record_hash"],
+        "approval_record": approval["approval_record"],
         "approval_summary": approval["summary"],
         "payment_request": payment_request,
         "payment_handoff_hash": sha256_hex(payment_request),
@@ -2662,11 +2720,113 @@ def demo_payment_receipt(quote: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def validated_or_new_approval_record(args: dict[str, Any], quote: dict[str, Any]) -> dict[str, Any]:
+    expected = approval_packet(quote, payment_rail=args.get("payment_rail"))["approval_record"]
+    supplied = args.get("approval_record")
+    if supplied is None:
+        return expected
+    if not isinstance(supplied, dict):
+        raise SystemExit("approval_record must be an object when supplied")
+    if str(supplied.get("approval_hash") or "") != expected["approval_hash"]:
+        raise SystemExit("approval_record.approval_hash does not match the current quote approval packet")
+    supplied_hash = str(supplied.get("approval_record_hash") or "")
+    actual_hash = hash_without(supplied, "approval_record_hash")
+    if supplied_hash and supplied_hash != actual_hash:
+        raise SystemExit("approval_record.approval_record_hash is invalid")
+    if supplied_hash and supplied_hash != expected["approval_record_hash"]:
+        raise SystemExit("approval_record.approval_record_hash does not match the current quote approval packet")
+    return supplied
+
+
+def approval_decision_record(args: dict[str, Any], approval_record: dict[str, Any]) -> dict[str, Any]:
+    decided_at = str(args.get("approved_at") or iso_now())
+    record = {
+        "schema": "agentcart.approval_decision_record.v1",
+        "mode": "skill_only",
+        "approval_id": str(approval_record.get("approval_id") or ""),
+        "approval_hash": str(approval_record.get("approval_hash") or ""),
+        "approval_record_hash": str(approval_record.get("approval_record_hash") or ""),
+        "decision": "approved",
+        "approver": str(args.get("approver") or "human"),
+        "channel": str(args.get("approval_channel") or args.get("channel") or "agent_chat"),
+        "decided_at": decided_at,
+        "decision_basis": "human approved the portable approval_record in chat or local agent UI",
+    }
+    record["decision_record_hash"] = hash_without(record, "decision_record_hash")
+    return record
+
+
+def skill_audit_packet(
+    *,
+    order_id: str,
+    quote: dict[str, Any],
+    approval_record: dict[str, Any],
+    decision_record: dict[str, Any],
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
+    now = iso_now()
+    receipt_reference = str(
+        receipt.get("transaction_reference")
+        or receipt.get("reference")
+        or receipt.get("authorization")
+        or receipt.get("credential")
+        or ""
+    )
+    packet = {
+        "schema": "agentcart.skill_audit_packet.v1",
+        "mode": "skill_only",
+        "quote_id": str(quote.get("id") or ""),
+        "quote_hash": str(quote.get("quote_hash") or ""),
+        "approval_hash": approval_record["approval_hash"],
+        "approval_record_hash": approval_record["approval_record_hash"],
+        "approval_decision_hash": decision_record["decision_record_hash"],
+        "events": [
+            {
+                "event_type": "approval.approved",
+                "actor": decision_record["approver"],
+                "timestamp": decision_record["decided_at"],
+                "refs": {
+                    "approval_id": approval_record.get("approval_id"),
+                    "approval_hash": approval_record["approval_hash"],
+                    "approval_record_hash": approval_record["approval_record_hash"],
+                    "approval_decision_hash": decision_record["decision_record_hash"],
+                },
+            },
+            {
+                "event_type": "payment.receipt_supplied",
+                "actor": "payment_capable_agent_or_provider",
+                "timestamp": now,
+                "refs": {
+                    "payment_receipt_id": receipt.get("id"),
+                    "method": receipt.get("method") or receipt.get("protocol"),
+                    "amount_cents": receipt.get("amount_cents"),
+                    "currency": receipt.get("currency"),
+                    "transaction_reference": receipt_reference,
+                },
+            },
+            {
+                "event_type": "checkout.payload_created",
+                "actor": "shopbridge_direct_skill",
+                "timestamp": now,
+                "refs": {
+                    "agentcart_order_id": order_id,
+                    "merchant_quote_id": quote.get("id"),
+                    "quote_hash": quote.get("quote_hash"),
+                    "approval_record_hash": approval_record["approval_record_hash"],
+                },
+            },
+        ],
+    }
+    packet["audit_packet_hash"] = hash_without(packet, "audit_packet_hash")
+    return packet
+
+
 def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("approved"):
         raise SystemExit("approved=true is required before checkout")
     quote = args["quote"]
-    expected_approval_hash = approval_packet(quote, payment_rail=args.get("payment_rail"))["approval_hash"]
+    approval_record = validated_or_new_approval_record(args, quote)
+    expected_approval_hash = approval_record["approval_hash"]
     supplied_approval_hash = str(args.get("approval_hash") or "")
     if supplied_approval_hash != expected_approval_hash:
         raise SystemExit("approval_hash does not match the current quote approval packet")
@@ -2676,13 +2836,29 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
         receipt = supplied_payment_receipt(quote, args)
     stable_order_id = f"skill_{expected_approval_hash[:24]}"
     destination = payment_destination(quote, args.get("payment_rail"))
+    order_id = args.get("agentcart_order_id") or args.get("idempotency_key") or stable_order_id
+    decision_record = approval_decision_record(args, approval_record)
+    audit_packet = skill_audit_packet(
+        order_id=str(order_id),
+        quote=quote,
+        approval_record=approval_record,
+        decision_record=decision_record,
+        receipt=receipt,
+    )
     return {
-        "agentcart_order_id": args.get("agentcart_order_id") or args.get("idempotency_key") or stable_order_id,
+        "agentcart_order_id": order_id,
         "merchant_quote_id": quote["id"],
         "quote_hash": quote["quote_hash"],
         "quote": quote,
         "rail": destination.get("rail"),
         "payment_destination": destination,
+        "approval_hash": expected_approval_hash,
+        "approval_record": approval_record,
+        "approval_record_hash": approval_record["approval_record_hash"],
+        "approval_decision_record": decision_record,
+        "approval_decision_hash": decision_record["decision_record_hash"],
+        "audit_packet": audit_packet,
+        "audit_packet_hash": audit_packet["audit_packet_hash"],
         "reason": args.get("reason") or "Skill-only ShopBridge agent checkout",
         "payment_receipt": receipt,
     }

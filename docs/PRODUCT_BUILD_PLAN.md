@@ -93,8 +93,11 @@ underspecified supplied payment receipts instead of filling missing amount,
 currency, quote hash, destination, or rail reference from the quote. It can also
 ingest the ShopBridge registry onboarding bundle as a registry source for local
 single-merchant tests, and it has a read-only `doctor` command for first-run
-buyer-agent configuration checks. Production still needs durable buyer policy,
-persistent audit, richer matching for multi-item grocery baskets, and a
+buyer-agent configuration checks. Skill-only and service-backed approval flows
+now share a portable `approval_record` / `approval_record_hash` shape; skill
+checkout also emits a hash-linked `audit_packet` for later import into a
+household audit trail. Production still needs durable buyer policy, persistent
+audit storage/import UX, richer matching for multi-item grocery baskets, and a
 packaged setup flow for non-technical buyers.
 
 ### 2. Merchant Alpha

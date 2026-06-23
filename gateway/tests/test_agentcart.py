@@ -857,6 +857,14 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(approval["consent_request"]["kind"], "purchase_approval")
             self.assertIn("chat", approval["consent_request"]["renderable_by"])
             self.assertIn("decision_token", approval)
+            self.assertEqual(approval["approval_record"]["schema"], "agentcart.approval_record.v1")
+            self.assertEqual(approval["approval_record"]["approval_hash"], approval["approval_hash"])
+            self.assertEqual(approval["approval_record"]["approval_record_hash"], approval["approval_record_hash"])
+            self.assertEqual(approval["approval_record"]["approval_material"]["total_cents"], 1480)
+            self.assertEqual(
+                approval["approval_record"]["approval_material"]["payment_destination"]["method"],
+                "demo",
+            )
 
     def test_mppx_include_output_extracts_payment_receipt_reference(self) -> None:
         receipt = agentcart.b64url_json(
@@ -1124,10 +1132,12 @@ class AgentCartTests(unittest.TestCase):
                 }
             )
             approval = service.create_approval({"quote_id": quote["id"]})
-            service.decide_approval(
+            decided = service.decide_approval(
                 approval["id"],
                 {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )
+            self.assertEqual(decided["decision_record"]["schema"], "agentcart.approval_decision_record.v1")
+            self.assertEqual(decided["decision_record"]["approval_record_hash"], approval["approval_record_hash"])
 
             payload = {
                 "quote_id": quote["id"],
@@ -1157,7 +1167,17 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(order["calendar_event"]["state"], "skipped")
             self.assertEqual(order["shipment"]["status"], "not_shipped")
             self.assertIn("delivery_window", order)
+            self.assertEqual(order["approval_record_hash"], approval["approval_record_hash"])
+            self.assertEqual(order["approval_decision_hash"], decided["decision_record"]["decision_record_hash"])
             self.assertEqual(service.state["stock"]["tea_sencha_100g"], 11)
+            audit_events = service.list_audit_events(quote["id"])
+            self.assertTrue(
+                any(
+                    event["event_type"] == "order.created"
+                    and event["refs"]["approval_record_hash"] == approval["approval_record_hash"]
+                    for event in audit_events
+                )
+            )
             calendar = service.render_delivery_calendar()
             self.assertIn("BEGIN:VCALENDAR", calendar)
             self.assertIn("X-WR-CALNAME:AgentCart Deliveries", calendar)

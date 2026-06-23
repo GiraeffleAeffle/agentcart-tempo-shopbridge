@@ -363,6 +363,13 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(payload["payment_receipt"]["amount_cents"], 1480)
         self.assertEqual(payload["rail"], "stripe-card-mpp")
         self.assertEqual(payload["payment_destination"]["stripe_profile_id"], "acct_shop_123")
+        self.assertEqual(payload["approval_record"]["schema"], "agentcart.approval_record.v1")
+        self.assertEqual(payload["approval_record_hash"], payload["approval_record"]["approval_record_hash"])
+        self.assertEqual(payload["approval_decision_record"]["approval_record_hash"], payload["approval_record_hash"])
+        self.assertEqual(payload["approval_decision_record"]["decision"], "approved")
+        self.assertEqual(payload["audit_packet"]["schema"], "agentcart.skill_audit_packet.v1")
+        self.assertEqual(payload["audit_packet"]["events"][0]["event_type"], "approval.approved")
+        self.assertEqual(payload["audit_packet"]["events"][-1]["refs"]["agentcart_order_id"], payload["agentcart_order_id"])
 
     def test_approval_packet_binds_stripe_payment_destination(self) -> None:
         packet = shopbridge_direct.approval_packet(sample_quote(), payment_rail="stripe-card-mpp")
@@ -370,6 +377,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(packet["approval_material"]["payment_destination"]["rail"], "stripe-card-mpp")
         self.assertEqual(packet["approval_material"]["payment_destination"]["stripe_profile_id"], "acct_shop_123")
         self.assertIn("acct_shop_123", packet["summary"])
+        self.assertEqual(packet["approval_record"]["schema"], "agentcart.approval_record.v1")
+        self.assertEqual(packet["approval_record"]["approval_hash"], packet["approval_hash"])
+        self.assertEqual(packet["approval_record"]["approval_record_hash"], packet["approval_record_hash"])
+        self.assertEqual(packet["approval_record"]["approval_material"]["total_cents"], 1480)
 
     def test_checkout_payload_rejects_wrong_stripe_destination(self) -> None:
         quote = sample_quote()
@@ -500,7 +511,9 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["approval_hash"], approval_hash)
+        self.assertEqual(result["approval_record_hash"], result["approval_record"]["approval_record_hash"])
         self.assertEqual(result["payment_request"]["rail"], "stripe-card-mpp")
+        self.assertEqual(result["payment_request"]["approval_record_hash"], result["approval_record_hash"])
         self.assertEqual(result["payment_request"]["amount_cents"], 1480)
         self.assertEqual(result["payment_request"]["currency"], "EUR")
         self.assertEqual(result["payment_request"]["quote_hash"], "quote-hash-123")

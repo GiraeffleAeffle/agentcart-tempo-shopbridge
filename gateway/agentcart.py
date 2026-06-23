@@ -290,6 +290,11 @@ def canonical_json_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 
+def hash_without(value: dict[str, Any], *excluded: str) -> str:
+    excluded_set = set(excluded)
+    return canonical_json_hash({key: child for key, child in value.items() if key not in excluded_set})
+
+
 def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
@@ -4196,6 +4201,135 @@ separate human confirmation.
             raise NotFound(f"Unknown quote: {quote_id}")
         return quote
 
+    def quote_payment_destination(self, quote: dict[str, Any]) -> dict[str, Any]:
+        requirements = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+        protocols = requirements.get("protocols") if isinstance(requirements.get("protocols"), list) else []
+        for protocol in protocols:
+            if not isinstance(protocol, dict) or protocol.get("available", True) is False:
+                continue
+            method = str(protocol.get("id") or protocol.get("method") or self.payment_provider.method)
+            destination = {
+                "method": method,
+                "protocol": str(protocol.get("protocol") or "mpp"),
+                "source": "quote.payment_requirements.protocols",
+                "available": True,
+            }
+            for key in (
+                "network",
+                "recipient",
+                "recipient_address",
+                "settlement_asset",
+                "network_id",
+                "stripe_profile_id",
+                "payment_recipient",
+            ):
+                if protocol.get(key):
+                    destination[key] = protocol[key]
+            return destination
+        return {
+            "method": self.payment_provider.method,
+            "protocol": self.payment_provider.protocol,
+            "source": "agentcart.payment_provider",
+            "available": self.payment_provider.supported,
+            "real_settlement": self.payment_provider.real_settlement,
+        }
+
+    def approval_material_for_quote(self, quote: dict[str, Any]) -> dict[str, Any]:
+        shipping = quote.get("shipping") if isinstance(quote.get("shipping"), dict) else {}
+        delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
+        return {
+            "quote_id": quote["id"],
+            "merchant": {
+                "id": quote["merchant_id"],
+                "name": quote["merchant"]["name"],
+                "merchant_of_record": quote["merchant_of_record"],
+            },
+            "items": [
+                {
+                    "product_id": item.get("product_id"),
+                    "title": item.get("title"),
+                    "quantity": item.get("quantity"),
+                    "line_total_cents": item.get("line_total_cents"),
+                }
+                for item in quote.get("items", [])
+                if isinstance(item, dict)
+            ],
+            "subtotal_cents": quote.get("subtotal_cents"),
+            "shipping_cents": shipping.get("amount_cents"),
+            "total_cents": quote["total_cents"],
+            "currency": quote["currency"],
+            "ship_to": quote.get("ship_to"),
+            "delivery": delivery,
+            "quote_hash": quote.get("quote_hash"),
+            "expires_at": quote.get("expires_at"),
+            "payment_destination": self.quote_payment_destination(quote),
+        }
+
+    def approval_record_for_quote(
+        self,
+        approval_id: str,
+        quote: dict[str, Any],
+        policy_result: dict[str, Any],
+        *,
+        channel: str,
+    ) -> dict[str, Any]:
+        material = self.approval_material_for_quote(quote)
+        approval_hash = canonical_json_hash(material)
+        product_summary = ", ".join(f"{item['quantity']}x {item['title']}" for item in quote["items"])
+        destination = material["payment_destination"]
+        record = {
+            "schema": "agentcart.approval_record.v1",
+            "approval_id": approval_id,
+            "mode": "agentcart_service",
+            "channel": channel,
+            "approval_hash": approval_hash,
+            "approval_material": material,
+            "summary": (
+                f"Approve purchase of {product_summary} from {quote['merchant']['name']} "
+                f"for {money(quote['total_cents'], quote['currency'])} via {destination.get('method') or 'configured payment'}."
+            ),
+            "policy_result": policy_result,
+            "human_approval_required": True,
+            "record_role": "approval_contract",
+            "safety_boundaries": [
+                "merchant",
+                "items",
+                "total_cents",
+                "currency",
+                "ship_to",
+                "delivery",
+                "quote_hash",
+                "expires_at",
+                "payment_destination",
+                "policy_result",
+            ],
+        }
+        record["approval_record_hash"] = hash_without(record, "approval_record_hash")
+        return record
+
+    def approval_decision_record(
+        self,
+        approval: dict[str, Any],
+        *,
+        decision: str,
+        approver: str,
+        decided_at: str,
+    ) -> dict[str, Any]:
+        record = {
+            "schema": "agentcart.approval_decision_record.v1",
+            "mode": "agentcart_service",
+            "approval_id": approval["id"],
+            "quote_id": approval["quote_id"],
+            "approval_hash": approval.get("approval_hash"),
+            "approval_record_hash": approval.get("approval_record_hash"),
+            "decision": decision,
+            "approver": approver,
+            "channel": approval.get("channel"),
+            "decided_at": decided_at,
+        }
+        record["decision_record_hash"] = hash_without(record, "decision_record_hash")
+        return record
+
     def create_approval(self, request: dict[str, Any]) -> dict[str, Any]:
         quote_id = str(request.get("quote_id") or "")
         if not quote_id:
@@ -4213,6 +4347,12 @@ separate human confirmation.
             now = utcnow()
             approval_id = f"approval_{uuid.uuid4().hex[:16]}"
             token = secrets.token_urlsafe(24)
+            approval_record = self.approval_record_for_quote(
+                approval_id,
+                quote,
+                policy_result,
+                channel=channel,
+            )
             approval = {
                 "id": approval_id,
                 "quote_id": quote_id,
@@ -4234,6 +4374,11 @@ separate human confirmation.
                 "decided_at": None,
                 "approver": None,
                 "policy_result": policy_result,
+                "approval_hash": approval_record["approval_hash"],
+                "approval_record_hash": approval_record["approval_record_hash"],
+                "approval_record": approval_record,
+                "decision_record": None,
+                "approval_decision_hash": None,
                 "notification": {"state": "not_sent"},
             }
             self.state["approvals"][approval_id] = approval
@@ -4254,7 +4399,13 @@ separate human confirmation.
             actor="agentcart",
             reason="policy required human approval",
             purchase_id=quote_id,
-            refs={"quote_id": quote_id, "approval_id": approval_id, "channel": channel},
+            refs={
+                "quote_id": quote_id,
+                "approval_id": approval_id,
+                "channel": channel,
+                "approval_hash": public.get("approval_hash"),
+                "approval_record_hash": public.get("approval_record_hash"),
+            },
             policy_result=policy_result,
         )
         return public
@@ -4358,9 +4509,18 @@ separate human confirmation.
                 approval["state"] = "expired"
                 self.save_state()
                 raise Conflict("approval has expired")
+            decided_at = isoformat(utcnow())
             approval["state"] = decision
             approval["approver"] = approver
-            approval["decided_at"] = isoformat(utcnow())
+            approval["decided_at"] = decided_at
+            decision_record = self.approval_decision_record(
+                approval,
+                decision=decision,
+                approver=approver,
+                decided_at=decided_at,
+            )
+            approval["decision_record"] = decision_record
+            approval["approval_decision_hash"] = decision_record["decision_record_hash"]
             self.save_state()
             public = self.public_approval(approval)
 
@@ -4369,7 +4529,13 @@ separate human confirmation.
             actor=approver,
             reason=f"human decision: {decision}",
             purchase_id=approval["quote_id"],
-            refs={"approval_id": approval_id, "quote_id": approval["quote_id"]},
+            refs={
+                "approval_id": approval_id,
+                "quote_id": approval["quote_id"],
+                "approval_hash": approval.get("approval_hash"),
+                "approval_record_hash": approval.get("approval_record_hash"),
+                "approval_decision_hash": approval.get("approval_decision_hash"),
+            },
             policy_result=approval.get("policy_result"),
         )
         return public
@@ -4938,7 +5104,14 @@ separate human confirmation.
             actor="agentcart",
             reason="checkout reached HTTP 402 Payment authentication step",
             purchase_id=quote["id"],
-            refs={"challenge_id": challenge["id"], "quote_id": quote["id"], "approval_id": approval["id"]},
+            refs={
+                "challenge_id": challenge["id"],
+                "quote_id": quote["id"],
+                "approval_id": approval["id"],
+                "approval_hash": approval.get("approval_hash"),
+                "approval_record_hash": approval.get("approval_record_hash"),
+                "approval_decision_hash": approval.get("approval_decision_hash"),
+            },
         )
         return challenge
 
@@ -4998,6 +5171,9 @@ separate human confirmation.
             "merchant_order_id": f"FTS-{order_id[-8:].upper()}",
             "quote_id": quote["id"],
             "approval_id": approval["id"],
+            "approval_hash": approval.get("approval_hash"),
+            "approval_record_hash": approval.get("approval_record_hash"),
+            "approval_decision_hash": approval.get("approval_decision_hash"),
             "merchant_id": quote["merchant_id"],
             "state": "accepted",
             "items": quote["items"],
@@ -5043,7 +5219,16 @@ separate human confirmation.
             actor="agentcart",
             reason=f"approved quote paid through {receipt['method']} checkout",
             purchase_id=quote["id"],
-            refs={"order_id": order_id, "quote_id": quote["id"], "challenge_id": challenge["id"]},
+            refs={
+                "order_id": order_id,
+                "quote_id": quote["id"],
+                "challenge_id": challenge["id"],
+                "approval_id": approval["id"],
+                "approval_hash": approval.get("approval_hash"),
+                "approval_record_hash": approval.get("approval_record_hash"),
+                "approval_decision_hash": approval.get("approval_decision_hash"),
+                "payment_receipt_id": receipt.get("id"),
+            },
             policy_result=policy_result,
         )
         order["vikunja_task"] = self.sync_vikunja_task(order, quote)
