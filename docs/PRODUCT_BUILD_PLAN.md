@@ -208,10 +208,11 @@ products, plus store-level cancellation and substitution policy defaults from
 the approved quote/order. The WooCommerce plugin now has a merchant-token
 protected, idempotent cancellation endpoint that cancels eligible AgentCart
 orders before fulfillment locks, reports when a separate rail refund is still
-required, and exposes an `aftercare_state` contract across order/status/refund
-and cancellation responses. Production still needs richer refund workflows,
-carrier adapters, and durable household aftercare state in the AgentCart service
-path.
+required, exposes an `aftercare_state` contract across order/status/refund and
+cancellation responses, and normalizes tracking from common Woo shipment plugin
+metadata into a stable adapter contract. Production still needs richer refund
+workflows, carrier API polling/webhooks, and durable household aftercare state
+in the AgentCart service path.
 
 Current grocery alpha status: ShopBridge exposes structured package-size
 metadata from WooCommerce product weights, structured tag/dietary/allergen

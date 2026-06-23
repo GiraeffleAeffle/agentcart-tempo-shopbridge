@@ -462,6 +462,45 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'cancellations'", order_response_body)
         self.assertIn("'cancellation_endpoint'", capability_body)
 
+    def test_fulfillment_tracking_adapter_contract_is_exposed_and_used_for_aftercare(self) -> None:
+        capability_body = function_body("capability_document")
+        fulfillment_body = function_body("serialize_fulfillment")
+        tracking_body = function_body("tracking_from_order_meta")
+        candidate_body = function_body("tracking_candidate")
+        status_body = function_body("normalize_tracking_status")
+        phase_body = function_body("fulfillment_phase")
+        eligibility_body = function_body("cancellation_eligibility")
+
+        self.assertIn("'carrier_tracking_adapter_contract'", capability_body)
+        self.assertIn("'tracking_adapter_contract'", capability_body)
+        for source in [
+            "woocommerce_shipment_tracking",
+            "aftership_tracking",
+            "parcelpanel_tracking",
+            "generic_order_meta",
+        ]:
+            self.assertIn(source, capability_body + tracking_body)
+        for field in [
+            "'tracking_status'",
+            "'tracking'",
+            "'shipped_at'",
+            "'delivered_at'",
+            "'last_event_at'",
+            "'confidence'",
+            "'is_real_carrier_tracking'",
+        ]:
+            self.assertIn(field, fulfillment_body + candidate_body)
+        self.assertIn("_wc_shipment_tracking_items", tracking_body)
+        self.assertIn("first_order_meta_value", tracking_body)
+        self.assertIn("normalize_tracking_datetime", candidate_body)
+        self.assertIn("normalize_tracking_status", candidate_body)
+        self.assertIn("out_for_delivery", status_body)
+        self.assertIn("in_transit", status_body)
+        self.assertIn("tracking_status", phase_body)
+        self.assertIn("fulfillment_tracking_attached", eligibility_body)
+        self.assertIn("'in_transit'", eligibility_body)
+        self.assertIn("'delivered'", eligibility_body)
+
     def test_product_shipping_country_overrides_are_exposed_and_rechecked(self) -> None:
         product_body = function_body("serialize_product")
         quote_body = function_body("quote")

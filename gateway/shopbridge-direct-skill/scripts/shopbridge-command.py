@@ -439,6 +439,7 @@ def compact_quote(quote: dict[str, Any]) -> dict[str, Any]:
 
 def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     fulfillment = order.get("fulfillment") if isinstance(order.get("fulfillment"), dict) else {}
+    tracking = compact_tracking(fulfillment)
     refund_policy = order.get("refund_policy") if isinstance(order.get("refund_policy"), dict) else {}
     cancellation_policy = order.get("cancellation_policy") if isinstance(order.get("cancellation_policy"), dict) else {}
     aftercare_state = order.get("aftercare_state") if isinstance(order.get("aftercare_state"), dict) else {}
@@ -452,8 +453,8 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         support["returns_url"] = str(merchant_policy["returns_url"])
     currency = str(refund_policy.get("currency") or args.get("currency") or "EUR")
     remaining_cents = int(refund_policy.get("remaining_refundable_cents") or 0)
-    tracking_url = str(fulfillment.get("tracking_url") or "")
-    tracking_number = str(fulfillment.get("tracking_number") or "")
+    tracking_url = tracking["tracking_url"]
+    tracking_number = tracking["tracking_number"]
     delivery = fulfillment.get("estimated_delivery_window") if isinstance(fulfillment.get("estimated_delivery_window"), dict) else {}
     next_actions = []
     if tracking_url:
@@ -499,9 +500,13 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         },
         "fulfillment": {
             "state": str(fulfillment.get("state") or ""),
-            "carrier": str(fulfillment.get("carrier") or ""),
+            "carrier": tracking["carrier"],
             "tracking_number": tracking_number,
             "tracking_url": tracking_url,
+            "tracking_status": tracking["tracking_status"],
+            "tracking_source": tracking["source"],
+            "tracking_confidence": tracking["confidence"],
+            "tracking": tracking,
             "estimated_delivery": delivery.get("label") or delivery.get("latest_date") or "",
             "note": str(fulfillment.get("note") or ""),
         },
@@ -527,6 +532,24 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         "cancellation_request_draft": cancellation_request,
         "next_actions": next_actions,
         "safety_note": "The direct buyer skill does not call merchant-token refund, cancellation, or order mutation endpoints. Ask the merchant or a trusted AgentCart gateway to submit approved aftercare requests, especially for perishable, deposit, restricted, or final-sale items.",
+    }
+
+
+def compact_tracking(fulfillment: dict[str, Any]) -> dict[str, Any]:
+    nested = fulfillment.get("tracking") if isinstance(fulfillment.get("tracking"), dict) else {}
+    return {
+        "carrier": str(nested.get("carrier") or fulfillment.get("carrier") or ""),
+        "tracking_number": str(nested.get("tracking_number") or fulfillment.get("tracking_number") or ""),
+        "tracking_url": str(nested.get("tracking_url") or fulfillment.get("tracking_url") or ""),
+        "tracking_status": str(nested.get("tracking_status") or fulfillment.get("tracking_status") or ""),
+        "tracking_status_label": str(nested.get("tracking_status_label") or ""),
+        "shipped_at": str(nested.get("shipped_at") or ""),
+        "delivered_at": str(nested.get("delivered_at") or ""),
+        "last_event_at": str(nested.get("last_event_at") or ""),
+        "source": str(nested.get("source") or fulfillment.get("source") or ""),
+        "adapter": str(nested.get("adapter") or ""),
+        "confidence": str(nested.get("confidence") or ""),
+        "is_real_carrier_tracking": bool(nested.get("is_real_carrier_tracking") or fulfillment.get("tracking_number") or fulfillment.get("tracking_url")),
     }
 
 

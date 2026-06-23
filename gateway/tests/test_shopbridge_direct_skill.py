@@ -975,6 +975,41 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             "https://merchant.example/returns",
         )
 
+    def test_aftercare_summary_surfaces_normalized_carrier_tracking(self) -> None:
+        order = sample_order_status()
+        order["fulfillment"] = {
+            **order["fulfillment"],
+            "state": "shipped",
+            "carrier": "Fallback Carrier",
+            "tracking_number": "FALLBACK-1",
+            "tracking_url": "",
+            "tracking_status": "shipped",
+            "source": "generic_order_meta",
+            "tracking": {
+                "carrier": "DHL",
+                "tracking_number": "00340434161094000001",
+                "tracking_url": "https://example.test/track/00340434161094000001",
+                "tracking_status": "in_transit",
+                "tracking_status_label": "In transit",
+                "shipped_at": "2999-01-03T10:00:00+00:00",
+                "delivered_at": "",
+                "last_event_at": "2999-01-04T08:00:00+00:00",
+                "source": "woocommerce_shipment_tracking",
+                "adapter": "woocommerce-shipment-tracking",
+                "confidence": "carrier_reference",
+                "is_real_carrier_tracking": True,
+            },
+        }
+
+        result = shopbridge_direct.command_aftercare_summary({"order": order})
+
+        self.assertEqual(result["fulfillment"]["carrier"], "DHL")
+        self.assertEqual(result["fulfillment"]["tracking_status"], "in_transit")
+        self.assertEqual(result["fulfillment"]["tracking_source"], "woocommerce_shipment_tracking")
+        self.assertEqual(result["fulfillment"]["tracking_confidence"], "carrier_reference")
+        self.assertTrue(result["fulfillment"]["tracking"]["is_real_carrier_tracking"])
+        self.assertIn("open_tracking", {action["id"] for action in result["next_actions"]})
+
     def test_aftercare_summary_surfaces_item_policy_review(self) -> None:
         order = sample_order_status()
         order["items"] = [

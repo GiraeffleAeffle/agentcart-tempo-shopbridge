@@ -395,9 +395,16 @@ Order creation returns a `status_url` and one-time order status token. The statu
 - Woo order status
 - paid/unpaid state
 - merchant-estimated delivery window
-- carrier, tracking number, and tracking URL when present
+- carrier, tracking number, tracking URL, normalized tracking status, and the
+  tracking metadata source when present
 
-The plugin reads common Woo tracking metadata such as `_wc_shipment_tracking_items`, `_tracking_provider`, `_tracking_number`, and `_tracking_url`. Real DHL/UPS/DHL Paket status requires the merchant to use a shipment/tracking plugin or carrier API integration that writes tracking data back to WooCommerce.
+The plugin reads common Woo tracking metadata such as
+`_wc_shipment_tracking_items`, AfterShip-style metadata, ParcelPanel-style
+metadata, `_tracking_provider`, `_tracking_number`, `_tracking_url`, and
+`_tracking_status`. It normalizes those into `fulfillment.tracking` with
+`tracking_status`, `source`, `adapter`, timestamps, and confidence. Real DHL/UPS
+/DHL Paket polling still requires the merchant to use a shipment/tracking plugin
+or carrier API integration that writes tracking data back to WooCommerce.
 
 ## Standard Compatibility
 

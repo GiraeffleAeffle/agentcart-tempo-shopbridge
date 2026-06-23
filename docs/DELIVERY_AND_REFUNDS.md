@@ -14,27 +14,39 @@ quoted -> ordered -> processing -> shipped -> in_transit -> delivered
                          \-> cancelled
 ```
 
-## Tracking Adapter Interface
+## Tracking Adapter Contract
 
-Merchant status endpoint should return:
+ShopBridge order status returns top-level compatibility fields
+(`carrier`, `tracking_number`, `tracking_url`) and a normalized nested
+`fulfillment.tracking` object:
 
 ```json
 {
-  "order_id": "40",
-  "state": "processing",
-  "estimated_delivery": "2026-06-22",
-  "delivery_window": {
-    "earliest_date": "2026-06-20",
-    "latest_date": "2026-06-22",
-    "source": "merchant_estimate"
-  },
-  "tracking": {
+  "fulfillment": {
+    "state": "shipped",
+    "estimated_delivery_window": {
+      "earliest_date": "2026-06-20",
+      "latest_date": "2026-06-22",
+      "source": "merchant_estimate"
+    },
     "carrier": "DHL",
     "tracking_number": "0034...",
     "tracking_url": "https://...",
-    "status": "in_transit",
-    "source": "woocommerce_tracking_plugin",
-    "last_checked_at": "2026-06-18T12:00:00Z"
+    "tracking_status": "in_transit",
+    "tracking": {
+      "carrier": "DHL",
+      "tracking_number": "0034...",
+      "tracking_url": "https://...",
+      "tracking_status": "in_transit",
+      "tracking_status_label": "In transit",
+      "source": "woocommerce_shipment_tracking",
+      "adapter": "woocommerce-shipment-tracking",
+      "confidence": "carrier_reference",
+      "shipped_at": "2026-06-18T12:00:00+00:00",
+      "delivered_at": null,
+      "last_event_at": "2026-06-19T09:30:00+00:00",
+      "is_real_carrier_tracking": true
+    }
   }
 }
 ```
@@ -44,9 +56,18 @@ Merchant status endpoint should return:
 The plugin can read common metadata:
 
 - `_wc_shipment_tracking_items`
+- AfterShip-style provider, tracking, URL, status, shipped, delivered, and
+  updated metadata
+- ParcelPanel-style courier, tracking, URL, status, shipped, delivered, and
+  updated metadata
 - `_tracking_provider`
 - `_tracking_number`
 - `_tracking_url`
+- `_tracking_status`
+
+`tracking_status` normalizes to `not_shipped`, `shipped`, `in_transit`,
+`out_for_delivery`, `delivered`, or `exception`. Merchant-estimated delivery
+windows remain separate from real carrier tracking.
 
 Real carrier status requires either:
 

@@ -46,6 +46,8 @@ actions.
 * External payment verifier hook for quote-bound Tempo MPP, Stripe/card MPP, or
   other rails.
 * Merchant-token-protected refund and cancellation endpoints.
+* Normalized fulfillment tracking adapter metadata from common WooCommerce
+  shipment/tracking plugin fields.
 * Structured policy metadata for restricted goods, perishables, deposits,
   final-sale goods, substitutions, refunds, and cancellations, inferred from
   WooCommerce tags, categories, and attributes with optional explicit product

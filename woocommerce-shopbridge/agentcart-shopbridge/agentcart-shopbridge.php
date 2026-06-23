@@ -1501,6 +1501,7 @@ final class AgentCart_ShopBridge {
                 'merchant_cancellation_policy' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
+                'carrier_tracking_adapter_contract' => true,
                 'aftercare_state_contract' => true,
                 'agentcart_order_ip_minimized' => true,
                 'endpoint_rate_limits' => true,
@@ -1550,6 +1551,26 @@ final class AgentCart_ShopBridge {
                 'ship_to_countries' => self::shipping_countries(),
                 'shipping_country_names' => self::shipping_country_names(),
                 'quote_requires_supported_country' => true,
+                'tracking_adapter_contract' => [
+                    'sources' => [
+                        'woocommerce_shipment_tracking',
+                        'aftership_tracking',
+                        'parcelpanel_tracking',
+                        'generic_order_meta',
+                    ],
+                    'fields' => [
+                        'carrier',
+                        'tracking_number',
+                        'tracking_url',
+                        'tracking_status',
+                        'shipped_at',
+                        'delivered_at',
+                        'last_event_at',
+                        'source',
+                        'confidence',
+                    ],
+                    'estimated_delivery_is_not_carrier_tracking' => true,
+                ],
             ],
             'endpoints' => [
                 'manifest' => home_url('/.well-known/agentcart.json'),
@@ -3006,14 +3027,18 @@ final class AgentCart_ShopBridge {
     }
 
     private static function fulfillment_phase(WC_Order $order, $fulfillment) {
-        if (!empty($fulfillment['tracking_number']) || !empty($fulfillment['tracking_url'])) {
-            return 'shipped';
-        }
+        $tracking_status = is_array($fulfillment) ? (string) ($fulfillment['tracking_status'] ?? '') : '';
         if ($order->has_status('completed')) {
             return 'fulfilled';
         }
         if ($order->has_status(['cancelled', 'refunded', 'failed'])) {
             return 'closed';
+        }
+        if ($tracking_status === 'delivered') {
+            return 'fulfilled';
+        }
+        if (!empty($fulfillment['tracking_number']) || !empty($fulfillment['tracking_url'])) {
+            return 'shipped';
         }
         return 'pre_fulfillment';
     }
@@ -3035,7 +3060,11 @@ final class AgentCart_ShopBridge {
         if (in_array($status, ['completed', 'refunded', 'failed'], true)) {
             $reasons[] = 'terminal_order_status';
         }
-        if (!empty($tracking['tracking_number']) || !empty($tracking['tracking_url'])) {
+        if (
+            !empty($tracking['tracking_number'])
+            || !empty($tracking['tracking_url'])
+            || in_array((string) ($tracking['tracking_status'] ?? ''), ['shipped', 'in_transit', 'out_for_delivery', 'delivered'], true)
+        ) {
             $reasons[] = 'fulfillment_tracking_attached';
         }
         return [
@@ -3193,41 +3222,189 @@ final class AgentCart_ShopBridge {
     private static function serialize_fulfillment(WC_Order $order) {
         $tracking = self::tracking_from_order_meta($order);
         $delivery_window = self::stored_delivery_window($order);
-        $state = $tracking['tracking_number'] ? 'shipped' : ($order->has_status('completed') ? 'fulfilled' : 'preparing');
+        $state = self::fulfillment_state_from_tracking($order, $tracking);
         return [
             'state' => $state,
             'order_status' => $order->get_status(),
             'carrier' => $tracking['carrier'],
             'tracking_number' => $tracking['tracking_number'],
             'tracking_url' => $tracking['tracking_url'],
+            'tracking_status' => $tracking['tracking_status'],
+            'tracking' => $tracking,
             'estimated_delivery_window' => $delivery_window,
             'source' => $tracking['source'],
-            'note' => $tracking['tracking_number'] ? 'Carrier tracking metadata was read from WooCommerce order meta.' : 'No carrier tracking metadata is attached yet.',
+            'note' => $tracking['tracking_number'] || $tracking['tracking_url']
+                ? 'Carrier tracking metadata was read from ' . $tracking['source'] . '.'
+                : 'No carrier tracking metadata is attached yet.',
         ];
     }
 
     private static function tracking_from_order_meta(WC_Order $order) {
-        $result = [
-            'carrier' => null,
-            'tracking_number' => null,
-            'tracking_url' => null,
-            'source' => 'woocommerce_order_meta',
-        ];
+        $default = self::tracking_candidate('woocommerce_order_meta', 'none', '', '', '', '', null, null, null);
         $shipment_items = $order->get_meta('_wc_shipment_tracking_items', true);
         if (is_array($shipment_items) && !empty($shipment_items)) {
-            $item = reset($shipment_items);
-            if (is_array($item)) {
-                $result['carrier'] = sanitize_text_field((string) ($item['tracking_provider'] ?? $item['custom_tracking_provider'] ?? ''));
-                $result['tracking_number'] = sanitize_text_field((string) ($item['tracking_number'] ?? ''));
-                $result['tracking_url'] = esc_url_raw((string) ($item['custom_tracking_link'] ?? $item['tracking_link'] ?? ''));
-                $result['source'] = 'woocommerce_shipment_tracking';
-                return $result;
+            foreach ($shipment_items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $tracking = self::tracking_candidate(
+                    'woocommerce_shipment_tracking',
+                    'woocommerce-shipment-tracking',
+                    $item['tracking_provider'] ?? $item['custom_tracking_provider'] ?? '',
+                    $item['tracking_number'] ?? '',
+                    $item['custom_tracking_link'] ?? $item['tracking_link'] ?? '',
+                    $item['tracking_status'] ?? $item['shipment_status'] ?? $item['status'] ?? '',
+                    $item['date_shipped'] ?? null,
+                    $item['date_delivered'] ?? null,
+                    $item['last_event_at'] ?? $item['date_updated'] ?? null
+                );
+                if (self::tracking_has_carrier_data($tracking)) {
+                    return $tracking;
+                }
             }
         }
-        $result['carrier'] = sanitize_text_field((string) ($order->get_meta('_tracking_provider', true) ?: $order->get_meta('_carrier', true)));
-        $result['tracking_number'] = sanitize_text_field((string) ($order->get_meta('_tracking_number', true) ?: $order->get_meta('tracking_number', true)));
-        $result['tracking_url'] = esc_url_raw((string) ($order->get_meta('_tracking_url', true) ?: $order->get_meta('tracking_url', true)));
-        return $result;
+
+        $aftership = self::tracking_candidate(
+            'aftership_tracking',
+            'aftership',
+            self::first_order_meta_value($order, ['_aftership_tracking_provider_name', 'aftership_tracking_provider_name', '_aftership_courier', 'aftership_courier']),
+            self::first_order_meta_value($order, ['_aftership_tracking_number', 'aftership_tracking_number']),
+            self::first_order_meta_value($order, ['_aftership_tracking_url', 'aftership_tracking_url']),
+            self::first_order_meta_value($order, ['_aftership_tracking_status', 'aftership_tracking_status']),
+            self::first_order_meta_value($order, ['_aftership_tracking_ship_date', 'aftership_tracking_ship_date']),
+            self::first_order_meta_value($order, ['_aftership_tracking_delivery_date', 'aftership_tracking_delivery_date']),
+            self::first_order_meta_value($order, ['_aftership_tracking_updated_at', 'aftership_tracking_updated_at'])
+        );
+        if (self::tracking_has_carrier_data($aftership)) {
+            return $aftership;
+        }
+
+        $parcelpanel = self::tracking_candidate(
+            'parcelpanel_tracking',
+            'parcelpanel',
+            self::first_order_meta_value($order, ['_parcelpanel_courier', 'parcelpanel_courier', '_parcelpanel_carrier', 'parcelpanel_carrier']),
+            self::first_order_meta_value($order, ['_parcelpanel_tracking_number', 'parcelpanel_tracking_number']),
+            self::first_order_meta_value($order, ['_parcelpanel_tracking_url', 'parcelpanel_tracking_url']),
+            self::first_order_meta_value($order, ['_parcelpanel_status', 'parcelpanel_status']),
+            self::first_order_meta_value($order, ['_parcelpanel_shipped_at', 'parcelpanel_shipped_at']),
+            self::first_order_meta_value($order, ['_parcelpanel_delivered_at', 'parcelpanel_delivered_at']),
+            self::first_order_meta_value($order, ['_parcelpanel_updated_at', 'parcelpanel_updated_at'])
+        );
+        if (self::tracking_has_carrier_data($parcelpanel)) {
+            return $parcelpanel;
+        }
+
+        $generic = self::tracking_candidate(
+            'generic_order_meta',
+            'generic-order-meta',
+            self::first_order_meta_value($order, ['_tracking_provider', 'tracking_provider', '_carrier', 'carrier']),
+            self::first_order_meta_value($order, ['_tracking_number', 'tracking_number']),
+            self::first_order_meta_value($order, ['_tracking_url', 'tracking_url']),
+            self::first_order_meta_value($order, ['_tracking_status', 'tracking_status', '_shipment_status', 'shipment_status']),
+            self::first_order_meta_value($order, ['_date_shipped', 'date_shipped', '_shipped_at', 'shipped_at']),
+            self::first_order_meta_value($order, ['_date_delivered', 'date_delivered', '_delivered_at', 'delivered_at']),
+            self::first_order_meta_value($order, ['_tracking_last_event_at', 'tracking_last_event_at'])
+        );
+        return self::tracking_has_carrier_data($generic) ? $generic : $default;
+    }
+
+    private static function tracking_candidate($source, $adapter, $carrier, $tracking_number, $tracking_url, $tracking_status = '', $shipped_at = null, $delivered_at = null, $last_event_at = null) {
+        $carrier = sanitize_text_field((string) $carrier);
+        $tracking_number = sanitize_text_field((string) $tracking_number);
+        $tracking_url = esc_url_raw((string) $tracking_url);
+        $status_label = sanitize_text_field((string) $tracking_status);
+        $shipped_at = self::normalize_tracking_datetime($shipped_at);
+        $delivered_at = self::normalize_tracking_datetime($delivered_at);
+        $last_event_at = self::normalize_tracking_datetime($last_event_at);
+        $has_tracking = $tracking_number !== '' || $tracking_url !== '';
+        $normalized_status = self::normalize_tracking_status($status_label, $has_tracking, $delivered_at);
+        return [
+            'carrier' => $carrier,
+            'tracking_number' => $tracking_number,
+            'tracking_url' => $tracking_url,
+            'tracking_status' => $normalized_status,
+            'tracking_status_label' => $status_label,
+            'shipped_at' => $shipped_at,
+            'delivered_at' => $delivered_at,
+            'last_event_at' => $last_event_at,
+            'source' => sanitize_key((string) $source),
+            'adapter' => sanitize_key((string) $adapter),
+            'confidence' => $has_tracking ? 'carrier_reference' : ($normalized_status !== 'not_shipped' ? 'status_only' : 'none'),
+            'is_real_carrier_tracking' => $has_tracking,
+        ];
+    }
+
+    private static function tracking_has_carrier_data($tracking) {
+        return is_array($tracking)
+            && (
+                !empty($tracking['tracking_number'])
+                || !empty($tracking['tracking_url'])
+                || !empty($tracking['carrier'])
+                || (($tracking['tracking_status'] ?? 'not_shipped') !== 'not_shipped')
+            );
+    }
+
+    private static function first_order_meta_value(WC_Order $order, $keys) {
+        foreach ($keys as $key) {
+            $value = $order->get_meta($key, true);
+            if (is_array($value) || is_object($value)) {
+                continue;
+            }
+            if (trim((string) $value) !== '') {
+                return $value;
+            }
+        }
+        return '';
+    }
+
+    private static function normalize_tracking_datetime($value) {
+        if ($value instanceof DateTimeInterface) {
+            return gmdate('c', $value->getTimestamp());
+        }
+        if (is_numeric($value)) {
+            $timestamp = intval($value);
+            return $timestamp > 0 ? gmdate('c', $timestamp) : null;
+        }
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+        $timestamp = strtotime($value);
+        return $timestamp ? gmdate('c', $timestamp) : null;
+    }
+
+    private static function normalize_tracking_status($status_label, $has_tracking, $delivered_at = null) {
+        $status = strtolower(trim((string) $status_label));
+        if ($delivered_at || strpos($status, 'delivered') !== false) {
+            return 'delivered';
+        }
+        if (strpos($status, 'out_for_delivery') !== false || strpos($status, 'out for delivery') !== false) {
+            return 'out_for_delivery';
+        }
+        if (strpos($status, 'exception') !== false || strpos($status, 'failed') !== false || strpos($status, 'returned') !== false) {
+            return 'exception';
+        }
+        if (strpos($status, 'transit') !== false || strpos($status, 'in_transit') !== false) {
+            return 'in_transit';
+        }
+        if (strpos($status, 'shipped') !== false || strpos($status, 'fulfilled') !== false || strpos($status, 'dispatched') !== false) {
+            return 'shipped';
+        }
+        return $has_tracking ? 'shipped' : 'not_shipped';
+    }
+
+    private static function fulfillment_state_from_tracking(WC_Order $order, $tracking) {
+        $tracking_status = is_array($tracking) ? (string) ($tracking['tracking_status'] ?? '') : '';
+        if ($tracking_status === 'delivered' || $order->has_status('completed')) {
+            return 'fulfilled';
+        }
+        if (in_array($tracking_status, ['shipped', 'in_transit', 'out_for_delivery', 'exception'], true)) {
+            return 'shipped';
+        }
+        if ($order->has_status(['cancelled', 'refunded', 'failed'])) {
+            return 'closed';
+        }
+        return 'preparing';
     }
 
     private static function stored_delivery_window(WC_Order $order) {
