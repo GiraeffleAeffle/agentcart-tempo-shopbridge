@@ -23,6 +23,7 @@ const replayStorePath = (
   process.env.STRIPE_MPP_REPLAY_STORE_PATH ||
   ""
 ).trim();
+const replayStoreLockTimeoutMs = Number(process.env.AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS || "5000");
 const defaultCurrency = (process.env.STRIPE_MPP_CURRENCY || "eur").trim().toLowerCase();
 const paymentMethodTypes = (process.env.STRIPE_MPP_PAYMENT_METHOD_TYPES || "card,link")
   .split(",")
@@ -56,6 +57,7 @@ function missingConfig() {
 
 function readiness() {
   const missing = missingConfig();
+  const replay = replayStoreDiagnostics();
   return {
     ok: missing.length === 0,
     service: "agentcart-stripe-mpp-verifier",
@@ -70,7 +72,11 @@ function readiness() {
     default_currency: defaultCurrency,
     payment_method_types: paymentMethodTypes,
     token_required: verifierToken !== "",
-    replay_store: replayStorePath || "memory",
+    replay_store: replay.label,
+    replay_store_kind: replay.kind,
+    replay_store_locking: replay.locking,
+    replay_store_counts: replay.counts,
+    replay_store_error: replay.error,
     missing,
   };
 }
@@ -133,6 +139,18 @@ function blankReplayStore() {
   };
 }
 
+function replayStoreLabel() {
+  return replayStorePath || "memory";
+}
+
+function replayStoreLockPath() {
+  return replayStorePath ? `${replayStorePath}.lock` : "";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function normalizeReplayStore(raw) {
   const store = raw && typeof raw === "object" ? raw : {};
   return {
@@ -163,33 +181,113 @@ function saveReplayStore(store) {
   fs.renameSync(tempPath, replayStorePath);
 }
 
-function claimReplayReference(bucket, reference, metadata = {}) {
+async function acquireReplayStoreLock() {
+  if (!replayStorePath) {
+    return () => {};
+  }
+  const lockPath = replayStoreLockPath();
+  const started = Date.now();
+  fs.mkdirSync(path.dirname(replayStorePath), { recursive: true });
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, "wx", 0o600);
+      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, created_at: new Date().toISOString() }));
+      fs.closeSync(fd);
+      return () => {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch {
+          // Ignore stale cleanup races; the next claimant can recover.
+        }
+      };
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw Object.assign(new Error(`Could not acquire verifier replay lock: ${error.message}`), { status: 500 });
+      }
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > replayStoreLockTimeoutMs) {
+          fs.unlinkSync(lockPath);
+          continue;
+        }
+      } catch (statError) {
+        if (statError?.code !== "ENOENT") {
+          throw Object.assign(new Error(`Could not inspect verifier replay lock: ${statError.message}`), {
+            status: 500,
+          });
+        }
+      }
+      if (Date.now() - started > replayStoreLockTimeoutMs) {
+        throw Object.assign(new Error("Timed out acquiring verifier replay lock."), { status: 503 });
+      }
+      await sleep(25 + Math.floor(Math.random() * 50));
+    }
+  }
+}
+
+async function withReplayStoreMutation(mutator) {
+  const release = await acquireReplayStoreLock();
+  try {
+    const store = loadReplayStore();
+    const result = mutator(store);
+    if (result?.save !== false) {
+      saveReplayStore(store);
+    }
+    return result;
+  } finally {
+    release();
+  }
+}
+
+function replayStoreDiagnostics() {
+  const diagnostics = {
+    label: replayStoreLabel(),
+    kind: replayStorePath ? "file" : "memory",
+    locking: replayStorePath ? "lockfile" : "process",
+    counts: null,
+    error: null,
+  };
+  try {
+    const store = loadReplayStore();
+    diagnostics.counts = {
+      payments: Object.keys(store.payments || {}).length,
+      refund_requests: Object.keys(store.refund_requests || {}).length,
+      refunds: Object.keys(store.refunds || {}).length,
+    };
+  } catch (error) {
+    diagnostics.error = error.message;
+  }
+  return diagnostics;
+}
+
+async function claimReplayReference(bucket, reference, metadata = {}) {
   const key = String(reference || "").trim();
   if (!key) {
     return { ok: false, response: jsonResponse({ ok: false, error: "replay reference is required." }, 400) };
   }
-  const store = loadReplayStore();
-  if (!store[bucket] || typeof store[bucket] !== "object") store[bucket] = {};
-  if (store[bucket][key]) {
-    return {
-      ok: false,
-      response: jsonResponse(
-        {
-          ok: false,
-          error: `${bucket.slice(0, -1).replace("_", " ")} reference has already been used.`,
-          replay_reference: key,
-          first_seen_at: store[bucket][key].first_seen_at || null,
-        },
-        409,
-      ),
+  return withReplayStoreMutation((store) => {
+    if (!store[bucket] || typeof store[bucket] !== "object") store[bucket] = {};
+    if (store[bucket][key]) {
+      return {
+        ok: false,
+        save: false,
+        response: jsonResponse(
+          {
+            ok: false,
+            error: `${bucket.slice(0, -1).replace("_", " ")} reference has already been used.`,
+            replay_reference: key,
+            first_seen_at: store[bucket][key].first_seen_at || null,
+          },
+          409,
+        ),
+      };
+    }
+    store[bucket][key] = {
+      ...metadata,
+      first_seen_at: new Date().toISOString(),
     };
-  }
-  store[bucket][key] = {
-    ...metadata,
-    first_seen_at: new Date().toISOString(),
-  };
-  saveReplayStore(store);
-  return { ok: true };
+    return { ok: true };
+  });
 }
 
 function expectedFromPayload(payload) {
@@ -279,6 +377,39 @@ function createMppx(expected) {
   });
 }
 
+function providerErrorClass(error) {
+  const type = String(error?.type || error?.name || "").toLowerCase();
+  const code = String(error?.code || "").toLowerCase();
+  const status = Number(error?.statusCode || error?.status || 0);
+  if (code === "rate_limit" || type.includes("ratelimit")) return "provider_rate_limited";
+  if (status >= 500) return "provider_unavailable";
+  if (type.includes("authentication")) return "provider_authentication_failed";
+  if (type.includes("permission")) return "provider_permission_denied";
+  if (type.includes("invalidrequest")) return "provider_invalid_request";
+  if (type.includes("card")) return "provider_card_error";
+  if (type.includes("api")) return "provider_api_error";
+  return "provider_error";
+}
+
+function providerErrorResponse(operation, error) {
+  const classification = providerErrorClass(error);
+  const status = Number(error?.statusCode || error?.status || 0);
+  const retryable = classification === "provider_rate_limited" || classification === "provider_unavailable";
+  return jsonResponse(
+    {
+      ok: false,
+      error: `${operation} failed at payment provider.`,
+      provider: "stripe",
+      provider_error_class: classification,
+      provider_status: status || null,
+      provider_code: error?.code || null,
+      request_id: error?.requestId || null,
+      retryable,
+    },
+    retryable ? 502 : 400,
+  );
+}
+
 function credentialFromReceipt(receipt) {
   if (!receipt || typeof receipt !== "object") return "";
   for (const key of [
@@ -333,9 +464,14 @@ async function verifyPayment(payload) {
     );
   }
   const mppx = createMppx(expected);
-  const mppReceipt = await mppx.verifyCredential(authorization, { request: chargeOptions(expected) });
+  let mppReceipt;
+  try {
+    mppReceipt = await mppx.verifyCredential(authorization, { request: chargeOptions(expected) });
+  } catch (error) {
+    return providerErrorResponse("Stripe/card MPP credential verification", error);
+  }
   const transactionReference = String(mppReceipt.reference || "").trim();
-  const replayClaim = claimReplayReference("payments", transactionReference, {
+  const replayClaim = await claimReplayReference("payments", transactionReference, {
     provider: "stripe",
     rail: "stripe-card-mpp",
     amount_cents: expected.amountCents,
@@ -400,7 +536,7 @@ async function verifyTempoFxPayment(receipt, expected) {
   if (!transactionReference) {
     return jsonResponse({ ok: false, error: "Tempo proof transaction reference is required." }, 400);
   }
-  const replayClaim = claimReplayReference("payments", transactionReference, {
+  const replayClaim = await claimReplayReference("payments", transactionReference, {
     provider: "tempo_mpp",
     rail: "tempo-mpp",
     amount_cents: expected.amountCents,
@@ -461,21 +597,26 @@ async function verifyRefund(payload) {
   if (!requestedReference) {
     return jsonResponse({ ok: false, error: "refund.requested_reference is required." }, 400);
   }
-  const refundResult = await stripeClient.refunds.create(
-    {
-      amount: amountCents,
-      metadata: {
-        agentcart_quote_hash: quoteHash,
-        agentcart_refund_reason: String(refund.reason || "AgentCart refund"),
+  let refundResult;
+  try {
+    refundResult = await stripeClient.refunds.create(
+      {
+        amount: amountCents,
+        metadata: {
+          agentcart_quote_hash: quoteHash,
+          agentcart_refund_reason: String(refund.reason || "AgentCart refund"),
+        },
+        payment_intent: originalReference,
+        reason: "requested_by_customer",
       },
-      payment_intent: originalReference,
-      reason: "requested_by_customer",
-    },
-    {
-      idempotencyKey: requestedReference,
-    },
-  );
-  const requestClaim = claimReplayReference("refund_requests", requestedReference, {
+      {
+        idempotencyKey: requestedReference,
+      },
+    );
+  } catch (error) {
+    return providerErrorResponse("Stripe/card refund", error);
+  }
+  const requestClaim = await claimReplayReference("refund_requests", requestedReference, {
     provider: "stripe",
     rail,
     amount_cents: amountCents,
@@ -485,7 +626,7 @@ async function verifyRefund(payload) {
     refund_reference: refundResult.id,
   });
   if (!requestClaim.ok) return requestClaim.response;
-  const refundClaim = claimReplayReference("refunds", refundResult.id, {
+  const refundClaim = await claimReplayReference("refunds", refundResult.id, {
     provider: "stripe",
     rail: "stripe-card-mpp",
     amount_cents: amountCents,
@@ -537,7 +678,8 @@ async function paid(request, payload) {
 async function handler(request) {
   const url = new URL(request.url);
   if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
-    return jsonResponse(readiness(), readiness().ok ? 200 : 503);
+    const status = readiness();
+    return jsonResponse(status, status.ok ? 200 : 503);
   }
   if (request.method !== "POST") {
     return jsonResponse({ ok: false, error: "not found" }, 404);

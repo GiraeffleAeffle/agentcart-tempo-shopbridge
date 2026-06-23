@@ -308,14 +308,31 @@ def verify_stripe_verifier_replay_fields() -> None:
     for literal in [
         "AGENTCART_VERIFIER_REPLAY_STORE_PATH",
         "STRIPE_MPP_REPLAY_STORE_PATH",
+        "AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS",
         "agentcart.verifierReplay.v1",
+        "acquireReplayStoreLock",
+        "withReplayStoreMutation",
+        "replayStoreDiagnostics",
+        "replay_store_locking",
+        "replay_store_counts",
+        "replayStoreLockPath",
         "claimReplayReference(\"payments\"",
         "claimReplayReference(\"refund_requests\"",
         "claimReplayReference(\"refunds\"",
         "refund.requested_reference is required",
         "idempotencyKey: requestedReference",
+        "providerErrorClass",
+        "providerErrorResponse",
+        "provider_error_class",
+        "provider_status",
+        "request_id",
+        "retryable",
     ]:
         require(literal in source, f"stripe verifier missing replay guard: {literal}")
+    require(
+        source.count("await claimReplayReference(") >= 4,
+        "stripe verifier replay claims must be awaited so file locking is effective",
+    )
 
 
 def main() -> int:

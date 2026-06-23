@@ -155,6 +155,16 @@ Validate the checked-in fixtures and the WooCommerce plugin payload field names:
 python3 scripts/verify-verifier-fixtures.py
 ```
 
-The Stripe sandbox verifier supports file-backed replay protection with
-`AGENTCART_VERIFIER_REPLAY_STORE_PATH` or `STRIPE_MPP_REPLAY_STORE_PATH`. If no
-path is configured, it keeps an in-memory replay store for the running process.
+The Stripe sandbox verifier supports lock-protected file-backed replay
+protection with `AGENTCART_VERIFIER_REPLAY_STORE_PATH` or
+`STRIPE_MPP_REPLAY_STORE_PATH`. If no path is configured, it keeps an in-memory
+replay store for the running process. `AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS`
+controls the local lock timeout. `/health` exposes replay-store kind, lock mode,
+bucket counts, and replay-store read errors. Provider failures are classified in
+JSON with `provider_error_class`, `provider_status`, `provider_code`,
+`request_id`, and `retryable` fields.
+
+For production, use a durable store with transactional uniqueness constraints
+for payment transaction references, refund requested references, and refund
+references. The checked-in lockfile store is suitable for sandbox and local
+self-hosted testing; it is not a managed payment-provider ledger.

@@ -15,6 +15,7 @@ STRIPE_PROFILE_ID=profile_test_...
 MPP_SECRET_KEY=replace-with-random-32-byte-base64
 AGENTCART_PAYMENT_VERIFIER_TOKEN=replace-with-random-hex-token
 AGENTCART_VERIFIER_REPLAY_STORE_PATH=/tmp/agentcart-stripe-mpp-replay.json
+AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS=5000
 EOF
 ```
 
@@ -73,6 +74,13 @@ Refund requests use the same verifier URL with `operation: refund`; the
 verifier calls Stripe refunds against the original PaymentIntent reference.
 The refund `requested_reference` is passed to Stripe as the idempotency key and
 stored in the replay store after a successful refund response.
+
+`/health` reports the replay store kind, lock mode, bucket counts, and any
+replay-store read error. File-backed replay storage uses a sibling `.lock` file
+around replay mutations so concurrent verifier processes do not accept the same
+payment or refund reference. Stripe provider failures return structured
+`provider_error_class`, `provider_status`, `provider_code`, `request_id`, and
+`retryable` fields for operator triage.
 
 ## Link CLI Smoke Test
 

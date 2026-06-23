@@ -140,7 +140,8 @@ Successful refund response:
 
 - Reject mismatched amount, currency, merchant id, quote hash, recipient, or
   expired quote.
-- Reject reused transaction references.
+- Reject reused payment transaction references, refund requested references, and
+  refund references using durable uniqueness checks.
 - Reject verifier responses that do not explicitly say `ok: true`.
 - Never mark the WooCommerce order paid from a client-supplied receipt alone.
 - Never claim EUR settlement when the proof is a USD-stablecoin testnet proof.
