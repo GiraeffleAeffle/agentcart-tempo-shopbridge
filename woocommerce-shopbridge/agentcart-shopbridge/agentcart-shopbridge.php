@@ -377,6 +377,7 @@ final class AgentCart_ShopBridge {
             wp_die(esc_html__('You do not have permission to manage AgentCart ShopBridge.', 'agentcart-shopbridge'));
         }
         self::ensure_token();
+        $setup_action_notice = self::maybe_handle_setup_action();
         $product_action_notice = self::maybe_handle_product_exposure_action();
         $credential_action_notice = self::maybe_handle_credential_action();
         $registry_action_notice = self::maybe_handle_registry_action();
@@ -420,7 +421,7 @@ final class AgentCart_ShopBridge {
         ?>
         <div class="wrap">
             <h1>AgentCart ShopBridge</h1>
-            <?php foreach ([$product_action_notice, $credential_action_notice, $registry_action_notice] as $notice) : ?>
+            <?php foreach ([$setup_action_notice, $product_action_notice, $credential_action_notice, $registry_action_notice] as $notice) : ?>
                 <?php if ($notice !== null) : ?>
                     <div class="notice notice-success is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
                 <?php endif; ?>
@@ -436,6 +437,7 @@ final class AgentCart_ShopBridge {
                 Complete these steps to move from local testing to production-shaped agent checkout.
                 The plugin keeps registry proof values and product endpoints generated from WooCommerce settings.
             </p>
+            <?php self::render_setup_wizard_panel($setup_guide, $readiness); ?>
             <?php self::render_setup_guide($setup_guide); ?>
 
             <h2 id="agentcart-readiness">Readiness</h2>
@@ -648,6 +650,50 @@ final class AgentCart_ShopBridge {
             </ol>
         </div>
         <?php
+    }
+
+    private static function maybe_handle_setup_action() {
+        if (strtoupper((string) wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+            return null;
+        }
+        if (empty($_POST['agentcart_setup_action'])) {
+            return null;
+        }
+        check_admin_referer('agentcart_shopbridge_setup_action');
+        $action = sanitize_key((string) wp_unslash($_POST['agentcart_setup_action']));
+
+        if ($action === 'prepare_sandbox_secrets') {
+            return self::prepare_sandbox_defaults();
+        }
+
+        return null;
+    }
+
+    private static function prepare_sandbox_defaults() {
+        $changes = [];
+        if (!defined('AGENTCART_SHOPBRIDGE_TOKEN') && !self::merchant_token_value()) {
+            update_option(self::TOKEN_OPTION, wp_generate_password(48, false, false), false);
+            $changes[] = 'merchant token';
+        }
+        if (!defined('AGENTCART_SIGNED_REQUEST_SECRET') && self::signed_request_secret() === '') {
+            update_option(self::SIGNED_REQUEST_SECRET_OPTION, wp_generate_password(64, false, false), false);
+            $changes[] = 'signed request secret';
+        }
+        if (!defined('AGENTCART_SIGNED_REQUEST_MODE') && self::signed_request_mode() === 'off') {
+            update_option(self::SIGNED_REQUEST_MODE_OPTION, 'allow', false);
+            $changes[] = 'signed request allow mode';
+        }
+        if (!defined('AGENTCART_REGISTRY_UPDATED_AT')) {
+            update_option(self::REGISTRY_CLAIM_FINGERPRINT_OPTION, self::registry_claim_fingerprint(), false);
+            update_option(self::REGISTRY_UPDATED_AT_OPTION, self::current_registry_timestamp(), false);
+            delete_option(self::REGISTRY_PUBLIC_CHECK_OPTION);
+            $changes[] = 'registry metadata';
+        }
+
+        if (empty($changes)) {
+            return 'Sandbox access defaults are already prepared or managed in wp-config.php.';
+        }
+        return 'Sandbox access prepared: ' . implode(', ', $changes) . '. Review product exposure and payment settings before public checkout.';
     }
 
     private static function maybe_handle_product_exposure_action() {
@@ -1950,6 +1996,77 @@ final class AgentCart_ShopBridge {
         $background = $ok ? '#edfaef' : '#fff8e5';
         $label = $ok ? $ok_label : $missing_label;
         return '<span style="display:inline-block;padding:3px 8px;border-radius:999px;background:' . esc_attr($background) . ';color:' . esc_attr($color) . ';font-weight:600;">' . esc_html($label) . '</span>';
+    }
+
+    private static function render_setup_wizard_panel($setup_guide, $readiness) {
+        $steps = is_array($setup_guide['steps'] ?? null) ? $setup_guide['steps'] : [];
+        $complete_count = 0;
+        foreach ($steps as $step) {
+            if (($step['state'] ?? '') === 'complete') {
+                $complete_count++;
+            }
+        }
+        $total_count = max(1, count($steps));
+        $progress = min(100, max(0, intval(round(($complete_count / $total_count) * 100))));
+        $next_step = is_array($setup_guide['next_step'] ?? null) ? $setup_guide['next_step'] : [];
+        $manifest_url = home_url('/.well-known/agentcart.json');
+        $catalog_url = rest_url(self::API_NAMESPACE . '/catalog');
+        $quote_url = rest_url(self::API_NAMESPACE . '/quote');
+        $registry_bundle_url = self::registry_bundle_url();
+        $signed_request_ready = self::signed_request_profile_configured();
+        ?>
+        <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
+            <tbody>
+                <tr>
+                    <th scope="row">Quick start progress</th>
+                    <td>
+                        <div style="max-width: 360px; height: 10px; background: #f0f0f1; border-radius: 999px; overflow: hidden;">
+                            <div style="width: <?php echo esc_attr((string) $progress); ?>%; height: 10px; background: #2271b1;"></div>
+                        </div>
+                        <p class="description"><?php echo esc_html($complete_count . ' of ' . count($steps) . ' setup steps complete.'); ?></p>
+                    </td>
+                    <td><?php echo self::admin_status_badge(!empty($readiness['demo_ready']), 'Demo ready', 'Needs setup'); ?></td>
+                </tr>
+                <tr>
+                    <th scope="row">Next action</th>
+                    <td>
+                        <strong><?php echo esc_html($next_step['label'] ?? 'Ready for testing'); ?></strong>
+                        <?php if (!empty($next_step['summary'])) : ?>
+                            <p class="description"><?php echo esc_html($next_step['summary']); ?></p>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <a class="button" href="<?php echo esc_attr($next_step['settings_anchor'] ?? '#agentcart-readiness'); ?>"><?php echo esc_html($next_step['action_label'] ?? 'Review readiness'); ?></a>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Sandbox access defaults</th>
+                    <td>
+                        Creates missing local secrets, enables optional signed-request compatibility,
+                        and refreshes registry metadata. This does not expose products or configure
+                        payment recipients.
+                    </td>
+                    <td>
+                        <form method="post">
+                            <?php wp_nonce_field('agentcart_shopbridge_setup_action'); ?>
+                            <input type="hidden" name="agentcart_setup_action" value="prepare_sandbox_secrets" />
+                            <?php submit_button('Prepare sandbox access', 'secondary', 'submit', false); ?>
+                        </form>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Buyer-agent endpoints</th>
+                    <td>
+                        <code><?php echo esc_html($manifest_url); ?></code><br>
+                        <code><?php echo esc_html($catalog_url); ?></code><br>
+                        <code><?php echo esc_html($quote_url); ?></code><br>
+                        <code><?php echo esc_html($registry_bundle_url); ?></code>
+                    </td>
+                    <td><?php echo self::admin_status_badge($signed_request_ready, 'Signed profile ready', 'Unsigned allowed'); ?></td>
+                </tr>
+            </tbody>
+        </table>
+        <?php
     }
 
     private static function render_setup_guide($setup_guide) {

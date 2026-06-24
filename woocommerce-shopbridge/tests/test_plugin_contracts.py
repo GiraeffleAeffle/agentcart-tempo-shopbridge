@@ -267,6 +267,30 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("input.type === 'password' ? 'text' : 'password'", setting_row_body)
         self.assertIn("esc_js($option)", setting_row_body)
 
+    def test_admin_quick_start_prepares_sandbox_access_without_exposing_products(self) -> None:
+        render_body = function_body("render_settings_page")
+        action_body = function_body("maybe_handle_setup_action")
+        defaults_body = function_body("prepare_sandbox_defaults")
+        panel_body = function_body("render_setup_wizard_panel")
+        review_guard = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "check-wordpress-plugin-review.py").read_text()
+
+        self.assertIn("maybe_handle_setup_action", render_body)
+        self.assertIn("render_setup_wizard_panel", render_body)
+        self.assertIn("agentcart_setup_action", action_body + panel_body)
+        self.assertIn("agentcart_shopbridge_setup_action", action_body + panel_body)
+        self.assertIn("check_admin_referer('agentcart_shopbridge_setup_action')", action_body)
+        self.assertIn("prepare_sandbox_secrets", action_body + panel_body)
+        self.assertIn("prepare_sandbox_defaults", action_body)
+        self.assertIn("update_option(self::TOKEN_OPTION, wp_generate_password(48, false, false), false)", defaults_body)
+        self.assertIn("update_option(self::SIGNED_REQUEST_SECRET_OPTION, wp_generate_password(64, false, false), false)", defaults_body)
+        self.assertIn("update_option(self::SIGNED_REQUEST_MODE_OPTION, 'allow', false)", defaults_body)
+        self.assertIn("update_option(self::REGISTRY_CLAIM_FINGERPRINT_OPTION", defaults_body)
+        self.assertIn("update_option(self::REGISTRY_UPDATED_AT_OPTION", defaults_body)
+        self.assertIn("delete_option(self::REGISTRY_PUBLIC_CHECK_OPTION)", defaults_body)
+        self.assertIn("This does not expose products or configure", panel_body)
+        self.assertNotIn("set_agentcart_exposure_for_published_simple_products", defaults_body)
+        self.assertIn("agentcart_shopbridge_setup_action", review_guard)
+
     def test_rate_limiter_has_endpoint_policies_and_retry_metadata(self) -> None:
         policy_body = function_body("rate_limit_policy")
         limiter_body = function_body("enforce_rate_limit")
@@ -327,6 +351,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         capability_body = function_body("capability_document")
 
         self.assertIn("render_setup_guide", render_body)
+        self.assertIn("render_setup_wizard_panel", render_body)
         self.assertIn("'setup_guide'", capability_body)
         for step_id in [
             "'merchant_identity'",

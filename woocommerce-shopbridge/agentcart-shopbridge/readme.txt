@@ -93,17 +93,21 @@ configured by the merchant.
 1. Upload `agentcart-shopbridge.zip` from WordPress admin under `Plugins -> Add New -> Upload Plugin`.
 2. Activate `AgentCart ShopBridge`.
 3. Open `WooCommerce -> AgentCart`.
-4. Configure stable merchant id, support email, payment recipient or Stripe
+4. Use the Quick Start panel to prepare sandbox access defaults when secrets are
+   not managed through `wp-config.php`. This generates local signed-request
+   compatibility and registry metadata, but does not expose products or configure
+   payment recipients.
+5. Configure stable merchant id, support email, payment recipient or Stripe
    profile, optional x402 exact-payment settings, verifier URL, checkout mode,
    optional signed-request mode, and product exposure mode.
    Use Credential Actions on the same page to generate or rotate local tokens
    when they are not managed through wp-config.php.
-5. Add normal WooCommerce products and expose only the products that are safe
+6. Add normal WooCommerce products and expose only the products that are safe
    for agent checkout.
-6. In the Registry Proof section, refresh metadata when stable identity/payment
+7. In the Registry Proof section, refresh metadata when stable identity/payment
    settings change, then run the public endpoint check.
-7. Share the registry bundle URL with a registry or local buyer-agent test.
-8. Test the manifest, catalog, quote, and a non-production checkout path before
+8. Share the registry bundle URL with a registry or local buyer-agent test.
+9. Test the manifest, catalog, quote, and a non-production checkout path before
    public use.
 
 == Frequently Asked Questions ==

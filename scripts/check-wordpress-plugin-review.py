@@ -46,10 +46,12 @@ def check_superglobal_unslash(source: str) -> None:
 
 
 def check_custom_admin_actions(source: str) -> None:
+    setup_body = function_body(source, "maybe_handle_setup_action")
     product_body = function_body(source, "maybe_handle_product_exposure_action")
     credential_body = function_body(source, "maybe_handle_credential_action")
     registry_body = function_body(source, "maybe_handle_registry_action")
     for action, body in [
+        ("agentcart_shopbridge_setup_action", setup_body),
         ("agentcart_shopbridge_product_action", product_body),
         ("agentcart_shopbridge_credential_action", credential_body),
         ("agentcart_shopbridge_registry_action", registry_body),

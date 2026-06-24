@@ -165,6 +165,12 @@ wp-content/plugins/agentcart-shopbridge
 
 A GitHub repo or ZIP does not make the plugin appear in WordPress plugin search. The searchable `Plugins -> Add New` directory is WordPress.org's plugin directory and requires a separate submission/review process. For the hackathon and private installs, use `Upload Plugin` with the ZIP.
 
+After activation, open `WooCommerce -> AgentCart`. The Quick Start panel can
+prepare sandbox access defaults, show setup progress, and surface the manifest,
+catalog, quote, and registry bundle URLs without requiring merchants to copy
+internal option names. It does not automatically expose products or configure a
+payment recipient.
+
 The plugin exposes:
 
 - `/.well-known/agentcart.json`

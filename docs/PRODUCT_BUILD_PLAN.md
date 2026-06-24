@@ -162,13 +162,16 @@ Definition of done:
 Current alpha status: ShopBridge quotes through WooCommerce cart, tax, shipping,
 stock, and order APIs; exposes merchant-controlled product exposure modes;
 publishes automatic and explicit item-level aftercare policy metadata; and
-renders a guided setup checklist in `WooCommerce -> AgentCart` for merchant id,
-agent-safe products, tax/shipping, payment verifier, registry proof, and sandbox
-testing. The plugin publishes a registry onboarding bundle with the suggested
-record, proof, revocation document, and one-entry feed so registries can ingest
-the shop without merchant-side hash copy/paste. The admin registry proof panel
-can refresh generated registry metadata and store a public endpoint check result
-for the manifest, proof, revocation document, and bundle. Buyer-side registry
+renders a guided setup checklist and Quick Start panel in
+`WooCommerce -> AgentCart` for merchant id, agent-safe products, tax/shipping,
+payment verifier, registry proof, and sandbox testing. The Quick Start panel
+can prepare local sandbox access defaults, show setup progress, and surface
+buyer-agent endpoint URLs without silently exposing products. The plugin
+publishes a registry onboarding bundle with the suggested record, proof,
+revocation document, and one-entry feed so registries can ingest the shop
+without merchant-side hash copy/paste. The admin registry proof panel can
+refresh generated registry metadata and store a public endpoint check result for
+the manifest, proof, revocation document, and bundle. Buyer-side registry
 entries expose `registry_status` so agents and humans can distinguish verified,
 stale, revoked, local, and failed records without parsing raw verifier errors.
 The same setup guide is included in the public capability document for remote
@@ -181,8 +184,8 @@ rotate local merchant and verifier tokens while respecting secrets managed
 through `wp-config.php`. The pipeline also runs project-specific WordPress.org
 package and review-risk guards for headers, readme metadata, external service
 disclosure, superglobal unslashing, custom admin nonces, registry admin nonces,
-and verifier HTTP-call boundaries. Production still needs a polished setup
-wizard, WP/Woo integration tests, official Plugin Check/PHPCS, and stronger
+setup-wizard admin nonces, and verifier HTTP-call boundaries. Production still
+needs WP/Woo integration tests, official Plugin Check/PHPCS, and stronger
 hosted registry/payment-provider onboarding.
 
 ### 3. Idempotent Order And Replay Safety
