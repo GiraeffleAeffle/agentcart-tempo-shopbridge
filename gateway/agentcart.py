@@ -6248,6 +6248,12 @@ class AgentCartHandler(BaseHTTPRequestHandler):
                 raise NotFound("payment options file not found")
             self.send_html(payment_options_path.read_text())
             return
+        if path == "/roadmap.html":
+            roadmap_path = pathlib.Path(__file__).with_name("roadmap.html")
+            if not roadmap_path.exists():
+                raise NotFound("roadmap file not found")
+            self.send_html(roadmap_path.read_text())
+            return
         if path == "/onboarding.html":
             onboarding_path = pathlib.Path(__file__).with_name("onboarding.html")
             if not onboarding_path.exists():
@@ -7120,6 +7126,7 @@ def render_dashboard(state: dict[str, Any]) -> str:
       <a class="button secondary" href="/.well-known/agentcart.json">Capability Document</a>
       <a class="button secondary" href="/architecture.html">Architecture</a>
       <a class="button secondary" href="/shopbridge-stack.html">Modular Stack</a>
+      <a class="button secondary" href="/roadmap.html">Roadmap</a>
       <a class="button secondary" href="/presentation.html">Presentation</a>
       <a class="button secondary" href="/demo">Demo Cockpit</a>
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>
@@ -7255,6 +7262,7 @@ def render_judge_view(service: AgentCartService) -> str:
       <a class="button secondary" href="/energy">Energy Market</a>
       <a class="button secondary" href="/architecture.html">Architecture</a>
       <a class="button secondary" href="/shopbridge-stack.html">Modular Stack</a>
+      <a class="button secondary" href="/roadmap.html">Roadmap</a>
       <a class="button secondary" href="/presentation.html">Presentation</a>
       <a class="button secondary" href="/demo">Demo Cockpit</a>
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>

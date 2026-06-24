@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentCart Production Roadmap</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172027;
+      --muted: #5c6870;
+      --line: #cfd9df;
+      --soft: #f4f7f8;
+      --panel: #ffffff;
+      --agent: #0b6b63;
+      --blue: #245c9f;
+      --amber: #8b5a1d;
+      --red: #9b3333;
+      --green: #246b45;
+      --violet: #5c4b8f;
+      --bar: #dfe8ec;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #fff;
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    header {
+      padding: 28px 32px 22px;
+      background: var(--soft);
+      border-bottom: 1px solid var(--line);
+    }
+
+    main {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 24px 24px 46px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 28px 0 12px;
+      font-size: 20px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    p { margin: 0; }
+
+    a { color: var(--agent); }
+
+    .lead {
+      max-width: 960px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .button {
+      border: 1px solid var(--agent);
+      background: var(--agent);
+      color: #fff;
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .secondary {
+      background: #fff;
+      color: var(--agent);
+    }
+
+    .overview {
+      display: grid;
+      grid-template-columns: 1.05fr 1.95fr;
+      gap: 16px;
+      align-items: stretch;
+      margin-bottom: 22px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 16px;
+    }
+
+    .score {
+      display: grid;
+      gap: 16px;
+      min-height: 100%;
+    }
+
+    .score-number {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin: 2px 0;
+    }
+
+    .score-number strong {
+      font-size: 58px;
+      line-height: .95;
+      letter-spacing: 0;
+    }
+
+    .score-number span {
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .progress {
+      width: 100%;
+      height: 12px;
+      background: var(--bar);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress span {
+      display: block;
+      height: 100%;
+      width: var(--value);
+      background: var(--agent);
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      background: #fbfcfd;
+      min-height: 108px;
+    }
+
+    .metric b {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: #33423e;
+    }
+
+    .metric .progress {
+      height: 8px;
+      margin: 10px 0 8px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .gate-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .gate {
+      display: grid;
+      grid-template-columns: minmax(170px, .7fr) minmax(0, 1.6fr) minmax(160px, .7fr);
+      gap: 14px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 14px;
+    }
+
+    .gate-title {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .gate-title strong {
+      display: block;
+      font-size: 15px;
+    }
+
+    .gate p,
+    .panel li,
+    td {
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 23px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .done { color: #fff; background: var(--green); }
+    .alpha { color: #fff; background: var(--blue); }
+    .active { color: #fff; background: var(--agent); }
+    .partial { color: #fff; background: var(--amber); }
+    .planned { color: #fff; background: var(--violet); }
+    .open { color: var(--red); background: #fff4f2; border-color: #e6b6ad; }
+
+    .gate-meter {
+      min-width: 0;
+    }
+
+    .gate-meter .progress {
+      height: 9px;
+      margin-bottom: 7px;
+    }
+
+    .next {
+      border-left: 4px solid var(--agent);
+    }
+
+    .risk {
+      border-left: 4px solid var(--amber);
+    }
+
+    .standard {
+      border-left: 4px solid var(--violet);
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    li { margin: 7px 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      padding: 10px 11px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      background: var(--soft);
+      color: #33423e;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    code {
+      background: #edf3f1;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 2px 5px;
+      font-size: .92em;
+    }
+
+    .phase {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .phase:last-child { border-bottom: 0; }
+
+    .phase b {
+      color: var(--agent);
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      header { padding: 22px 20px 18px; }
+      main { padding: 18px 16px 36px; }
+      .overview,
+      .grid,
+      .gate,
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AgentCart Production Roadmap</h1>
+    <p class="lead">A working map from hackathon prototype to production-grade agent commerce for WooCommerce merchants and buyer agents. Percentages are weighted by production readiness, not by demo coverage.</p>
+    <div class="actions">
+      <a class="button secondary" href="/">Dashboard</a>
+      <a class="button secondary" href="/presentation.html">Presentation</a>
+      <a class="button secondary" href="/architecture.html">Architecture</a>
+      <a class="button secondary" href="/protocol-fields.html">Field Map</a>
+      <a class="button secondary" href="/payment-options.html">Payments</a>
+      <a class="button" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115">Quote Tournament</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="overview">
+      <div class="panel score">
+        <div>
+          <h2>Overall Readiness</h2>
+          <div class="score-number"><strong id="overall-score">46</strong><span>%</span></div>
+          <div class="progress" style="--value: 46%"><span></span></div>
+        </div>
+        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Area Breakdown</h2>
+        <div class="metrics" id="area-metrics"></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="panel next">
+        <h3>Next Slice</h3>
+        <ul>
+          <li>Merchant registry transparency and refresh UX: verified domain proof, catalog hash freshness, revoke state, and safer automatic refresh.</li>
+          <li>Payment verifier hardening: quote-bound settlement, durable replay store, provider metrics, and clearer failure states.</li>
+          <li>WooCommerce production gate: Plugin Check, PHPCS, packaging, uninstall behavior, and integration smoke coverage.</li>
+        </ul>
+      </article>
+      <article class="panel risk">
+        <h3>Highest Risks</h3>
+        <ul>
+          <li>Payment rails can be demo-valid while still not representing real EUR settlement or provider-grade refunds.</li>
+          <li>Merchant discovery needs authenticity, freshness, and prompt-injection resistant data handling before broad indexing.</li>
+          <li>Buyer-side adoption depends on a skill-only path or very small local runtime, not a heavy separate service.</li>
+        </ul>
+      </article>
+      <article class="panel standard">
+        <h3>Standards Direction</h3>
+        <ul>
+          <li>Keep AgentCart as the commerce safety layer around payment standards, not as a replacement for them.</li>
+          <li>Expose translators for x402, MCP tools, AP2-style mandates, UCP-style checkout data, and future registry proofs.</li>
+          <li>Prefer canonical JSON plus optional compact agent formats only after the contract is stable.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section>
+      <h2>Gate Overview</h2>
+      <div class="gate-list" id="gate-list"></div>
+    </section>
+
+    <section>
+      <h2>Release Phases</h2>
+      <div class="panel">
+        <div class="phase">
+          <b>Alpha</b>
+          <div>
+            <h3>Local buyer agents and trusted pilot shops</h3>
+            <p class="small">Focus on agent-readable WooCommerce, explicit approval, quote binding, registry transparency, and repeatable local setup. This is mostly implemented.</p>
+          </div>
+        </div>
+        <div class="phase">
+          <b>Beta</b>
+          <div>
+            <h3>Real merchant operations</h3>
+            <p class="small">Add real settlement/refund workflows, shipping/tracking, observability, plugin security review, merchant setup wizard, and stable WordPress packaging.</p>
+          </div>
+        </div>
+        <div class="phase">
+          <b>Public</b>
+          <div>
+            <h3>Discoverable agent commerce network</h3>
+            <p class="small">Launch registry governance, standards translators, abuse controls, docs, WordPress.org listing, and verified pilot merchants that agents can compare safely.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Definition Of Done</h2>
+      <table>
+        <thead>
+          <tr><th>Area</th><th>Production bar</th><th>Current gap</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Merchant setup</td>
+            <td>A Woo merchant installs the ZIP or WordPress.org plugin, enables AgentCart, picks payment rails, and publishes a valid manifest without touching code.</td>
+            <td>Settings exist, but the setup wizard and automatic registry refresh need more polish.</td>
+          </tr>
+          <tr>
+            <td>Buyer setup</td>
+            <td>A buyer agent can use a small skill/tool package to discover merchants, compare final quotes, ask for approval, pay, and track orders.</td>
+            <td>Skill-only path exists as an alpha. It needs packaging, docs, and more agent runtime adapters.</td>
+          </tr>
+          <tr>
+            <td>Trust</td>
+            <td>Agents can verify merchant identity, endpoint freshness, signed sensitive calls, and quote/order integrity without trusting arbitrary page text.</td>
+            <td>Registry and signed request gates are present. Freshness automation, revocation UX, and stronger registry backing remain.</td>
+          </tr>
+          <tr>
+            <td>Payments</td>
+            <td>Payment proof is quote-bound, amount-correct, replay-safe, provider-verifiable, refundable, and auditable across settlement rails.</td>
+            <td>Demo rails and verifier contracts are implemented. Real provider operations and production replay/metrics remain.</td>
+          </tr>
+          <tr>
+            <td>Operations</td>
+            <td>Release, monitoring, logs, failure modes, support docs, and plugin review gates are boring and repeatable.</td>
+            <td>Verify pipeline exists. WordPress.org readiness, monitoring, and support runbooks still need work.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const areas = [
+      { name: "Core Commerce", value: 78, note: "catalog, quote, approval, order, stock, tax and shipping shape" },
+      { name: "Trust And Registry", value: 54, note: "manifest profiles, domain proof, hashes, signed request gate" },
+      { name: "Payments", value: 35, note: "demo proofs and verifier contracts done; real rail ops still open" },
+      { name: "Merchant UX", value: 42, note: "settings done; setup wizard and low-friction refresh remain" },
+      { name: "Buyer Skill Path", value: 48, note: "service path works; skill-only path needs packaging and adapters" },
+      { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
+      { name: "Woo Release", value: 32, note: "ZIP works; WordPress.org review and PHPCS gates remain" },
+      { name: "Operations", value: 24, note: "smoke pipeline exists; monitoring, support and beta ops remain" }
+    ];
+
+    const gates = [
+      {
+        title: "Merchant bridge baseline",
+        status: "done",
+        value: 92,
+        scope: "WooCommerce plugin exposes manifest, catalog, quote, checkout, order status, and verifier metadata.",
+        remaining: "Keep compatibility stable while other gates harden around it."
+      },
+      {
+        title: "Product exposure safety",
+        status: "alpha",
+        value: 72,
+        scope: "Merchant-controlled enablement, stock visibility, categories, shipping countries, and safer catalog surface.",
+        remaining: "Add bulk policies/tags and clearer defaults for stores with many products."
+      },
+      {
+        title: "Quote integrity",
+        status: "alpha",
+        value: 68,
+        scope: "Final quote includes tax, shipping, recipient, quote hash, expiry, and idempotent checkout shape.",
+        remaining: "Add stronger hold semantics, concurrency tests, and explicit stale-quote recovery."
+      },
+      {
+        title: "Merchant registry",
+        status: "active",
+        value: 50,
+        scope: "Registry records, domain proof, manifest hash, profile discovery, and quote tournament entry point.",
+        remaining: "Add refresh UX, revoke state, monitoring, and stronger registry backing."
+      },
+      {
+        title: "Signed requests",
+        status: "alpha",
+        value: 58,
+        scope: "Sensitive endpoints can require canonical HMAC signatures with nonce, expiry, and body digest.",
+        remaining: "Add key rotation UX, multiple signers, and production-grade audit trails."
+      },
+      {
+        title: "Payment verifier",
+        status: "partial",
+        value: 35,
+        scope: "Verifier contract, fixtures, replay gate, and testnet proof handling exist.",
+        remaining: "Bind real provider proof to quote amount, settlement, refunds, durable replay, and metrics."
+      },
+      {
+        title: "Refund and cancellation flow",
+        status: "partial",
+        value: 30,
+        scope: "Woo order surface and refund intent are visible; payment options are documented.",
+        remaining: "Implement provider-backed refund state machine and buyer-facing status updates."
+      },
+      {
+        title: "Delivery and calendar",
+        status: "partial",
+        value: 44,
+        scope: "Delivery estimates and calendar endpoint exist for demo and household planning.",
+        remaining: "Connect carrier tracking, status webhooks, reschedule events, and exception handling."
+      },
+      {
+        title: "Buyer skill-only path",
+        status: "partial",
+        value: 48,
+        scope: "Agent can perform discovery and checkout through a direct skill/tool path without relying on the demo UI.",
+        remaining: "Package a first-class skill, document agent setup, and add adapters for common local agents."
+      },
+      {
+        title: "Protocol translators",
+        status: "planned",
+        value: 28,
+        scope: "x402 payment requirement shim and protocol profiles are present.",
+        remaining: "Add AP2 mandate mapping, UCP-style checkout mapping, MCP tool schemas, and A2A handoff profile."
+      },
+      {
+        title: "Merchant onboarding UX",
+        status: "partial",
+        value: 42,
+        scope: "Settings page exposes endpoints, recipients, verifier, payment profiles, and readiness checks.",
+        remaining: "Add guided setup, automatic registry refresh, test checkout button, and clearer warnings."
+      },
+      {
+        title: "WordPress plugin release",
+        status: "partial",
+        value: 32,
+        scope: "Installable ZIP and release artifacts work.",
+        remaining: "Pass Plugin Check, PHPCS, readme assets, uninstall cleanup, i18n, and WordPress.org submission rules."
+      },
+      {
+        title: "Security and abuse controls",
+        status: "planned",
+        value: 26,
+        scope: "Basic validation, signed calls, and opt-in exposure exist.",
+        remaining: "Add rate limits, WAF guidance, prompt-injection tests, malware review assumptions, and incident playbooks."
+      },
+      {
+        title: "Observability",
+        status: "open",
+        value: 18,
+        scope: "Health endpoints and verify pipeline exist.",
+        remaining: "Add metrics, structured logs, alerting, payment failure dashboards, and merchant support diagnostics."
+      },
+      {
+        title: "Pilot launch",
+        status: "open",
+        value: 12,
+        scope: "Local demo and homelab deployment prove the flow.",
+        remaining: "Run external beta shops, external buyer agents, docs-driven setup, and measured checkout success."
+      }
+    ];
+
+    const statusLabels = {
+      done: "Done",
+      alpha: "Alpha",
+      active: "Current",
+      partial: "Partial",
+      planned: "Planned",
+      open: "Open"
+    };
+
+    const metricRoot = document.getElementById("area-metrics");
+    metricRoot.innerHTML = areas.map((area) => `
+      <div class="metric">
+        <b>${area.name}</b>
+        <div class="progress" style="--value: ${area.value}%"><span></span></div>
+        <p class="small"><strong>${area.value}%</strong> ${area.note}</p>
+      </div>
+    `).join("");
+
+    const gateRoot = document.getElementById("gate-list");
+    gateRoot.innerHTML = gates.map((gate) => `
+      <article class="gate">
+        <div>
+          <div class="gate-title">
+            <strong>${gate.title}</strong>
+            <span class="pill ${gate.status}">${statusLabels[gate.status]}</span>
+          </div>
+        </div>
+        <p>${gate.scope}</p>
+        <div class="gate-meter">
+          <div class="progress" style="--value: ${gate.value}%"><span></span></div>
+          <p class="small"><strong>${gate.value}%</strong> - ${gate.remaining}</p>
+        </div>
+      </article>
+    `).join("");
+  </script>
+</body>
+</html>

@@ -121,7 +121,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     fi
     sleep 1
   done
-  for path in /health /presentation.html /demo /onboarding.html /protocol-fields.html /payment-options.html /shopbridge-stack.html /intent-auction-overview.html /architecture.html /registry; do
+  for path in /health /presentation.html /demo /onboarding.html /protocol-fields.html /payment-options.html /shopbridge-stack.html /intent-auction-overview.html /architecture.html /roadmap.html /registry; do
     curl -fsS "http://127.0.0.1:18099$path" >/dev/null
   done
   cleanup
