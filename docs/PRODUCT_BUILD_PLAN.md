@@ -173,8 +173,10 @@ hold so merchant tests do not consume availability. The plugin
 publishes a registry onboarding bundle with the suggested record, proof,
 revocation document, and one-entry feed so registries can ingest the shop
 without merchant-side hash copy/paste. The admin registry proof panel can
-refresh generated registry metadata and store a public endpoint check result for
-the manifest, proof, revocation document, and bundle. Buyer-side registry
+refresh generated registry metadata, store a public endpoint check result for
+the manifest, proof, revocation document, and bundle, and optionally submit or
+revoke the current record through a merchant-configured hosted registry
+connection. Buyer-side registry
 entries expose `registry_status` so agents and humans can distinguish verified,
 stale, revoked, local, and failed records without parsing raw verifier errors.
 The same setup guide is included in the public capability document for remote

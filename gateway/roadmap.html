@@ -430,7 +430,7 @@
           <tr>
             <td>Merchant setup</td>
             <td>A Woo merchant installs the ZIP or WordPress.org plugin, enables AgentCart, picks payment rails, and publishes a valid manifest without touching code.</td>
-            <td>Quick Start, readiness UX, and sandbox quote checks exist. Hosted registry connection, checkout test automation, and Plugin Check hardening remain.</td>
+            <td>Quick Start, readiness UX, sandbox quote checks, and hosted registry submit/revoke UX exist. Checkout test automation and Plugin Check hardening remain.</td>
           </tr>
           <tr>
             <td>Buyer setup</td>
@@ -494,9 +494,9 @@
       {
         title: "Merchant registry",
         status: "active",
-        value: 50,
-        scope: "Registry records, domain proof, manifest hash, profile discovery, and quote tournament entry point.",
-        remaining: "Add refresh UX, revoke state, monitoring, and stronger registry backing."
+        value: 58,
+        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted submit/revoke actions, and quote tournament entry point.",
+        remaining: "Add hosted registry service persistence, monitoring, onchain/append-only backing, and stronger governance."
       },
       {
         title: "Signed requests",
@@ -543,9 +543,9 @@
       {
         title: "Merchant onboarding UX",
         status: "partial",
-        value: 58,
-        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, and sandbox quote checks.",
-        remaining: "Add hosted registry connection, checkout test automation, and deeper WP admin walkthrough tests."
+        value: 64,
+        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote checks, and registry connection actions.",
+        remaining: "Add checkout test automation, deeper WP admin walkthrough tests, and Plugin Check/PHPCS polish."
       },
       {
         title: "WordPress plugin release",

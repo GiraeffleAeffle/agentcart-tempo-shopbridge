@@ -410,7 +410,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
 
         self.assertIn("agentcart-registry-revocations.json", well_known_body)
         self.assertIn("registry_revocation_url", proof_body)
-        self.assertIn("'revocations' => []", revocations_body)
+        self.assertIn("$revocations = self::registry_revoked_records()", revocations_body)
+        self.assertIn("'revocations' => $revocations", revocations_body)
         self.assertIn("'revocation_url' => self::registry_revocation_url()", claim_body)
         self.assertIn("'registry_revocations' => self::registry_revocation_url()", capability_body)
         self.assertIn("'revocation_url' => self::registry_revocation_url()", capability_body)
@@ -461,6 +462,67 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("current_record_revoked", check_body)
         self.assertIn("'registry_public_check' => self::registry_public_check_result()", capability_body)
         self.assertIn("agentcart_shopbridge_registry_action", review_guard)
+
+    def test_registry_connection_can_submit_and_revoke_hosted_records(self) -> None:
+        settings_body = function_body("register_settings")
+        render_body = function_body("render_settings_page")
+        action_body = function_body("maybe_handle_registry_action")
+        panel_body = function_body("render_registry_transparency_panel")
+        submit_body = function_body("submit_registry_connection")
+        payload_body = function_body("registry_connection_payload")
+        call_body = function_body("call_registry_connection")
+        revocations_body = function_body("registry_revocations")
+        records_body = function_body("record_registry_revocation")
+        stored_body = function_body("registry_revoked_records")
+        review_guard = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "check-wordpress-plugin-review.py").read_text()
+        uninstall = UNINSTALL.read_text()
+
+        for symbol in [
+            "REGISTRY_CONNECTION_URL_OPTION",
+            "REGISTRY_CONNECTION_TOKEN_OPTION",
+            "REGISTRY_CONNECTION_STATUS_OPTION",
+            "REGISTRY_REVOKED_RECORDS_OPTION",
+            "AGENTCART_REGISTRY_CONNECTION_URL",
+            "AGENTCART_REGISTRY_CONNECTION_TOKEN",
+        ]:
+            self.assertIn(symbol, SOURCE)
+        for option in [
+            "agentcart_shopbridge_registry_connection_url",
+            "agentcart_shopbridge_registry_connection_token",
+            "agentcart_shopbridge_registry_connection_status",
+            "agentcart_shopbridge_registry_revoked_records",
+        ]:
+            self.assertIn(option, uninstall)
+        self.assertIn("REGISTRY_CONNECTION_URL_OPTION", settings_body)
+        self.assertIn("REGISTRY_CONNECTION_TOKEN_OPTION", settings_body)
+        self.assertIn("Registry connection URL", render_body)
+        self.assertIn("Registry connection token", render_body)
+        self.assertIn("registry_connection_status", render_body + panel_body)
+        self.assertIn("submit_registry_bundle", action_body + panel_body)
+        self.assertIn("revoke_registry_record", action_body + panel_body)
+        self.assertIn("submit_registry_connection('upsert')", action_body)
+        self.assertIn("submit_registry_connection('revoke')", action_body)
+        self.assertIn("update_option(self::REGISTRY_CONNECTION_STATUS_OPTION, $result, false)", action_body)
+        self.assertIn("record_registry_revocation", action_body)
+        self.assertIn("wp_nonce_field('agentcart_shopbridge_registry_action')", panel_body)
+        self.assertIn("registry_onboarding_bundle", payload_body)
+        self.assertIn("'schema' => 'agentcart.shopbridge.registry_connection_request.v1'", payload_body)
+        self.assertIn("'idempotency_key' => hash('sha256'", payload_body)
+        self.assertIn("registry_connection_url", submit_body)
+        self.assertIn("call_registry_connection", submit_body)
+        self.assertIn("wp_remote_post($registry_url", call_body)
+        self.assertIn("'X-AgentCart-Registry-Operation'", call_body)
+        self.assertIn("$headers['Authorization'] = 'Bearer ' . $token", call_body)
+        self.assertIn("wp_json_encode($payload", call_body)
+        self.assertIn("'redirection' => 0", call_body)
+        self.assertIn("wp_remote_retrieve_response_code($response)", call_body)
+        self.assertIn("json_decode($raw_body, true)", call_body)
+        self.assertIn("self::registry_revoked_records()", revocations_body)
+        self.assertIn("'revocations' => $revocations", revocations_body)
+        self.assertIn("update_option(self::REGISTRY_REVOKED_RECORDS_OPTION, $records, false)", records_body)
+        self.assertIn("delete_option(self::REGISTRY_PUBLIC_CHECK_OPTION)", records_body)
+        self.assertIn("'revoked' => true", stored_body + records_body)
+        self.assertIn("call_registry_connection", review_guard)
 
     def test_manifest_protocol_profiles_are_configured_only_and_registry_bound(self) -> None:
         capability_body = function_body("capability_document")

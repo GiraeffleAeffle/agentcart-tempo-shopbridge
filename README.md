@@ -173,6 +173,11 @@ WooCommerce-backed quote path buyer agents use, then delete the test quote and
 release its soft stock hold. It does not automatically expose products or
 configure a payment recipient.
 
+The Registry Proof section can also use an optional merchant-configured registry
+connection URL. When configured, the merchant can submit the generated registry
+bundle or send a revocation request from WordPress admin instead of copying the
+bundle URL manually.
+
 The plugin exposes:
 
 - `/.well-known/agentcart.json`

@@ -65,8 +65,9 @@ def check_custom_admin_actions(source: str) -> None:
 def check_external_http_verifier_calls(source: str) -> None:
     payment_body = function_body(source, "call_payment_verifier")
     refund_body = function_body(source, "call_refund_verifier")
-    if source.count("wp_remote_post(") != 2:
-        fail("external HTTP calls should be limited to the payment/refund verifier wrappers")
+    registry_body = function_body(source, "call_registry_connection")
+    if source.count("wp_remote_post(") != 3:
+        fail("external HTTP calls should be limited to the payment/refund verifier and registry connection wrappers")
     for name, body in [("payment verifier", payment_body), ("refund verifier", refund_body)]:
         for literal in [
             "wp_remote_post($verifier_url",
@@ -81,6 +82,21 @@ def check_external_http_verifier_calls(source: str) -> None:
         ]:
             if literal not in body:
                 fail(f"{name} HTTP call missing review guard: {literal}")
+    for literal in [
+        "wp_remote_post($registry_url",
+        "'Content-Type' => 'application/json'",
+        "'Accept' => 'application/json'",
+        "$headers['Authorization'] = 'Bearer ' . $token",
+        "wp_json_encode($payload",
+        "'timeout' =>",
+        "'redirection' => 0",
+        "is_wp_error($response)",
+        "wp_remote_retrieve_response_code($response)",
+        "wp_remote_retrieve_body($response)",
+        "json_decode($raw_body, true)",
+    ]:
+        if literal not in registry_body:
+            fail(f"registry connection HTTP call missing review guard: {literal}")
     if re.search(r"\b(curl_exec|file_get_contents)\s*\(", source):
         fail("use WordPress HTTP APIs instead of curl_exec/file_get_contents")
 

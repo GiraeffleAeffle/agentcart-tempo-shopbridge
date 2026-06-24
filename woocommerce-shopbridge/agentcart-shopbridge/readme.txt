@@ -61,6 +61,8 @@ actions.
 * Registry transparency actions to refresh the merchant-owned claim metadata
   and check public manifest/proof/revocation/bundle endpoints before registry
   ingestion.
+* Optional hosted registry connection that submits the generated registry bundle
+  or a merchant revocation request to a merchant-configured registry endpoint.
 * Normalized fulfillment tracking adapter metadata from common WooCommerce
   shipment/tracking plugin fields.
 * Structured policy metadata for restricted goods, perishables, deposits,
@@ -77,15 +79,30 @@ paid order or recording a verified refund. The verifier confirms that the buyer
 agent's payment or refund receipt matches the WooCommerce quote amount,
 currency, merchant id, quote hash, and configured payment destination.
 
-No verifier is contacted for public catalog or quote browsing. A verifier is
-called only after the merchant configures a Payment verifier URL in
-`WooCommerce -> AgentCart` or defines `AGENTCART_PAYMENT_VERIFIER_URL`.
+ShopBridge can also call a merchant-configured registry connection URL when the
+merchant clicks "Submit registry bundle" or "Send revocation request" in
+`WooCommerce -> AgentCart`. That request lets a registry ingest or revoke the
+merchant-owned discovery record without copy/paste.
+
+No verifier or registry connection is contacted for public catalog or quote
+browsing. A verifier is called only after the merchant configures a Payment
+verifier URL in `WooCommerce -> AgentCart` or defines
+`AGENTCART_PAYMENT_VERIFIER_URL`. A registry connection is called only after the
+merchant configures a Registry connection URL or defines
+`AGENTCART_REGISTRY_CONNECTION_URL` and presses one of the registry connection
+action buttons.
 
 The verifier request can include the stored quote, selected order/refund fields,
 payment receipt fields supplied by the buyer agent, merchant id, payment rail,
 payment destination, amount, currency, quote hash, optional x402
 `PAYMENT-SIGNATURE` payload, and idempotency/reference values. The exact
 destination, terms, and privacy policy depend on the verifier service
+configured by the merchant.
+
+The registry request can include the generated registry record, record hash,
+manifest URL, registry bundle URL, domain proof document, revocation document,
+public endpoint check result, merchant id, shop domain, and an idempotency key.
+The exact destination, terms, and privacy policy depend on the registry service
 configured by the merchant.
 
 == Installation ==
@@ -99,15 +116,17 @@ configured by the merchant.
    payment recipients. The same panel can run a sandbox quote check through the
    WooCommerce-backed quote path and then clean up the test quote/stock hold.
 5. Configure stable merchant id, support email, payment recipient or Stripe
-   profile, optional x402 exact-payment settings, verifier URL, checkout mode,
-   optional signed-request mode, and product exposure mode.
+   profile, optional x402 exact-payment settings, Payment verifier URL,
+   checkout mode, optional signed-request mode, and product exposure mode.
    Use Credential Actions on the same page to generate or rotate local tokens
    when they are not managed through wp-config.php.
 6. Add normal WooCommerce products and expose only the products that are safe
    for agent checkout.
 7. In the Registry Proof section, refresh metadata when stable identity/payment
    settings change, then run the public endpoint check.
-8. Share the registry bundle URL with a registry or local buyer-agent test.
+8. Share the registry bundle URL with a registry or local buyer-agent test, or
+   configure the optional Registry connection URL and submit the bundle from the
+   Registry Proof section.
 9. Test the manifest, catalog, quote, and a non-production checkout path before
    public use.
 

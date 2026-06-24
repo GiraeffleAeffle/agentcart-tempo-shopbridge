@@ -82,9 +82,9 @@ Check or PHPCS would otherwise catch later:
 - `$_POST` values are unslashed before sanitization;
 - `$_SERVER` values are unslashed before use;
 - custom admin POST actions have nonce fields and nonce checks;
-- outbound HTTP calls are limited to the configured payment/refund verifier
-  wrappers and use WordPress HTTP APIs, JSON headers, timeouts, response-code
-  checks, and error handling;
+- outbound HTTP calls are limited to the configured payment/refund verifier and
+  hosted registry connection wrappers and use WordPress HTTP APIs, JSON headers,
+  timeouts, response-code checks, and error handling;
 - admin badge HTML escapes generated attributes and labels.
 
 These checks are not substitutes for WordPress Plugin Check, PHPCS, or manual
@@ -94,13 +94,20 @@ review. They are project-specific guards for this plugin and generated package.
 
 ShopBridge does not call external services for catalog or quote browsing. It
 can call a merchant-configured payment verifier URL during paid-order creation
-or verified refund recording.
+or verified refund recording. It can also call a merchant-configured hosted
+registry connection URL when an admin explicitly submits a registry bundle or
+revocation request from `WooCommerce -> AgentCart`.
 
 The WordPress.org readme needs to disclose this because the verifier can receive
 quote, order/refund, payment receipt, merchant id, rail, destination, amount,
 currency, quote hash, and idempotency/reference fields. The plugin cannot know
 the verifier provider's terms or privacy policy because the merchant configures
 that URL, so the readme must make that responsibility explicit.
+
+The readme also needs to disclose the registry connection because it can receive
+the generated registry record, record hash, manifest URL, registry bundle URL,
+domain proof document, revocation document, public endpoint check result,
+merchant id, shop domain, and idempotency key.
 
 ## Submission Steps
 

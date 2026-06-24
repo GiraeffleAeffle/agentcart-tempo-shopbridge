@@ -430,21 +430,25 @@ auto-generates the stable registry claim, claim hash, record hash, and
 settings.
 
 The bundle contains `registry_record`, `record_hash`, the expected proof
-document, an empty revocation document, and a one-entry `registry_feed`.
-Registries can ingest that bundle directly, and local buyer-agent tests can use
-it as `SHOPBRIDGE_REGISTRY_URL`.
+document, a revocation document, and a one-entry `registry_feed`. Registries can
+ingest that bundle directly, and local buyer-agent tests can use it as
+`SHOPBRIDGE_REGISTRY_URL`.
 
 1. Open `WooCommerce -> AgentCart`.
 2. In `Registry Proof`, use `Refresh registry metadata` after stable identity,
    payment, shipping, endpoint, or policy settings change.
 3. Use `Check public registry endpoints` to verify the manifest, proof,
    revocation document, and bundle before registry ingestion.
-4. Copy the registry bundle URL.
-5. Ask the AgentCart registry operator to ingest the bundle, or use a future
-   hosted AgentCart registry connection.
+4. Copy the registry bundle URL, or configure the optional Registry connection
+   URL/token and use `Submit registry bundle` from the admin page.
+5. Ask the AgentCart registry operator to ingest the bundle if no hosted
+   connection is configured.
    Operators can use:
    `python3 gateway/scripts/registry_record.py build --manifest-url https://shop.example/.well-known/agentcart.json`.
-6. The proof endpoint publishes the fields AgentCart verifies before including
+6. Use `Send revocation request` only when removing the current record from
+   discovery; it marks the current record hash in the merchant-hosted revocation
+   document and posts the revocation intent to the configured registry.
+7. The proof endpoint publishes the fields AgentCart verifies before including
    the shop in quote tournaments.
 
 An onchain registry can make sense as an identity and integrity anchor, not as the product catalog itself. A useful registry record would contain:
