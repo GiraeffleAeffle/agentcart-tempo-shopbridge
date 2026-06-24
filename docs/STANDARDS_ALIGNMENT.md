@@ -146,15 +146,23 @@ Definition of done:
 
 ### Slice 2: Manifest Protocol Profiles
 
+Status: alpha implemented.
+
 Goal: every merchant manifest declares which commerce and payment profiles it
 supports in a stable, adapter-friendly way.
 
 Deliverables:
 
-- `profiles[]` or `standards[]` section in `/.well-known/agentcart.json`;
+- `protocol_profiles[]` and `protocol_profile_ids[]` sections in
+  `/.well-known/agentcart.json` and the capability document;
 - explicit entries for `agentcart-shopbridge`, `mpp-http-auth`,
-  `x402-compatible`, `stripe-card-mpp`, `erc8004-ready`, and
-  `signed-http-ready` only when actually configured;
+  `stripe-card-mpp`, and `erc8004-ready` only when actually configured;
+- no `x402-compatible` or `signed-http-ready` profile until those adapters are
+  implemented;
+- registry records bind compact `protocol_profile_ids` while preserving legacy
+  `supported_protocols`;
+- gateway, registry tools, smoke tests, and the direct skill read profile-aware
+  manifests with legacy `protocols[]` fallback;
 - tests that unavailable rails are not advertised.
 
 Definition of done:
@@ -236,8 +244,8 @@ Definition of done:
 ## Near-Term Build Order
 
 1. Registry transparency and refresh UX. Alpha implemented.
-2. Manifest protocol profiles. Next.
-3. x402 compatibility shim.
+2. Manifest protocol profiles. Alpha implemented.
+3. x402 compatibility shim. Next.
 4. Signed HTTP request verification.
 5. AP2/ACP/UCP/MCP/A2A translators.
 6. ERC-8183-style escrow/custom-order flow.

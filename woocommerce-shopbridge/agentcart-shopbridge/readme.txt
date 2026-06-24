@@ -47,6 +47,8 @@ actions.
 * Baseline REST rate limits and idempotency/replay checks.
 * External payment verifier hook for quote-bound Tempo MPP, Stripe/card MPP, or
   other rails.
+* Configured-only manifest protocol profiles so agents can choose ShopBridge,
+  MPP, Stripe/card MPP, or registry adapters before quote calls.
 * Merchant-token-protected refund and cancellation endpoints.
 * Admin actions to generate or rotate local merchant and verifier tokens while
   respecting secrets managed in wp-config.php.

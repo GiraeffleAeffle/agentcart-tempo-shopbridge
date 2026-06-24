@@ -96,6 +96,7 @@ def registry_manifest_and_record(
             "orders": f"https://{domain}/wp-json/agentcart/v1/orders",
         },
         "supported_protocols": ["agentcart-shopbridge", "stripe-card-mpp"],
+        "protocol_profile_ids": ["agentcart-shopbridge", "stripe-card-mpp"],
         "payment_network": "testnet",
         "payment_recipient": "",
         "stripe_profile_id": stripe_profile_id,
@@ -121,6 +122,20 @@ def registry_manifest_and_record(
         "protocols": [
             {"id": "agentcart-shopbridge"},
             {"id": "stripe-card-mpp", "network_id": stripe_profile_id},
+        ],
+        "protocol_profiles": [
+            {
+                "id": "agentcart-shopbridge",
+                "type": "commerce",
+                "status": "available",
+            },
+            {
+                "id": "stripe-card-mpp",
+                "type": "payment",
+                "status": "available",
+                "payment_protocol_id": "stripe-card-mpp",
+                "network_id": stripe_profile_id,
+            },
         ],
         "delivery": {"ship_to_countries": ["DE"]},
         "endpoints": claim["endpoints"],
@@ -315,10 +330,17 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
             self.assertEqual(base_url, "https://merchant.example")
             if path == "/.well-known/agentcart.json":
-                return {"merchant": {"id": "merchant-1", "name": "Merchant Tea Shop"}}
+                return {
+                    "merchant": {"id": "merchant-1", "name": "Merchant Tea Shop"},
+                    "protocol_profiles": [{"id": "agentcart-shopbridge", "type": "commerce"}],
+                }
             if path == "/wp-json/agentcart/v1/capability":
                 return {
                     "merchant": {"id": "merchant-1", "name": "Merchant Tea Shop"},
+                    "protocol_profiles": [
+                        {"id": "agentcart-shopbridge", "type": "commerce"},
+                        {"id": "stripe-card-mpp", "type": "payment", "network_id": "acct_shop_123"},
+                    ],
                     "payment": {
                         "verification": {"external_verifier_configured": True},
                         "protocols": [{"id": "stripe-card-mpp", "available": True}],
@@ -330,6 +352,11 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             result = shopbridge_direct.command_doctor({"base_url": "https://merchant.example", "probe": True})
 
         self.assertTrue(result["ok"], result)
+        probe = next(check for check in result["checks"] if check["id"] == "merchant_readiness_probe")
+        self.assertEqual(
+            probe["readiness"]["protocol_profile_ids"],
+            ["agentcart-shopbridge", "stripe-card-mpp"],
+        )
         self.assertEqual(result["mode"], "single_merchant")
         probe_check = next(check for check in result["checks"] if check["id"] == "merchant_readiness_probe")
         self.assertTrue(probe_check["ok"])
@@ -562,6 +589,8 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["base_url"], "https://merchant.example")
         self.assertEqual(result["merchant"]["id"], "merchant-tea-shop")
         self.assertEqual(result["verification"]["state"], "verified")
+        self.assertEqual(result["protocol_profile_ids"], ["agentcart-shopbridge", "stripe-card-mpp"])
+        self.assertEqual([profile["id"] for profile in result["protocol_profiles"]], ["agentcart-shopbridge", "stripe-card-mpp"])
 
     def test_resolve_merchant_can_use_configured_registry_path(self) -> None:
         manifest, record, proof = registry_manifest_and_record()

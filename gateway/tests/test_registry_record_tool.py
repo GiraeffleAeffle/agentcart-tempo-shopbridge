@@ -58,6 +58,30 @@ def shopbridge_manifest() -> dict[str, object]:
     }
 
 
+def shopbridge_profile_manifest() -> dict[str, object]:
+    manifest = shopbridge_manifest()
+    manifest["protocols"] = [{"id": "agentcart-shopbridge"}]
+    manifest["protocol_profiles"] = [
+        {"id": "agentcart-shopbridge", "type": "commerce", "status": "available"},
+        {
+            "id": "mpp-http-auth",
+            "type": "payment",
+            "payment_protocol_id": "tempo-mpp",
+            "status": "available",
+            "network": "testnet",
+            "recipient": "0x1111111111111111111111111111111111111111",
+        },
+        {
+            "id": "stripe-card-mpp",
+            "type": "payment",
+            "payment_protocol_id": "stripe-card-mpp",
+            "status": "available",
+            "network_id": "acct_shop_123",
+        },
+    ]
+    return manifest
+
+
 def shopbridge_manifest_with_published_claim() -> dict[str, object]:
     manifest = shopbridge_manifest()
     manifest["discovery"] = {
@@ -136,6 +160,17 @@ class RegistryRecordToolTests(unittest.TestCase):
             bundle["legacy_merchant_settings"]["AGENTCART_REGISTRY_MANIFEST_HASH"],
             registry_record_tool.agentcart.canonical_json_hash(manifest),
         )
+
+    def test_builds_record_from_protocol_profiles_without_legacy_payment_protocols(self) -> None:
+        manifest = shopbridge_profile_manifest()
+        claim = registry_record_tool.registry_claim(manifest)
+
+        self.assertEqual(claim["payment_network"], "testnet")
+        self.assertEqual(claim["payment_recipient"], "0x1111111111111111111111111111111111111111")
+        self.assertEqual(claim["stripe_profile_id"], "acct_shop_123")
+        self.assertEqual(claim["protocol_profile_ids"], ["agentcart-shopbridge", "mpp-http-auth", "stripe-card-mpp"])
+        self.assertIn("tempo-mpp", claim["supported_protocols"])
+        self.assertIn("stripe-card-mpp", claim["supported_protocols"])
 
     def test_env_format_says_no_paste_back_for_auto_managed_claim(self) -> None:
         manifest = shopbridge_manifest_with_published_claim()

@@ -107,20 +107,47 @@ def suggested_record_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def protocol_ids(manifest: dict[str, Any]) -> list[str]:
+    profile_ids = protocol_profile_ids(manifest)
     protocols = manifest.get("protocols") if isinstance(manifest.get("protocols"), list) else []
     ids: list[str] = []
+    for profile in protocol_profiles(manifest):
+        payment_protocol_id = str(profile.get("payment_protocol_id") or "").strip()
+        profile_id = str(profile.get("id") or "").strip()
+        for protocol_id in [payment_protocol_id, profile_id]:
+            if protocol_id and protocol_id not in ids:
+                ids.append(protocol_id)
     for protocol in protocols:
         if not isinstance(protocol, dict):
             continue
         protocol_id = str(protocol.get("id") or protocol.get("protocol") or protocol.get("method") or "").strip()
         if protocol_id and protocol_id not in ids:
             ids.append(protocol_id)
+    for profile_id in profile_ids:
+        if profile_id not in ids:
+            ids.append(profile_id)
     if "agentcart-shopbridge" not in ids:
         ids.insert(0, "agentcart-shopbridge")
     return ids
 
 
+def protocol_profiles(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    profiles = manifest.get("protocol_profiles") if isinstance(manifest.get("protocol_profiles"), list) else []
+    return [profile for profile in profiles if isinstance(profile, dict) and profile.get("id")]
+
+
+def protocol_profile_ids(manifest: dict[str, Any]) -> list[str]:
+    return [str(profile.get("id")) for profile in protocol_profiles(manifest) if profile.get("id")]
+
+
 def tempo_payment_binding(manifest: dict[str, Any]) -> tuple[str, str]:
+    for profile in protocol_profiles(manifest):
+        profile_id = str(profile.get("id") or "")
+        payment_protocol_id = str(profile.get("payment_protocol_id") or "")
+        if profile_id in {"mpp-http-auth", "tempo-mpp"} or payment_protocol_id == "tempo-mpp":
+            network = str(profile.get("network") or "").strip()
+            recipient = str(profile.get("recipient") or "").strip()
+            if network or recipient:
+                return network, recipient
     protocols = manifest.get("protocols") if isinstance(manifest.get("protocols"), list) else []
     for protocol in protocols:
         if not isinstance(protocol, dict) or str(protocol.get("id") or "") != "tempo-mpp":
@@ -131,6 +158,20 @@ def tempo_payment_binding(manifest: dict[str, Any]) -> tuple[str, str]:
             return network, recipient
     payment = manifest.get("payment") if isinstance(manifest.get("payment"), dict) else {}
     return str(payment.get("network") or "").strip(), str(payment.get("recipient") or "").strip()
+
+
+def stripe_profile_id(manifest: dict[str, Any]) -> str:
+    for profile in protocol_profiles(manifest):
+        profile_id = str(profile.get("id") or "")
+        payment_protocol_id = str(profile.get("payment_protocol_id") or "")
+        if profile_id == "stripe-card-mpp" or payment_protocol_id == "stripe-card-mpp":
+            value = str(profile.get("network_id") or profile.get("stripe_profile_id") or "").strip()
+            if value:
+                return value
+    for protocol in manifest.get("protocols", []) if isinstance(manifest.get("protocols"), list) else []:
+        if isinstance(protocol, dict) and str(protocol.get("id") or "") == "stripe-card-mpp":
+            return str(protocol.get("network_id") or protocol.get("stripe_profile_id") or "").strip()
+    return ""
 
 
 def shipping_countries(manifest: dict[str, Any]) -> list[str]:
@@ -181,16 +222,14 @@ def registry_claim(
         "manifest_url": final_manifest_url,
         "endpoints": manifest_endpoints(manifest),
         "supported_protocols": protocol_ids(manifest),
+        "protocol_profile_ids": protocol_profile_ids(manifest),
         "payment_network": payment_network,
         "payment_recipient": payment_recipient,
-        "stripe_profile_id": "",
+        "stripe_profile_id": stripe_profile_id(manifest),
         "ship_to_countries": shipping_countries(manifest),
         "proof_url": proof_url_for(manifest, final_manifest_url, proof_url),
         "revocation_url": revocation_url_for(manifest, final_manifest_url, revocation_url),
     }
-    for protocol in manifest.get("protocols", []) if isinstance(manifest.get("protocols"), list) else []:
-        if isinstance(protocol, dict) and str(protocol.get("id") or "") == "stripe-card-mpp":
-            claim["stripe_profile_id"] = str(protocol.get("network_id") or "")
     return claim
 
 
@@ -246,8 +285,10 @@ def build_registry_record(
                 "manifest_hash_alg": "sha-256",
                 "manifest_hash": agentcart.canonical_json_hash(manifest),
                 "supported_protocols": protocol_ids(manifest),
+                "protocol_profile_ids": protocol_profile_ids(manifest),
                 "payment_network": payment_network,
                 "payment_recipient": payment_recipient,
+                "stripe_profile_id": stripe_profile_id(manifest),
                 "ship_to_countries": shipping_countries(manifest),
                 "revocation_url": revocation_url_for(manifest, final_manifest_url, revocation_url),
                 "updated_at": updated_at or iso_now(),

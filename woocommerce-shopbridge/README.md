@@ -18,6 +18,11 @@ The merchant remains merchant of record. WooCommerce remains the source of truth
 AgentCart-created orders intentionally clear WooCommerce's customer IP and user-agent fields before saving the order. Merchants still receive the shipping/billing data needed for fulfillment, but the bridge should not preserve network identifiers unless a production deployment explicitly adds a lawful reason and disclosure.
 
 The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_support_email` only. It does not fall back to the WordPress admin email.
+It also publishes configured-only `protocol_profiles[]` so buyer agents can
+select the ShopBridge commerce adapter, MPP payment adapter, Stripe/card MPP
+adapter, or registry mapping before requesting a quote. Unimplemented profiles
+such as x402 and signed HTTP are intentionally absent until those adapters
+exist.
 
 ## Merchant Setup
 

@@ -2425,6 +2425,10 @@ class AgentCartService:
         claim_protocols = sorted(str(value) for value in claim.get("supported_protocols", []) if value)
         if record_protocols and record_protocols != claim_protocols:
             errors.append("registry_claim_supported_protocols_mismatch")
+        record_profile_ids = sorted(str(value) for value in record.get("protocol_profile_ids", []) if value)
+        claim_profile_ids = sorted(str(value) for value in claim.get("protocol_profile_ids", []) if value)
+        if record_profile_ids and record_profile_ids != claim_profile_ids:
+            errors.append("registry_claim_protocol_profile_ids_mismatch")
         record_endpoints = record.get("endpoints") if isinstance(record.get("endpoints"), dict) else {}
         claim_endpoints = claim.get("endpoints") if isinstance(claim.get("endpoints"), dict) else {}
         for name, endpoint in record_endpoints.items():
@@ -2480,6 +2484,13 @@ class AgentCartService:
         return errors
 
     def manifest_payment_recipient(self, manifest: dict[str, Any]) -> str:
+        for profile in self.manifest_protocol_profiles(manifest):
+            profile_id = str(profile.get("id") or "")
+            payment_protocol_id = str(profile.get("payment_protocol_id") or "")
+            if profile_id in {"mpp-http-auth", "tempo-mpp"} or payment_protocol_id == "tempo-mpp":
+                recipient = str(profile.get("recipient") or "")
+                if recipient:
+                    return recipient
         protocols = manifest.get("protocols") if isinstance(manifest.get("protocols"), list) else []
         for protocol in protocols:
             if isinstance(protocol, dict) and str(protocol.get("id") or "") == "tempo-mpp":
@@ -2490,6 +2501,13 @@ class AgentCartService:
         return str(payment.get("recipient") or "")
 
     def manifest_payment_network(self, manifest: dict[str, Any]) -> str:
+        for profile in self.manifest_protocol_profiles(manifest):
+            profile_id = str(profile.get("id") or "")
+            payment_protocol_id = str(profile.get("payment_protocol_id") or "")
+            if profile_id in {"mpp-http-auth", "tempo-mpp"} or payment_protocol_id == "tempo-mpp":
+                network = str(profile.get("network") or "")
+                if network:
+                    return network
         protocols = manifest.get("protocols") if isinstance(manifest.get("protocols"), list) else []
         for protocol in protocols:
             if isinstance(protocol, dict) and str(protocol.get("id") or "") == "tempo-mpp":
@@ -2498,6 +2516,17 @@ class AgentCartService:
                     return network
         payment = manifest.get("payment") if isinstance(manifest.get("payment"), dict) else {}
         return str(payment.get("network") or "")
+
+    def manifest_protocol_profiles(self, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+        profiles = manifest.get("protocol_profiles") if isinstance(manifest.get("protocol_profiles"), list) else []
+        return [profile for profile in profiles if isinstance(profile, dict) and profile.get("id")]
+
+    def manifest_protocol_profile_ids(self, manifest: dict[str, Any]) -> list[str]:
+        return [
+            str(profile.get("id"))
+            for profile in self.manifest_protocol_profiles(manifest)
+            if profile.get("id")
+        ]
 
     def registry_entry_from_record(
         self,
@@ -2526,6 +2555,12 @@ class AgentCartService:
             "proof_url": str((record.get("proof") or {}).get("url") or "") if isinstance(record.get("proof"), dict) else "",
             "revocation_url": str(record.get("revocation_url") or ""),
             "supported_protocols": record.get("supported_protocols") if isinstance(record.get("supported_protocols"), list) else ["agentcart-shopbridge"],
+            "protocol_profile_ids": (
+                record.get("protocol_profile_ids")
+                if isinstance(record.get("protocol_profile_ids"), list)
+                else self.manifest_protocol_profile_ids(manifest or {})
+            ),
+            "protocol_profiles": self.manifest_protocol_profiles(manifest or {}),
             "payment": {
                 "network": str(record.get("payment_network") or ""),
                 "recipient": str(record.get("payment_recipient") or "") or None,
@@ -2585,6 +2620,15 @@ class AgentCartService:
             "proof_url": "",
             "revocation_url": "",
             "supported_protocols": ["agentcart-shopbridge", self.payment_provider.protocol],
+            "protocol_profile_ids": ["agentcart-shopbridge"],
+            "protocol_profiles": [
+                {
+                    "id": "agentcart-shopbridge",
+                    "type": "commerce",
+                    "status": "local",
+                    "adapter": "agentcart.service.local_adapter",
+                }
+            ],
             "payment": {
                 "network": self.config.tempo_mpp_network,
                 "recipient": self.config.tempo_mpp_recipient_address or None,
@@ -3010,11 +3054,44 @@ class AgentCartService:
         reasons.append("no paid ranking signal used")
         return reasons
 
+    def service_protocol_profiles(self) -> list[dict[str, Any]]:
+        profiles = [
+            {
+                "id": "agentcart-service",
+                "type": "buyer_safety",
+                "version": "0.2",
+                "status": "available",
+                "role": "policy_approval_audit_registry_gateway",
+                "features": [
+                    "merchant_registry",
+                    "quote_tournament",
+                    "human_approval",
+                    "audit_import",
+                    "audit_export",
+                ],
+            }
+        ]
+        if self.payment_provider.protocol == "mpp" and self.payment_provider.supported and self.payment_provider.name != "demo":
+            profiles.append(
+                {
+                    "id": "mpp-http-auth",
+                    "type": "payment",
+                    "standard": "MPP",
+                    "status": "available",
+                    "auth_scheme": "Payment",
+                    "provider": self.payment_provider.capability(),
+                }
+            )
+        return profiles
+
     def capability_document(self) -> dict[str, Any]:
+        protocol_profiles = self.service_protocol_profiles()
         return {
             "name": "AgentCart",
             "version": "0.2.0",
             "description": "Household-safe merchant adapter for agent-compatible checkout.",
+            "protocol_profiles": protocol_profiles,
+            "protocol_profile_ids": [str(profile["id"]) for profile in protocol_profiles],
             "capabilities": {
                 "catalog_search": True,
                 "quote": True,
@@ -3540,6 +3617,8 @@ class AgentCartService:
                                 "manifest_url": {"type": "string"},
                                 "manifest_hash": {"type": "string"},
                                 "supported_protocols": {"type": "array", "items": {"type": "string"}},
+                                "protocol_profile_ids": {"type": "array", "items": {"type": "string"}},
+                                "protocol_profiles": {"type": "array", "items": {"type": "object"}},
                                 "delivery": {"type": "object"},
                                 "ranking": {"type": "object"},
                             },
@@ -6680,6 +6759,13 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
             f"Manifest <code>{esc(short_hash(entry.get('manifest_hash')))}</code>"
         )
 
+    def profiles_cell(entry: dict[str, Any]) -> str:
+        profile_ids = entry.get("protocol_profile_ids") if isinstance(entry.get("protocol_profile_ids"), list) else []
+        if not profile_ids:
+            profile_ids = entry.get("supported_protocols") if isinstance(entry.get("supported_protocols"), list) else []
+        values = [str(value) for value in profile_ids if value]
+        return "<br>".join(f"<code>{esc(value)}</code>" for value in values) if values else '<span class="muted">not declared</span>'
+
     def payment_cell(candidate: dict[str, Any]) -> str:
         summary = candidate.get("payment_summary") if isinstance(candidate.get("payment_summary"), dict) else {}
         quote_currency = str(summary.get("quote_currency") or candidate.get("currency") or "EUR")
@@ -6704,6 +6790,7 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
           <td>{esc(entry.get('domain'))}</td>
           <td>{link_or_text(entry.get('manifest_url'), 'manifest')}<br>{link_or_text(entry.get('proof_url'), 'proof') or '<span class="muted">proof not declared</span>'}<br>{link_or_text(entry.get('revocation_url'), 'revocations') or '<span class="muted">revocation not declared</span>'}</td>
           <td>{registry_status_cell(entry)}</td>
+          <td>{profiles_cell(entry)}</td>
           <td>{hash_anchor_cell(entry)}<br><span class="muted">updated {esc(entry.get('updated_at') or 'not declared')}</span></td>
           <td>{esc(countries((entry.get('delivery') or {}).get('ship_to_countries')))}</td>
           <td>{esc('no paid placement' if not (entry.get('ranking') or {}).get('paid_placement') else 'sponsored')}</td>
@@ -6838,8 +6925,8 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
 
     <h2>Registered Merchants</h2>
     <table>
-      <thead><tr><th>Merchant</th><th>Domain</th><th>Endpoints</th><th>Status</th><th>Hash anchors</th><th>Ships to</th><th>Ranking</th></tr></thead>
-      <tbody>{entry_rows or '<tr><td colspan="7">No registered merchants.</td></tr>'}</tbody>
+      <thead><tr><th>Merchant</th><th>Domain</th><th>Endpoints</th><th>Status</th><th>Profiles</th><th>Hash anchors</th><th>Ships to</th><th>Ranking</th></tr></thead>
+      <tbody>{entry_rows or '<tr><td colspan="8">No registered merchants.</td></tr>'}</tbody>
     </table>
 
     {tournament_html}

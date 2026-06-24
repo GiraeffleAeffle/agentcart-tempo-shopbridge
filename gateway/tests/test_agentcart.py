@@ -108,6 +108,21 @@ def signed_registry_manifest(merchant_id: str = "signed-tea-shop") -> dict[str, 
                 "recipient": "0x1111111111111111111111111111111111111111",
             },
         ],
+        "protocol_profiles": [
+            {
+                "id": "agentcart-shopbridge",
+                "type": "commerce",
+                "status": "available",
+            },
+            {
+                "id": "mpp-http-auth",
+                "type": "payment",
+                "payment_protocol_id": "tempo-mpp",
+                "status": "available",
+                "network": "testnet",
+                "recipient": "0x1111111111111111111111111111111111111111",
+            },
+        ],
         "delivery": {"ship_to_countries": ["DE", "AT"]},
         "endpoints": {
             "catalog": "https://signed.example/wp-json/agentcart/v1/catalog",
@@ -131,6 +146,7 @@ def signed_registry_record(
         "manifest_hash_alg": "sha-256",
         "manifest_hash": manifest_hash or agentcart.canonical_json_hash(manifest),
         "supported_protocols": ["agentcart-shopbridge", "mpp"],
+        "protocol_profile_ids": ["agentcart-shopbridge", "mpp-http-auth"],
         "payment_network": "testnet",
         "payment_recipient": "0x1111111111111111111111111111111111111111",
         "ship_to_countries": ["DE"],
@@ -261,6 +277,9 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("/v1/quote-tournament", openapi["paths"])
             self.assertIn("/v1/audit/import", openapi["paths"])
             self.assertIn("/v1/audit/{purchase_id}/export", openapi["paths"])
+            capability = service.capability_document()
+            self.assertIn("agentcart-service", capability["protocol_profile_ids"])
+            self.assertNotIn("mpp-http-auth", capability["protocol_profile_ids"])
             self.assertEqual(service.capability_document()["endpoints"]["audit_import"], "/v1/audit/import")
             self.assertEqual(
                 service.capability_document()["endpoints"]["audit_export"],
@@ -313,10 +332,69 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
             self.assertEqual(entries["signed-tea-shop"]["registry_status"]["state"], "verified")
             self.assertTrue(entries["signed-tea-shop"]["registry_status"]["eligible"])
+            self.assertEqual(entries["signed-tea-shop"]["protocol_profile_ids"], ["agentcart-shopbridge", "mpp-http-auth"])
+            self.assertEqual(
+                [profile["id"] for profile in entries["signed-tea-shop"]["protocol_profiles"]],
+                ["agentcart-shopbridge", "mpp-http-auth"],
+            )
             self.assertRegex(entries["signed-tea-shop"]["registry_record_hash"], r"^[0-9a-f]{64}$")
             self.assertEqual(entries["signed-tea-shop"]["verification"]["manifest_source"], "snapshot")
             self.assertIn("signed-tea-shop", service.adapters)
             self.assertEqual(service.adapters["signed-tea-shop"].adapter_type, "shopbridge-registry")
+            html = agentcart.render_registry_page(service)
+            self.assertIn("mpp-http-auth", html)
+
+    def test_registry_verification_accepts_profile_only_payment_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            manifest["protocols"] = [{"id": "agentcart-shopbridge"}]
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps({"entries": [signed_registry_record(manifest)]}),
+                encoding="utf-8",
+            )
+
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
+            self.assertIn("signed-tea-shop", service.adapters)
+
+    def test_registry_verification_rejects_profile_payment_binding_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            manifest["protocols"] = [{"id": "agentcart-shopbridge"}]
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps({
+                    "entries": [
+                        signed_registry_record(
+                            manifest,
+                            payment_recipient="0x2222222222222222222222222222222222222222",
+                        )
+                    ]
+                }),
+                encoding="utf-8",
+            )
+
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertIn("payment_recipient_mismatch", entries["signed-tea-shop"]["verification"]["errors"])
+            self.assertNotIn("signed-tea-shop", service.adapters)
 
     def test_domain_proof_registry_record_verifies_without_shared_hmac_secret(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

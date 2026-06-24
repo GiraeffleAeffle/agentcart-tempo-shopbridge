@@ -35,6 +35,13 @@ def args(**overrides):
 def sample_capability():
     return {
         "merchant": {"id": "woocommerce-demo-shop"},
+        "protocol_profiles": [
+            {
+                "id": "agentcart-shopbridge",
+                "type": "commerce",
+                "status": "available",
+            }
+        ],
         "readiness": {"demo_ready": True},
         "setup_guide": {
             "next_step": {"id": "ready"},
@@ -58,6 +65,13 @@ def sample_capability():
 def sample_manifest():
     return {
         "merchant": {"id": "woocommerce-demo-shop"},
+        "protocol_profiles": [
+            {
+                "id": "agentcart-shopbridge",
+                "type": "commerce",
+                "status": "available",
+            }
+        ],
         "endpoints": {
             "catalog": "http://shop/wp-json/agentcart/v1/catalog",
             "quote": "http://shop/wp-json/agentcart/v1/quote",

@@ -88,6 +88,7 @@ def registry_record_hash(record: dict[str, Any]) -> str:
 def validate_capability(capability: dict[str, Any]) -> None:
     require(isinstance(capability.get("merchant"), dict), "capability.merchant must be present")
     require(isinstance(capability.get("readiness"), dict), "capability.readiness must be present")
+    validate_protocol_profiles(capability, "capability")
     setup_guide = capability.get("setup_guide")
     require(isinstance(setup_guide, dict), "capability.setup_guide must be present")
     require(isinstance(setup_guide.get("steps"), list) and setup_guide["steps"], "setup_guide.steps must be non-empty")
@@ -102,12 +103,25 @@ def validate_capability(capability: dict[str, Any]) -> None:
 
 def validate_manifest(manifest: dict[str, Any]) -> None:
     require(isinstance(manifest.get("merchant"), dict), "manifest.merchant must be present")
+    validate_protocol_profiles(manifest, "manifest")
     require(isinstance(manifest.get("endpoints"), dict), "manifest.endpoints must be present")
     require(bool(manifest["endpoints"].get("catalog")), "manifest catalog endpoint missing")
     require(bool(manifest["endpoints"].get("quote")), "manifest quote endpoint missing")
     require(isinstance(manifest.get("discovery"), dict), "manifest.discovery must be present")
     require(bool(manifest["discovery"].get("registry_claim_hash")), "manifest registry claim hash missing")
     require(bool(manifest["discovery"].get("registry_bundle_url")), "manifest registry bundle URL missing")
+
+
+def validate_protocol_profiles(document: dict[str, Any], label: str) -> None:
+    profiles = document.get("protocol_profiles")
+    require(isinstance(profiles, list) and profiles, f"{label}.protocol_profiles must be non-empty")
+    profile_ids = {str(profile.get("id") or "") for profile in profiles if isinstance(profile, dict)}
+    require("agentcart-shopbridge" in profile_ids, f"{label}.protocol_profiles must include agentcart-shopbridge")
+    for profile in profiles:
+        require(isinstance(profile, dict), f"{label}.protocol_profiles entries must be objects")
+        require(bool(profile.get("id")), f"{label}.protocol_profiles entry id missing")
+        require(profile.get("available") is not False, f"{label}.protocol_profiles must not advertise unavailable profile: {profile.get('id')}")
+        require(profile.get("setup_required") is not True, f"{label}.protocol_profiles must not advertise setup-required profile: {profile.get('id')}")
 
 
 def validate_registry_bundle(

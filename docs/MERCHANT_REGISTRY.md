@@ -37,6 +37,7 @@ agent.
   "registry_claim_hash_alg": "sha-256",
   "registry_claim_hash": "abc123...",
   "supported_protocols": ["agentcart-shopbridge", "mpp-http-auth"],
+  "protocol_profile_ids": ["agentcart-shopbridge", "mpp-http-auth", "erc8004-ready"],
   "payment_network": "tempo-testnet",
   "payment_recipient": "0x...",
   "ship_to_countries": ["DE", "AT"],

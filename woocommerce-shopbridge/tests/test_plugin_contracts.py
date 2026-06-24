@@ -402,6 +402,30 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'registry_public_check' => self::registry_public_check_result()", capability_body)
         self.assertIn("agentcart_shopbridge_registry_action", review_guard)
 
+    def test_manifest_protocol_profiles_are_configured_only_and_registry_bound(self) -> None:
+        capability_body = function_body("capability_document")
+        profiles_body = function_body("protocol_profiles")
+        claim_body = function_body("registry_claim")
+        requirements_body = function_body("payment_requirements")
+        registry_tool = (pathlib.Path(__file__).resolve().parents[2] / "gateway" / "scripts" / "registry_record.py").read_text()
+        smoke = (pathlib.Path(__file__).resolve().parents[2] / "scripts" / "woocommerce-shopbridge-smoke.py").read_text()
+
+        self.assertIn("'protocol_profiles' => self::protocol_profiles()", capability_body)
+        self.assertIn("'protocol_profile_ids' => self::protocol_profile_ids()", capability_body)
+        self.assertIn("'protocol_profile_ids' => self::protocol_profile_ids()", claim_body)
+        self.assertIn("'payment_protocol_profile_ids' => self::payment_protocol_profile_ids()", requirements_body)
+        self.assertIn("'id' => 'agentcart-shopbridge'", profiles_body)
+        self.assertIn("'id' => 'mpp-http-auth'", profiles_body)
+        self.assertIn("'id' => 'stripe-card-mpp'", profiles_body)
+        self.assertIn("'id' => 'erc8004-ready'", profiles_body)
+        self.assertIn("if (self::tempo_payment_profile_configured())", profiles_body)
+        self.assertIn("if (self::stripe_payment_profile_configured())", profiles_body)
+        self.assertIn("if (self::merchant_registry_profile_configured())", profiles_body)
+        self.assertNotIn("'id' => 'x402-compatible'", profiles_body)
+        self.assertNotIn("'id' => 'signed-http-ready'", profiles_body)
+        self.assertIn("protocol_profiles(manifest)", registry_tool)
+        self.assertIn("validate_protocol_profiles", smoke)
+
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)
         self.assertIn("PRODUCT_MAX_QUANTITY_META", SOURCE)

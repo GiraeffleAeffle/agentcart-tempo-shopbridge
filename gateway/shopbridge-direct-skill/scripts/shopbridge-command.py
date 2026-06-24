@@ -295,7 +295,30 @@ def verify_registry_claim(record: dict[str, Any], manifest: dict[str, Any]) -> l
             errors.append(f"registry_claim_{field}_mismatch")
         elif expected and not supplied:
             errors.append(f"registry_claim_{field}_missing")
+    record_profile_ids = sorted(str(value) for value in record.get("protocol_profile_ids", []) if value)
+    claim_profile_ids = sorted(str(value) for value in claim.get("protocol_profile_ids", []) if value)
+    if record_profile_ids and record_profile_ids != claim_profile_ids:
+        errors.append("registry_claim_protocol_profile_ids_mismatch")
     return errors
+
+
+def protocol_profiles(document: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(document, dict):
+        return []
+    profiles = document.get("protocol_profiles") if isinstance(document.get("protocol_profiles"), list) else []
+    return [profile for profile in profiles if isinstance(profile, dict) and profile.get("id")]
+
+
+def protocol_profile_ids(document: dict[str, Any] | None) -> list[str]:
+    return [str(profile.get("id")) for profile in protocol_profiles(document) if profile.get("id")]
+
+
+def first_protocol_profiles(*documents: dict[str, Any] | None) -> list[dict[str, Any]]:
+    for document in documents:
+        profiles = protocol_profiles(document)
+        if profiles:
+            return profiles
+    return []
 
 
 def verify_domain_proof(record: dict[str, Any], proof: dict[str, Any]) -> list[str]:
@@ -622,6 +645,12 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
         },
         "manifest_url": manifest_url,
         "registry_record_hash": registry_record_hash(record),
+        "protocol_profile_ids": (
+            record.get("protocol_profile_ids")
+            if isinstance(record.get("protocol_profile_ids"), list)
+            else protocol_profile_ids(manifest)
+        ),
+        "protocol_profiles": protocol_profiles(manifest),
         "verification": verification,
         "manifest": manifest if args.get("include_manifest") else None,
     }
@@ -1394,6 +1423,7 @@ def command_readiness(args: dict[str, Any]) -> dict[str, Any]:
         if isinstance(payment, dict)
         else None
     )
+    profiles = first_protocol_profiles(capability, manifest)
     return {
         "base_url": base_url_from_args(args),
         "merchant": (manifest or {}).get("merchant") or (capability or {}).get("merchant"),
@@ -1403,6 +1433,8 @@ def command_readiness(args: dict[str, Any]) -> dict[str, Any]:
             verification.get("external_verifier_configured") if isinstance(verification, dict) else False
         ),
         "payment_rails": protocols,
+        "protocol_profiles": profiles,
+        "protocol_profile_ids": [str(profile.get("id")) for profile in profiles if profile.get("id")],
         "errors": errors,
     }
 

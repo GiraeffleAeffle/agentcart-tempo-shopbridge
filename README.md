@@ -46,6 +46,9 @@ MPP handles payment challenge, credential, and receipt. AgentCart does not
 extend core MPP for products. ShopBridge adds the commerce profile around MPP:
 catalog, quote, VAT, shipping, merchant of record, order, delivery, refund, and
 audit fields.
+Merchant manifests publish configured-only `protocol_profiles[]` so agents can
+choose the ShopBridge commerce adapter, payment rail adapter, or registry
+mapping before making quote calls.
 
 The hackathon demo uses EUR product quotes and a pathUSD Tempo testnet proof.
 That is not real EUR settlement. Production needs one of:

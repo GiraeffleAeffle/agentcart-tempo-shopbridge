@@ -1334,6 +1334,7 @@ final class AgentCart_ShopBridge {
                 'refunds' => rest_url(self::API_NAMESPACE . '/orders/{id}/refunds'),
             ],
             'supported_protocols' => self::registry_supported_protocols(),
+            'protocol_profile_ids' => self::protocol_profile_ids(),
             'payment_network' => self::tempo_network(),
             'payment_recipient' => self::tempo_recipient(),
             'stripe_profile_id' => self::stripe_profile_id(),
@@ -1354,6 +1355,129 @@ final class AgentCart_ShopBridge {
             $protocols[] = 'stripe-card-mpp';
         }
         return $protocols;
+    }
+
+    private static function legacy_protocols() {
+        return [
+            [
+                'id' => 'agentcart-shopbridge',
+                'version' => '0.1',
+                'role' => 'merchant_catalog_quote_checkout',
+            ],
+            [
+                'id' => 'tempo-mpp',
+                'network' => self::tempo_network(),
+                'recipient' => self::tempo_recipient(),
+                'verifier_configured' => self::payment_verifier_url() !== '',
+            ],
+            [
+                'id' => 'stripe-card-mpp',
+                'network_id' => self::stripe_profile_id(),
+                'verifier_configured' => self::payment_verifier_url() !== '',
+                'configured' => self::stripe_payment_profile_configured(),
+            ],
+        ];
+    }
+
+    private static function protocol_profiles() {
+        $profiles = [
+            [
+                'id' => 'agentcart-shopbridge',
+                'type' => 'commerce',
+                'version' => '0.1',
+                'status' => 'available',
+                'role' => 'merchant_catalog_quote_checkout',
+                'adapter' => 'agentcart.shopbridge.v1',
+                'endpoints' => [
+                    'manifest' => home_url('/.well-known/agentcart.json'),
+                    'capability' => rest_url(self::API_NAMESPACE . '/capability'),
+                    'catalog' => rest_url(self::API_NAMESPACE . '/catalog'),
+                    'quote' => rest_url(self::API_NAMESPACE . '/quote'),
+                    'orders' => rest_url(self::API_NAMESPACE . '/orders'),
+                    'order_status' => rest_url(self::API_NAMESPACE . '/orders/{id}/status'),
+                    'refunds' => rest_url(self::API_NAMESPACE . '/orders/{id}/refunds'),
+                    'cancellations' => rest_url(self::API_NAMESPACE . '/orders/{id}/cancellations'),
+                ],
+                'features' => [
+                    'catalog',
+                    'final_quote',
+                    'quote_bound_checkout',
+                    'woocommerce_order_status',
+                    'refund_request',
+                    'cancellation_request',
+                    'merchant_audit_metadata',
+                ],
+            ],
+        ];
+
+        if (self::merchant_registry_profile_configured()) {
+            $profiles[] = [
+                'id' => 'erc8004-ready',
+                'type' => 'registry',
+                'standard' => 'ERC-8004',
+                'status' => 'ready_for_mapping',
+                'scope' => 'merchant_identity_registration',
+                'domain_proof' => [
+                    'type' => 'https-well-known',
+                    'proof_url' => self::registry_proof_url(),
+                    'revocation_url' => self::registry_revocation_url(),
+                ],
+                'note' => 'Publishes a domain-bound merchant registry record that can be mapped by an ERC-8004/onchain registry adapter. The plugin does not submit an onchain registration.',
+            ];
+        }
+
+        if (self::tempo_payment_profile_configured()) {
+            $profiles[] = [
+                'id' => 'mpp-http-auth',
+                'type' => 'payment',
+                'standard' => 'MPP',
+                'status' => 'available',
+                'auth_scheme' => 'Payment',
+                'payment_protocol_id' => 'tempo-mpp',
+                'network' => self::tempo_network(),
+                'recipient' => self::tempo_recipient(),
+                'settlement_asset' => self::tempo_settlement_asset(),
+                'verifier_required' => true,
+            ];
+        }
+
+        if (self::stripe_payment_profile_configured()) {
+            $profiles[] = [
+                'id' => 'stripe-card-mpp',
+                'type' => 'payment',
+                'standard' => 'Stripe Machine Payments',
+                'status' => 'available',
+                'payment_protocol_id' => 'stripe-card-mpp',
+                'network_id' => self::stripe_profile_id(),
+                'verifier_required' => true,
+            ];
+        }
+
+        return $profiles;
+    }
+
+    private static function protocol_profile_ids() {
+        return array_values(array_map(function ($profile) {
+            return (string) ($profile['id'] ?? '');
+        }, self::protocol_profiles()));
+    }
+
+    private static function payment_protocol_profile_ids() {
+        return array_values(array_filter(self::protocol_profile_ids(), function ($id) {
+            return in_array($id, ['mpp-http-auth', 'stripe-card-mpp'], true);
+        }));
+    }
+
+    private static function tempo_payment_profile_configured() {
+        return self::tempo_recipient() !== '' && self::payment_verifier_url() !== '';
+    }
+
+    private static function stripe_payment_profile_configured() {
+        return self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '';
+    }
+
+    private static function merchant_registry_profile_configured() {
+        return self::stable_merchant_id_configured() && self::public_origin_is_https();
     }
 
     private static function registry_claim_fingerprint() {
@@ -1955,25 +2079,9 @@ final class AgentCart_ShopBridge {
             'manifest_url' => home_url('/.well-known/agentcart.json'),
             'readiness' => self::readiness(),
             'setup_guide' => self::setup_guide(),
-            'protocols' => [
-                [
-                    'id' => 'agentcart-shopbridge',
-                    'version' => '0.1',
-                    'role' => 'merchant_catalog_quote_checkout',
-                ],
-                [
-                    'id' => 'tempo-mpp',
-                    'network' => self::tempo_network(),
-                    'recipient' => self::tempo_recipient(),
-                    'verifier_configured' => self::payment_verifier_url() !== '',
-                ],
-                [
-                    'id' => 'stripe-card-mpp',
-                    'network_id' => self::stripe_profile_id(),
-                    'verifier_configured' => self::payment_verifier_url() !== '',
-                    'configured' => self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '',
-                ],
-            ],
+            'protocols' => self::legacy_protocols(),
+            'protocol_profiles' => self::protocol_profiles(),
+            'protocol_profile_ids' => self::protocol_profile_ids(),
             'capabilities' => [
                 'catalog' => true,
                 'quote' => true,
@@ -3967,6 +4075,7 @@ final class AgentCart_ShopBridge {
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
             'quote_hash' => (string) ($quote['quote_hash'] ?? self::quote_hash($quote)),
             'checkout_endpoint' => rest_url(self::API_NAMESPACE . '/orders'),
+            'payment_protocol_profile_ids' => self::payment_protocol_profile_ids(),
             'idempotency' => [
                 'required' => true,
                 'accepted_fields' => ['agentcart_order_id', 'idempotency_key', 'Idempotency-Key'],
@@ -3982,6 +4091,7 @@ final class AgentCart_ShopBridge {
             'protocols' => [
                 [
                     'id' => 'tempo-mpp',
+                    'profile_id' => self::tempo_payment_profile_configured() ? 'mpp-http-auth' : null,
                     'type' => 'stablecoin',
                     'available' => self::tempo_recipient() !== '' || self::payment_verifier_url() !== '',
                     'network' => self::tempo_network(),
@@ -3993,13 +4103,14 @@ final class AgentCart_ShopBridge {
                 ],
                 [
                     'id' => 'stripe-card-mpp',
+                    'profile_id' => self::stripe_payment_profile_configured() ? 'stripe-card-mpp' : null,
                     'type' => 'card',
-                    'available' => self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '',
+                    'available' => self::stripe_payment_profile_configured(),
                     'network_id' => self::stripe_profile_id(),
                     'amount_cents' => intval($quote['total_cents'] ?? 0),
                     'quote_currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
                     'settlement_note' => 'Stripe/card MPP requires Stripe machine-payment access, a Stripe profile/network id, and an external verifier that validates Shared Payment Token credentials and refunds.',
-                    'setup_required' => self::stripe_profile_id() === '' || self::payment_verifier_url() === '',
+                    'setup_required' => !self::stripe_payment_profile_configured(),
                 ],
                 [
                     'id' => 'http-402-compatible',
