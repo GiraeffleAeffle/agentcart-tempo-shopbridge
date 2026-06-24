@@ -65,6 +65,12 @@ Or run the full gate:
 ./scripts/verify.sh
 ```
 
+The full gate includes a Python 3.11 compile check for runtime files. If local
+`python3.11` is unavailable, it uses Docker `python:3.11-slim` when Docker is
+available. The gateway Docker smoke image also uses Python 3.11. This protects
+the homelab/systemd deployment path from syntax that a newer local Python
+accepts but the deployed runtime rejects.
+
 ## Verify Artifacts
 
 Inspect the manifest:

@@ -19,6 +19,56 @@ section "Python tests: household-os"
   python3 -m unittest discover -s tests
 )
 
+section "Python 3.11 compatibility"
+py311_files=(
+  gateway/agentcart.py
+  gateway/scripts/household-agent-demo.py
+  gateway/scripts/registry_record.py
+  gateway/openclaw-skill/scripts/agentcart-command.py
+  gateway/shopbridge-direct-skill/scripts/shopbridge-command.py
+  household-os/household_os.py
+  scripts/build-release-manifest.py
+  scripts/check-wordpress-plugin-package.py
+  scripts/check-wordpress-plugin-review.py
+  scripts/verify-release.py
+  scripts/verify-verifier-fixtures.py
+  scripts/woocommerce-shopbridge-smoke.py
+)
+if command -v python3.11 >/dev/null 2>&1; then
+  (
+    cd "$ROOT_DIR"
+    python3.11 - "${py311_files[@]}" <<'PY'
+import pathlib
+import py_compile
+import sys
+import tempfile
+
+with tempfile.TemporaryDirectory() as tmp:
+    for file_name in sys.argv[1:]:
+        cfile = pathlib.Path(tmp) / (file_name.replace("/", "__") + ".pyc")
+        py_compile.compile(file_name, cfile=str(cfile), doraise=True)
+PY
+  )
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  docker run --rm \
+    -v "$ROOT_DIR:/repo:ro" \
+    -w /repo \
+    python:3.11-slim \
+    python - "${py311_files[@]}" <<'PY'
+import pathlib
+import py_compile
+import sys
+import tempfile
+
+with tempfile.TemporaryDirectory() as tmp:
+    for file_name in sys.argv[1:]:
+        cfile = pathlib.Path(tmp) / (file_name.replace("/", "__") + ".pyc")
+        py_compile.compile(file_name, cfile=str(cfile), doraise=True)
+PY
+else
+  printf 'python3.11 and docker daemon unavailable; skipping Python 3.11 compatibility compile\n'
+fi
+
 section "WooCommerce plugin syntax"
 if command -v php >/dev/null 2>&1; then
   php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php"

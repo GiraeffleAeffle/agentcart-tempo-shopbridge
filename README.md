@@ -207,6 +207,11 @@ Run the full local pipeline:
 bash scripts/verify.sh
 ```
 
+The pipeline also compiles runtime Python files against Python 3.11, using
+local `python3.11` when available or Docker `python:3.11-slim` otherwise. The
+gateway Docker smoke image also runs Python 3.11, matching the current homelab
+CT runtime more closely than the newest local Python.
+
 Or run the Python tests directly:
 
 ```sh

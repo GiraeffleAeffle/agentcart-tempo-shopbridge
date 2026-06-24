@@ -300,7 +300,9 @@ Definition of done:
 Current alpha status: the repo packages the WooCommerce plugin ZIP and the
 skill-only buyer ZIP under `dist/`, includes WordPress release metadata
 (`readme.txt`) and conservative uninstall cleanup, verifies both artifacts in
-the main pipeline, runs local WordPress.org package/review-risk guards, generates
+the main pipeline, compiles runtime Python files against Python 3.11 for homelab
+deployment compatibility, runs the gateway Docker smoke image on Python 3.11,
+runs local WordPress.org package/review-risk guards, generates
 `dist/agentcart-release.json` with component versions and artifact checksums,
 and documents skill-only plus home-server buyer setup and upgrade/rollback in
 `docs/BUYER_SETUP.md` and `docs/RELEASES.md`. A release verifier checks manifest

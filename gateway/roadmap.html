@@ -465,8 +465,8 @@
       { name: "Merchant UX", value: 42, note: "settings done; setup wizard and low-friction refresh remain" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
       { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
-      { name: "Woo Release", value: 32, note: "ZIP works; WordPress.org review and PHPCS gates remain" },
-      { name: "Operations", value: 24, note: "smoke pipeline exists; monitoring, support and beta ops remain" }
+      { name: "Woo Release", value: 34, note: "ZIP works with runtime compatibility checks; WordPress.org review and PHPCS remain" },
+      { name: "Operations", value: 25, note: "smoke pipeline and deployed-runtime compile gate exist; monitoring and beta ops remain" }
     ];
 
     const gates = [
@@ -550,9 +550,9 @@
       {
         title: "WordPress plugin release",
         status: "partial",
-        value: 32,
-        scope: "Installable ZIP and release artifacts work.",
-        remaining: "Pass Plugin Check, PHPCS, readme assets, uninstall cleanup, i18n, and WordPress.org submission rules."
+        value: 34,
+        scope: "Installable ZIP, release artifacts, and Python 3.11 runtime compatibility checks work.",
+        remaining: "Pass Plugin Check, PHPCS, readme assets, deeper WP integration tests, i18n, and WordPress.org submission rules."
       },
       {
         title: "Security and abuse controls",
