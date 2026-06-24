@@ -86,6 +86,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_shopbridge_token", uninstall)
         self.assertIn("agentcart_shopbridge_stock_holds", uninstall)
         self.assertIn("agentcart_shopbridge_registry_public_check", uninstall)
+        self.assertIn("agentcart_shopbridge_x402_network", uninstall)
+        self.assertIn("agentcart_shopbridge_x402_pay_to", uninstall)
         self.assertIn("agentcart_shopbridge_quote_", uninstall)
         self.assertIn("agentcart_shopbridge_rate_", uninstall)
         self.assertIn("preserves WooCommerce order, refund, cancellation, payment", uninstall)
@@ -421,10 +423,53 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("if (self::tempo_payment_profile_configured())", profiles_body)
         self.assertIn("if (self::stripe_payment_profile_configured())", profiles_body)
         self.assertIn("if (self::merchant_registry_profile_configured())", profiles_body)
-        self.assertNotIn("'id' => 'x402-compatible'", profiles_body)
+        self.assertIn("'id' => 'x402-compatible'", profiles_body)
+        self.assertIn("if (self::x402_profile_configured())", profiles_body)
+        self.assertIn("'payment_required_header' => 'PAYMENT-REQUIRED'", profiles_body)
         self.assertNotIn("'id' => 'signed-http-ready'", profiles_body)
         self.assertIn("protocol_profiles(manifest)", registry_tool)
         self.assertIn("validate_protocol_profiles", smoke)
+
+    def test_x402_payment_required_shim_is_quote_bound_and_verifier_checked(self) -> None:
+        settings_body = function_body("register_settings")
+        render_body = function_body("render_settings_page")
+        create_order_body = function_body("create_order")
+        receipt_body = function_body("payment_receipt_from_checkout_request")
+        response_body = function_body("x402_payment_required_response")
+        requirements_body = function_body("payment_requirements")
+        document_body = function_body("x402_payment_required_document")
+        verifier_body = function_body("call_payment_verifier")
+        rail_body = function_body("normalize_payment_rail")
+
+        for symbol in [
+            "X402_NETWORK_OPTION",
+            "X402_ASSET_OPTION",
+            "X402_ASSET_DECIMALS_OPTION",
+            "X402_PAY_TO_OPTION",
+            "X402_MAX_TIMEOUT_SECONDS_OPTION",
+            "AGENTCART_X402_NETWORK",
+            "AGENTCART_X402_ASSET",
+            "AGENTCART_X402_PAY_TO",
+        ]:
+            self.assertIn(symbol, SOURCE)
+        self.assertIn("sanitize_x402_asset_decimals_setting", settings_body)
+        self.assertIn("sanitize_x402_timeout_setting", settings_body)
+        self.assertIn("x402 network", render_body)
+        self.assertIn("x402 payTo address", render_body)
+        self.assertIn("x402_payment_required_response", create_order_body)
+        self.assertLess(create_order_body.index("$receipt = isset($body['payment_receipt']"), create_order_body.index("find_existing_checkout_order"))
+        self.assertLess(create_order_body.index("get_transient"), create_order_body.index("payment_receipt_from_checkout_request"))
+        self.assertIn("PAYMENT-SIGNATURE", receipt_body + response_body + requirements_body)
+        self.assertIn("PAYMENT-REQUIRED", response_body + requirements_body)
+        self.assertIn("WP_REST_Response", response_body)
+        self.assertIn("'x402Version' => 2", document_body)
+        self.assertIn("'maxAmountRequired' => self::x402_atomic_amount", document_body)
+        self.assertIn("'quoteHash' => $quote_hash", document_body)
+        self.assertIn("'merchantQuoteId' => $quote_id", document_body)
+        self.assertIn("'x402-compatible'", rail_body + requirements_body)
+        self.assertIn("'x402_max_amount_required' => self::x402_atomic_amount", verifier_body)
+        self.assertIn("agentcart_payment_x402_amount_mismatch", verifier_body)
+        self.assertIn("agentcart_payment_x402_pay_to_mismatch", verifier_body)
 
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)

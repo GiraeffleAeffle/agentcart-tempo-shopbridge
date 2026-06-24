@@ -48,7 +48,10 @@ actions.
 * External payment verifier hook for quote-bound Tempo MPP, Stripe/card MPP, or
   other rails.
 * Configured-only manifest protocol profiles so agents can choose ShopBridge,
-  MPP, Stripe/card MPP, or registry adapters before quote calls.
+  MPP, Stripe/card MPP, x402, or registry adapters before quote calls.
+* Optional x402 exact-payment shim that emits quote-bound `PAYMENT-REQUIRED`
+  metadata when network, asset, payTo, currency, decimals, and verifier are
+  configured.
 * Merchant-token-protected refund and cancellation endpoints.
 * Admin actions to generate or rotate local merchant and verifier tokens while
   respecting secrets managed in wp-config.php.
@@ -77,9 +80,10 @@ called only after the merchant configures a Payment verifier URL in
 
 The verifier request can include the stored quote, selected order/refund fields,
 payment receipt fields supplied by the buyer agent, merchant id, payment rail,
-payment destination, amount, currency, quote hash, and idempotency/reference
-values. The exact destination, terms, and privacy policy depend on the verifier
-service configured by the merchant.
+payment destination, amount, currency, quote hash, optional x402
+`PAYMENT-SIGNATURE` payload, and idempotency/reference values. The exact
+destination, terms, and privacy policy depend on the verifier service
+configured by the merchant.
 
 == Installation ==
 
@@ -87,7 +91,8 @@ service configured by the merchant.
 2. Activate `AgentCart ShopBridge`.
 3. Open `WooCommerce -> AgentCart`.
 4. Configure stable merchant id, support email, payment recipient or Stripe
-   profile, verifier URL, checkout mode, and product exposure mode.
+   profile, optional x402 exact-payment settings, verifier URL, checkout mode,
+   and product exposure mode.
    Use Credential Actions on the same page to generate or rotate local tokens
    when they are not managed through wp-config.php.
 5. Add normal WooCommerce products and expose only the products that are safe

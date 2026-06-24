@@ -4584,9 +4584,22 @@ separate human confirmation.
                 "network_id",
                 "stripe_profile_id",
                 "payment_recipient",
+                "asset",
+                "pay_to",
+                "payTo",
+                "max_amount_required",
+                "maxAmountRequired",
+                "payment_required_header",
+                "payment_signature_header",
+                "payment_response_header",
             ):
                 if protocol.get(key):
                     destination[key] = protocol[key]
+            x402 = requirements.get("x402") if isinstance(requirements.get("x402"), dict) else {}
+            if method == "x402-compatible" and isinstance(x402.get("payment_required"), dict):
+                destination["payment_required"] = x402["payment_required"]
+            if method == "x402-compatible" and x402.get("payment_required_header_value"):
+                destination["payment_required_header_value"] = str(x402["payment_required_header_value"])
             return destination
         return {
             "method": self.payment_provider.method,

@@ -36,7 +36,11 @@ ShopBridge sends:
     "rail": "tempo-mpp",
     "tempo_network": "testnet",
     "tempo_recipient": "0x...",
-    "stripe_profile_id": "acct_..."
+    "stripe_profile_id": "acct_...",
+    "x402_network": "eip155:84532",
+    "x402_asset": "0x...",
+    "x402_pay_to": "0x...",
+    "x402_max_amount_required": "14800000"
   }
 }
 ```
@@ -53,6 +57,8 @@ The verifier must reject the payment unless it can prove:
 - selected rail matches the receipt and merchant setup;
 - Tempo recipient and network match the merchant configuration for Tempo rails;
 - Stripe profile matches the merchant configuration for Stripe/card rails;
+- x402 network, token asset, payTo address, and atomic amount match the
+  quote-bound `PAYMENT-REQUIRED` document for x402-compatible rails;
 - the transaction reference has not been used before;
 - the payment was not expired, revoked, or already refunded.
 
@@ -67,6 +73,9 @@ Expected success response:
   "rail": "tempo-mpp",
   "network": "testnet",
   "recipient": "0x...",
+  "asset": "0x...",
+  "pay_to": "0x...",
+  "max_amount_required": "14800000",
   "transaction_reference": "0x...",
   "real_settlement_verified": true
 }

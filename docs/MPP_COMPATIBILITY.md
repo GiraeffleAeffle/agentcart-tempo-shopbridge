@@ -60,6 +60,20 @@ fields we should treat as MPP-level are:
 | Receipt | `Payment-Receipt`, method, status, reference, timestamp | Returned after the server verifies the credential. Method-specific receipts may carry transaction hashes, Stripe PaymentIntent references, or similar IDs. |
 | Safety | challenge id, expiry, request binding/body digest, idempotency/replay protection | The protocol protects the paid request boundary. Product and order safety remain application responsibilities. |
 
+## x402 Compatibility Shim
+
+ShopBridge can now publish an x402-shaped exact-payment requirement for a
+quote when the merchant configures an x402 network, token asset, payTo address,
+asset decimals/currency, and external verifier. An unpaid quote-bound checkout
+can return `402` with a `PAYMENT-REQUIRED` header and body containing
+`x402Version`, `accepts[]`, `scheme`, `network`, `maxAmountRequired`,
+`resource`, `payTo`, `asset`, and timeout fields.
+
+This is a compatibility shim around the existing verifier seam. ShopBridge does
+not run a facilitator or settle onchain by itself. The verifier must validate
+the `PAYMENT-SIGNATURE`/x402 receipt, quote hash, amount, currency, network,
+asset, payTo, and replay state before WooCommerce creates a paid order.
+
 AgentCart fields are deliberately outside the MPP core:
 
 | Area | AgentCart / ShopBridge fields |

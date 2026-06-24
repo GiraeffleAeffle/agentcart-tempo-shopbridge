@@ -1088,6 +1088,8 @@ def normalize_payment_rail(value: Any) -> str:
         return "stripe-card-mpp"
     if rail in {"tempo", "tempo-mpp", "mpp", "mpp-shaped-demo", "demo-payment-proof"}:
         return "tempo-mpp"
+    if rail in {"x402", "x402-exact", "x402-compatible"}:
+        return "x402-compatible"
     return rail
 
 
@@ -1135,6 +1137,24 @@ def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) 
                 "settlement_asset": str(protocol.get("settlement_asset") or ""),
             }
         )
+    elif rail == "x402-compatible":
+        destination.update(
+            {
+                "network": str(protocol.get("network") or ""),
+                "asset": str(protocol.get("asset") or ""),
+                "pay_to": str(protocol.get("pay_to") or protocol.get("payTo") or protocol.get("recipient") or ""),
+                "max_amount_required": str(protocol.get("max_amount_required") or protocol.get("maxAmountRequired") or ""),
+                "payment_required_header": str(protocol.get("payment_required_header") or "PAYMENT-REQUIRED"),
+                "payment_signature_header": str(protocol.get("payment_signature_header") or "PAYMENT-SIGNATURE"),
+                "payment_response_header": str(protocol.get("payment_response_header") or "PAYMENT-RESPONSE"),
+            }
+        )
+        payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+        x402 = payment.get("x402") if isinstance(payment.get("x402"), dict) else {}
+        if isinstance(x402.get("payment_required"), dict):
+            destination["payment_required"] = x402["payment_required"]
+        if x402.get("payment_required_header_value"):
+            destination["payment_required_header_value"] = str(x402["payment_required_header_value"])
     return destination
 
 
@@ -1147,6 +1167,10 @@ def payment_destination_label(destination: dict[str, Any]) -> str:
         recipient = destination.get("recipient") or "unconfigured recipient"
         network = destination.get("network") or "unknown network"
         return f"Tempo MPP to {recipient} on {network}"
+    if rail == "x402-compatible":
+        pay_to = destination.get("pay_to") or "unconfigured payTo"
+        network = destination.get("network") or "unknown network"
+        return f"x402 exact payment to {pay_to} on {network}"
     return str(rail or "unknown payment rail")
 
 
@@ -2573,6 +2597,10 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
         issues.append("missing_stripe_profile_id")
     if destination.get("rail") == "tempo-mpp" and not destination.get("recipient"):
         issues.append("missing_tempo_recipient")
+    if destination.get("rail") == "x402-compatible":
+        for key in ("network", "asset", "pay_to", "max_amount_required", "payment_required"):
+            if not destination.get(key):
+                issues.append(f"missing_x402_{key}")
     max_total_cents = args.get("max_total_cents")
     if max_total_cents is not None and int(quote.get("total_cents") or 0) > int(max_total_cents):
         issues.append("over_buyer_limit")
@@ -2597,6 +2625,9 @@ def payment_receipt_requirements(destination: dict[str, Any]) -> dict[str, Any]:
     elif rail == "tempo-mpp":
         fields.extend(["network", "recipient"])
         alternatives = ["transaction_reference", "explorer_url"]
+    elif rail == "x402-compatible":
+        fields.extend(["network", "asset", "pay_to", "max_amount_required"])
+        alternatives = ["x402_payment_signature", "payment_signature", "payment_signature_header", "transaction_reference"]
     return {
         "required_fields": fields,
         "one_of": alternatives,
@@ -2706,6 +2737,23 @@ def validate_receipt_destination(receipt: dict[str, Any], destination: dict[str,
         supplied_network = str(receipt.get("network") or "").lower()
         if expected_network and supplied_network and supplied_network != expected_network:
             raise SystemExit("payment_receipt.network does not match quote payment destination")
+    elif rail == "x402-compatible":
+        expected_network = str(destination.get("network") or "").lower()
+        supplied_network = str(receipt.get("network") or receipt.get("x402_network") or "").lower()
+        if expected_network and supplied_network and supplied_network != expected_network:
+            raise SystemExit("payment_receipt.network does not match quote payment destination")
+        expected_asset = str(destination.get("asset") or "").lower()
+        supplied_asset = str(receipt.get("asset") or receipt.get("x402_asset") or "").lower()
+        if expected_asset and supplied_asset and supplied_asset != expected_asset:
+            raise SystemExit("payment_receipt.asset does not match quote payment destination")
+        expected_pay_to = str(destination.get("pay_to") or "").lower()
+        supplied_pay_to = str(receipt.get("pay_to") or receipt.get("payTo") or receipt.get("recipient") or "").lower()
+        if expected_pay_to and supplied_pay_to and supplied_pay_to != expected_pay_to:
+            raise SystemExit("payment_receipt.pay_to does not match quote payment destination")
+        expected_amount = str(destination.get("max_amount_required") or "")
+        supplied_amount = str(receipt.get("max_amount_required") or receipt.get("maxAmountRequired") or "")
+        if expected_amount and supplied_amount and supplied_amount != expected_amount:
+            raise SystemExit("payment_receipt.max_amount_required does not match quote payment destination")
 
 
 def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:

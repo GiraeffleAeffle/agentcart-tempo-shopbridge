@@ -41,14 +41,14 @@ local integrations.
 | --- | --- | --- |
 | 1 | Registry transparency and refresh UX | Alpha implemented: safe multi-merchant discovery now exposes refresh/check status and machine-readable registry reasons |
 | 2 | Manifest protocol profiles | Alpha implemented: manifests now publish configured-only `protocol_profiles[]` for ShopBridge commerce, MPP payment, Stripe/card MPP, and registry mapping |
-| 3 | x402 compatibility shim | Next: make the existing HTTP 402/payment-requirements flow understandable to x402-capable agents without replacing the verifier seam |
-| 4 | Signed HTTP request verification | Hardens quote, checkout, status, cancellation, and refund endpoints beyond bearer-token-only auth |
+| 3 | x402 compatibility shim | Alpha implemented: quote payment requirements now expose x402 exact-payment headers and checkout can answer unpaid quote-bound requests with `PAYMENT-REQUIRED` |
+| 4 | Signed HTTP request verification | Next: harden quote, checkout, status, cancellation, and refund endpoints beyond bearer-token-only auth |
 | 5 | Protocol translators | Lets AP2/ACP/UCP/MCP/A2A clients use the same AgentCart quote/order model |
 | 6 | Escrow/custom-order flow | Adds ERC-8183-style jobs only where normal retail checkout is the wrong model |
 
-The immediate next implementation slice is **x402 compatibility shim**. The
-manifest profile work intentionally does not advertise `x402-compatible` or
-`signed-http-ready` until those adapters are implemented.
+The immediate next implementation slice is **signed HTTP request verification**.
+ShopBridge still intentionally does not advertise `signed-http-ready` until that
+adapter is implemented.
 
 ## Visual Architecture
 

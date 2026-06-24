@@ -42,6 +42,14 @@ final class AgentCart_ShopBridge {
     const TEMPO_RECIPIENT_OPTION = 'agentcart_shopbridge_tempo_recipient';
     const TEMPO_NETWORK_OPTION = 'agentcart_shopbridge_tempo_network';
     const STRIPE_PROFILE_ID_OPTION = 'agentcart_shopbridge_stripe_profile_id';
+    const X402_NETWORK_OPTION = 'agentcart_shopbridge_x402_network';
+    const X402_ASSET_OPTION = 'agentcart_shopbridge_x402_asset';
+    const X402_ASSET_SYMBOL_OPTION = 'agentcart_shopbridge_x402_asset_symbol';
+    const X402_ASSET_DECIMALS_OPTION = 'agentcart_shopbridge_x402_asset_decimals';
+    const X402_ASSET_CURRENCY_OPTION = 'agentcart_shopbridge_x402_asset_currency';
+    const X402_PAY_TO_OPTION = 'agentcart_shopbridge_x402_pay_to';
+    const X402_FACILITATOR_URL_OPTION = 'agentcart_shopbridge_x402_facilitator_url';
+    const X402_MAX_TIMEOUT_SECONDS_OPTION = 'agentcart_shopbridge_x402_max_timeout_seconds';
     const SUPPORT_EMAIL_OPTION = 'agentcart_shopbridge_support_email';
     const RETURNS_URL_OPTION = 'agentcart_shopbridge_returns_url';
     const SUBSTITUTION_POLICY_OPTION = 'agentcart_shopbridge_substitution_policy';
@@ -181,6 +189,46 @@ final class AgentCart_ShopBridge {
             'sanitize_callback' => 'sanitize_text_field',
             'default' => '',
         ]);
+        register_setting('agentcart_shopbridge', self::X402_NETWORK_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::X402_ASSET_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::X402_ASSET_SYMBOL_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => 'USDC',
+        ]);
+        register_setting('agentcart_shopbridge', self::X402_ASSET_DECIMALS_OPTION, [
+            'type' => 'integer',
+            'sanitize_callback' => [__CLASS__, 'sanitize_x402_asset_decimals_setting'],
+            'default' => 6,
+        ]);
+        register_setting('agentcart_shopbridge', self::X402_ASSET_CURRENCY_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_currency_code_setting'],
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::X402_PAY_TO_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::X402_FACILITATOR_URL_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'esc_url_raw',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::X402_MAX_TIMEOUT_SECONDS_OPTION, [
+            'type' => 'integer',
+            'sanitize_callback' => [__CLASS__, 'sanitize_x402_timeout_setting'],
+            'default' => 300,
+        ]);
         register_setting('agentcart_shopbridge', self::PAYMENT_VERIFIER_URL_OPTION, [
             'type' => 'string',
             'sanitize_callback' => 'esc_url_raw',
@@ -267,6 +315,21 @@ final class AgentCart_ShopBridge {
         return max(1, min(60, $minutes ?: 15));
     }
 
+    public static function sanitize_x402_asset_decimals_setting($value) {
+        $decimals = absint($value);
+        return max(2, min(18, $decimals ?: 6));
+    }
+
+    public static function sanitize_x402_timeout_setting($value) {
+        $seconds = absint($value);
+        return max(30, min(3600, $seconds ?: 300));
+    }
+
+    public static function sanitize_currency_code_setting($value) {
+        $currency = strtoupper(preg_replace('/[^A-Za-z]/', '', (string) $value));
+        return strlen($currency) === 3 ? $currency : '';
+    }
+
     public static function sanitize_substitution_policy_setting($value) {
         $policy = sanitize_key((string) $value);
         return in_array($policy, ['approval_required', 'not_allowed', 'merchant_allowed'], true) ? $policy : 'approval_required';
@@ -313,6 +376,14 @@ final class AgentCart_ShopBridge {
         $checkout_mode = self::checkout_mode();
         $tempo_recipient = self::tempo_recipient();
         $stripe_profile_id = self::stripe_profile_id();
+        $x402_network = self::x402_network();
+        $x402_asset = self::x402_asset();
+        $x402_asset_symbol = self::x402_asset_symbol();
+        $x402_asset_decimals = self::x402_asset_decimals();
+        $x402_asset_currency = self::x402_asset_currency();
+        $x402_pay_to = self::x402_pay_to();
+        $x402_facilitator_url = self::x402_facilitator_url();
+        $x402_max_timeout_seconds = self::x402_max_timeout_seconds();
         $support_email = self::support_email();
         $returns_url = self::returns_url();
         $substitution_policy = self::substitution_policy();
@@ -393,6 +464,11 @@ final class AgentCart_ShopBridge {
                         <th scope="row">Stripe/card MPP</th>
                         <td><code><?php echo esc_html($stripe_profile_id ?: 'not configured'); ?></code></td>
                         <td><?php echo self::admin_status_badge($stripe_profile_id !== '' && $payment_verifier_url !== '', 'Configured', 'Needs Stripe profile + verifier'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">x402 exact profile</th>
+                        <td><code><?php echo esc_html(self::x402_profile_configured() ? $x402_network . ' / ' . $x402_asset_symbol : 'not configured'); ?></code></td>
+                        <td><?php echo self::admin_status_badge(self::x402_profile_configured(), 'Configured', 'Needs network + asset + payTo + verifier'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Support email</th>
@@ -483,6 +559,14 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Tempo network', self::TEMPO_NETWORK_OPTION, self::tempo_network(), 'AGENTCART_TEMPO_NETWORK', 'For the hackathon this is usually testnet.'); ?>
                     <?php self::render_text_setting_row('Tempo recipient address', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Merchant or payment-provider recipient used by the payment verifier.'); ?>
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
+                    <?php self::render_text_setting_row('x402 network', self::X402_NETWORK_OPTION, $x402_network, 'AGENTCART_X402_NETWORK', 'Optional x402 network identifier such as eip155:84532 or base-sepolia. Leave blank to avoid advertising x402.'); ?>
+                    <?php self::render_text_setting_row('x402 asset contract', self::X402_ASSET_OPTION, $x402_asset, 'AGENTCART_X402_ASSET', 'Optional x402 token contract/address. Required before x402-compatible quotes are advertised.'); ?>
+                    <?php self::render_text_setting_row('x402 asset symbol', self::X402_ASSET_SYMBOL_OPTION, $x402_asset_symbol, 'AGENTCART_X402_ASSET_SYMBOL', 'Human label for the configured x402 asset, for example USDC.'); ?>
+                    <?php self::render_text_setting_row('x402 asset currency', self::X402_ASSET_CURRENCY_OPTION, $x402_asset_currency, 'AGENTCART_X402_ASSET_CURRENCY', 'Three-letter currency represented by the x402 asset. Defaults to the WooCommerce store currency when blank.'); ?>
+                    <?php self::render_setting_row('number', 'x402 asset decimals', self::X402_ASSET_DECIMALS_OPTION, $x402_asset_decimals, 'AGENTCART_X402_ASSET_DECIMALS', 'Token decimals used to convert WooCommerce cents into x402 atomic units.'); ?>
+                    <?php self::render_text_setting_row('x402 payTo address', self::X402_PAY_TO_OPTION, $x402_pay_to, 'AGENTCART_X402_PAY_TO', 'Merchant or payment-provider wallet address that receives x402 exact payments.'); ?>
+                    <?php self::render_text_setting_row('x402 facilitator URL', self::X402_FACILITATOR_URL_OPTION, $x402_facilitator_url, 'AGENTCART_X402_FACILITATOR_URL', 'Optional facilitator URL documented for x402-capable clients. ShopBridge still relies on the payment verifier before creating orders.'); ?>
+                    <?php self::render_setting_row('number', 'x402 timeout seconds', self::X402_MAX_TIMEOUT_SECONDS_OPTION, $x402_max_timeout_seconds, 'AGENTCART_X402_MAX_TIMEOUT_SECONDS', 'Maximum x402 authorization window advertised in quote-bound payment requirements.'); ?>
                     <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
                     <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
                     <?php self::render_checkout_mode_setting_row($checkout_mode); ?>
@@ -1354,6 +1438,9 @@ final class AgentCart_ShopBridge {
         if (self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '') {
             $protocols[] = 'stripe-card-mpp';
         }
+        if (self::x402_profile_configured()) {
+            $protocols[] = 'x402-compatible';
+        }
         return $protocols;
     }
 
@@ -1453,6 +1540,28 @@ final class AgentCart_ShopBridge {
             ];
         }
 
+        if (self::x402_profile_configured()) {
+            $profiles[] = [
+                'id' => 'x402-compatible',
+                'type' => 'payment',
+                'standard' => 'x402',
+                'status' => 'available',
+                'x402_version' => 2,
+                'scheme' => 'exact',
+                'network' => self::x402_network(),
+                'asset' => self::x402_asset(),
+                'asset_symbol' => self::x402_asset_symbol(),
+                'asset_decimals' => self::x402_asset_decimals(),
+                'asset_currency' => self::x402_asset_currency(),
+                'pay_to' => self::x402_pay_to(),
+                'facilitator_url' => self::x402_facilitator_url(),
+                'payment_required_header' => 'PAYMENT-REQUIRED',
+                'payment_signature_header' => 'PAYMENT-SIGNATURE',
+                'payment_response_header' => 'PAYMENT-RESPONSE',
+                'verifier_required' => true,
+            ];
+        }
+
         return $profiles;
     }
 
@@ -1464,7 +1573,7 @@ final class AgentCart_ShopBridge {
 
     private static function payment_protocol_profile_ids() {
         return array_values(array_filter(self::protocol_profile_ids(), function ($id) {
-            return in_array($id, ['mpp-http-auth', 'stripe-card-mpp'], true);
+            return in_array($id, ['mpp-http-auth', 'stripe-card-mpp', 'x402-compatible'], true);
         }));
     }
 
@@ -1474,6 +1583,18 @@ final class AgentCart_ShopBridge {
 
     private static function stripe_payment_profile_configured() {
         return self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '';
+    }
+
+    private static function x402_profile_configured() {
+        return self::x402_quote_configured_for_currency(get_woocommerce_currency());
+    }
+
+    private static function x402_quote_configured_for_currency($currency) {
+        return self::payment_verifier_url() !== ''
+            && self::x402_network() !== ''
+            && self::x402_asset() !== ''
+            && self::x402_pay_to() !== ''
+            && strtoupper((string) $currency) === strtoupper(self::x402_asset_currency());
     }
 
     private static function merchant_registry_profile_configured() {
@@ -2108,6 +2229,7 @@ final class AgentCart_ShopBridge {
                 'merchant_aftercare_policy_defaults' => true,
                 'merchant_substitution_policy' => true,
                 'merchant_cancellation_policy' => true,
+                'x402_exact_payment_required' => self::x402_profile_configured(),
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'carrier_tracking_adapter_contract' => true,
@@ -2222,6 +2344,10 @@ final class AgentCart_ShopBridge {
                 'tempo_recipient_configured' => self::tempo_recipient() !== '',
                 'tempo_network' => self::tempo_network(),
                 'stripe_profile_configured' => self::stripe_profile_id() !== '',
+                'x402_configured' => self::x402_profile_configured(),
+                'x402_network' => self::x402_network(),
+                'x402_asset' => self::x402_asset(),
+                'x402_pay_to_configured' => self::x402_pay_to() !== '',
                 'refunds_use_same_verifier' => true,
             ],
             'refund_policy' => [
@@ -2403,10 +2529,8 @@ final class AgentCart_ShopBridge {
 
     public static function create_order(WP_REST_Request $request) {
         $body = $request->get_json_params();
+        $body = is_array($body) ? $body : [];
         $receipt = isset($body['payment_receipt']) && is_array($body['payment_receipt']) ? $body['payment_receipt'] : [];
-        if (empty($receipt['id'])) {
-            return new WP_Error('agentcart_bad_request', 'payment_receipt.id is required.', ['status' => 400]);
-        }
         $agentcart_order_id = sanitize_text_field((string) ($body['agentcart_order_id'] ?? ''));
         $idempotency_key = self::checkout_idempotency_key($body, $request);
         if (is_wp_error($idempotency_key)) {
@@ -2461,6 +2585,14 @@ final class AgentCart_ShopBridge {
         $quote = get_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
         if (!is_array($quote)) {
             return new WP_Error('agentcart_quote_expired', 'Merchant quote is unknown or expired.', ['status' => 409]);
+        }
+        $receipt = self::payment_receipt_from_checkout_request($body, $request, $quote);
+        if (empty($receipt['id'])) {
+            $x402_response = self::x402_payment_required_response($quote, 'payment_receipt.id or PAYMENT-SIGNATURE header is required.');
+            if ($x402_response !== null) {
+                return $x402_response;
+            }
+            return new WP_Error('agentcart_bad_request', 'payment_receipt.id is required.', ['status' => 400]);
         }
         if (strtotime((string) ($quote['expires_at'] ?? '')) < time()) {
             delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
@@ -3246,6 +3378,58 @@ final class AgentCart_ShopBridge {
         return self::CANCELLATION_LOCK_PREFIX . hash('sha256', (string) $cancellation_idempotency_key);
     }
 
+    private static function payment_receipt_from_checkout_request($body, WP_REST_Request $request, $quote) {
+        $receipt = isset($body['payment_receipt']) && is_array($body['payment_receipt']) ? $body['payment_receipt'] : [];
+        if (!empty($receipt['id'])) {
+            return $receipt;
+        }
+        $signature = self::x402_payment_signature_header($request);
+        if ($signature === '' || self::x402_payment_required_document($quote) === null) {
+            return $receipt;
+        }
+        $requirement = self::x402_payment_required_document($quote);
+        $accept = is_array($requirement['accepts'][0] ?? null) ? $requirement['accepts'][0] : [];
+        return [
+            'id' => 'x402_' . substr(hash('sha256', $signature), 0, 24),
+            'method' => 'x402-compatible',
+            'rail' => 'x402-compatible',
+            'provider' => 'x402',
+            'status' => 'submitted',
+            'amount_cents' => intval($quote['total_cents'] ?? 0),
+            'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+            'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'network' => (string) ($accept['network'] ?? ''),
+            'asset' => (string) ($accept['asset'] ?? ''),
+            'pay_to' => (string) ($accept['payTo'] ?? ''),
+            'recipient' => (string) ($accept['payTo'] ?? ''),
+            'max_amount_required' => (string) ($accept['maxAmountRequired'] ?? ''),
+            'x402_version' => intval($requirement['x402Version'] ?? 2),
+            'x402_payment_signature' => $signature,
+            'payment_signature_header' => 'PAYMENT-SIGNATURE',
+            'payment_required' => $requirement,
+        ];
+    }
+
+    private static function x402_payment_signature_header(WP_REST_Request $request) {
+        $signature = trim((string) $request->get_header('PAYMENT-SIGNATURE'));
+        if ($signature === '') {
+            $signature = trim((string) $request->get_header('X-PAYMENT'));
+        }
+        return sanitize_text_field($signature);
+    }
+
+    private static function x402_payment_required_response($quote, $message) {
+        $document = self::x402_payment_required_document($quote);
+        if ($document === null) {
+            return null;
+        }
+        $document['error'] = $message;
+        $response = new WP_REST_Response($document, 402);
+        $response->header('PAYMENT-REQUIRED', self::x402_header_value($document));
+        $response->header('Cache-Control', 'no-store');
+        return $response;
+    }
+
     private static function verify_payment_receipt($quote, $receipt, $body, WP_REST_Request $request) {
         $expected_amount = intval($quote['total_cents'] ?? 0);
         $expected_currency = (string) ($quote['currency'] ?? get_woocommerce_currency());
@@ -3312,6 +3496,10 @@ final class AgentCart_ShopBridge {
                 'tempo_network' => self::tempo_network(),
                 'tempo_recipient' => self::tempo_recipient(),
                 'stripe_profile_id' => self::stripe_profile_id(),
+                'x402_network' => self::x402_network(),
+                'x402_asset' => self::x402_asset(),
+                'x402_pay_to' => self::x402_pay_to(),
+                'x402_max_amount_required' => self::x402_atomic_amount(intval($quote['total_cents'] ?? 0)),
             ],
         ];
         $headers = ['Content-Type' => 'application/json'];
@@ -3338,13 +3526,19 @@ final class AgentCart_ShopBridge {
         $verified_amount = intval($decoded['amount_cents'] ?? -1);
         $verified_currency = strtoupper((string) ($decoded['currency'] ?? ''));
         $expected_currency = strtoupper((string) ($quote['currency'] ?? get_woocommerce_currency()));
-        $verified_network = (string) ($decoded['network'] ?? '');
+        $verified_network = (string) ($decoded['network'] ?? $decoded['x402_network'] ?? '');
         $expected_network = self::tempo_network();
         $verified_recipient = strtolower((string) ($decoded['recipient'] ?? ''));
         $expected_recipient = strtolower(self::tempo_recipient());
         $verified_rail = self::normalize_payment_rail((string) ($decoded['rail'] ?? ''));
         $verified_stripe_profile_id = sanitize_text_field((string) ($decoded['stripe_profile_id'] ?? ''));
         $expected_stripe_profile_id = self::stripe_profile_id();
+        $verified_x402_asset = strtolower(sanitize_text_field((string) ($decoded['asset'] ?? $decoded['x402_asset'] ?? '')));
+        $verified_x402_pay_to = strtolower(sanitize_text_field((string) ($decoded['pay_to'] ?? $decoded['payTo'] ?? $decoded['x402_pay_to'] ?? '')));
+        $verified_x402_amount = sanitize_text_field((string) ($decoded['max_amount_required'] ?? $decoded['maxAmountRequired'] ?? $decoded['x402_max_amount_required'] ?? ''));
+        $expected_x402_asset = strtolower(self::x402_asset());
+        $expected_x402_pay_to = strtolower(self::x402_pay_to());
+        $expected_x402_amount = self::x402_atomic_amount(intval($quote['total_cents'] ?? 0));
         $transaction_reference = sanitize_text_field((string) ($decoded['transaction_reference'] ?? ''));
         if (
             $verified_quote_hash === ''
@@ -3365,6 +3559,18 @@ final class AgentCart_ShopBridge {
         }
         if ($rail === 'stripe-card-mpp' && $expected_stripe_profile_id !== '' && $verified_stripe_profile_id !== $expected_stripe_profile_id) {
             return new WP_Error('agentcart_payment_stripe_profile_mismatch', 'External payment verifier returned the wrong Stripe profile.', ['status' => 402]);
+        }
+        if ($rail === 'x402-compatible' && self::x402_network() !== '' && $verified_network !== self::x402_network()) {
+            return new WP_Error('agentcart_payment_x402_network_mismatch', 'External payment verifier returned the wrong x402 network.', ['status' => 402]);
+        }
+        if ($rail === 'x402-compatible' && $expected_x402_asset !== '' && $verified_x402_asset !== $expected_x402_asset) {
+            return new WP_Error('agentcart_payment_x402_asset_mismatch', 'External payment verifier returned the wrong x402 asset.', ['status' => 402]);
+        }
+        if ($rail === 'x402-compatible' && $expected_x402_pay_to !== '' && $verified_x402_pay_to !== $expected_x402_pay_to) {
+            return new WP_Error('agentcart_payment_x402_pay_to_mismatch', 'External payment verifier returned the wrong x402 payTo address.', ['status' => 402]);
+        }
+        if ($rail === 'x402-compatible' && $expected_x402_amount !== '' && $verified_x402_amount !== $expected_x402_amount) {
+            return new WP_Error('agentcart_payment_x402_amount_mismatch', 'External payment verifier returned the wrong x402 atomic amount.', ['status' => 402]);
         }
         if ($transaction_reference === '') {
             return new WP_Error('agentcart_payment_reference_required', 'External payment verifier must return a transaction_reference.', ['status' => 402]);
@@ -3793,6 +3999,9 @@ final class AgentCart_ShopBridge {
         if (strpos($method, 'tempo') !== false) {
             return 'tempo-mpp';
         }
+        if (strpos($method, 'x402') !== false) {
+            return 'x402-compatible';
+        }
         return $method ?: 'agentcart-demo';
     }
 
@@ -3822,6 +4031,9 @@ final class AgentCart_ShopBridge {
         if ($rail === 'stripe' || $rail === 'stripe-card' || $rail === 'stripe-card-mpp') {
             return 'stripe-card-mpp';
         }
+        if ($rail === 'x402' || $rail === 'x402-compatible' || $rail === 'x402-exact') {
+            return 'x402-compatible';
+        }
         return $rail;
     }
 
@@ -3832,6 +4044,9 @@ final class AgentCart_ShopBridge {
         if ($rail === 'tempo-mpp') {
             return 'tempo_mpp';
         }
+        if ($rail === 'x402-compatible') {
+            return 'x402';
+        }
         return 'agentcart_mpp';
     }
 
@@ -3841,6 +4056,9 @@ final class AgentCart_ShopBridge {
         }
         if ($rail === 'tempo-mpp') {
             return 'Tempo MPP via AgentCart';
+        }
+        if ($rail === 'x402-compatible') {
+            return 'x402 via AgentCart';
         }
         return 'AgentCart MPP';
     }
@@ -4070,12 +4288,23 @@ final class AgentCart_ShopBridge {
     }
 
     private static function payment_requirements($quote) {
+        $x402 = self::x402_payment_required_document($quote);
         return [
             'amount_cents' => intval($quote['total_cents'] ?? 0),
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
             'quote_hash' => (string) ($quote['quote_hash'] ?? self::quote_hash($quote)),
             'checkout_endpoint' => rest_url(self::API_NAMESPACE . '/orders'),
             'payment_protocol_profile_ids' => self::payment_protocol_profile_ids(),
+            'x402' => [
+                'enabled' => $x402 !== null,
+                'version' => 2,
+                'payment_required_header' => 'PAYMENT-REQUIRED',
+                'payment_signature_header' => 'PAYMENT-SIGNATURE',
+                'payment_response_header' => 'PAYMENT-RESPONSE',
+                'payment_required' => $x402,
+                'payment_required_header_value' => $x402 !== null ? self::x402_header_value($x402) : null,
+                'unavailable_reason' => $x402 === null ? self::x402_unavailable_reason($quote) : null,
+            ],
             'idempotency' => [
                 'required' => true,
                 'accepted_fields' => ['agentcart_order_id', 'idempotency_key', 'Idempotency-Key'],
@@ -4117,8 +4346,99 @@ final class AgentCart_ShopBridge {
                     'scheme' => 'Payment',
                     'quote_hash_required' => true,
                 ],
+                [
+                    'id' => 'x402-compatible',
+                    'profile_id' => $x402 !== null ? 'x402-compatible' : null,
+                    'type' => 'stablecoin',
+                    'available' => $x402 !== null,
+                    'x402_version' => 2,
+                    'scheme' => 'exact',
+                    'network' => self::x402_network(),
+                    'asset' => self::x402_asset(),
+                    'pay_to' => self::x402_pay_to(),
+                    'amount_cents' => intval($quote['total_cents'] ?? 0),
+                    'quote_currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+                    'max_amount_required' => $x402 !== null ? (string) ($x402['accepts'][0]['maxAmountRequired'] ?? '') : '',
+                    'payment_required_header' => 'PAYMENT-REQUIRED',
+                    'payment_signature_header' => 'PAYMENT-SIGNATURE',
+                    'payment_response_header' => 'PAYMENT-RESPONSE',
+                    'setup_required' => $x402 === null,
+                    'unavailable_reason' => $x402 === null ? self::x402_unavailable_reason($quote) : null,
+                ],
             ],
         ];
+    }
+
+    private static function x402_payment_required_document($quote) {
+        $currency = strtoupper((string) ($quote['currency'] ?? get_woocommerce_currency()));
+        if (!self::x402_quote_configured_for_currency($currency)) {
+            return null;
+        }
+        $quote_id = (string) ($quote['id'] ?? '');
+        $quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
+        $checkout_endpoint = rest_url(self::API_NAMESPACE . '/orders');
+        $amount_cents = intval($quote['total_cents'] ?? 0);
+        return [
+            'x402Version' => 2,
+            'accepts' => [
+                [
+                    'scheme' => 'exact',
+                    'network' => self::x402_network(),
+                    'maxAmountRequired' => self::x402_atomic_amount($amount_cents),
+                    'resource' => $checkout_endpoint,
+                    'description' => 'AgentCart ShopBridge checkout for merchant quote ' . $quote_id,
+                    'mimeType' => 'application/json',
+                    'payTo' => self::x402_pay_to(),
+                    'asset' => self::x402_asset(),
+                    'maxTimeoutSeconds' => self::x402_max_timeout_seconds(),
+                    'extra' => [
+                        'name' => self::x402_asset_symbol(),
+                        'version' => '2',
+                        'decimals' => self::x402_asset_decimals(),
+                        'assetCurrency' => $currency,
+                        'merchantId' => self::merchant()['id'],
+                        'merchantQuoteId' => $quote_id,
+                        'quoteHash' => $quote_hash,
+                        'checkoutEndpoint' => $checkout_endpoint,
+                        'verifierRequired' => true,
+                    ],
+                ],
+            ],
+            'error' => 'PAYMENT-SIGNATURE header or quote-bound payment_receipt is required',
+        ];
+    }
+
+    private static function x402_atomic_amount($amount_cents) {
+        $amount_cents = max(0, intval($amount_cents));
+        $zeros = str_repeat('0', max(0, self::x402_asset_decimals() - 2));
+        $value = (string) $amount_cents . $zeros;
+        $value = ltrim($value, '0');
+        return $value === '' ? '0' : $value;
+    }
+
+    private static function x402_header_value($document) {
+        return base64_encode(wp_json_encode($document, JSON_UNESCAPED_SLASHES));
+    }
+
+    private static function x402_unavailable_reason($quote = null) {
+        $currency = strtoupper((string) (($quote['currency'] ?? null) ?: get_woocommerce_currency()));
+        $missing = [];
+        if (self::payment_verifier_url() === '') {
+            $missing[] = 'payment_verifier';
+        }
+        if (self::x402_network() === '') {
+            $missing[] = 'x402_network';
+        }
+        if (self::x402_asset() === '') {
+            $missing[] = 'x402_asset';
+        }
+        if (self::x402_pay_to() === '') {
+            $missing[] = 'x402_pay_to';
+        }
+        if ($currency !== strtoupper(self::x402_asset_currency())) {
+            $missing[] = 'quote_currency_' . strtolower($currency) . '_does_not_match_x402_asset_currency_' . strtolower(self::x402_asset_currency());
+        }
+        return implode(',', $missing);
     }
 
     private static function delivery_window($min_days, $max_days) {
@@ -4150,6 +4470,81 @@ final class AgentCart_ShopBridge {
             }
         }
         return trim((string) get_option(self::PAYMENT_VERIFIER_TOKEN_OPTION, ''));
+    }
+
+    private static function x402_network() {
+        if (defined('AGENTCART_X402_NETWORK')) {
+            $value = trim((string) AGENTCART_X402_NETWORK);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::X402_NETWORK_OPTION, ''));
+    }
+
+    private static function x402_asset() {
+        if (defined('AGENTCART_X402_ASSET')) {
+            $value = trim((string) AGENTCART_X402_ASSET);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::X402_ASSET_OPTION, ''));
+    }
+
+    private static function x402_asset_symbol() {
+        if (defined('AGENTCART_X402_ASSET_SYMBOL')) {
+            $value = trim((string) AGENTCART_X402_ASSET_SYMBOL);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::X402_ASSET_SYMBOL_OPTION, 'USDC')) ?: 'USDC';
+    }
+
+    private static function x402_asset_decimals() {
+        if (defined('AGENTCART_X402_ASSET_DECIMALS')) {
+            return self::sanitize_x402_asset_decimals_setting(AGENTCART_X402_ASSET_DECIMALS);
+        }
+        return self::sanitize_x402_asset_decimals_setting(get_option(self::X402_ASSET_DECIMALS_OPTION, 6));
+    }
+
+    private static function x402_asset_currency() {
+        if (defined('AGENTCART_X402_ASSET_CURRENCY')) {
+            $value = self::sanitize_currency_code_setting((string) AGENTCART_X402_ASSET_CURRENCY);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        $stored = self::sanitize_currency_code_setting((string) get_option(self::X402_ASSET_CURRENCY_OPTION, ''));
+        return $stored !== '' ? $stored : strtoupper((string) get_woocommerce_currency());
+    }
+
+    private static function x402_pay_to() {
+        if (defined('AGENTCART_X402_PAY_TO')) {
+            $value = trim((string) AGENTCART_X402_PAY_TO);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::X402_PAY_TO_OPTION, ''));
+    }
+
+    private static function x402_facilitator_url() {
+        if (defined('AGENTCART_X402_FACILITATOR_URL')) {
+            $value = trim((string) AGENTCART_X402_FACILITATOR_URL);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::X402_FACILITATOR_URL_OPTION, ''));
+    }
+
+    private static function x402_max_timeout_seconds() {
+        if (defined('AGENTCART_X402_MAX_TIMEOUT_SECONDS')) {
+            return self::sanitize_x402_timeout_setting(AGENTCART_X402_MAX_TIMEOUT_SECONDS);
+        }
+        return self::sanitize_x402_timeout_setting(get_option(self::X402_MAX_TIMEOUT_SECONDS_OPTION, 300));
     }
 
     private static function checkout_mode() {

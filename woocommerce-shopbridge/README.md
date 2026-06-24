@@ -20,9 +20,8 @@ AgentCart-created orders intentionally clear WooCommerce's customer IP and user-
 The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_support_email` only. It does not fall back to the WordPress admin email.
 It also publishes configured-only `protocol_profiles[]` so buyer agents can
 select the ShopBridge commerce adapter, MPP payment adapter, Stripe/card MPP
-adapter, or registry mapping before requesting a quote. Unimplemented profiles
-such as x402 and signed HTTP are intentionally absent until those adapters
-exist.
+adapter, x402 exact-payment adapter, or registry mapping before requesting a
+quote. Signed HTTP remains absent until that adapter exists.
 
 ## Merchant Setup
 
@@ -61,6 +60,14 @@ define('AGENTCART_SHOPBRIDGE_TOKEN', 'replace-with-random-shared-secret');
 define('AGENTCART_TEMPO_NETWORK', 'testnet');
 define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', '0x...');
 define('AGENTCART_STRIPE_PROFILE_ID', 'profile_test_...');
+define('AGENTCART_X402_NETWORK', 'eip155:84532');
+define('AGENTCART_X402_ASSET', '0x...');
+define('AGENTCART_X402_ASSET_SYMBOL', 'USDC');
+define('AGENTCART_X402_ASSET_DECIMALS', 6);
+define('AGENTCART_X402_ASSET_CURRENCY', 'USD');
+define('AGENTCART_X402_PAY_TO', '0x...');
+define('AGENTCART_X402_FACILITATOR_URL', 'https://facilitator.example.com');
+define('AGENTCART_X402_MAX_TIMEOUT_SECONDS', 300);
 define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/agentcart/tempo');
 define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
 define('AGENTCART_CHECKOUT_MODE', 'external_verifier_only'); // trusted_token_or_verifier or external_verifier_only

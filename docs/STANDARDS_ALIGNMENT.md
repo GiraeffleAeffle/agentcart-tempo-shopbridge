@@ -156,9 +156,9 @@ Deliverables:
 - `protocol_profiles[]` and `protocol_profile_ids[]` sections in
   `/.well-known/agentcart.json` and the capability document;
 - explicit entries for `agentcart-shopbridge`, `mpp-http-auth`,
-  `stripe-card-mpp`, and `erc8004-ready` only when actually configured;
-- no `x402-compatible` or `signed-http-ready` profile until those adapters are
-  implemented;
+  `stripe-card-mpp`, `erc8004-ready`, and `x402-compatible` only when actually
+  configured;
+- no `signed-http-ready` profile until that adapter is implemented;
 - registry records bind compact `protocol_profile_ids` while preserving legacy
   `supported_protocols`;
 - gateway, registry tools, smoke tests, and the direct skill read profile-aware
@@ -173,6 +173,8 @@ Definition of done:
 
 ### Slice 3: x402 Compatibility Shim
 
+Status: alpha implemented.
+
 Goal: keep the current verifier flow, but expose payment requirements in a way
 that x402-capable agents can understand.
 
@@ -181,6 +183,11 @@ Deliverables:
 - x402-compatible 402 response/header option for quote-bound checkout;
 - mapping from AgentCart `payment_requirements.protocols[]` to x402 payment
   requirements;
+- configured-only `x402-compatible` manifest profile with explicit network,
+  asset, atomic amount, payTo, timeout, and verifier-required metadata;
+- direct-skill and gateway readers that preserve quote-level x402 payment
+  requirements without deriving payable destinations from merchant-wide
+  manifest profiles;
 - tests for amount, currency, destination, network, quote hash, expiry, and
   verifier response binding.
 
@@ -245,8 +252,8 @@ Definition of done:
 
 1. Registry transparency and refresh UX. Alpha implemented.
 2. Manifest protocol profiles. Alpha implemented.
-3. x402 compatibility shim. Next.
-4. Signed HTTP request verification.
+3. x402 compatibility shim. Alpha implemented.
+4. Signed HTTP request verification. Next.
 5. AP2/ACP/UCP/MCP/A2A translators.
 6. ERC-8183-style escrow/custom-order flow.
 

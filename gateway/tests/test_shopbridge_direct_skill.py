@@ -76,6 +76,51 @@ def sample_payment_receipt(**overrides):
     return receipt
 
 
+def sample_x402_quote():
+    return sample_quote(
+        payment_requirements={
+            "verification": {"external_verifier_configured": True},
+            "x402": {
+                "enabled": True,
+                "version": 2,
+                "payment_required_header": "PAYMENT-REQUIRED",
+                "payment_signature_header": "PAYMENT-SIGNATURE",
+                "payment_response_header": "PAYMENT-RESPONSE",
+                "payment_required_header_value": "encoded-payment-required",
+                "payment_required": {
+                    "x402Version": 2,
+                    "accepts": [
+                        {
+                            "scheme": "exact",
+                            "network": "eip155:84532",
+                            "maxAmountRequired": "14800000",
+                            "resource": "https://merchant.example/wp-json/agentcart/v1/orders",
+                            "description": "AgentCart ShopBridge checkout",
+                            "payTo": "0x1111111111111111111111111111111111111111",
+                            "asset": "0x2222222222222222222222222222222222222222",
+                            "maxTimeoutSeconds": 300,
+                        }
+                    ],
+                    "error": "PAYMENT-SIGNATURE header or quote-bound payment_receipt is required",
+                },
+            },
+            "protocols": [
+                {
+                    "id": "x402-compatible",
+                    "available": True,
+                    "network": "eip155:84532",
+                    "asset": "0x2222222222222222222222222222222222222222",
+                    "pay_to": "0x1111111111111111111111111111111111111111",
+                    "max_amount_required": "14800000",
+                    "payment_required_header": "PAYMENT-REQUIRED",
+                    "payment_signature_header": "PAYMENT-SIGNATURE",
+                    "payment_response_header": "PAYMENT-RESPONSE",
+                }
+            ],
+        }
+    )
+
+
 def registry_manifest_and_record(
     *,
     merchant_id: str = "merchant-tea-shop",
@@ -551,6 +596,30 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertIn("stripe_profile_id", result["payment_request"]["receipt_requirements"]["required_fields"])
         self.assertIn("authorization", result["payment_request"]["receipt_requirements"]["one_of"])
         self.assertEqual(result["checkout_contract"]["next_command"], "checkout")
+
+    def test_payment_handoff_builds_x402_payment_request_from_quote_requirements(self) -> None:
+        quote = sample_x402_quote()
+        approval_hash = shopbridge_direct.approval_packet(quote, payment_rail="x402-compatible")["approval_hash"]
+
+        result = shopbridge_direct.command_payment_handoff(
+            {
+                "quote": quote,
+                "payment_rail": "x402-compatible",
+                "approved": True,
+                "approval_hash": approval_hash,
+            }
+        )
+
+        self.assertTrue(result["ok"], result)
+        destination = result["payment_request"]["payment_destination"]
+        self.assertEqual(result["payment_request"]["rail"], "x402-compatible")
+        self.assertEqual(destination["network"], "eip155:84532")
+        self.assertEqual(destination["asset"], "0x2222222222222222222222222222222222222222")
+        self.assertEqual(destination["pay_to"], "0x1111111111111111111111111111111111111111")
+        self.assertEqual(destination["max_amount_required"], "14800000")
+        self.assertEqual(destination["payment_required"]["x402Version"], 2)
+        self.assertIn("x402_payment_signature", result["payment_request"]["receipt_requirements"]["one_of"])
+        self.assertIn("max_amount_required", result["payment_request"]["receipt_requirements"]["required_fields"])
 
     def test_payment_handoff_returns_preflight_issues_without_payment_request(self) -> None:
         quote = sample_quote(
