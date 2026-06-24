@@ -39,17 +39,16 @@ local integrations.
 
 | Order | Slice | Why now |
 | --- | --- | --- |
-| 1 | Registry transparency and refresh UX | Safe multi-merchant discovery is the foundation for standards like ERC-8004 and for buyer trust |
+| 1 | Registry transparency and refresh UX | Alpha implemented: safe multi-merchant discovery now exposes refresh/check status and machine-readable registry reasons |
 | 2 | Manifest protocol profiles | Agents need machine-readable claims for `agentcart-shopbridge`, x402/MPP, Stripe/card MPP, and signed HTTP support |
 | 3 | x402 compatibility shim | Makes the existing HTTP 402/payment-requirements flow understandable to x402-capable agents without replacing the verifier seam |
 | 4 | Signed HTTP request verification | Hardens quote, checkout, status, cancellation, and refund endpoints beyond bearer-token-only auth |
 | 5 | Protocol translators | Lets AP2/ACP/UCP/MCP/A2A clients use the same AgentCart quote/order model |
 | 6 | Escrow/custom-order flow | Adds ERC-8183-style jobs only where normal retail checkout is the wrong model |
 
-The immediate next implementation slice is **Registry transparency and refresh
-UX**. It should show merchants and buyer agents whether a registry record is
-current, verified, stale, revoked, or excluded, without making merchants copy
-hashes manually.
+The immediate next implementation slice is **Manifest protocol profiles**. It
+should make every merchant manifest declare supported commerce, payment,
+registry, and signed-request profiles before agents choose an adapter.
 
 ## Visual Architecture
 
@@ -167,19 +166,24 @@ renders a guided setup checklist in `WooCommerce -> AgentCart` for merchant id,
 agent-safe products, tax/shipping, payment verifier, registry proof, and sandbox
 testing. The plugin publishes a registry onboarding bundle with the suggested
 record, proof, revocation document, and one-entry feed so registries can ingest
-the shop without merchant-side hash copy/paste. The same setup guide is
-included in the public capability document for remote onboarding tools. The repo
-also includes an opt-in live smoke script for checking manifest/capability setup
-state, registry bundle/proof/revocation hash binding, catalog exposure, and
-WooCommerce quote totals against a seeded or staging shop, plus a one-command
-WooCommerce demo smoke wrapper that starts, seeds, and verifies the bundled
-local shop. The admin page can generate or rotate local merchant and verifier
-tokens while respecting secrets managed through `wp-config.php`. The pipeline
-also runs project-specific WordPress.org package and review-risk guards for
-headers, readme metadata, external service disclosure, superglobal unslashing,
-custom admin nonces, and verifier HTTP-call boundaries. Production still needs
-a polished setup wizard, WP/Woo integration tests, official Plugin Check/PHPCS,
-and stronger hosted registry/payment-provider onboarding.
+the shop without merchant-side hash copy/paste. The admin registry proof panel
+can refresh generated registry metadata and store a public endpoint check result
+for the manifest, proof, revocation document, and bundle. Buyer-side registry
+entries expose `registry_status` so agents and humans can distinguish verified,
+stale, revoked, local, and failed records without parsing raw verifier errors.
+The same setup guide is included in the public capability document for remote
+onboarding tools. The repo also includes an opt-in live smoke script for
+checking manifest/capability setup state, registry bundle/proof/revocation hash
+binding, catalog exposure, and WooCommerce quote totals against a seeded or
+staging shop, plus a one-command WooCommerce demo smoke wrapper that starts,
+seeds, and verifies the bundled local shop. The admin page can generate or
+rotate local merchant and verifier tokens while respecting secrets managed
+through `wp-config.php`. The pipeline also runs project-specific WordPress.org
+package and review-risk guards for headers, readme metadata, external service
+disclosure, superglobal unslashing, custom admin nonces, registry admin nonces,
+and verifier HTTP-call boundaries. Production still needs a polished setup
+wizard, WP/Woo integration tests, official Plugin Check/PHPCS, and stronger
+hosted registry/payment-provider onboarding.
 
 ### 3. Idempotent Order And Replay Safety
 

@@ -158,6 +158,10 @@ The WooCommerce ShopBridge plugin exposes this proof at
 `/.well-known/agentcart-registry-proof.json`. It automatically maintains the
 claim hash, record hash, `updated_at` timestamp, and revocation URL from stable
 settings, so merchants do not paste registry hashes during normal onboarding.
+The admin page also provides a manual refresh action for the generated registry
+metadata and a public endpoint check that fetches the manifest, proof,
+revocation document, and registry bundle before a merchant asks a registry to
+ingest the shop.
 
 The plugin also publishes `/.well-known/agentcart-registry-bundle.json`, which
 contains the same `registry_record`, `record_hash`, expected proof document,

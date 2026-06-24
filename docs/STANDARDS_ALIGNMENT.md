@@ -121,6 +121,8 @@ flowchart LR
 
 ### Slice 1: Registry Transparency And Refresh UX
 
+Status: alpha implemented.
+
 Goal: merchants and buyer agents can see whether a ShopBridge record is current,
 verified, stale, or revoked without manual hash handling.
 
@@ -233,8 +235,8 @@ Definition of done:
 
 ## Near-Term Build Order
 
-1. Registry transparency and refresh UX.
-2. Manifest protocol profiles.
+1. Registry transparency and refresh UX. Alpha implemented.
+2. Manifest protocol profiles. Next.
 3. x402 compatibility shim.
 4. Signed HTTP request verification.
 5. AP2/ACP/UCP/MCP/A2A translators.

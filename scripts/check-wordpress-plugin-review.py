@@ -48,9 +48,11 @@ def check_superglobal_unslash(source: str) -> None:
 def check_custom_admin_actions(source: str) -> None:
     product_body = function_body(source, "maybe_handle_product_exposure_action")
     credential_body = function_body(source, "maybe_handle_credential_action")
+    registry_body = function_body(source, "maybe_handle_registry_action")
     for action, body in [
         ("agentcart_shopbridge_product_action", product_body),
         ("agentcart_shopbridge_credential_action", credential_body),
+        ("agentcart_shopbridge_registry_action", registry_body),
     ]:
         if f"check_admin_referer('{action}')" not in body:
             fail(f"custom admin action missing nonce check: {action}")

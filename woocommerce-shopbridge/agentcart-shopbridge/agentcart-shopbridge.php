@@ -48,6 +48,7 @@ final class AgentCart_ShopBridge {
     const CANCELLATION_WINDOW_MINUTES_OPTION = 'agentcart_shopbridge_cancellation_window_minutes';
     const REGISTRY_CLAIM_FINGERPRINT_OPTION = 'agentcart_shopbridge_registry_claim_fingerprint';
     const REGISTRY_UPDATED_AT_OPTION = 'agentcart_shopbridge_registry_updated_at';
+    const REGISTRY_PUBLIC_CHECK_OPTION = 'agentcart_shopbridge_registry_public_check';
     const PRODUCT_EXPOSURE_MODE_OPTION = 'agentcart_shopbridge_product_exposure_mode';
     const PRODUCT_EXPOSURE_TAG_OPTION = 'agentcart_shopbridge_product_exposure_tag';
     const PRODUCT_EXPOSURE_CATEGORIES_OPTION = 'agentcart_shopbridge_product_exposure_categories';
@@ -295,6 +296,7 @@ final class AgentCart_ShopBridge {
         self::ensure_token();
         $product_action_notice = self::maybe_handle_product_exposure_action();
         $credential_action_notice = self::maybe_handle_credential_action();
+        $registry_action_notice = self::maybe_handle_registry_action();
         $manifest_url = home_url('/.well-known/agentcart.json');
         $registry_proof_url = self::registry_proof_url();
         $registry_revocation_url = self::registry_revocation_url();
@@ -303,6 +305,7 @@ final class AgentCart_ShopBridge {
         $registry_updated_at = self::registry_updated_at();
         $registry_claim_hash = self::registry_claim_hash();
         $registry_claim_fingerprint = self::registry_claim_fingerprint();
+        $registry_public_check = self::registry_public_check_result();
         $catalog_url = rest_url(self::API_NAMESPACE . '/catalog');
         $quote_url = rest_url(self::API_NAMESPACE . '/quote');
         $orders_url = rest_url(self::API_NAMESPACE . '/orders');
@@ -325,7 +328,7 @@ final class AgentCart_ShopBridge {
         ?>
         <div class="wrap">
             <h1>AgentCart ShopBridge</h1>
-            <?php foreach ([$product_action_notice, $credential_action_notice] as $notice) : ?>
+            <?php foreach ([$product_action_notice, $credential_action_notice, $registry_action_notice] as $notice) : ?>
                 <?php if ($notice !== null) : ?>
                     <div class="notice notice-success is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
                 <?php endif; ?>
@@ -466,6 +469,7 @@ final class AgentCart_ShopBridge {
                     <tr><th scope="row">Stable claim fingerprint</th><td><code><?php echo esc_html($registry_claim_fingerprint); ?></code></td></tr>
                 </tbody>
             </table>
+            <?php self::render_registry_transparency_panel($registry_public_check); ?>
 
             <h2 id="agentcart-settings">Settings</h2>
             <form id="agentcart-settings-form" method="post" action="options.php">
@@ -581,6 +585,107 @@ final class AgentCart_ShopBridge {
         }
 
         return null;
+    }
+
+    private static function maybe_handle_registry_action() {
+        if (strtoupper((string) wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+            return null;
+        }
+        if (empty($_POST['agentcart_registry_action'])) {
+            return null;
+        }
+        check_admin_referer('agentcart_shopbridge_registry_action');
+        $action = sanitize_key((string) wp_unslash($_POST['agentcart_registry_action']));
+
+        if ($action === 'refresh_registry_metadata') {
+            if (defined('AGENTCART_REGISTRY_UPDATED_AT')) {
+                return 'Registry updated_at is managed in wp-config.php and was not changed.';
+            }
+            update_option(self::REGISTRY_CLAIM_FINGERPRINT_OPTION, self::registry_claim_fingerprint(), false);
+            update_option(self::REGISTRY_UPDATED_AT_OPTION, self::current_registry_timestamp(), false);
+            delete_option(self::REGISTRY_PUBLIC_CHECK_OPTION);
+            return 'Registry claim metadata refreshed. Re-run the public endpoint check before submitting the bundle to a registry.';
+        }
+
+        if ($action === 'check_public_registry_endpoints') {
+            $result = self::run_registry_public_check();
+            update_option(self::REGISTRY_PUBLIC_CHECK_OPTION, $result, false);
+            return $result['state'] === 'verified'
+                ? 'Registry public endpoint check passed.'
+                : 'Registry public endpoint check found issues. Review the Registry Transparency section.';
+        }
+
+        return null;
+    }
+
+    private static function render_registry_transparency_panel($registry_public_check) {
+        $registry_public_check = is_array($registry_public_check) ? $registry_public_check : [];
+        $last_state = (string) ($registry_public_check['state'] ?? 'not_checked');
+        $last_checked = (string) ($registry_public_check['checked_at'] ?? '');
+        $errors = is_array($registry_public_check['errors'] ?? null) ? $registry_public_check['errors'] : [];
+        $endpoints = is_array($registry_public_check['endpoints'] ?? null) ? $registry_public_check['endpoints'] : [];
+        $endpoint_rows = '';
+        foreach (['manifest', 'proof', 'revocations', 'bundle'] as $key) {
+            $endpoint = is_array($endpoints[$key] ?? null) ? $endpoints[$key] : [];
+            $endpoint_rows .= '<tr><th scope="row">' . esc_html(ucfirst($key)) . '</th><td><code>' . esc_html((string) ($endpoint['url'] ?? self::registry_transparency_url_for_key($key))) . '</code></td><td>' . self::admin_status_badge(!empty($endpoint['ok']), 'OK', 'Needs check') . '</td></tr>';
+        }
+        ?>
+        <h3>Registry Transparency</h3>
+        <p style="max-width: 760px;">
+            Refresh the merchant-owned registry claim when stable identity, endpoint, payment,
+            shipping, or policy settings change. Run the public endpoint check before asking a
+            registry to ingest this shop.
+        </p>
+        <table class="widefat striped" style="max-width: 980px;">
+            <tbody>
+                <tr>
+                    <th scope="row">Last public check</th>
+                    <td>
+                        <?php echo self::admin_status_badge($last_state === 'verified', $last_state === 'verified' ? 'Verified' : 'Needs check', $last_state === 'failed' ? 'Failed' : 'Not checked'); ?>
+                        <?php if ($last_checked !== '') : ?>
+                            <br><span class="description"><?php echo esc_html($last_checked); ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if (!empty($errors)) : ?>
+                            <code><?php echo esc_html(implode(', ', array_map('strval', $errors))); ?></code>
+                        <?php else : ?>
+                            <span class="description">No stored public endpoint errors.</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php echo $endpoint_rows; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+            </tbody>
+        </table>
+        <div style="margin-top: 12px;">
+            <form method="post" style="display: inline-block; margin-right: 8px;">
+                <?php wp_nonce_field('agentcart_shopbridge_registry_action'); ?>
+                <input type="hidden" name="agentcart_registry_action" value="refresh_registry_metadata" />
+                <?php submit_button('Refresh registry metadata', 'secondary', 'submit', false); ?>
+            </form>
+            <form method="post" style="display: inline-block;">
+                <?php wp_nonce_field('agentcart_shopbridge_registry_action'); ?>
+                <input type="hidden" name="agentcart_registry_action" value="check_public_registry_endpoints" />
+                <?php submit_button('Check public registry endpoints', 'secondary', 'submit', false); ?>
+            </form>
+        </div>
+        <?php
+    }
+
+    private static function registry_transparency_url_for_key($key) {
+        if ($key === 'manifest') {
+            return home_url('/.well-known/agentcart.json');
+        }
+        if ($key === 'proof') {
+            return self::registry_proof_url();
+        }
+        if ($key === 'revocations') {
+            return self::registry_revocation_url();
+        }
+        if ($key === 'bundle') {
+            return self::registry_bundle_url();
+        }
+        return '';
     }
 
     private static function render_credential_action_forms() {
@@ -946,6 +1051,162 @@ final class AgentCart_ShopBridge {
 
     private static function registry_record_hash_value() {
         return self::registry_record_hash(self::suggested_registry_record());
+    }
+
+    private static function registry_public_check_result() {
+        $stored = get_option(self::REGISTRY_PUBLIC_CHECK_OPTION, []);
+        return is_array($stored) ? $stored : [];
+    }
+
+    private static function run_registry_public_check() {
+        $record = self::suggested_registry_record();
+        $record_hash = self::registry_record_hash($record);
+        $claim_hash = self::registry_claim_hash();
+        $errors = [];
+        $endpoints = [];
+
+        $manifest = self::fetch_public_json(home_url('/.well-known/agentcart.json'));
+        $endpoints['manifest'] = self::public_check_endpoint_summary(home_url('/.well-known/agentcart.json'), $manifest);
+        if (!$manifest['ok']) {
+            $errors[] = 'manifest_fetch_failed';
+        } else {
+            $manifest_body = $manifest['body'];
+            $discovery = is_array($manifest_body['discovery'] ?? null) ? $manifest_body['discovery'] : [];
+            if (($discovery['registry_claim_hash'] ?? '') !== $claim_hash) {
+                $errors[] = 'manifest_registry_claim_hash_mismatch';
+            }
+            if (($discovery['registry_record_hash'] ?? '') !== $record_hash) {
+                $errors[] = 'manifest_registry_record_hash_mismatch';
+            }
+        }
+
+        $proof = self::fetch_public_json(self::registry_proof_url());
+        $endpoints['proof'] = self::public_check_endpoint_summary(self::registry_proof_url(), $proof);
+        if (!$proof['ok']) {
+            $errors[] = 'domain_proof_fetch_failed';
+        } else {
+            $proof_body = $proof['body'];
+            foreach ([
+                'record_hash' => $record_hash,
+                'registry_claim_hash' => $claim_hash,
+                'manifest_url' => home_url('/.well-known/agentcart.json'),
+                'revocation_url' => self::registry_revocation_url(),
+            ] as $field => $expected) {
+                if ((string) ($proof_body[$field] ?? '') !== (string) $expected) {
+                    $errors[] = 'domain_proof_' . $field . '_mismatch';
+                }
+            }
+        }
+
+        $revocations = self::fetch_public_json(self::registry_revocation_url());
+        $endpoints['revocations'] = self::public_check_endpoint_summary(self::registry_revocation_url(), $revocations);
+        if (!$revocations['ok']) {
+            $errors[] = 'revocation_fetch_failed';
+        } else {
+            $revocation_body = $revocations['body'];
+            if (($revocation_body['type'] ?? '') !== 'agentcart-registry-revocations') {
+                $errors[] = 'revocation_type_mismatch';
+            }
+            if (self::revocation_document_revokes_record_hash($revocation_body, $record_hash)) {
+                $errors[] = 'current_record_revoked';
+            }
+        }
+
+        $bundle = self::fetch_public_json(self::registry_bundle_url());
+        $endpoints['bundle'] = self::public_check_endpoint_summary(self::registry_bundle_url(), $bundle);
+        if (!$bundle['ok']) {
+            $errors[] = 'registry_bundle_fetch_failed';
+        } else {
+            $bundle_body = $bundle['body'];
+            if (($bundle_body['record_hash'] ?? '') !== $record_hash) {
+                $errors[] = 'registry_bundle_record_hash_mismatch';
+            }
+            $bundle_record = is_array($bundle_body['registry_record'] ?? null) ? $bundle_body['registry_record'] : [];
+            if ($bundle_record && self::registry_record_hash($bundle_record) !== $record_hash) {
+                $errors[] = 'registry_bundle_record_rehash_mismatch';
+            }
+        }
+
+        return [
+            'schema' => 'agentcart.shopbridge.registry_public_check.v1',
+            'state' => empty($errors) ? 'verified' : 'failed',
+            'checked_at' => self::current_registry_timestamp(),
+            'record_hash' => $record_hash,
+            'registry_claim_hash' => $claim_hash,
+            'errors' => array_values(array_unique($errors)),
+            'endpoints' => $endpoints,
+        ];
+    }
+
+    private static function fetch_public_json($url) {
+        $response = wp_remote_get(esc_url_raw((string) $url), [
+            'timeout' => 8,
+            'redirection' => 2,
+            'headers' => [
+                'Accept' => 'application/json',
+            ],
+        ]);
+        if (is_wp_error($response)) {
+            return [
+                'ok' => false,
+                'status' => 0,
+                'error' => $response->get_error_message(),
+                'body' => null,
+            ];
+        }
+        $status = intval(wp_remote_retrieve_response_code($response));
+        $raw_body = wp_remote_retrieve_body($response);
+        $decoded = json_decode($raw_body, true);
+        if ($status < 200 || $status >= 300 || !is_array($decoded)) {
+            return [
+                'ok' => false,
+                'status' => $status,
+                'error' => 'invalid_json_or_http_status',
+                'body' => null,
+            ];
+        }
+        return [
+            'ok' => true,
+            'status' => $status,
+            'error' => '',
+            'body' => $decoded,
+        ];
+    }
+
+    private static function public_check_endpoint_summary($url, $result) {
+        return [
+            'url' => (string) $url,
+            'ok' => !empty($result['ok']),
+            'status' => intval($result['status'] ?? 0),
+            'error' => sanitize_text_field((string) ($result['error'] ?? '')),
+        ];
+    }
+
+    private static function revocation_document_revokes_record_hash($document, $record_hash) {
+        if (!is_array($document)) {
+            return false;
+        }
+        $candidates = [$document];
+        foreach (['revocations', 'revoked_records', 'records'] as $key) {
+            if (isset($document[$key]) && is_array($document[$key])) {
+                foreach ($document[$key] as $entry) {
+                    if (is_array($entry)) {
+                        $candidates[] = $entry;
+                    }
+                }
+            }
+        }
+        foreach ($candidates as $candidate) {
+            $revoked = !empty($candidate['revoked']) || !empty($candidate['revoked_at']);
+            if (!$revoked) {
+                continue;
+            }
+            $supplied_hash = (string) ($candidate['record_hash'] ?? $candidate['registry_record_hash'] ?? '');
+            if ($supplied_hash !== '' && hash_equals((string) $record_hash, $supplied_hash)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function registry_updated_at() {
@@ -1840,6 +2101,7 @@ final class AgentCart_ShopBridge {
                 'registry_record_hash' => self::registry_record_hash_value(),
                 'registry_updated_at' => self::registry_updated_at(),
                 'registry_ready' => true,
+                'registry_public_check' => self::registry_public_check_result(),
                 'suggested_registry_record' => self::suggested_registry_record(),
                 'registry_onboarding_bundle' => self::registry_onboarding_bundle(),
             ],

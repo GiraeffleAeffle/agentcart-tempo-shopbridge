@@ -399,12 +399,17 @@ document, an empty revocation document, and a one-entry `registry_feed`.
 Registries can ingest that bundle directly, and local buyer-agent tests can use
 it as `SHOPBRIDGE_REGISTRY_URL`.
 
-1. Open `WooCommerce -> AgentCart` and copy the registry bundle URL.
-2. Ask the AgentCart registry operator to ingest the bundle, or use a future
+1. Open `WooCommerce -> AgentCart`.
+2. In `Registry Proof`, use `Refresh registry metadata` after stable identity,
+   payment, shipping, endpoint, or policy settings change.
+3. Use `Check public registry endpoints` to verify the manifest, proof,
+   revocation document, and bundle before registry ingestion.
+4. Copy the registry bundle URL.
+5. Ask the AgentCart registry operator to ingest the bundle, or use a future
    hosted AgentCart registry connection.
    Operators can use:
    `python3 gateway/scripts/registry_record.py build --manifest-url https://shop.example/.well-known/agentcart.json`.
-3. The proof endpoint publishes the fields AgentCart verifies before including
+6. The proof endpoint publishes the fields AgentCart verifies before including
    the shop in quote tournaments.
 
 An onchain registry can make sense as an identity and integrity anchor, not as the product catalog itself. A useful registry record would contain:

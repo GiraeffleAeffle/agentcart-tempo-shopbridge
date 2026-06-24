@@ -311,6 +311,9 @@ class AgentCartTests(unittest.TestCase):
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
             self.assertIn("signed-tea-shop", entries)
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
+            self.assertEqual(entries["signed-tea-shop"]["registry_status"]["state"], "verified")
+            self.assertTrue(entries["signed-tea-shop"]["registry_status"]["eligible"])
+            self.assertRegex(entries["signed-tea-shop"]["registry_record_hash"], r"^[0-9a-f]{64}$")
             self.assertEqual(entries["signed-tea-shop"]["verification"]["manifest_source"], "snapshot")
             self.assertIn("signed-tea-shop", service.adapters)
             self.assertEqual(service.adapters["signed-tea-shop"].adapter_type, "shopbridge-registry")
@@ -401,6 +404,8 @@ class AgentCartTests(unittest.TestCase):
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertEqual(entries["signed-tea-shop"]["registry_status"]["state"], "revoked")
+            self.assertFalse(entries["signed-tea-shop"]["registry_status"]["eligible"])
             self.assertIn("record_revoked_by_revocation_document", entries["signed-tea-shop"]["verification"]["errors"])
             self.assertNotIn("signed-tea-shop", service.adapters)
 
@@ -552,8 +557,13 @@ class AgentCartTests(unittest.TestCase):
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertEqual(entries["signed-tea-shop"]["registry_status"]["state"], "stale")
+            self.assertFalse(entries["signed-tea-shop"]["registry_status"]["eligible"])
             self.assertIn("record_stale", entries["signed-tea-shop"]["verification"]["errors"])
             self.assertNotIn("signed-tea-shop", service.adapters)
+            html = agentcart.render_registry_page(service)
+            self.assertIn("badge-stale", html)
+            self.assertIn("record_stale", html)
 
     def test_registry_page_requires_auth_before_running_quote_tournament(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

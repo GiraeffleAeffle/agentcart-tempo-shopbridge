@@ -2208,6 +2208,8 @@ class AgentCartService:
             "manifest_fetched": manifest is not None,
             "manifest_source": "snapshot" if isinstance(manifest_snapshot, dict) else "url",
             "signature_alg": str(record.get("signature_alg") or ""),
+            "registry_record_hash": registry_record_hash(record),
+            "updated_at": updated_at,
         }
         return self.registry_entry_from_record(record, manifest, verification)
 
@@ -2519,6 +2521,10 @@ class AgentCartService:
             "manifest_hash": str(record.get("manifest_hash") or ""),
             "registry_claim_hash_alg": str(record.get("registry_claim_hash_alg") or ""),
             "registry_claim_hash": str(record.get("registry_claim_hash") or ""),
+            "registry_record_hash": registry_record_hash(record),
+            "updated_at": str(record.get("updated_at") or ""),
+            "proof_url": str((record.get("proof") or {}).get("url") or "") if isinstance(record.get("proof"), dict) else "",
+            "revocation_url": str(record.get("revocation_url") or ""),
             "supported_protocols": record.get("supported_protocols") if isinstance(record.get("supported_protocols"), list) else ["agentcart-shopbridge"],
             "payment": {
                 "network": str(record.get("payment_network") or ""),
@@ -2545,6 +2551,7 @@ class AgentCartService:
             "terms_url": str(record.get("terms_url") or merchant.get("terms_url") or ""),
             "returns_url": str(record.get("returns_url") or merchant.get("returns_url") or ""),
             "verification": verification,
+            "registry_status": self.registry_status_from_verification(verification),
             "agent_safety": self.registry_agent_safety(),
         }
         if manifest is not None and verification.get("state") == "verified":
@@ -2573,6 +2580,10 @@ class AgentCartService:
             "manifest_url": manifest_url,
             "manifest_hash_alg": "sha-256",
             "manifest_hash": manifest_hash,
+            "registry_record_hash": "",
+            "updated_at": "",
+            "proof_url": "",
+            "revocation_url": "",
             "supported_protocols": ["agentcart-shopbridge", self.payment_provider.protocol],
             "payment": {
                 "network": self.config.tempo_mpp_network,
@@ -2596,7 +2607,51 @@ class AgentCartService:
                 "source": "configured_adapter",
                 "manifest_fetched": False,
             },
+            "registry_status": {
+                "state": "local",
+                "eligible": True,
+                "reason": "local adapter override",
+                "errors": [],
+                "checked_at": isoformat(utcnow()),
+            },
             "agent_safety": self.registry_agent_safety(),
+        }
+
+    def registry_status_from_verification(self, verification: dict[str, Any]) -> dict[str, Any]:
+        errors = [str(error) for error in verification.get("errors", []) if error]
+        error_set = set(errors)
+        checked_at = str(verification.get("checked_at") or "")
+        if verification.get("state") == "verified":
+            return {
+                "state": "verified",
+                "eligible": True,
+                "reason": "merchant registry verification passed",
+                "errors": errors,
+                "checked_at": checked_at,
+            }
+        if verification.get("state") == "local_adapter_override":
+            return {
+                "state": "local",
+                "eligible": True,
+                "reason": "local adapter override",
+                "errors": errors,
+                "checked_at": checked_at,
+            }
+        if error_set.intersection({"record_revoked", "record_revoked_by_revocation_document"}):
+            state = "revoked"
+            reason = "merchant record was revoked"
+        elif "record_stale" in error_set:
+            state = "stale"
+            reason = "merchant record is stale"
+        else:
+            state = "failed"
+            reason = "merchant registry verification failed"
+        return {
+            "state": state,
+            "eligible": False,
+            "reason": reason,
+            "errors": errors,
+            "checked_at": checked_at,
         }
 
     def registry_agent_safety(self) -> dict[str, Any]:
@@ -6598,6 +6653,33 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
             return f"{', '.join(str(item) for item in items[:8])} +{len(items) - 8} more"
         return ", ".join(str(item) for item in items) or "not declared"
 
+    def short_hash(value: Any) -> str:
+        text = str(value or "")
+        if not text:
+            return "not declared"
+        return f"{text[:16]}..." if len(text) > 16 else text
+
+    def registry_status_cell(entry: dict[str, Any]) -> str:
+        status = entry.get("registry_status") if isinstance(entry.get("registry_status"), dict) else {}
+        state = str(status.get("state") or "unknown")
+        reason = str(status.get("reason") or "")
+        errors = status.get("errors") if isinstance(status.get("errors"), list) else []
+        error_text = ", ".join(str(error) for error in errors[:4])
+        checked_at = str(status.get("checked_at") or "")
+        return (
+            f"<span class=\"badge badge-{esc(state)}\">{esc(state)}</span><br>"
+            f"<span class=\"muted\">{esc(reason)}</span>"
+            f"{('<br><code>' + esc(error_text) + '</code>') if error_text else ''}"
+            f"{('<br><span class=\"muted\">checked ' + esc(checked_at) + '</span>') if checked_at else ''}"
+        )
+
+    def hash_anchor_cell(entry: dict[str, Any]) -> str:
+        return (
+            f"Record <code>{esc(short_hash(entry.get('registry_record_hash')))}</code><br>"
+            f"Claim <code>{esc(short_hash(entry.get('registry_claim_hash')))}</code><br>"
+            f"Manifest <code>{esc(short_hash(entry.get('manifest_hash')))}</code>"
+        )
+
     def payment_cell(candidate: dict[str, Any]) -> str:
         summary = candidate.get("payment_summary") if isinstance(candidate.get("payment_summary"), dict) else {}
         quote_currency = str(summary.get("quote_currency") or candidate.get("currency") or "EUR")
@@ -6620,8 +6702,9 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
         <tr>
           <td>{esc(entry.get('name'))}<br><span class="muted">{esc(entry.get('merchant_id'))}</span></td>
           <td>{esc(entry.get('domain'))}</td>
-          <td>{link_or_text(entry.get('manifest_url'), 'manifest')}</td>
-          <td><code>{esc(str(entry.get('manifest_hash') or '')[:16])}...</code></td>
+          <td>{link_or_text(entry.get('manifest_url'), 'manifest')}<br>{link_or_text(entry.get('proof_url'), 'proof') or '<span class="muted">proof not declared</span>'}<br>{link_or_text(entry.get('revocation_url'), 'revocations') or '<span class="muted">revocation not declared</span>'}</td>
+          <td>{registry_status_cell(entry)}</td>
+          <td>{hash_anchor_cell(entry)}<br><span class="muted">updated {esc(entry.get('updated_at') or 'not declared')}</span></td>
           <td>{esc(countries((entry.get('delivery') or {}).get('ship_to_countries')))}</td>
           <td>{esc('no paid placement' if not (entry.get('ranking') or {}).get('paid_placement') else 'sponsored')}</td>
         </tr>
@@ -6713,6 +6796,10 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
     .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(245px,1fr)); gap:12px; }}
     .card, .winner {{ border:1px solid var(--line); border-radius:8px; padding:14px; background:#fff; }}
     .winner {{ border-color:#b6d7ce; background:#f1faf7; }}
+    .badge {{ display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; font-weight:750; background:#eef1f3; color:#3d4951; }}
+    .badge-verified, .badge-local {{ background:#e8f6ef; color:#0a6c60; }}
+    .badge-stale {{ background:#fff5d9; color:#8a4b12; }}
+    .badge-revoked, .badge-failed {{ background:#fff1f1; color:#9b1c1c; }}
     .muted {{ color:var(--muted); }}
     .error {{ border:1px solid #e3b3b3; color:var(--bad); background:#fff2f2; border-radius:8px; padding:10px 12px; margin-top:14px; }}
     dl {{ display:grid; grid-template-columns:110px 1fr; gap:5px 12px; margin:0; }}
@@ -6751,8 +6838,8 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
 
     <h2>Registered Merchants</h2>
     <table>
-      <thead><tr><th>Merchant</th><th>Domain</th><th>Manifest</th><th>Hash anchor</th><th>Ships to</th><th>Ranking</th></tr></thead>
-      <tbody>{entry_rows or '<tr><td colspan="6">No registered merchants.</td></tr>'}</tbody>
+      <thead><tr><th>Merchant</th><th>Domain</th><th>Endpoints</th><th>Status</th><th>Hash anchors</th><th>Ships to</th><th>Ranking</th></tr></thead>
+      <tbody>{entry_rows or '<tr><td colspan="7">No registered merchants.</td></tr>'}</tbody>
     </table>
 
     {tournament_html}

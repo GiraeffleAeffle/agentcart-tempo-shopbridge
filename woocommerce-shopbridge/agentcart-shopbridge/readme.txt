@@ -50,6 +50,9 @@ actions.
 * Merchant-token-protected refund and cancellation endpoints.
 * Admin actions to generate or rotate local merchant and verifier tokens while
   respecting secrets managed in wp-config.php.
+* Registry transparency actions to refresh the merchant-owned claim metadata
+  and check public manifest/proof/revocation/bundle endpoints before registry
+  ingestion.
 * Normalized fulfillment tracking adapter metadata from common WooCommerce
   shipment/tracking plugin fields.
 * Structured policy metadata for restricted goods, perishables, deposits,
@@ -87,8 +90,10 @@ service configured by the merchant.
    when they are not managed through wp-config.php.
 5. Add normal WooCommerce products and expose only the products that are safe
    for agent checkout.
-6. Share the registry bundle URL with a registry or local buyer-agent test.
-7. Test the manifest, catalog, quote, and a non-production checkout path before
+6. In the Registry Proof section, refresh metadata when stable identity/payment
+   settings change, then run the public endpoint check.
+7. Share the registry bundle URL with a registry or local buyer-agent test.
+8. Test the manifest, catalog, quote, and a non-production checkout path before
    public use.
 
 == Frequently Asked Questions ==
