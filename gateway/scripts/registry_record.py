@@ -427,6 +427,8 @@ def minimal_config(tmp: pathlib.Path, *, hmac_secret: str = "", max_age_days: in
         hosted_registry_enabled=False,
         hosted_registry_path=tmp / "hosted-registry.json",
         hosted_registry_submit_token="",
+        registry_monitor_interval_seconds=0,
+        registry_monitor_history_limit=50,
     )
 
 

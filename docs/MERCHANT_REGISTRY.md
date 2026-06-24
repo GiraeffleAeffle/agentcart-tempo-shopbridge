@@ -123,6 +123,8 @@ AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS=180
 AGENTCART_HOSTED_REGISTRY_ENABLED=true
 AGENTCART_HOSTED_REGISTRY_PATH=/data/hosted-merchant-registry.json
 AGENTCART_HOSTED_REGISTRY_TOKEN=replace-with-submit-token
+AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS=0
+AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT=50
 ```
 
 `GET /v1/registry/records` exposes the raw hosted record feed plus revocations.
@@ -132,6 +134,10 @@ manifest checks, and refreshes the agent-facing `GET /v1/registry` view.
 `GET /v1/registry/health` summarizes verifier states, source errors, hosted
 record/revocation counts, stale records, endpoint failures, and suggested
 operator actions.
+`POST /v1/registry/monitor/run` persists a health snapshot and computes
+new/resolved alert deltas; `GET /v1/registry/monitor` returns the retained
+snapshot history. The optional `AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS`
+scheduler can run the same monitor automatically.
 
 `hmac-sha256` remains available for private/local feeds, but it is an
 implementation shortcut. Public trust should use a merchant-owned proof such as
@@ -315,6 +321,8 @@ The gateway now:
 - exposes `verification.state`, `verification.errors`, and manifest source;
 - exposes `GET /v1/registry/health` for aggregate registry health, freshness
   warnings, source errors, and operator action items;
+- persists authenticated registry monitor snapshots and new/resolved alert
+  deltas, with an optional in-process scheduler;
 - makes quote tournament exclude unverified external merchants by default.
 
 Once that interface is stable, the source of records can move from local JSON or

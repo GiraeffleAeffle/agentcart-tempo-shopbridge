@@ -159,6 +159,8 @@ class Config:
     hosted_registry_enabled: bool
     hosted_registry_path: pathlib.Path
     hosted_registry_submit_token: str
+    registry_monitor_interval_seconds: int
+    registry_monitor_history_limit: int
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -259,6 +261,8 @@ class Config:
                 or os.getenv("AGENTCART_TOKEN")
                 or ""
             ).strip(),
+            registry_monitor_interval_seconds=int(os.getenv("AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS", "0")),
+            registry_monitor_history_limit=int(os.getenv("AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT", "50")),
         )
 
 
@@ -1946,6 +1950,10 @@ class AgentCartService:
             self.state.setdefault("challenges", {})
             self.state.setdefault("idempotency", {})
             self.state.setdefault("refund_idempotency", {})
+            monitor = self.state.setdefault("registry_monitor", {})
+            monitor.setdefault("snapshots", [])
+            monitor.setdefault("last_snapshot", None)
+            monitor.setdefault("last_run_at", None)
             self.state.setdefault("audit_tail", [])
             self.state.setdefault("audit_imports", {})
             stock = self.state.setdefault("stock", {})
@@ -3396,6 +3404,130 @@ class AgentCartService:
             "suggested_action": "Refresh and resubmit the merchant registry bundle before it becomes stale.",
         }
 
+    def registry_alert_fingerprint(self, alert: dict[str, Any]) -> str:
+        return canonical_json_hash(
+            {
+                "severity": str(alert.get("severity") or ""),
+                "code": str(alert.get("code") or ""),
+                "merchant_id": str(alert.get("merchant_id") or ""),
+                "message": str(alert.get("message") or ""),
+                "errors": alert.get("errors") if isinstance(alert.get("errors"), list) else [],
+            }
+        )
+
+    def registry_monitor_snapshot(self, health: dict[str, Any], *, trigger: str) -> dict[str, Any]:
+        alerts = [
+            {**alert, "fingerprint": self.registry_alert_fingerprint(alert)}
+            for alert in health.get("alerts", [])
+            if isinstance(alert, dict)
+        ]
+        checks = [
+            {
+                "merchant_id": str(check.get("merchant_id") or ""),
+                "state": str(check.get("state") or ""),
+                "eligible": bool(check.get("eligible")),
+                "error_count": int(check.get("error_count") or 0),
+                "age_days": check.get("age_days"),
+                "checked_at": str(check.get("checked_at") or ""),
+            }
+            for check in health.get("checks", [])
+            if isinstance(check, dict)
+        ]
+        return {
+            "schema": "agentcart.registry_monitor_snapshot.v1",
+            "id": f"registry_monitor_{uuid.uuid4().hex[:16]}",
+            "trigger": trigger,
+            "created_at": isoformat(utcnow()),
+            "health_generated_at": str(health.get("generated_at") or ""),
+            "summary": health.get("summary") if isinstance(health.get("summary"), dict) else {},
+            "alerts": alerts,
+            "alert_fingerprints": [alert["fingerprint"] for alert in alerts],
+            "checks": checks,
+        }
+
+    def registry_monitor_changes(
+        self,
+        previous: dict[str, Any] | None,
+        current: dict[str, Any],
+    ) -> dict[str, Any]:
+        previous_alerts = previous.get("alerts") if isinstance(previous, dict) and isinstance(previous.get("alerts"), list) else []
+        current_alerts = current.get("alerts") if isinstance(current.get("alerts"), list) else []
+        previous_by_fingerprint = {
+            str(alert.get("fingerprint") or self.registry_alert_fingerprint(alert)): alert
+            for alert in previous_alerts
+            if isinstance(alert, dict)
+        }
+        current_by_fingerprint = {
+            str(alert.get("fingerprint") or self.registry_alert_fingerprint(alert)): alert
+            for alert in current_alerts
+            if isinstance(alert, dict)
+        }
+        new_fingerprints = sorted(set(current_by_fingerprint) - set(previous_by_fingerprint))
+        resolved_fingerprints = sorted(set(previous_by_fingerprint) - set(current_by_fingerprint))
+        previous_summary = previous.get("summary") if isinstance(previous, dict) and isinstance(previous.get("summary"), dict) else {}
+        current_summary = current.get("summary") if isinstance(current.get("summary"), dict) else {}
+        previous_state = str(previous_summary.get("state") or "")
+        current_state = str(current_summary.get("state") or "")
+        return {
+            "schema": "agentcart.registry_monitor_changes.v1",
+            "state_changed": bool(previous_state and previous_state != current_state),
+            "previous_state": previous_state or None,
+            "current_state": current_state or None,
+            "new_alert_count": len(new_fingerprints),
+            "resolved_alert_count": len(resolved_fingerprints),
+            "new_alerts": [current_by_fingerprint[fingerprint] for fingerprint in new_fingerprints],
+            "resolved_alerts": [previous_by_fingerprint[fingerprint] for fingerprint in resolved_fingerprints],
+        }
+
+    def run_registry_monitor(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
+        request = request or {}
+        trigger = str(request.get("trigger") or "manual").strip()[:60] or "manual"
+        health = self.registry_health()
+        snapshot = self.registry_monitor_snapshot(health, trigger=trigger)
+        with self.lock:
+            monitor = self.state.setdefault("registry_monitor", {})
+            previous = monitor.get("last_snapshot") if isinstance(monitor.get("last_snapshot"), dict) else None
+            changes = self.registry_monitor_changes(previous, snapshot)
+            snapshots = monitor.setdefault("snapshots", [])
+            if not isinstance(snapshots, list):
+                snapshots = []
+                monitor["snapshots"] = snapshots
+            snapshots.append(snapshot)
+            limit = max(1, int(self.config.registry_monitor_history_limit or 50))
+            del snapshots[:-limit]
+            monitor["last_snapshot"] = snapshot
+            monitor["last_changes"] = changes
+            monitor["last_run_at"] = snapshot["created_at"]
+            self.save_state()
+        return {
+            "schema": "agentcart.registry_monitor_run.v1",
+            "snapshot": snapshot,
+            "changes": changes,
+            "monitor": self.registry_monitor_status(include_snapshots=False),
+        }
+
+    def registry_monitor_status(self, *, include_snapshots: bool = True) -> dict[str, Any]:
+        with self.lock:
+            monitor = self.state.setdefault("registry_monitor", {})
+            snapshots = monitor.get("snapshots") if isinstance(monitor.get("snapshots"), list) else []
+            last_snapshot = monitor.get("last_snapshot") if isinstance(monitor.get("last_snapshot"), dict) else None
+            last_changes = monitor.get("last_changes") if isinstance(monitor.get("last_changes"), dict) else None
+            result = {
+                "schema": "agentcart.registry_monitor_status.v1",
+                "configured": {
+                    "interval_seconds": self.config.registry_monitor_interval_seconds,
+                    "history_limit": self.config.registry_monitor_history_limit,
+                    "scheduled": self.config.registry_monitor_interval_seconds > 0,
+                },
+                "last_run_at": monitor.get("last_run_at"),
+                "snapshot_count": len(snapshots),
+                "last_snapshot": last_snapshot,
+                "last_changes": last_changes,
+            }
+            if include_snapshots:
+                result["snapshots"] = list(snapshots)
+            return json.loads(json.dumps(result, default=json_default))
+
     def registry_manifest_url(self, adapter: Any) -> str:
         if getattr(adapter, "adapter_type", "") == "woocommerce" and self.config.woocommerce_base_url:
             return f"{self.config.woocommerce_base_url}/.well-known/agentcart.json"
@@ -3793,6 +3925,8 @@ class AgentCartService:
                 "registry_records": "/v1/registry/records",
                 "registry_submit": "/v1/registry/records",
                 "registry_health": "/v1/registry/health",
+                "registry_monitor": "/v1/registry/monitor",
+                "registry_monitor_run": "/v1/registry/monitor/run",
                 "quote_tournament": "/v1/quote-tournament?q=tea&country=DE",
                 "integrations": "/v1/integrations/status",
                 "open_tasks": "/v1/tasks/open?limit=20",
@@ -3937,6 +4071,36 @@ class AgentCartService:
                                 "description": "Registry health summary",
                                 "content": {"application/json": {"schema": {"type": "object"}}},
                             }
+                        },
+                    }
+                },
+                "/v1/registry/monitor": {
+                    "get": {
+                        "operationId": "getRegistryMonitor",
+                        "summary": "Get persisted registry monitor snapshots and last alert changes",
+                        "responses": {
+                            "200": {
+                                "description": "Registry monitor state",
+                                "content": {"application/json": {"schema": {"type": "object"}}},
+                            },
+                            "401": {"description": "AgentCart token required"},
+                        },
+                    }
+                },
+                "/v1/registry/monitor/run": {
+                    "post": {
+                        "operationId": "runRegistryMonitor",
+                        "summary": "Run a registry health check and persist a monitor snapshot",
+                        "requestBody": {
+                            "required": False,
+                            "content": {"application/json": {"schema": {"type": "object"}}},
+                        },
+                        "responses": {
+                            "201": {
+                                "description": "Registry monitor snapshot created",
+                                "content": {"application/json": {"schema": {"type": "object"}}},
+                            },
+                            "401": {"description": "AgentCart token required"},
                         },
                     }
                 },
@@ -4639,6 +4803,7 @@ Discovery:
 - Capabilities: /.well-known/agentcart.json
 - Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records
 - Registry health: GET /v1/registry/health
+- Registry monitor: GET /v1/registry/monitor, POST /v1/registry/monitor/run
 
 Current caveat:
 The default demo provider follows the HTTP 402 Payment-auth shape but does not move real funds. Use a real
@@ -7184,6 +7349,10 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         if path == "/v1/registry/health":
             self.send_json(self.service.registry_health())
             return
+        if path == "/v1/registry/monitor":
+            self.require_auth_if_configured()
+            self.send_json(self.service.registry_monitor_status())
+            return
         if path == "/v1/quote-tournament":
             self.require_auth_if_configured()
             self.send_json(
@@ -7388,6 +7557,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         if path == "/v1/audit/import":
             result = self.service.import_audit_packet(payload)
             self.send_json(result, status=201 if result.get("imported") else 200)
+            return
+        if path == "/v1/registry/monitor/run":
+            self.send_json(self.service.run_registry_monitor(payload), status=201)
             return
         if path == "/v1/checkout":
             headers = {key.lower(): value for key, value in self.headers.items()}
@@ -7708,6 +7880,7 @@ def audit_export_link(purchase_id: Any) -> str:
 def render_registry_page(service: AgentCartService, query_text: str = "", country: str = "DE", postal_code: str = "") -> str:
     registry = service.registry_document()
     health = service.registry_health(registry)
+    monitor = service.registry_monitor_status(include_snapshots=False)
     entries = registry.get("entries", [])
     tournament: dict[str, Any] | None = None
     tournament_error = ""
@@ -7806,6 +7979,10 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
     )
 
     summary = health.get("summary") if isinstance(health.get("summary"), dict) else {}
+    monitor_config = monitor.get("configured") if isinstance(monitor.get("configured"), dict) else {}
+    last_snapshot = monitor.get("last_snapshot") if isinstance(monitor.get("last_snapshot"), dict) else {}
+    last_snapshot_summary = last_snapshot.get("summary") if isinstance(last_snapshot.get("summary"), dict) else {}
+    last_changes = monitor.get("last_changes") if isinstance(monitor.get("last_changes"), dict) else {}
     state_counts = summary.get("state_counts") if isinstance(summary.get("state_counts"), dict) else {}
     state_count_label = ", ".join(f"{key}: {value}" for key, value in sorted(state_counts.items())) or "none"
     hosted_store = health.get("hosted_store") if isinstance(health.get("hosted_store"), dict) else {}
@@ -7936,6 +8113,7 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
       <a class="button secondary" href="/protocol-fields.html">Field Map</a>
       <a class="button secondary" href="/v1/registry">Registry JSON</a>
       <a class="button secondary" href="/v1/registry/health">Health JSON</a>
+      <a class="button secondary" href="/v1/registry/monitor">Monitor JSON</a>
       <a class="button" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115">Hazel Comparison</a>
     </div>
     <form method="get" action="/registry">
@@ -7958,6 +8136,8 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
       <div class="card"><h3>Alerts</h3><p><strong>{esc(summary.get('critical_count') or 0)}</strong> critical, <strong>{esc(summary.get('warning_count') or 0)}</strong> warning<br><span class="muted">{esc(summary.get('alert_count') or 0)} total alerts</span></p></div>
       <div class="card"><h3>Hosted Store</h3><p><strong>{esc(summary.get('hosted_entry_count') or 0)}</strong> active records, <strong>{esc(summary.get('hosted_revocation_count') or 0)}</strong> revocations<br><span class="muted">submit auth: {esc('required' if hosted_store.get('submit_auth_required') else 'not required')}</span></p></div>
       <div class="card"><h3>Status Mix</h3><p>{esc(state_count_label)}</p></div>
+      <div class="card"><h3>Monitor</h3><p>{health_state_label(last_snapshot_summary.get('state') or 'not-run')}<br><span class="muted">last run: {esc(monitor.get('last_run_at') or 'never')}</span><br><span class="muted">{esc(monitor.get('snapshot_count') or 0)} snapshots, scheduled: {esc('on' if monitor_config.get('scheduled') else 'off')}</span></p></div>
+      <div class="card"><h3>Monitor Changes</h3><p><strong>{esc(last_changes.get('new_alert_count') or 0)}</strong> new alerts, <strong>{esc(last_changes.get('resolved_alert_count') or 0)}</strong> resolved<br><span class="muted">state changed: {esc('yes' if last_changes.get('state_changed') else 'no')}</span></p></div>
     </section>
     <table>
       <thead><tr><th>Severity</th><th>Code</th><th>Scope</th><th>Action</th></tr></thead>
@@ -8639,6 +8819,34 @@ class AgentCartServer(ThreadingHTTPServer):
     def __init__(self, server_address: tuple[str, int], service: AgentCartService) -> None:
         super().__init__(server_address, AgentCartHandler)
         self.service = service
+        self.registry_monitor_stop = threading.Event()
+        self.registry_monitor_thread: threading.Thread | None = None
+        self.start_registry_monitor_if_configured()
+
+    def start_registry_monitor_if_configured(self) -> None:
+        interval = int(self.service.config.registry_monitor_interval_seconds or 0)
+        if interval <= 0:
+            return
+        self.registry_monitor_thread = threading.Thread(
+            target=self.registry_monitor_loop,
+            name="agentcart-registry-monitor",
+            daemon=True,
+        )
+        self.registry_monitor_thread.start()
+
+    def registry_monitor_loop(self) -> None:
+        interval = max(60, int(self.service.config.registry_monitor_interval_seconds or 0))
+        while not self.registry_monitor_stop.wait(interval):
+            try:
+                self.service.run_registry_monitor({"trigger": "scheduled"})
+            except Exception:  # pragma: no cover - background monitor must not kill service
+                traceback.print_exc()
+
+    def server_close(self) -> None:
+        self.registry_monitor_stop.set()
+        if self.registry_monitor_thread:
+            self.registry_monitor_thread.join(timeout=2)
+        super().server_close()
 
 
 def main(argv: list[str] | None = None) -> int:

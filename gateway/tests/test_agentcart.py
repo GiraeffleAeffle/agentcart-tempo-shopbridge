@@ -82,6 +82,8 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         hosted_registry_enabled=True,
         hosted_registry_path=tmp / "hosted-registry.json",
         hosted_registry_submit_token="",
+        registry_monitor_interval_seconds=0,
+        registry_monitor_history_limit=50,
     )
     if overrides:
         config = agentcart.Config(**{**config.__dict__, **overrides})
@@ -569,6 +571,51 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("signed-tea-shop", service.adapters)
             self.assertEqual(registry["registry"]["hosted_store"]["entry_count"], 1)
 
+    def test_registry_monitor_persists_snapshots_and_alert_deltas(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            signed_registry_record(
+                                manifest,
+                                updated_at="2000-01-01T00:00:00Z",
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+
+            first = service.run_registry_monitor({"trigger": "test"})
+
+            self.assertEqual(first["snapshot"]["summary"]["state"], "attention")
+            self.assertGreaterEqual(first["changes"]["new_alert_count"], 1)
+            self.assertEqual(first["changes"]["resolved_alert_count"], 0)
+            self.assertTrue(any(alert["code"] == "registry_record_stale" for alert in first["snapshot"]["alerts"]))
+            status = service.registry_monitor_status()
+            self.assertEqual(status["snapshot_count"], 1)
+            self.assertEqual(status["last_snapshot"]["id"], first["snapshot"]["id"])
+
+            registry_path.write_text(
+                json.dumps({"entries": [signed_registry_record(manifest)]}),
+                encoding="utf-8",
+            )
+            second = service.run_registry_monitor({"trigger": "test"})
+
+            self.assertEqual(second["snapshot"]["summary"]["state"], "healthy")
+            self.assertEqual(second["changes"]["new_alert_count"], 0)
+            self.assertGreaterEqual(second["changes"]["resolved_alert_count"], 1)
+            self.assertEqual(service.registry_monitor_status()["snapshot_count"], 2)
+
     def test_hosted_registry_submission_rejects_record_hash_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = pathlib.Path(raw_tmp)
@@ -903,11 +950,38 @@ class AgentCartTests(unittest.TestCase):
                     self.assertIn(b"AgentCart", body)
                     self.assertIn(b"Registry Health", body)
                     self.assertIn(b"Health JSON", body)
+                    self.assertIn(b"Monitor JSON", body)
                 with urllib.request.urlopen(f"{base_url}/v1/registry/health", timeout=5) as response:
                     self.assertEqual(response.status, 200)
                     health = json.loads(response.read())
                 self.assertEqual(health["schema"], "agentcart.registry_health.v1")
                 self.assertIn("summary", health)
+                with self.assertRaises(urllib.error.HTTPError) as raised_monitor:
+                    urllib.request.urlopen(f"{base_url}/v1/registry/monitor", timeout=5)
+                self.assertEqual(raised_monitor.exception.code, 401)
+                raised_monitor.exception.close()
+                run_request = urllib.request.Request(
+                    f"{base_url}/v1/registry/monitor/run",
+                    data=json.dumps({"trigger": "http-test"}).encode(),
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-AgentCart-Token": "secret-token",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(run_request, timeout=5) as response:
+                    self.assertEqual(response.status, 201)
+                    monitor_run = json.loads(response.read())
+                self.assertEqual(monitor_run["schema"], "agentcart.registry_monitor_run.v1")
+                monitor_request = urllib.request.Request(
+                    f"{base_url}/v1/registry/monitor",
+                    headers={"X-AgentCart-Token": "secret-token"},
+                )
+                with urllib.request.urlopen(monitor_request, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+                    monitor_status = json.loads(response.read())
+                self.assertEqual(monitor_status["schema"], "agentcart.registry_monitor_status.v1")
+                self.assertEqual(monitor_status["snapshot_count"], 1)
                 with self.assertRaises(urllib.error.HTTPError) as raised:
                     urllib.request.urlopen(f"{base_url}/registry?q=sencha", timeout=5)
                 self.assertEqual(raised.exception.code, 401)

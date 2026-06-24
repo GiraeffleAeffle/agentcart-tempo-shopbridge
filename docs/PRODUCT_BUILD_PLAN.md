@@ -181,7 +181,10 @@ connection. The gateway now has a first-party alpha endpoint for that connection
 same domain-proof path, exposes active records at `GET /v1/registry/records`,
 removes revoked hashes from the active feed, and exposes aggregate registry
 health at `GET /v1/registry/health`. The registry page surfaces that health
-summary with stale/failed/revoked alerts and operator action items. Buyer-side registry
+summary with stale/failed/revoked alerts and operator action items. Authenticated
+operators can persist snapshots and alert deltas with
+`POST /v1/registry/monitor/run`, inspect them at `GET /v1/registry/monitor`,
+or enable the same run path on an interval. Buyer-side registry
 entries expose `registry_status` so agents and humans can distinguish verified,
 stale, revoked, local, and failed records without parsing raw verifier errors.
 The same setup guide is included in the public capability document for remote

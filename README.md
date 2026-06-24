@@ -206,7 +206,10 @@ python3 gateway/scripts/registry_record.py verify --record-file merchant-registr
 The hosted alpha feed is available at `GET /v1/registry/records`; the normalized
 agent-facing registry remains `GET /v1/registry`. Operators and agents can also
 check aggregate verifier state, freshness, revocations, and action items at
-`GET /v1/registry/health`.
+`GET /v1/registry/health`. Authenticated operators can persist monitor
+snapshots and alert deltas with `POST /v1/registry/monitor/run`, then read the
+history at `GET /v1/registry/monitor`; set
+`AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS` to run that monitor periodically.
 
 ## Production Roadmap
 
