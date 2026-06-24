@@ -176,7 +176,10 @@ without merchant-side hash copy/paste. The admin registry proof panel can
 refresh generated registry metadata, store a public endpoint check result for
 the manifest, proof, revocation document, and bundle, and optionally submit or
 revoke the current record through a merchant-configured hosted registry
-connection. Buyer-side registry
+connection. The gateway now has a first-party alpha endpoint for that connection:
+`POST /v1/registry/records` persists submitted records, verifies them with the
+same domain-proof path, exposes active records at `GET /v1/registry/records`,
+and removes revoked hashes from the active feed. Buyer-side registry
 entries expose `registry_status` so agents and humans can distinguish verified,
 stale, revoked, local, and failed records without parsing raw verifier errors.
 The same setup guide is included in the public capability document for remote

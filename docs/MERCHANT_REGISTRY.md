@@ -120,7 +120,15 @@ AGENTCART_MERCHANT_REGISTRY_URL=
 AGENTCART_MERCHANT_REGISTRY_HMAC_SECRET=replace-with-shared-registry-secret
 AGENTCART_REQUIRE_VERIFIED_REGISTRY=true
 AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS=180
+AGENTCART_HOSTED_REGISTRY_ENABLED=true
+AGENTCART_HOSTED_REGISTRY_PATH=/data/hosted-merchant-registry.json
+AGENTCART_HOSTED_REGISTRY_TOKEN=replace-with-submit-token
 ```
+
+`GET /v1/registry/records` exposes the raw hosted record feed plus revocations.
+`POST /v1/registry/records` accepts ShopBridge admin submit/revoke requests,
+stores the raw merchant record, verifies it with the same domain-proof and
+manifest checks, and refreshes the agent-facing `GET /v1/registry` view.
 
 `hmac-sha256` remains available for private/local feeds, but it is an
 implementation shortcut. Public trust should use a merchant-owned proof such as
@@ -288,6 +296,10 @@ The gateway now:
 
 - loads candidate records from `AGENTCART_MERCHANT_REGISTRY_PATH` or
   `AGENTCART_MERCHANT_REGISTRY_URL`;
+- accepts first-party hosted registry submissions and revocations at
+  `/v1/registry/records`;
+- stores hosted records in an append-friendly JSON feed and removes revoked
+  hashes from the active feed;
 - fetches each manifest, or reads `manifest_snapshot` for reproducible local
   tests;
 - canonicalizes and hashes either the stable registry claim or legacy manifest;
@@ -300,8 +312,9 @@ The gateway now:
 - exposes `verification.state`, `verification.errors`, and manifest source;
 - makes quote tournament exclude unverified external merchants by default.
 
-Once that interface is stable, the source of records can move from a signed JSON
-feed to an onchain registry without changing buyer or merchant adapters.
+Once that interface is stable, the source of records can move from local JSON or
+a signed hosted feed to an onchain/append-only registry without changing buyer
+or merchant adapters.
 
 ## Open Questions
 

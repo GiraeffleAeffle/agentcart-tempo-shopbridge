@@ -176,7 +176,9 @@ configure a payment recipient.
 The Registry Proof section can also use an optional merchant-configured registry
 connection URL. When configured, the merchant can submit the generated registry
 bundle or send a revocation request from WordPress admin instead of copying the
-bundle URL manually.
+bundle URL manually. The AgentCart gateway includes a first-party alpha
+connection at `POST /v1/registry/records`, backed by a local JSON store and the
+same domain-proof verifier used by the public registry view.
 
 The plugin exposes:
 
@@ -200,6 +202,9 @@ curl https://shop.example/.well-known/agentcart-registry-bundle.json
 python3 gateway/scripts/registry_record.py build --manifest-url https://shop.example/.well-known/agentcart.json
 python3 gateway/scripts/registry_record.py verify --record-file merchant-registry-record.json
 ```
+
+The hosted alpha feed is available at `GET /v1/registry/records`; the normalized
+agent-facing registry remains `GET /v1/registry`.
 
 ## Production Roadmap
 

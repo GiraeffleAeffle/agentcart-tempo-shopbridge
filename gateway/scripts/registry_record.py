@@ -424,6 +424,9 @@ def minimal_config(tmp: pathlib.Path, *, hmac_secret: str = "", max_age_days: in
         merchant_registry_hmac_secret=hmac_secret,
         require_verified_registry=True,
         merchant_registry_max_age_days=max_age_days,
+        hosted_registry_enabled=False,
+        hosted_registry_path=tmp / "hosted-registry.json",
+        hosted_registry_submit_token="",
     )
 
 

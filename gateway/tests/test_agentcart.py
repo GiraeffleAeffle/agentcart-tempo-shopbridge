@@ -79,6 +79,9 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         merchant_registry_hmac_secret="",
         require_verified_registry=True,
         merchant_registry_max_age_days=180,
+        hosted_registry_enabled=True,
+        hosted_registry_path=tmp / "hosted-registry.json",
+        hosted_registry_submit_token="",
     )
     if overrides:
         config = agentcart.Config(**{**config.__dict__, **overrides})
@@ -354,6 +357,7 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(offer["currency"], "EUR")
             self.assertIn("x-service-info", openapi)
             self.assertIn("/v1/registry", openapi["paths"])
+            self.assertIn("/v1/registry/records", openapi["paths"])
             self.assertIn("/v1/quote-tournament", openapi["paths"])
             self.assertIn("/v1/audit/import", openapi["paths"])
             self.assertIn("/v1/audit/{purchase_id}/export", openapi["paths"])
@@ -362,6 +366,8 @@ class AgentCartTests(unittest.TestCase):
             capability = service.capability_document()
             self.assertIn("agentcart-service", capability["protocol_profile_ids"])
             self.assertNotIn("mpp-http-auth", capability["protocol_profile_ids"])
+            self.assertEqual(capability["endpoints"]["registry_records"], "/v1/registry/records")
+            self.assertEqual(capability["endpoints"]["registry_submit"], "/v1/registry/records")
             self.assertEqual(service.capability_document()["endpoints"]["audit_import"], "/v1/audit/import")
             self.assertEqual(
                 service.capability_document()["endpoints"]["audit_export"],
@@ -519,6 +525,148 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("signed-tea-shop", entries)
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
             self.assertIn("signed-tea-shop", service.adapters)
+
+    def test_hosted_registry_submission_publishes_verified_record(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            record_hash = agentcart.registry_record_hash(record)
+            service = make_service(tmp)
+
+            result = service.submit_hosted_registry_request(
+                {
+                    "schema": "agentcart.shopbridge.registry_connection_request.v1",
+                    "operation": "upsert",
+                    "registry_record": record,
+                    "record_hash": record_hash,
+                    "idempotency_key": "submit-signed-tea-shop",
+                }
+            )
+
+            self.assertTrue(result["accepted"])
+            self.assertTrue(result["published"])
+            self.assertEqual(result["publication_state"], "verified")
+            self.assertEqual(result["record_hash"], record_hash)
+            self.assertTrue(service.config.hosted_registry_path.exists())
+
+            feed = service.hosted_registry_feed()
+            self.assertEqual(feed["entry_count"], 1)
+            self.assertEqual(agentcart.registry_record_hash(feed["entries"][0]), record_hash)
+
+            registry = service.registry_document()
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertIn("signed-tea-shop", entries)
+            self.assertEqual(entries["signed-tea-shop"]["registry_status"]["state"], "verified")
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
+            self.assertIn("signed-tea-shop", service.adapters)
+            self.assertEqual(registry["registry"]["hosted_store"]["entry_count"], 1)
+
+    def test_hosted_registry_submission_rejects_record_hash_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            service = make_service(tmp)
+
+            with self.assertRaises(agentcart.BadRequest) as raised:
+                service.submit_hosted_registry_request(
+                    {
+                        "operation": "upsert",
+                        "registry_record": record,
+                        "record_hash": "0" * 64,
+                    }
+                )
+
+            self.assertIn("record_hash does not match", str(raised.exception))
+            self.assertEqual(service.hosted_registry_feed()["entry_count"], 0)
+
+    def test_hosted_registry_revocation_removes_active_record_but_keeps_revocation(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            record_hash = agentcart.registry_record_hash(record)
+            service = make_service(tmp)
+            service.submit_hosted_registry_request(
+                {
+                    "operation": "upsert",
+                    "registry_record": record,
+                    "record_hash": record_hash,
+                }
+            )
+
+            result = service.submit_hosted_registry_request(
+                {
+                    "operation": "revoke",
+                    "record_hash": record_hash,
+                    "merchant_id": "signed-tea-shop",
+                    "domain": "signed.example",
+                    "reason": "merchant_admin_revoke",
+                }
+            )
+
+            self.assertEqual(result["publication_state"], "revoked")
+            feed = service.hosted_registry_feed()
+            self.assertEqual(feed["entry_count"], 0)
+            self.assertEqual(feed["revocation_count"], 1)
+            self.assertEqual(feed["revocations"][0]["record_hash"], record_hash)
+
+            registry = service.registry_document()
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertNotIn("signed-tea-shop", entries)
+            self.assertNotIn("signed-tea-shop", service.adapters)
+
+    def test_hosted_registry_submission_http_requires_registry_token(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            payload = json.dumps(
+                {
+                    "operation": "upsert",
+                    "registry_record": record,
+                    "record_hash": agentcart.registry_record_hash(record),
+                }
+            ).encode()
+            service = make_service(tmp, hosted_registry_submit_token="registry-token")
+            server = agentcart.AgentCartServer(("127.0.0.1", 0), service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                unauthenticated = urllib.request.Request(
+                    f"{base_url}/v1/registry/records",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(unauthenticated, timeout=5)
+                self.assertEqual(raised.exception.code, 401)
+                raised.exception.close()
+
+                authenticated = urllib.request.Request(
+                    f"{base_url}/v1/registry/records",
+                    data=payload,
+                    headers={
+                        "Authorization": "Bearer registry-token",
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(authenticated, timeout=5) as response:
+                    self.assertEqual(response.status, 201)
+                    body = json.loads(response.read())
+                self.assertTrue(body["published"])
+
+                with urllib.request.urlopen(f"{base_url}/v1/registry/records", timeout=5) as response:
+                    feed = json.loads(response.read())
+                self.assertEqual(feed["entry_count"], 1)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
 
     def test_domain_proof_registry_record_verifies_with_empty_revocation_document(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

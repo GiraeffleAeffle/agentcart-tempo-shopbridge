@@ -156,6 +156,9 @@ class Config:
     merchant_registry_hmac_secret: str
     require_verified_registry: bool
     merchant_registry_max_age_days: int
+    hosted_registry_enabled: bool
+    hosted_registry_path: pathlib.Path
+    hosted_registry_submit_token: str
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -246,6 +249,16 @@ class Config:
             merchant_registry_hmac_secret=os.getenv("AGENTCART_MERCHANT_REGISTRY_HMAC_SECRET", "").strip(),
             require_verified_registry=bool_env("AGENTCART_REQUIRE_VERIFIED_REGISTRY", True),
             merchant_registry_max_age_days=int(os.getenv("AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS", "180")),
+            hosted_registry_enabled=bool_env("AGENTCART_HOSTED_REGISTRY_ENABLED", True),
+            hosted_registry_path=pathlib.Path(
+                os.getenv("AGENTCART_HOSTED_REGISTRY_PATH", str(data_dir / "hosted-merchant-registry.json"))
+            ),
+            hosted_registry_submit_token=(
+                os.getenv("AGENTCART_HOSTED_REGISTRY_TOKEN")
+                or os.getenv("AGENTCART_REGISTRY_SUBMIT_TOKEN")
+                or os.getenv("AGENTCART_TOKEN")
+                or ""
+            ).strip(),
         )
 
 
@@ -2191,10 +2204,311 @@ class AgentCartService:
         export["audit_export_hash"] = hash_without(export, "audit_export_hash")
         return export
 
+    def empty_hosted_registry_store(self) -> dict[str, Any]:
+        return {
+            "schema": "agentcart.hosted_merchant_registry.v1",
+            "updated_at": None,
+            "entries": [],
+            "revocations": [],
+            "submissions": [],
+        }
+
+    def read_hosted_registry_store(self) -> dict[str, Any]:
+        store = self.empty_hosted_registry_store()
+        if not self.config.hosted_registry_enabled:
+            return store
+        try:
+            raw = json.loads(self.config.hosted_registry_path.read_text())
+        except FileNotFoundError:
+            return store
+        except json.JSONDecodeError as exc:
+            raise UpstreamError(f"hosted registry store is invalid JSON: {self.config.hosted_registry_path}") from exc
+        if not isinstance(raw, dict):
+            raise UpstreamError("hosted registry store must be a JSON object")
+        store["updated_at"] = raw.get("updated_at")
+        for key in ("entries", "revocations", "submissions"):
+            value = raw.get(key)
+            if isinstance(value, list):
+                store[key] = [item for item in value if isinstance(item, dict)]
+        return store
+
+    def write_hosted_registry_store(self, store: dict[str, Any]) -> None:
+        if not self.config.hosted_registry_enabled:
+            raise Forbidden("hosted registry is disabled")
+        self.config.hosted_registry_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.config.hosted_registry_path.with_name(self.config.hosted_registry_path.name + ".tmp")
+        tmp.write_text(json.dumps(store, indent=2, sort_keys=True, default=json_default) + "\n", encoding="utf-8")
+        tmp.replace(self.config.hosted_registry_path)
+
+    def hosted_registry_revoked_hashes(self, store: dict[str, Any]) -> set[str]:
+        revoked = set()
+        for item in store.get("revocations", []):
+            if not isinstance(item, dict):
+                continue
+            record_hash = str(item.get("record_hash") or item.get("registry_record_hash") or "")
+            if record_hash:
+                revoked.add(record_hash)
+        return revoked
+
+    def hosted_registry_records(self) -> list[dict[str, Any]]:
+        if not self.config.hosted_registry_enabled:
+            return []
+        store = self.read_hosted_registry_store()
+        revoked_hashes = self.hosted_registry_revoked_hashes(store)
+        records = []
+        for record in store.get("entries", []):
+            if not isinstance(record, dict):
+                continue
+            if record.get("revoked_at"):
+                continue
+            if registry_record_hash(record) in revoked_hashes:
+                continue
+            records.append(record)
+        return records
+
+    def hosted_registry_feed(self) -> dict[str, Any]:
+        store = self.read_hosted_registry_store()
+        revoked_hashes = self.hosted_registry_revoked_hashes(store)
+        entries = [
+            record
+            for record in store.get("entries", [])
+            if isinstance(record, dict)
+            and not record.get("revoked_at")
+            and registry_record_hash(record) not in revoked_hashes
+        ]
+        return {
+            "schema": "agentcart.hosted_merchant_registry_feed.v1",
+            "generated_at": isoformat(utcnow()),
+            "updated_at": store.get("updated_at"),
+            "entries": entries,
+            "revocations": store.get("revocations", []),
+            "entry_count": len(entries),
+            "revocation_count": len(store.get("revocations", [])),
+        }
+
+    def submitted_registry_record(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        record = payload.get("registry_record")
+        bundle = payload.get("registry_onboarding_bundle") or payload.get("bundle")
+        if not isinstance(record, dict) and isinstance(bundle, dict):
+            record = bundle.get("registry_record")
+        if not isinstance(record, dict):
+            raise BadRequest("registry_record is required")
+
+        copied = json.loads(json.dumps(record, default=json_default))
+        if not isinstance(copied, dict):
+            raise BadRequest("registry_record must be a JSON object")
+
+        bundle_document = bundle if isinstance(bundle, dict) else {}
+        manifest_snapshot = (
+            payload.get("manifest_snapshot")
+            or payload.get("manifest_document")
+            or bundle_document.get("manifest_snapshot")
+            or bundle_document.get("manifest_document")
+        )
+        if isinstance(manifest_snapshot, dict) and not isinstance(copied.get("manifest_snapshot"), dict):
+            copied["manifest_snapshot"] = manifest_snapshot
+
+        proof_snapshot = (
+            payload.get("proof_document")
+            or payload.get("proof_snapshot")
+            or bundle_document.get("proof_document")
+            or bundle_document.get("proof_document_expected")
+        )
+        if isinstance(proof_snapshot, dict) and not isinstance(copied.get("proof_snapshot"), dict):
+            copied["proof_snapshot"] = proof_snapshot
+
+        revocation_snapshot = (
+            payload.get("revocation_document")
+            or payload.get("revocation_snapshot")
+            or bundle_document.get("revocation_document")
+            or bundle_document.get("revocation_document_expected")
+        )
+        if isinstance(revocation_snapshot, dict) and not isinstance(copied.get("revocation_snapshot"), dict):
+            copied["revocation_snapshot"] = revocation_snapshot
+
+        actual_hash = registry_record_hash(copied)
+        supplied_hash = str(payload.get("record_hash") or bundle_document.get("record_hash") or "").strip()
+        if supplied_hash and not hmac.compare_digest(supplied_hash, actual_hash):
+            raise BadRequest(
+                "record_hash does not match registry_record",
+                detail={"supplied": supplied_hash, "actual": actual_hash},
+            )
+        return copied, actual_hash
+
+    def hosted_registry_submission_summary(
+        self,
+        *,
+        operation: str,
+        payload: dict[str, Any],
+        record_hash: str,
+        record: dict[str, Any] | None,
+        state: str,
+    ) -> dict[str, Any]:
+        return {
+            "operation": operation,
+            "idempotency_key": str(payload.get("idempotency_key") or ""),
+            "source_schema": str(payload.get("schema") or ""),
+            "merchant_id": str((record or {}).get("merchant_id") or payload.get("merchant_id") or ""),
+            "domain": str((record or {}).get("domain") or payload.get("domain") or ""),
+            "record_hash": record_hash,
+            "state": state,
+            "request_hash": canonical_json_hash(payload),
+            "received_at": isoformat(utcnow()),
+        }
+
+    def trim_hosted_registry_submissions(self, submissions: list[dict[str, Any]], limit: int = 200) -> list[dict[str, Any]]:
+        return submissions[-limit:]
+
+    def submit_hosted_registry_request(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.config.hosted_registry_enabled:
+            raise Forbidden("hosted registry is disabled")
+        if not isinstance(payload, dict):
+            raise BadRequest("JSON object body is required")
+        operation = str(payload.get("operation") or payload.get("action") or "upsert").strip().lower()
+        aliases = {
+            "submit": "upsert",
+            "register": "upsert",
+            "publish": "upsert",
+            "remove": "revoke",
+            "delete": "revoke",
+            "revocation": "revoke",
+        }
+        operation = aliases.get(operation, operation)
+        if operation == "upsert":
+            return self.upsert_hosted_registry_record(payload)
+        if operation == "revoke":
+            return self.revoke_hosted_registry_record(payload)
+        raise BadRequest("operation must be upsert or revoke")
+
+    def upsert_hosted_registry_record(self, payload: dict[str, Any]) -> dict[str, Any]:
+        record, record_hash = self.submitted_registry_record(payload)
+        entry = self.verify_registry_record(record)
+        verification = entry.get("verification") if isinstance(entry.get("verification"), dict) else {}
+        state = str(verification.get("state") or "rejected")
+        now = isoformat(utcnow())
+        store = self.read_hosted_registry_store()
+        revoked_hashes = self.hosted_registry_revoked_hashes(store)
+        merchant_id = str(record.get("merchant_id") or "")
+        domain = str(record.get("domain") or "").lower()
+
+        entries = []
+        for existing in store.get("entries", []):
+            if not isinstance(existing, dict):
+                continue
+            existing_merchant_id = str(existing.get("merchant_id") or "")
+            existing_domain = str(existing.get("domain") or "").lower()
+            if existing_merchant_id == merchant_id and (not domain or not existing_domain or existing_domain == domain):
+                continue
+            entries.append(existing)
+        entries.append(record)
+        store["entries"] = entries
+        store["updated_at"] = now
+        publication_state = "revoked" if record_hash in revoked_hashes else state
+        store["submissions"] = self.trim_hosted_registry_submissions(
+            store.get("submissions", [])
+            + [
+                self.hosted_registry_submission_summary(
+                    operation="upsert",
+                    payload=payload,
+                    record_hash=record_hash,
+                    record=record,
+                    state=publication_state,
+                )
+            ]
+        )
+        self.write_hosted_registry_store(store)
+        self.refresh_registry_adapters()
+        return {
+            "schema": "agentcart.hosted_registry_result.v1",
+            "operation": "upsert",
+            "accepted": True,
+            "publication_state": publication_state,
+            "published": publication_state == "verified",
+            "merchant_id": merchant_id,
+            "domain": str(record.get("domain") or ""),
+            "record_hash": record_hash,
+            "verification": verification,
+            "registry_url": f"{self.config.public_url}/v1/registry",
+            "registry_records_url": f"{self.config.public_url}/v1/registry/records",
+            "updated_at": now,
+        }
+
+    def revoke_hosted_registry_record(self, payload: dict[str, Any]) -> dict[str, Any]:
+        record: dict[str, Any] | None = None
+        record_hash = str(payload.get("record_hash") or payload.get("registry_record_hash") or "").strip()
+        if not record_hash:
+            record, record_hash = self.submitted_registry_record(payload)
+        now = isoformat(utcnow())
+        merchant_id = str((record or {}).get("merchant_id") or payload.get("merchant_id") or "")
+        domain = str((record or {}).get("domain") or payload.get("domain") or "")
+        store = self.read_hosted_registry_store()
+        revocations = [
+            item
+            for item in store.get("revocations", [])
+            if isinstance(item, dict) and str(item.get("record_hash") or item.get("registry_record_hash") or "") != record_hash
+        ]
+        revocations.append(
+            {
+                "schema": "agentcart.hosted_registry_revocation.v1",
+                "record_hash": record_hash,
+                "merchant_id": merchant_id,
+                "domain": domain,
+                "revoked_at": now,
+                "reason": str(payload.get("reason") or "merchant_admin_revoke"),
+                "source": "hosted_registry_submission",
+                "request_hash": canonical_json_hash(payload),
+            }
+        )
+        store["revocations"] = revocations
+        store["entries"] = [
+            item
+            for item in store.get("entries", [])
+            if isinstance(item, dict) and registry_record_hash(item) != record_hash
+        ]
+        store["updated_at"] = now
+        store["submissions"] = self.trim_hosted_registry_submissions(
+            store.get("submissions", [])
+            + [
+                self.hosted_registry_submission_summary(
+                    operation="revoke",
+                    payload=payload,
+                    record_hash=record_hash,
+                    record=record,
+                    state="revoked",
+                )
+            ]
+        )
+        self.write_hosted_registry_store(store)
+        self.refresh_registry_adapters()
+        return {
+            "schema": "agentcart.hosted_registry_result.v1",
+            "operation": "revoke",
+            "accepted": True,
+            "publication_state": "revoked",
+            "published": False,
+            "merchant_id": merchant_id,
+            "domain": domain,
+            "record_hash": record_hash,
+            "registry_records_url": f"{self.config.public_url}/v1/registry/records",
+            "updated_at": now,
+        }
+
+    def refresh_registry_adapters(self) -> None:
+        self.registry_load_errors = []
+        adapters = self.build_adapters()
+        with self.lock:
+            self.adapters = adapters
+            stock = self.state.setdefault("stock", {})
+            for adapter in self.adapters.values():
+                for product_id, quantity in adapter.initial_stock().items():
+                    stock.setdefault(product_id, int(quantity))
+            self.save_state()
+
     def registry_source_configured(self) -> bool:
         return bool(self.config.merchant_registry_path or self.config.merchant_registry_url)
 
     def load_registry_records(self) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
         if self.config.merchant_registry_path:
             try:
                 raw = json.loads(self.config.merchant_registry_path.read_text())
@@ -2202,11 +2516,12 @@ class AgentCartService:
                 raise UpstreamError(f"merchant registry file not found: {self.config.merchant_registry_path}") from exc
             except json.JSONDecodeError as exc:
                 raise UpstreamError(f"merchant registry file is invalid JSON: {self.config.merchant_registry_path}") from exc
+            records.extend(registry_records_from_document(raw))
         elif self.config.merchant_registry_url:
             raw = self.http_json(self.config.merchant_registry_url, method="GET", token="", timeout=10)
-        else:
-            return []
-        return registry_records_from_document(raw)
+            records.extend(registry_records_from_document(raw))
+        records.extend(self.hosted_registry_records())
+        return records
 
     def registry_source_entries(self) -> list[dict[str, Any]]:
         entries = []
@@ -2831,6 +3146,27 @@ class AgentCartService:
         except AgentCartError as exc:
             source_errors.append({"message": str(exc), "detail": exc.detail})
 
+        try:
+            hosted_feed = self.hosted_registry_feed()
+            hosted_store = {
+                "enabled": self.config.hosted_registry_enabled,
+                "entry_count": hosted_feed["entry_count"],
+                "revocation_count": hosted_feed["revocation_count"],
+                "updated_at": hosted_feed.get("updated_at"),
+                "records_url": "/v1/registry/records",
+                "submit_url": "/v1/registry/records",
+                "submit_auth_required": bool(self.config.hosted_registry_submit_token),
+            }
+        except AgentCartError as exc:
+            hosted_store = {
+                "enabled": self.config.hosted_registry_enabled,
+                "entry_count": 0,
+                "revocation_count": 0,
+                "records_url": "/v1/registry/records",
+                "submit_url": "/v1/registry/records",
+                "error": {"message": str(exc), "detail": exc.detail},
+            }
+
         for adapter in self.adapters.values():
             merchant = adapter.merchant
             entries_by_merchant.setdefault(merchant["id"], self.generated_registry_entry(adapter))
@@ -2845,6 +3181,7 @@ class AgentCartService:
                 "public_data_only": True,
                 "no_catalog_prices_or_household_demand_onchain": True,
                 "source_configured": self.registry_source_configured(),
+                "hosted_store": hosted_store,
                 "source_errors": source_errors,
             },
             "entries": entries,
@@ -3252,6 +3589,8 @@ class AgentCartService:
                 "openapi": "/openapi.json",
                 "llms": "/llms.txt",
                 "registry": "/v1/registry",
+                "registry_records": "/v1/registry/records",
+                "registry_submit": "/v1/registry/records",
                 "quote_tournament": "/v1/quote-tournament?q=tea&country=DE",
                 "integrations": "/v1/integrations/status",
                 "open_tasks": "/v1/tasks/open?limit=20",
@@ -3357,6 +3696,34 @@ class AgentCartService:
                             }
                         },
                     }
+                },
+                "/v1/registry/records": {
+                    "get": {
+                        "operationId": "getHostedRegistryRecords",
+                        "summary": "Get raw hosted merchant registry records and revocations",
+                        "security": [],
+                        "responses": {
+                            "200": {
+                                "description": "Hosted registry record feed",
+                                "content": {"application/json": {"schema": {"type": "object"}}},
+                            }
+                        },
+                    },
+                    "post": {
+                        "operationId": "submitHostedRegistryRecord",
+                        "summary": "Submit or revoke a ShopBridge merchant registry record",
+                        "security": [{"AgentCartToken": []}, {"BearerAuth": []}],
+                        "requestBody": {
+                            "required": True,
+                            "content": {"application/json": {"schema": {"type": "object"}}},
+                        },
+                        "responses": {
+                            "200": {"description": "Registry submission processed"},
+                            "201": {"description": "Registry submission accepted"},
+                            "400": {"description": "Invalid registry submission"},
+                            "401": {"description": "Registry submit token required"},
+                        },
+                    },
                 },
                 "/v1/quote-tournament": {
                     "get": {
@@ -4055,6 +4422,7 @@ Safety rules:
 Discovery:
 - OpenAPI: /openapi.json
 - Capabilities: /.well-known/agentcart.json
+- Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records
 
 Current caveat:
 The default demo provider follows the HTTP 402 Payment-auth shape but does not move real funds. Use a real
@@ -6594,6 +6962,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         if path == "/v1/registry":
             self.send_json(self.service.registry_document())
             return
+        if path == "/v1/registry/records":
+            self.send_json(self.service.hosted_registry_feed())
+            return
         if path == "/v1/quote-tournament":
             self.require_auth_if_configured()
             self.send_json(
@@ -6749,6 +7120,14 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             self.redirect(f"/approvals/{page_action_match.group(1)}?token={urllib.parse.quote(form.get('token', ''))}")
             return
 
+        if path in {"/v1/registry/records", "/v1/registry/submissions"}:
+            self.require_registry_submit_auth_if_configured()
+            raw_body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            payload = parse_json_body(raw_body)
+            result = self.service.submit_hosted_registry_request(payload)
+            self.send_json(result, status=201 if result.get("operation") == "upsert" else 200)
+            return
+
         self.require_auth_if_configured()
         raw_body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
         payload = parse_json_body(raw_body)
@@ -6823,6 +7202,23 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         if supplied:
             raise Forbidden("invalid AgentCart token")
         raise Unauthorized("Bearer authorization, X-AgentCart-Token, or token query parameter is required")
+
+    def require_registry_submit_auth_if_configured(self) -> None:
+        token = self.service.config.hosted_registry_submit_token
+        if not token:
+            return
+        supplied = self.supplied_registry_submit_token()
+        if supplied and hmac.compare_digest(supplied, token):
+            return
+        if supplied:
+            raise Forbidden("invalid registry submit token")
+        raise Unauthorized("Bearer authorization or X-AgentCart-Registry-Token is required")
+
+    def supplied_registry_submit_token(self) -> str:
+        header_token = self.headers.get("X-AgentCart-Registry-Token", "").strip()
+        if header_token:
+            return header_token
+        return self.supplied_auth_token()
 
     def supplied_auth_token(self) -> str:
         header_token = self.headers.get("X-AgentCart-Token", "").strip()
