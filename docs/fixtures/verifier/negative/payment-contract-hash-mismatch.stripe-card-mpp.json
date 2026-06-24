@@ -1,0 +1,13 @@
+{
+  "case": "payment_contract_hash_mismatch",
+  "base_fixture": "payment-request.stripe-card-mpp.json",
+  "mutation": {
+    "path": "payment_receipt.payment_contract_hash",
+    "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "should_reject": true,
+  "expected_rejection": {
+    "status": 400,
+    "reason": "payment_receipt.payment_contract_hash does not match expected payment_contract_hash"
+  }
+}

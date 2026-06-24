@@ -3570,7 +3570,7 @@ final class AgentCart_ShopBridge {
         }
         $quote = get_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
         if (!is_array($quote)) {
-            return new WP_Error('agentcart_quote_expired', 'Merchant quote is unknown or expired.', ['status' => 409]);
+            return self::quote_recovery_error('agentcart_quote_expired', 'Merchant quote is unknown or expired.', null, $merchant_quote_id, 'quote_unknown_or_expired');
         }
         $receipt = self::payment_receipt_from_checkout_request($body, $request, $quote);
         if (empty($receipt['id'])) {
@@ -3583,7 +3583,7 @@ final class AgentCart_ShopBridge {
         if (strtotime((string) ($quote['expires_at'] ?? '')) < time()) {
             delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
             self::release_stock_hold($merchant_quote_id);
-            return new WP_Error('agentcart_quote_expired', 'Merchant quote has expired.', ['status' => 409]);
+            return self::quote_recovery_error('agentcart_quote_expired', 'Merchant quote has expired.', $quote, $merchant_quote_id, 'quote_expired');
         }
         $expected_quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
         $supplied_quote_hash = sanitize_text_field((string) ($body['quote_hash'] ?? ($body['quote']['quote_hash'] ?? '')));
@@ -4384,6 +4384,7 @@ final class AgentCart_ShopBridge {
             'amount_cents' => intval($quote['total_cents'] ?? 0),
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
             'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'payment_contract_hash' => self::payment_contract_hash(self::payment_verification_contract($quote, 'x402-compatible')),
             'network' => (string) ($accept['network'] ?? ''),
             'asset' => (string) ($accept['asset'] ?? ''),
             'pay_to' => (string) ($accept['payTo'] ?? ''),
@@ -4421,12 +4422,24 @@ final class AgentCart_ShopBridge {
         $expected_currency = (string) ($quote['currency'] ?? get_woocommerce_currency());
         $receipt_amount = intval($receipt['amount_cents'] ?? 0);
         $receipt_currency = (string) ($receipt['currency'] ?? '');
+        $expected_quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
+        $receipt_quote_hash = sanitize_text_field((string) ($receipt['quote_hash'] ?? ''));
+        $rail = self::payment_rail_from_receipt($receipt, $body);
+        $payment_contract = self::payment_verification_contract($quote, $rail);
+        $payment_contract_hash = self::payment_contract_hash($payment_contract);
+        $receipt_contract_hash = sanitize_text_field((string) ($receipt['payment_contract_hash'] ?? $receipt['contract_hash'] ?? ''));
         if ($receipt_amount !== $expected_amount || strtoupper($receipt_currency) !== strtoupper($expected_currency)) {
             return new WP_Error(
                 'agentcart_payment_amount_mismatch',
                 'Payment receipt amount or currency does not match the stored quote.',
                 ['status' => 402]
             );
+        }
+        if ($receipt_quote_hash !== '' && !hash_equals($expected_quote_hash, $receipt_quote_hash)) {
+            return new WP_Error('agentcart_payment_quote_hash_mismatch', 'Payment receipt quote_hash does not match the stored quote.', ['status' => 402]);
+        }
+        if ($receipt_contract_hash !== '' && !hash_equals($payment_contract_hash, $receipt_contract_hash)) {
+            return new WP_Error('agentcart_payment_contract_mismatch', 'Payment receipt contract hash does not match the stored quote.', ['status' => 402]);
         }
 
         $verifier_url = self::payment_verifier_url();
@@ -4460,18 +4473,23 @@ final class AgentCart_ShopBridge {
             'real_settlement_verified' => false,
             'amount_cents' => $expected_amount,
             'currency' => $expected_currency,
-            'rail' => self::payment_rail_from_receipt($receipt, $body),
-            'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'rail' => $rail,
+            'quote_hash' => $expected_quote_hash,
+            'payment_contract_hash' => $payment_contract_hash,
             'note' => 'Merchant token authenticated AgentCart. Configure a payment verifier before production use.',
         ];
     }
 
     private static function call_payment_verifier($verifier_url, $quote, $receipt, $body) {
         $rail = self::payment_rail_from_receipt($receipt, $body);
+        $payment_contract = self::payment_verification_contract($quote, $rail);
+        $payment_contract_hash = self::payment_contract_hash($payment_contract);
         $payload = [
             'operation' => 'payment',
             'quote' => $quote,
             'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'payment_contract' => $payment_contract,
+            'payment_contract_hash' => $payment_contract_hash,
             'payment_receipt' => $receipt,
             'agentcart_order_id' => sanitize_text_field((string) ($body['agentcart_order_id'] ?? '')),
             'expected' => [
@@ -4479,6 +4497,7 @@ final class AgentCart_ShopBridge {
                 'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
                 'merchant_id' => self::merchant()['id'],
                 'rail' => $rail,
+                'payment_contract_hash' => $payment_contract_hash,
                 'tempo_network' => self::tempo_network(),
                 'tempo_recipient' => self::tempo_recipient(),
                 'stripe_profile_id' => self::stripe_profile_id(),
@@ -4526,6 +4545,7 @@ final class AgentCart_ShopBridge {
         $expected_x402_pay_to = strtolower(self::x402_pay_to());
         $expected_x402_amount = self::x402_atomic_amount(intval($quote['total_cents'] ?? 0));
         $transaction_reference = sanitize_text_field((string) ($decoded['transaction_reference'] ?? ''));
+        $verified_contract_hash = sanitize_text_field((string) ($decoded['payment_contract_hash'] ?? $decoded['contract_hash'] ?? ''));
         if (
             $verified_quote_hash === ''
             || !hash_equals($expected_quote_hash, $verified_quote_hash)
@@ -4533,6 +4553,9 @@ final class AgentCart_ShopBridge {
             || $verified_currency !== $expected_currency
         ) {
             return new WP_Error('agentcart_payment_verifier_mismatch', 'External payment verifier response does not match the quote.', ['status' => 402]);
+        }
+        if ($verified_contract_hash !== '' && !hash_equals($payment_contract_hash, $verified_contract_hash)) {
+            return new WP_Error('agentcart_payment_contract_mismatch', 'External payment verifier returned the wrong payment contract hash.', ['status' => 402]);
         }
         if ($verified_rail === '' || $verified_rail !== $rail) {
             return new WP_Error('agentcart_payment_rail_mismatch', 'External payment verifier returned the wrong payment rail.', ['status' => 402]);
@@ -4582,6 +4605,7 @@ final class AgentCart_ShopBridge {
             'stripe_profile_id' => $verified_stripe_profile_id ?: $expected_stripe_profile_id,
             'transaction_reference' => $transaction_reference,
             'quote_hash' => $expected_quote_hash,
+            'payment_contract_hash' => $payment_contract_hash,
         ];
     }
 
@@ -5259,6 +5283,8 @@ final class AgentCart_ShopBridge {
             'total_cents' => intval($quote['total_cents'] ?? 0),
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
             'expires_at' => (string) ($quote['expires_at'] ?? ''),
+            'stock_reserved_until' => (string) ($quote['stock_reserved_until'] ?? ''),
+            'stock_reservation' => $quote['stock_reservation'] ?? null,
             'terms_url' => (string) ($quote['terms_url'] ?? self::terms_url()),
             'returns_url' => (string) ($quote['returns_url'] ?? self::returns_url()),
             'merchant_policy' => $quote['merchant_policy'] ?? self::merchant_policy(),
@@ -5277,12 +5303,25 @@ final class AgentCart_ShopBridge {
 
     private static function payment_requirements($quote) {
         $x402 = self::x402_payment_required_document($quote);
+        $payment_contracts = self::payment_verification_contracts($quote);
+        $preferred_payment_contract = $payment_contracts[0] ?? self::payment_verification_contract_with_hash($quote, 'tempo-mpp');
         return [
             'amount_cents' => intval($quote['total_cents'] ?? 0),
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
             'quote_hash' => (string) ($quote['quote_hash'] ?? self::quote_hash($quote)),
+            'quote_total' => [
+                'amount_cents' => intval($quote['total_cents'] ?? 0),
+                'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+                'subtotal_cents' => intval($quote['subtotal_cents'] ?? 0),
+                'shipping_cents' => intval($quote['shipping']['amount_cents'] ?? 0),
+                'vat_lines' => $quote['vat_lines'] ?? [],
+                'includes' => ['items', 'shipping', 'tax'],
+            ],
             'checkout_endpoint' => rest_url(self::API_NAMESPACE . '/orders'),
             'payment_protocol_profile_ids' => self::payment_protocol_profile_ids(),
+            'verification_contract' => $preferred_payment_contract,
+            'verification_contracts' => $payment_contracts,
+            'payment_contract_hash' => (string) ($preferred_payment_contract['payment_contract_hash'] ?? ''),
             'x402' => [
                 'enabled' => $x402 !== null,
                 'version' => 2,
@@ -5304,6 +5343,8 @@ final class AgentCart_ShopBridge {
                 'checkout_mode' => self::checkout_mode(),
                 'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
                 'trusted_token_checkout_enabled' => !self::external_verifier_required_for_checkout(),
+                'payment_contract_hash' => (string) ($preferred_payment_contract['payment_contract_hash'] ?? ''),
+                'payment_contract_schema' => 'agentcart.payment_verification_contract.v1',
             ],
             'request_signature' => [
                 'configured' => self::signed_request_profile_configured(),
@@ -5365,6 +5406,85 @@ final class AgentCart_ShopBridge {
                 ],
             ],
         ];
+    }
+
+    private static function payment_verification_contracts($quote) {
+        $contracts = [];
+        foreach (self::available_payment_rails_for_quote($quote) as $rail) {
+            $contracts[] = self::payment_verification_contract_with_hash($quote, $rail);
+        }
+        return $contracts ?: [self::payment_verification_contract_with_hash($quote, 'tempo-mpp')];
+    }
+
+    private static function available_payment_rails_for_quote($quote) {
+        $rails = [];
+        if (self::tempo_recipient() !== '' || self::payment_verifier_url() !== '' || !self::external_verifier_required_for_checkout()) {
+            $rails[] = 'tempo-mpp';
+        }
+        if (self::stripe_payment_profile_configured()) {
+            $rails[] = 'stripe-card-mpp';
+        }
+        if (self::x402_payment_required_document($quote) !== null) {
+            $rails[] = 'x402-compatible';
+        }
+        return array_values(array_unique($rails));
+    }
+
+    private static function payment_verification_contract_with_hash($quote, $rail) {
+        $contract = self::payment_verification_contract($quote, $rail);
+        $contract['payment_contract_hash'] = self::payment_contract_hash($contract);
+        return $contract;
+    }
+
+    private static function payment_verification_contract($quote, $rail = '') {
+        $rail = self::normalize_payment_rail($rail ?: 'tempo-mpp');
+        $shipping = isset($quote['shipping']) && is_array($quote['shipping']) ? $quote['shipping'] : [];
+        $contract = [
+            'schema' => 'agentcart.payment_verification_contract.v1',
+            'merchant_id' => self::merchant()['id'],
+            'merchant_quote_id' => (string) ($quote['id'] ?? ''),
+            'quote_hash' => (string) ($quote['quote_hash'] ?? self::quote_hash($quote)),
+            'rail' => $rail,
+            'amount' => [
+                'amount_cents' => intval($quote['total_cents'] ?? 0),
+                'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+                'subtotal_cents' => intval($quote['subtotal_cents'] ?? 0),
+                'shipping_cents' => intval($shipping['amount_cents'] ?? 0),
+                'vat_lines' => $quote['vat_lines'] ?? [],
+                'includes' => ['items', 'shipping', 'tax'],
+            ],
+            'checkout_endpoint' => rest_url(self::API_NAMESPACE . '/orders'),
+            'expires_at' => (string) ($quote['expires_at'] ?? ''),
+            'stock_reserved_until' => (string) ($quote['stock_reserved_until'] ?? ''),
+            'terms_url' => (string) ($quote['terms_url'] ?? self::terms_url()),
+            'returns_url' => (string) ($quote['returns_url'] ?? self::returns_url()),
+        ];
+        if ($rail === 'tempo-mpp') {
+            $contract['settlement'] = [
+                'network' => self::tempo_network(),
+                'recipient' => self::tempo_recipient(),
+                'asset' => self::tempo_settlement_asset(),
+                'fx_policy' => 'external_verifier_binds_quote_currency_to_settlement_asset',
+            ];
+        } elseif ($rail === 'stripe-card-mpp') {
+            $contract['settlement'] = [
+                'stripe_profile_id' => self::stripe_profile_id(),
+                'network_id' => self::stripe_profile_id(),
+                'asset' => ['denomination' => (string) ($quote['currency'] ?? get_woocommerce_currency())],
+            ];
+        } elseif ($rail === 'x402-compatible') {
+            $contract['settlement'] = [
+                'network' => self::x402_network(),
+                'asset' => self::x402_asset(),
+                'pay_to' => self::x402_pay_to(),
+                'max_amount_required' => self::x402_atomic_amount(intval($quote['total_cents'] ?? 0)),
+            ];
+        }
+        return $contract;
+    }
+
+    private static function payment_contract_hash($contract) {
+        return hash('sha256', wp_json_encode($contract));
     }
 
     private static function x402_payment_required_document($quote) {
@@ -5990,6 +6110,35 @@ final class AgentCart_ShopBridge {
         return max(1, min(999, $stored ?: 20));
     }
 
+    private static function quote_recovery_error($code, $message, $quote = null, $merchant_quote_id = '', $reason = 'quote_invalid') {
+        return new WP_Error(
+            $code,
+            $message,
+            [
+                'status' => 409,
+                'merchant_quote_id' => sanitize_text_field((string) $merchant_quote_id),
+                'recovery' => self::quote_recovery($reason, $quote, $merchant_quote_id),
+            ]
+        );
+    }
+
+    private static function quote_recovery($reason, $quote = null, $merchant_quote_id = '') {
+        $quote = is_array($quote) ? $quote : [];
+        return [
+            'reason' => sanitize_key((string) $reason),
+            'recreate_quote_required' => true,
+            'retry_quote_endpoint' => rest_url(self::API_NAMESPACE . '/quote'),
+            'checkout_endpoint' => rest_url(self::API_NAMESPACE . '/orders'),
+            'reuse_payment_receipt' => false,
+            'merchant_quote_id' => sanitize_text_field((string) ($merchant_quote_id ?: ($quote['id'] ?? ''))),
+            'quote_hash' => sanitize_text_field((string) ($quote['quote_hash'] ?? '')),
+            'expires_at' => sanitize_text_field((string) ($quote['expires_at'] ?? '')),
+            'items' => isset($quote['items']) && is_array($quote['items']) ? $quote['items'] : [],
+            'ship_to' => isset($quote['ship_to']) && is_array($quote['ship_to']) ? $quote['ship_to'] : null,
+            'note' => 'Create a fresh quote before asking for approval or retrying payment.',
+        ];
+    }
+
     private static function stock_hold_mode() {
         if (defined('AGENTCART_STOCK_HOLD_MODE')) {
             return self::sanitize_stock_hold_mode_setting((string) AGENTCART_STOCK_HOLD_MODE);
@@ -6066,6 +6215,7 @@ final class AgentCart_ShopBridge {
                     'stock_quantity' => $stock_quantity,
                     'held_quantity' => $held_quantity,
                     'available_quantity' => $available_quantity,
+                    'recovery' => self::quote_recovery('stock_changed', null, $exclude_quote_id),
                 ]
             );
         }

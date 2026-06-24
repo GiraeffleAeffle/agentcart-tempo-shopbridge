@@ -97,8 +97,14 @@ def verify_payment_request(payload: dict[str, Any]) -> None:
     require(isinstance(expected, dict), "payment request expected must be an object")
     quote_hash = require_non_empty_string(payload, "quote_hash")
     require_quote_hash(quote_hash, "payment request quote_hash")
+    payment_contract_hash = require_non_empty_string(payload, "payment_contract_hash")
+    require_quote_hash(payment_contract_hash, "payment request payment_contract_hash")
     require(quote.get("quote_hash") == quote_hash, "payment request quote.quote_hash must match quote_hash")
     require(receipt.get("quote_hash") == quote_hash, "payment receipt quote_hash must match quote_hash")
+    require(
+        receipt.get("payment_contract_hash") == payment_contract_hash,
+        "payment receipt payment_contract_hash must match request payment_contract_hash",
+    )
     amount = require_positive_int(payload, "expected.amount_cents")
     require(quote.get("total_cents") == amount, "payment request expected amount must match quote total")
     require(receipt.get("amount_cents") == amount, "payment receipt amount must match quote total")
@@ -106,10 +112,22 @@ def verify_payment_request(payload: dict[str, Any]) -> None:
     require(quote.get("currency") == currency, "payment request expected currency must match quote currency")
     require(receipt.get("currency") == currency, "payment receipt currency must match quote currency")
     require_rail(payload, "expected.rail")
+    require(
+        path_value(payload, "expected.payment_contract_hash") == payment_contract_hash,
+        "payment expected payment_contract_hash must match request payment_contract_hash",
+    )
     require_rail(payload, "payment_receipt.method")
     profile = require_non_empty_string(payload, "expected.stripe_profile_id")
     require(receipt.get("stripe_profile_id") == profile, "payment receipt Stripe profile must match expected profile")
     protocol = stripe_protocol(quote)
+    require(
+        path_value(payload, "quote.payment_requirements.payment_contract_hash") == payment_contract_hash,
+        "quote payment requirements payment_contract_hash must match request payment_contract_hash",
+    )
+    require(
+        path_value(payload, "quote.payment_requirements.verification.payment_contract_hash") == payment_contract_hash,
+        "quote verification payment_contract_hash must match request payment_contract_hash",
+    )
     require(protocol.get("stripe_profile_id") == profile, "quote Stripe profile must match expected profile")
     require(protocol.get("network_id") == profile, "quote Stripe network id must match expected profile")
     require_non_empty_string(payload, "agentcart_order_id")
@@ -122,6 +140,10 @@ def verify_payment_success(payload: dict[str, Any], request: dict[str, Any]) -> 
     require(payload.get("amount_cents") == path_value(request, "expected.amount_cents"), "payment amount mismatch")
     require(payload.get("currency") == path_value(request, "expected.currency"), "payment currency mismatch")
     require(payload.get("quote_hash") == path_value(request, "quote_hash"), "payment quote_hash mismatch")
+    require(
+        payload.get("payment_contract_hash") == path_value(request, "payment_contract_hash"),
+        "payment contract hash mismatch",
+    )
     require(payload.get("stripe_profile_id") == path_value(request, "expected.stripe_profile_id"), "payment profile mismatch")
     require_non_empty_string(payload, "transaction_reference")
     require(payload.get("real_settlement_verified") is True, "payment success must represent real settlement verification")
@@ -199,6 +221,12 @@ def verify_negative_fixture(path: pathlib.Path) -> None:
             != path_value(payload, "expected.stripe_profile_id"),
             f"{case_name} must mutate payment_receipt.stripe_profile_id away from expected.stripe_profile_id",
         )
+    elif case_name == "payment_contract_hash_mismatch":
+        require_quote_hash(path_value(payload, "payment_receipt.payment_contract_hash"), f"{case_name} mutated payment contract hash")
+        require(
+            path_value(payload, "payment_receipt.payment_contract_hash") != path_value(payload, "payment_contract_hash"),
+            f"{case_name} must mutate payment_receipt.payment_contract_hash away from payment_contract_hash",
+        )
     elif case_name == "payment_replay_reference":
         require(case.get("replay_bucket") == "payments", f"{case_name} must replay the payments bucket")
         require_non_empty_string(payload, str(case.get("reference_path") or "transaction_reference"))
@@ -233,6 +261,7 @@ def verify_negative_fixtures() -> None:
     required_cases = {
         "payment_amount_mismatch",
         "payment_quote_hash_mismatch",
+        "payment_contract_hash_mismatch",
         "payment_stripe_profile_mismatch",
         "payment_replay_reference",
         "refund_original_reference_mismatch",

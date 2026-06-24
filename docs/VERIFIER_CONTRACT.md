@@ -27,6 +27,8 @@ ShopBridge sends:
   "operation": "payment",
   "quote": {},
   "quote_hash": "sha256...",
+  "payment_contract": {},
+  "payment_contract_hash": "sha256...",
   "payment_receipt": {},
   "agentcart_order_id": "order_...",
   "expected": {
@@ -34,6 +36,7 @@ ShopBridge sends:
     "currency": "EUR",
     "merchant_id": "woocommerce-demo-shop",
     "rail": "tempo-mpp",
+    "payment_contract_hash": "sha256...",
     "tempo_network": "testnet",
     "tempo_recipient": "0x...",
     "stripe_profile_id": "acct_...",
@@ -52,6 +55,8 @@ The verifier must reject the payment unless it can prove:
 
 - the payment credential or receipt is valid for the selected rail;
 - the payment is bound to the exact `quote_hash`;
+- the `payment_contract_hash` matches every supplied copy in the quote,
+  receipt, request, and verifier response;
 - amount and currency match the quote, or an explicit quote-bound FX conversion
   record exists;
 - selected rail matches the receipt and merchant setup;
@@ -68,6 +73,7 @@ Expected success response:
 {
   "ok": true,
   "quote_hash": "sha256...",
+  "payment_contract_hash": "sha256...",
   "amount_cents": 1480,
   "currency": "EUR",
   "rail": "tempo-mpp",
@@ -84,9 +90,9 @@ Expected success response:
 The canonical Stripe/card MPP success fixture is checked in at
 `docs/fixtures/verifier/payment-success.stripe-card-mpp.json`.
 
-ShopBridge rejects mismatched quote hash, amount, currency, rail, rail-specific
-merchant recipient/profile fields, or missing transaction reference. It also
-rejects reused payment transaction references.
+ShopBridge rejects mismatched quote hash, payment contract hash, amount,
+currency, rail, rail-specific merchant recipient/profile fields, or missing
+transaction reference. It also rejects reused payment transaction references.
 
 ## Refund Verification Request
 
@@ -142,9 +148,9 @@ The canonical Stripe/card MPP refund success fixture is checked in at
 `docs/fixtures/verifier/refund-success.stripe-card-mpp.json`.
 
 Negative contract fixtures are checked in at `docs/fixtures/verifier/negative/`.
-They cover amount mismatch, quote-hash mismatch, Stripe profile mismatch,
-payment reference replay, refund original-reference mismatch, missing refund
-requested reference, and refund reference replay.
+They cover amount mismatch, quote-hash mismatch, payment-contract mismatch,
+Stripe profile mismatch, payment reference replay, refund original-reference
+mismatch, missing refund requested reference, and refund reference replay.
 
 ShopBridge requires a refund idempotency key before calling the verifier. It
 rejects refund amounts above the remaining refundable amount, exact idempotent

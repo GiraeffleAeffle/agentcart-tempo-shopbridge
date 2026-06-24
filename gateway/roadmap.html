@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">51</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 51%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">52</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 52%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -542,9 +542,9 @@
 
   <script>
     const areas = [
-      { name: "Core Commerce", value: 79, note: "catalog, quote, approval, order, stock, tax and shipping shape" },
+      { name: "Core Commerce", value: 82, note: "catalog, quote, approval, order, stock, tax, shipping, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 72, note: "manifest profiles, domain proof, hosted record feed, persisted health snapshots, alert delivery, revocations, signed request gate" },
-      { name: "Payments", value: 36, note: "demo proofs, verifier contracts, and idempotent refund path done; real rail ops still open" },
+      { name: "Payments", value: 48, note: "quote-bound verifier contract hash, receipt validation, fixtures, and demo proofs exist; real rail ops still open" },
       { name: "Merchant UX", value: 42, note: "settings done; setup wizard and low-friction refresh remain" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
       { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
@@ -583,12 +583,12 @@
         code: "QTE",
         title: "Quote integrity",
         status: "alpha",
-        value: 68,
-        scope: "Final quote includes tax, shipping, recipient, quote hash, expiry, and idempotent checkout shape.",
-        remaining: "Add stronger hold semantics, concurrency tests, and explicit stale-quote recovery.",
+        value: 74,
+        scope: "Final quote includes tax, shipping, recipient, quote hash, expiry, stock-hold metadata, stale-quote recovery hints, and idempotent checkout shape.",
+        remaining: "Add hard Woo reservation adapters where merchant stacks support them and broader concurrency tests.",
         items: [
-          { id: "QTE-001", priority: "P0", title: "Stock reservation adapter", description: "Move from soft quote holds to Woo-backed reservation and expiry semantics where the merchant stack supports them." },
-          { id: "QTE-002", priority: "P1", title: "Stale quote recovery", description: "Return machine-readable recovery paths when price, shipping, tax, stock, or expiry invalidates an approved quote." },
+          { id: "QTE-001", priority: "P0", title: "Stock reservation adapter", description: "Soft Woo stock holds are quote-hash-bound and revalidated before order creation; add hard reservation adapters for merchant stacks that support pre-payment holds." },
+          { id: "QTE-002", priority: "P1", title: "Stale quote recovery", description: "Expired quotes and stock conflicts now return machine-readable recovery hints; extend this to price, shipping, and tax drift." },
           { id: "QTE-003", priority: "P1", title: "Concurrency tests", description: "Add parallel quote and checkout tests covering stock changes, idempotency keys, and quote expiry." }
         ]
       },
@@ -622,11 +622,11 @@
         code: "PAY",
         title: "Payment verifier",
         status: "partial",
-        value: 35,
-        scope: "Verifier contract, fixtures, replay gate, and testnet proof handling exist.",
-        remaining: "Bind real provider proof to quote amount, settlement, refunds, durable replay, and metrics.",
+        value: 47,
+        scope: "Verifier contract, payment contract hash, fixture validation, replay gate, receipt checks, and testnet proof handling exist.",
+        remaining: "Add real provider operations, durable replay requirements, refund execution depth, and metrics.",
         items: [
-          { id: "PAY-001", priority: "P0", title: "Amount-bound verifier", description: "Validate quote total, currency or FX, recipient, quote hash, and payment receipt as one provider-specific verification contract." },
+          { id: "PAY-001", priority: "P0", title: "Amount-bound verifier", description: "Plugin and Stripe verifier now bind quote total, currency/FX policy, recipient/profile, quote hash, rail, and receipt via a payment_contract_hash." },
           { id: "PAY-002", priority: "P1", title: "Durable replay store", description: "Move replay protection to managed durable storage and fail closed when replay state is unavailable." },
           { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Expose verifier success rate, rejection reasons, latency, settlement status, and refund state for operations." }
         ]

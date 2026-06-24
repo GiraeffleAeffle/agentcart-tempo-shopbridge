@@ -1,7 +1,9 @@
 # Verifier Fixtures
 
 These fixtures pin the production-shaped external verifier boundary between
-ShopBridge and a rail-specific verifier.
+ShopBridge and a rail-specific verifier. Payment fixtures include the
+`payment_contract_hash` that binds quote total, currency, quote hash, selected
+rail, and destination/profile into one verifier contract.
 
 - `payment-request.stripe-card-mpp.json`: payload ShopBridge sends before
   creating a paid WooCommerce order.

@@ -53,7 +53,10 @@ Production should add richer product controls:
 - cancellation state-machine support that coordinates with shipment providers,
   picker/packer workflows, and rail refund execution;
 - merchant-side hard stock reservation integration for shops that need actual
-  WooCommerce inventory holds before payment.
+  WooCommerce inventory holds before payment. The current plugin uses soft
+  stock holds, includes hold metadata in the quote hash, revalidates before
+  order creation, and returns recovery hints when the quote can no longer be
+  used.
 
 ## Security
 
@@ -65,7 +68,8 @@ Production should add richer product controls:
 - Add host-level reverse-proxy/CDN/WAF rate limits for public production shops.
 - Store and reject used transaction references.
 - Require idempotency keys for order creation and refunds.
-- Bind order creation to stored quote hash, expiry, and single-use quote lock.
+- Bind order creation to stored quote hash, payment contract hash, expiry, and
+  single-use quote lock.
 - Reject refund amounts above the remaining refundable amount.
 - Reject reused refund references before creating WooCommerce refund records.
 - Keep privacy defaults: do not store requester IP/user-agent unless merchant

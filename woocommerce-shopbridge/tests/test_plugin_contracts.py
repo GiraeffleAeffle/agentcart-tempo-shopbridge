@@ -941,6 +941,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         order_body = function_body("create_order")
         reservation_body = function_body("reserve_stock_for_quote")
         stock_check_body = function_body("validate_product_stock_for_agentcart")
+        quote_hash_body = function_body("quote_hash_payload")
         capability_body = function_body("capability_document")
 
         self.assertIn("STOCK_HOLD_MODE_OPTION", SOURCE)
@@ -951,11 +952,37 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'stock_reserved_until'", quote_body)
         self.assertIn("'soft_reserved'", reservation_body)
         self.assertIn("held_stock_quantity", stock_check_body)
+        self.assertIn("'recovery' => self::quote_recovery('stock_changed'", stock_check_body)
         self.assertIn("validate_product_stock_for_agentcart($product, $quantity)", quote_body)
         self.assertIn("validate_product_stock_for_agentcart($product, $quantity, $merchant_quote_id)", order_body)
         self.assertIn("release_stock_hold($merchant_quote_id)", order_body)
         self.assertIn("delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id)", order_body)
+        self.assertIn("quote_recovery_error('agentcart_quote_expired'", order_body)
+        self.assertIn("'stock_reserved_until'", quote_hash_body)
+        self.assertIn("'stock_reservation'", quote_hash_body)
         self.assertIn("'soft_quote_stock_holds'", capability_body)
+
+    def test_payment_verification_contract_is_amount_and_destination_bound(self) -> None:
+        requirements_body = function_body("payment_requirements")
+        contract_body = function_body("payment_verification_contract")
+        verifier_body = function_body("call_payment_verifier")
+        payment_body = function_body("verify_payment_receipt")
+        receipt_body = function_body("payment_receipt_from_checkout_request")
+
+        self.assertIn("payment_verification_contracts($quote)", requirements_body)
+        self.assertIn("'verification_contract'", requirements_body)
+        self.assertIn("'verification_contracts'", requirements_body)
+        self.assertIn("'payment_contract_hash'", requirements_body)
+        self.assertIn("'quote_total'", requirements_body)
+        for field in ["'amount_cents'", "'currency'", "'shipping_cents'", "'includes' => ['items', 'shipping', 'tax']"]:
+            self.assertIn(field, contract_body + requirements_body)
+        for destination in ["'tempo_recipient'", "'stripe_profile_id'", "'x402_pay_to'"]:
+            self.assertIn(destination, verifier_body + contract_body)
+        self.assertIn("'payment_contract' => $payment_contract", verifier_body)
+        self.assertIn("'payment_contract_hash' => $payment_contract_hash", verifier_body)
+        self.assertIn("agentcart_payment_contract_mismatch", verifier_body + payment_body)
+        self.assertIn("'payment_contract_hash' => $payment_contract_hash", payment_body + verifier_body)
+        self.assertIn("'payment_contract_hash' => self::payment_contract_hash", receipt_body)
 
     def test_quote_rejects_over_limit_quantities_instead_of_clamping(self) -> None:
         quote_body = function_body("quote")

@@ -1791,6 +1791,11 @@ class PaymentProvider:
         authorization: str,
     ) -> dict[str, Any]:
         self.require_supported()
+        payment_requirements = (
+            quote.get("payment_requirements")
+            if isinstance(quote.get("payment_requirements"), dict)
+            else {}
+        )
         return {
             "id": f"payrcpt_{uuid.uuid4().hex[:16]}",
             "protocol": self.protocol,
@@ -1800,6 +1805,9 @@ class PaymentProvider:
             "currency": quote["currency"],
             "merchant_id": quote["merchant_id"],
             "quote_id": quote["id"],
+            "merchant_quote_id": quote.get("merchant_quote_id"),
+            "quote_hash": quote.get("quote_hash"),
+            "payment_contract_hash": payment_requirements.get("payment_contract_hash"),
             "approval_id": approval["id"],
             "challenge_id": challenge["id"],
             "authorization_hash": hashlib.sha256(authorization.encode()).hexdigest(),

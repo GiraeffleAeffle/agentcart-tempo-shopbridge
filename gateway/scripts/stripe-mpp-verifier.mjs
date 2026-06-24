@@ -318,6 +318,21 @@ function expectedFromPayload(payload) {
   const profileId = String(expected.stripe_profile_id || stripeProfileId);
   const tempoNetwork = String(expected.tempo_network || "").trim();
   const tempoRecipient = String(expected.tempo_recipient || "").trim().toLowerCase();
+  const requirements =
+    quote.payment_requirements && typeof quote.payment_requirements === "object" ? quote.payment_requirements : {};
+  const verification =
+    requirements.verification && typeof requirements.verification === "object" ? requirements.verification : {};
+  const suppliedContractHashes = [
+    payload.payment_contract_hash,
+    expected.payment_contract_hash,
+    requirements.payment_contract_hash,
+    verification.payment_contract_hash,
+    receipt.payment_contract_hash,
+    receipt.contract_hash,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const uniqueContractHashes = new Set(suppliedContractHashes);
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
     throw Object.assign(new Error("expected.amount_cents must be a positive integer."), { status: 400 });
   }
@@ -333,7 +348,52 @@ function expectedFromPayload(payload) {
   if (rail === "stripe-card-mpp" && profileId !== stripeProfileId) {
     throw Object.assign(new Error("Stripe profile id does not match verifier configuration."), { status: 400 });
   }
-  return { amountCents, currency, merchantId, profileId, quoteHash, rail, tempoNetwork, tempoRecipient };
+  if (uniqueContractHashes.size > 1) {
+    throw Object.assign(new Error("payment_contract_hash values do not match."), { status: 400 });
+  }
+  return {
+    amountCents,
+    currency,
+    merchantId,
+    paymentContractHash: suppliedContractHashes[0] || "",
+    profileId,
+    quoteHash,
+    rail,
+    tempoNetwork,
+    tempoRecipient,
+  };
+}
+
+function assertReceiptMatchesExpected(receipt, expected) {
+  if (!receipt || typeof receipt !== "object") return;
+  const amount = receipt.amount_cents;
+  if (amount !== undefined && Number(amount) !== expected.amountCents) {
+    throw Object.assign(new Error("payment_receipt.amount_cents does not match expected.amount_cents."), { status: 400 });
+  }
+  const currency = String(receipt.currency || "").trim();
+  if (currency && currency.toUpperCase() !== expected.currency.toUpperCase()) {
+    throw Object.assign(new Error("payment_receipt.currency does not match expected.currency."), { status: 400 });
+  }
+  const quoteHash = String(receipt.quote_hash || "").trim();
+  if (quoteHash && quoteHash !== expected.quoteHash) {
+    throw Object.assign(new Error("payment_receipt.quote_hash does not match expected quote_hash."), { status: 400 });
+  }
+  const receiptRail = normalizeRail(receipt.rail || receipt.method || receipt.provider || "");
+  if (receiptRail && receiptRail !== expected.rail) {
+    throw Object.assign(new Error("payment_receipt rail does not match expected.rail."), { status: 400 });
+  }
+  const receiptContractHash = String(receipt.payment_contract_hash || receipt.contract_hash || "").trim();
+  if (receiptContractHash && expected.paymentContractHash && receiptContractHash !== expected.paymentContractHash) {
+    throw Object.assign(new Error("payment_receipt.payment_contract_hash does not match expected payment_contract_hash."), {
+      status: 400,
+    });
+  }
+  const receiptProfile = String(receipt.stripe_profile_id || "").trim();
+  if (expected.rail === "stripe-card-mpp" && receiptProfile && receiptProfile !== expected.profileId) {
+    throw Object.assign(new Error("payment_receipt.stripe_profile_id does not match expected Stripe profile."), {
+      status: 400,
+    });
+  }
 }
 
 function decimalAmountToCents(value) {
@@ -370,6 +430,7 @@ function chargeOptions(expected) {
     externalId: expected.quoteHash,
     metadata: {
       agentcart_quote_hash: expected.quoteHash,
+      agentcart_payment_contract_hash: expected.paymentContractHash,
       agentcart_merchant_id: expected.merchantId,
       agentcart_rail: expected.rail,
     },
@@ -450,6 +511,7 @@ async function challenge(payload) {
     ok: true,
     rail: "stripe-card-mpp",
     quote_hash: expected.quoteHash,
+    payment_contract_hash: expected.paymentContractHash || undefined,
     amount_cents: expected.amountCents,
     currency: expected.currency.toUpperCase(),
     stripe_profile_id: stripeProfileId,
@@ -465,6 +527,7 @@ async function verifyPayment(payload) {
   const expected = expectedFromPayload(payload);
   const receipt =
     payload.payment_receipt && typeof payload.payment_receipt === "object" ? payload.payment_receipt : {};
+  assertReceiptMatchesExpected(receipt, expected);
   if (expected.rail === "tempo-mpp") {
     return verifyTempoFxPayment(receipt, expected);
   }
@@ -492,6 +555,7 @@ async function verifyPayment(payload) {
     amount_cents: expected.amountCents,
     currency: expected.currency.toUpperCase(),
     quote_hash: expected.quoteHash,
+    payment_contract_hash: expected.paymentContractHash || undefined,
     stripe_profile_id: stripeProfileId,
   });
   if (!replayClaim.ok) return replayClaim.response;
@@ -502,6 +566,7 @@ async function verifyPayment(payload) {
     amount_cents: expected.amountCents,
     currency: expected.currency.toUpperCase(),
     quote_hash: expected.quoteHash,
+    payment_contract_hash: expected.paymentContractHash || undefined,
     stripe_profile_id: stripeProfileId,
     transaction_reference: transactionReference,
     mpp_receipt: mppReceipt,
@@ -557,6 +622,7 @@ async function verifyTempoFxPayment(receipt, expected) {
     amount_cents: expected.amountCents,
     currency: expected.currency.toUpperCase(),
     quote_hash: expected.quoteHash,
+    payment_contract_hash: expected.paymentContractHash || undefined,
     network: expected.tempoNetwork || network,
     recipient: expected.tempoRecipient || recipient,
   });
@@ -568,6 +634,7 @@ async function verifyTempoFxPayment(receipt, expected) {
     amount_cents: expected.amountCents,
     currency: expected.currency.toUpperCase(),
     quote_hash: expected.quoteHash,
+    payment_contract_hash: expected.paymentContractHash || undefined,
     network: expected.tempoNetwork || network,
     recipient: expected.tempoRecipient || recipient,
     transaction_reference: transactionReference,
@@ -681,10 +748,11 @@ async function paid(request, payload) {
   return result.withReceipt(
     jsonResponse({
       ok: true,
-      rail: "stripe-card-mpp",
-      quote_hash: expected.quoteHash,
-      amount_cents: expected.amountCents,
-      currency: expected.currency.toUpperCase(),
+    rail: "stripe-card-mpp",
+    quote_hash: expected.quoteHash,
+    payment_contract_hash: expected.paymentContractHash || undefined,
+    amount_cents: expected.amountCents,
+    currency: expected.currency.toUpperCase(),
       stripe_profile_id: stripeProfileId,
     }),
   );

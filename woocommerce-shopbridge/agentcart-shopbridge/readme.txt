@@ -43,7 +43,8 @@ actions.
 * Blocked categories, product-level checkout exclusion, max quantity limits,
   and product-specific shipping country overrides.
 * WooCommerce cart, tax, shipping, stock, and order creation integration.
-* Quote hash binding and single-use quote consumption.
+* Quote hash binding, payment contract hash binding, and single-use quote
+  consumption.
 * Baseline REST and `.well-known` endpoint rate limits with retry metadata,
   plus idempotency/replay checks.
 * External payment verifier hook for quote-bound Tempo MPP, Stripe/card MPP, or
@@ -78,7 +79,8 @@ actions.
 ShopBridge can call a merchant-configured payment verifier URL when creating a
 paid order or recording a verified refund. The verifier confirms that the buyer
 agent's payment or refund receipt matches the WooCommerce quote amount,
-currency, merchant id, quote hash, and configured payment destination.
+currency, merchant id, quote hash, payment contract hash, and configured
+payment destination.
 
 ShopBridge can also call a merchant-configured registry connection URL when the
 merchant clicks "Submit registry bundle" or "Send revocation request" in
@@ -95,9 +97,9 @@ action buttons.
 
 The verifier request can include the stored quote, selected order/refund fields,
 payment receipt fields supplied by the buyer agent, merchant id, payment rail,
-payment destination, amount, currency, quote hash, optional x402
-`PAYMENT-SIGNATURE` payload, and idempotency/reference values. The exact
-destination, terms, and privacy policy depend on the verifier service
+payment destination, amount, currency, quote hash, payment contract hash,
+optional x402 `PAYMENT-SIGNATURE` payload, and idempotency/reference values.
+The exact destination, terms, and privacy policy depend on the verifier service
 configured by the merchant.
 
 The registry request can include the generated registry record, record hash,

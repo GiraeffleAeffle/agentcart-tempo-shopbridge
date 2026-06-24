@@ -43,7 +43,11 @@ def sample_quote(**overrides):
         "expires_at": "2999-01-01T00:00:00+00:00",
         "quote_hash": "quote-hash-123",
         "payment_requirements": {
-            "verification": {"external_verifier_configured": True},
+            "payment_contract_hash": "payment-contract-hash-123",
+            "verification": {
+                "external_verifier_configured": True,
+                "payment_contract_hash": "payment-contract-hash-123",
+            },
             "protocols": [
                 {
                     "id": "stripe-card-mpp",
@@ -71,6 +75,7 @@ def sample_payment_receipt(**overrides):
         "amount_cents": 1480,
         "currency": "EUR",
         "quote_hash": "quote-hash-123",
+        "payment_contract_hash": "payment-contract-hash-123",
         "stripe_profile_id": "acct_shop_123",
         "authorization": "opaque-test-credential",
     }
@@ -456,6 +461,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             "amount_cents": 1480,
             "currency": "EUR",
             "quote_hash": "quote-hash-123",
+            "payment_contract_hash": "payment-contract-hash-123",
             "stripe_profile_id": "acct_shop_123",
             "authorization": "opaque-test-credential",
         }
@@ -470,6 +476,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         )
         self.assertEqual(payload["agentcart_order_id"], f"skill_{approval_hash[:24]}")
         self.assertEqual(payload["payment_receipt"]["amount_cents"], 1480)
+        self.assertEqual(payload["payment_receipt"]["payment_contract_hash"], "payment-contract-hash-123")
         self.assertEqual(payload["rail"], "stripe-card-mpp")
         self.assertEqual(payload["payment_destination"]["stripe_profile_id"], "acct_shop_123")
         self.assertEqual(payload["approval_record"]["schema"], "agentcart.approval_record.v1")
@@ -525,6 +532,18 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                     "payment_receipt": sample_payment_receipt(amount_cents=1479),
                 }
             )
+
+        with self.assertRaises(SystemExit) as raised:
+            shopbridge_direct.checkout_payload(
+                {
+                    "quote": quote,
+                    "payment_rail": "stripe-card-mpp",
+                    "approved": True,
+                    "approval_hash": approval_hash,
+                    "payment_receipt": sample_payment_receipt(payment_contract_hash="wrong-contract"),
+                }
+            )
+        self.assertIn("payment_receipt.payment_contract_hash does not match quote payment contract", str(raised.exception))
 
     def test_payment_receipt_must_explicitly_bind_amount_currency_and_quote_hash(self) -> None:
         quote = sample_quote()
@@ -626,10 +645,12 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["payment_request"]["amount_cents"], 1480)
         self.assertEqual(result["payment_request"]["currency"], "EUR")
         self.assertEqual(result["payment_request"]["quote_hash"], "quote-hash-123")
+        self.assertEqual(result["payment_request"]["payment_contract_hash"], "payment-contract-hash-123")
         self.assertEqual(
             result["payment_request"]["payment_destination"]["stripe_profile_id"],
             "acct_shop_123",
         )
+        self.assertIn("payment_contract_hash", result["payment_request"]["receipt_requirements"]["required_fields"])
         self.assertIn("stripe_profile_id", result["payment_request"]["receipt_requirements"]["required_fields"])
         self.assertIn("authorization", result["payment_request"]["receipt_requirements"]["one_of"])
         self.assertEqual(result["checkout_contract"]["next_command"], "checkout")

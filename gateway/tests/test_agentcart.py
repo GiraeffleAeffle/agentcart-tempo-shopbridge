@@ -2315,6 +2315,7 @@ class AgentCartTests(unittest.TestCase):
                         "payment_requirements": {
                             "amount_cents": 2480,
                             "currency": "EUR",
+                            "payment_contract_hash": "contract-hash-woo-701",
                             "protocols": [{"id": "tempo-mpp", "network": "testnet"}],
                         },
                         "terms_url": "http://woo.test/terms",
@@ -2323,6 +2324,8 @@ class AgentCartTests(unittest.TestCase):
                 if route == "/agentcart/v1/orders":
                     self.assertEqual(method, "POST")
                     self.assertEqual(payload["payment_receipt"]["method"], "demo")  # type: ignore[index]
+                    self.assertEqual(payload["payment_receipt"]["quote_hash"], "hash-woo-701")  # type: ignore[index]
+                    self.assertEqual(payload["payment_receipt"]["payment_contract_hash"], "contract-hash-woo-701")  # type: ignore[index]
                     self.assertEqual(payload["quote_hash"], "hash-woo-701")
                     return {
                         "platform": "woocommerce-agentcart-plugin",

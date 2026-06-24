@@ -29,10 +29,12 @@
     "expires_at": "2026-06-22T12:45:00+00:00",
     "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "payment_requirements": {
+      "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "verification": {
         "mode": "external_verifier",
         "external_verifier_configured": true,
-        "refunds_use_same_verifier": true
+        "refunds_use_same_verifier": true,
+        "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "protocols": [
         {
@@ -46,11 +48,13 @@
     }
   },
   "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "payment_receipt": {
     "method": "stripe-card-mpp",
     "amount_cents": 1840,
     "currency": "EUR",
     "quote_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "stripe_profile_id": "profile_test_agentcart_shop",
     "authorization": "mpp_test_authorization_opaque"
   },
@@ -60,6 +64,7 @@
     "currency": "EUR",
     "merchant_id": "woocommerce-demo-shop",
     "rail": "stripe-card-mpp",
+    "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "tempo_network": "testnet",
     "tempo_recipient": "",
     "stripe_profile_id": "profile_test_agentcart_shop"

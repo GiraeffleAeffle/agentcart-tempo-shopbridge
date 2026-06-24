@@ -205,8 +205,9 @@ Payment handoff after human approval:
 
 This does not move money. It returns a structured `payment_request` for the
 payment-capable agent, wallet, or provider. The request binds amount, currency,
-quote hash, merchant quote id, `approval_record_hash`, and the approved
-`payment_destination`. For Stripe/card MPP, that destination is the seller
+quote hash, `payment_contract_hash`, merchant quote id,
+`approval_record_hash`, and the approved `payment_destination`. For
+Stripe/card MPP, that destination is the seller
 Stripe profile/network id from the quote. For Tempo MPP, it is the network and
 recipient address. The returned receipt must satisfy `receipt_requirements`,
 then be passed to checkout.
@@ -214,13 +215,13 @@ then be passed to checkout.
 Checkout with a supplied verifier/payment receipt:
 
 ```json
-{"command":"checkout","args":{"base_url":"https://shop.example","quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"...","payment_receipt":{"method":"stripe-card-mpp","status":"succeeded","amount_cents":1480,"currency":"EUR","quote_hash":"...","stripe_profile_id":"acct_...","authorization":"opaque-provider-credential-or-reference"}}}
+{"command":"checkout","args":{"base_url":"https://shop.example","quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"...","payment_receipt":{"method":"stripe-card-mpp","status":"succeeded","amount_cents":1480,"currency":"EUR","quote_hash":"...","payment_contract_hash":"...","stripe_profile_id":"acct_...","authorization":"opaque-provider-credential-or-reference"}}}
 ```
 
 For supplied production receipts, the skill requires the explicit fields named
 by `payment_handoff.receipt_requirements`. It does not fill in missing amount,
-currency, quote hash, merchant profile, recipient, or transaction
-reference/credential from the quote.
+currency, quote hash, payment contract hash, merchant profile, recipient, or
+transaction reference/credential from the quote.
 
 Checkout payloads include `approval_record`, `approval_decision_record`, and a
 read-only `audit_packet` with hash-linked approval, payment receipt, and

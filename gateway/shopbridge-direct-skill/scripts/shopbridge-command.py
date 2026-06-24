@@ -1155,6 +1155,27 @@ def selected_payment_protocol(quote: dict[str, Any], payment_rail: str | None = 
     return protocols[0] if protocols else {}
 
 
+def payment_contract_hash_for_quote(quote: dict[str, Any], rail: str | None = None) -> str:
+    payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+    normalized_rail = normalize_payment_rail(rail)
+    contracts = payment.get("verification_contracts") if isinstance(payment.get("verification_contracts"), list) else []
+    for contract in contracts:
+        if not isinstance(contract, dict):
+            continue
+        if normalized_rail and normalize_payment_rail(contract.get("rail")) != normalized_rail:
+            continue
+        value = str(contract.get("payment_contract_hash") or "")
+        if value:
+            return value
+    contract = payment.get("verification_contract") if isinstance(payment.get("verification_contract"), dict) else {}
+    if contract and (not normalized_rail or normalize_payment_rail(contract.get("rail")) == normalized_rail):
+        value = str(contract.get("payment_contract_hash") or "")
+        if value:
+            return value
+    verification = payment.get("verification") if isinstance(payment.get("verification"), dict) else {}
+    return str(payment.get("payment_contract_hash") or verification.get("payment_contract_hash") or "")
+
+
 def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) -> dict[str, Any]:
     protocol = selected_payment_protocol(quote, payment_rail)
     rail = normalize_payment_rail(protocol.get("id") or payment_rail)
@@ -1163,6 +1184,7 @@ def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) 
         "available": protocol.get("available", True) is not False,
         "setup_required": protocol.get("setup_required") is True,
         "source": "quote.payment_requirements.protocols",
+        "payment_contract_hash": payment_contract_hash_for_quote(quote, rail),
     }
     if rail == "stripe-card-mpp":
         profile_id = str(
@@ -2669,6 +2691,10 @@ def payment_receipt_requirements(destination: dict[str, Any]) -> dict[str, Any]:
     rail = str(destination.get("rail") or "")
     fields = ["method", "status", "amount_cents", "currency", "quote_hash"]
     alternatives = ["transaction_reference", "authorization", "credential"]
+    must_match_quote = ["amount_cents", "currency", "quote_hash"]
+    if destination.get("payment_contract_hash"):
+        fields.append("payment_contract_hash")
+        must_match_quote.append("payment_contract_hash")
     if rail == "stripe-card-mpp":
         fields.extend(["stripe_profile_id"])
         alternatives = ["authorization", "credential", "transaction_reference"]
@@ -2681,10 +2707,10 @@ def payment_receipt_requirements(destination: dict[str, Any]) -> dict[str, Any]:
     return {
         "required_fields": fields,
         "one_of": alternatives,
-        "must_match_quote": ["amount_cents", "currency", "quote_hash"],
+        "must_match_quote": must_match_quote,
         "must_match_payment_destination": [
             key
-            for key in ("stripe_profile_id", "network_id", "network", "recipient")
+            for key in ("stripe_profile_id", "network_id", "network", "recipient", "payment_contract_hash")
             if destination.get(key)
         ],
     }
@@ -2741,6 +2767,7 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
         "amount_cents": int(quote["total_cents"]),
         "currency": str(quote["currency"]).upper(),
         "quote_hash": str(quote["quote_hash"]),
+        "payment_contract_hash": destination.get("payment_contract_hash"),
         "merchant_quote_id": str(quote["id"]),
         "approval_hash": approval["approval_hash"],
         "approval_record_hash": approval["approval_record_hash"],
@@ -2823,6 +2850,10 @@ def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dic
         raise SystemExit("payment_receipt.currency does not match quote.currency")
     if supplied_hash != str(quote["quote_hash"]):
         raise SystemExit("payment_receipt.quote_hash does not match quote.quote_hash")
+    expected_contract_hash = str(destination.get("payment_contract_hash") or "")
+    supplied_contract_hash = str(receipt.get("payment_contract_hash") or receipt.get("contract_hash") or "")
+    if expected_contract_hash and supplied_contract_hash != expected_contract_hash:
+        raise SystemExit("payment_receipt.payment_contract_hash does not match quote payment contract")
     validate_receipt_destination(receipt, destination)
     return {
         **receipt,
@@ -2831,6 +2862,7 @@ def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dic
         "amount_cents": expected_amount,
         "currency": expected_currency,
         "quote_hash": quote["quote_hash"],
+        "payment_contract_hash": expected_contract_hash or receipt.get("payment_contract_hash"),
         "payment_destination": destination,
     }
 
@@ -2845,6 +2877,7 @@ def demo_payment_receipt(quote: dict[str, Any]) -> dict[str, Any]:
         "amount_cents": quote["total_cents"],
         "currency": quote["currency"],
         "quote_hash": quote["quote_hash"],
+        "payment_contract_hash": payment_contract_hash_for_quote(quote, "tempo-mpp"),
         "real_settlement": False,
         "external_value_proof": proof,
     }
@@ -2931,6 +2964,7 @@ def skill_audit_packet(
                     "method": receipt.get("method") or receipt.get("protocol"),
                     "amount_cents": receipt.get("amount_cents"),
                     "currency": receipt.get("currency"),
+                    "payment_contract_hash": receipt.get("payment_contract_hash"),
                     "transaction_reference": receipt_reference,
                 },
             },
