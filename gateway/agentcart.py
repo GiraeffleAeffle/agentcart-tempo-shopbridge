@@ -18,6 +18,7 @@ import shlex
 import shutil
 import sys
 import threading
+import time
 import traceback
 import urllib.error
 import urllib.parse
@@ -131,6 +132,8 @@ class Config:
     woocommerce_consumer_key: str
     woocommerce_consumer_secret: str
     woocommerce_agentcart_token: str
+    woocommerce_signed_request_secret: str
+    woocommerce_signed_request_signer: str
     woocommerce_merchant_id: str
     woocommerce_merchant_name: str
     payment_provider: str
@@ -209,6 +212,16 @@ class Config:
             woocommerce_consumer_key=os.getenv("WOOCOMMERCE_CONSUMER_KEY", ""),
             woocommerce_consumer_secret=os.getenv("WOOCOMMERCE_CONSUMER_SECRET", ""),
             woocommerce_agentcart_token=os.getenv("WOOCOMMERCE_AGENTCART_TOKEN", "").strip(),
+            woocommerce_signed_request_secret=(
+                os.getenv("WOOCOMMERCE_SIGNED_REQUEST_SECRET")
+                or os.getenv("AGENTCART_SIGNED_REQUEST_SECRET")
+                or ""
+            ).strip(),
+            woocommerce_signed_request_signer=(
+                os.getenv("WOOCOMMERCE_SIGNED_REQUEST_SIGNER")
+                or os.getenv("AGENTCART_SIGNED_REQUEST_SIGNER")
+                or "agentcart-service"
+            ).strip(),
             woocommerce_merchant_id=os.getenv("WOOCOMMERCE_MERCHANT_ID", "woocommerce-demo-tea"),
             woocommerce_merchant_name=os.getenv("WOOCOMMERCE_MERCHANT_NAME", "Woo Demo Tea Shop"),
             payment_provider=os.getenv("AGENTCART_PAYMENT_PROVIDER", "demo").strip().lower(),
@@ -516,6 +529,48 @@ def parse_price_cents(value: Any, *, default: int = 0) -> int:
 def basic_auth_header(username: str, password: str) -> str:
     raw = f"{username}:{password}".encode()
     return "Basic " + base64.b64encode(raw).decode()
+
+
+def agentcart_signed_request_headers(
+    url: str,
+    *,
+    method: str,
+    body: bytes,
+    secret: str,
+    signer: str,
+) -> dict[str, str]:
+    if not secret:
+        return {}
+    parsed = urllib.parse.urlsplit(url)
+    signed_path = parsed.path or "/"
+    if parsed.query:
+        signed_path += "?" + parsed.query
+    signed_method = method.upper()
+    digest = "sha-256=" + hashlib.sha256(body).hexdigest()
+    nonce = secrets.token_hex(20)
+    expires_at = str(int(time.time()) + 300)
+    signer = signer or "agentcart-service"
+    canonical_request = "\n".join(
+        [
+            "agentcart-signed-request-v1",
+            signed_method,
+            signed_path,
+            digest,
+            nonce,
+            expires_at,
+            signer,
+        ]
+    )
+    signature = hmac.new(secret.encode(), canonical_request.encode(), hashlib.sha256).hexdigest()
+    return {
+        "X-AgentCart-Signed-Method": signed_method,
+        "X-AgentCart-Signed-Path": signed_path,
+        "X-AgentCart-Content-Digest": digest,
+        "X-AgentCart-Nonce": nonce,
+        "X-AgentCart-Expires-At": expires_at,
+        "X-AgentCart-Signer": signer,
+        "X-AgentCart-Signature": "sha256=" + signature,
+    }
 
 
 def command_available(command: str) -> bool:
@@ -1328,6 +1383,15 @@ class WooCommerceAdapter:
         if payload is not None:
             body = json.dumps(payload, default=json_default).encode()
             headers["Content-Type"] = "application/json"
+        headers.update(
+            agentcart_signed_request_headers(
+                url,
+                method=method,
+                body=body or b"",
+                secret=self.config.woocommerce_signed_request_secret,
+                signer=self.config.woocommerce_signed_request_signer,
+            )
+        )
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:

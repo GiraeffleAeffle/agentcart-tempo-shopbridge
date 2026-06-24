@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import hmac
 import json
 import pathlib
 import sys
@@ -53,6 +55,8 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         woocommerce_consumer_key="",
         woocommerce_consumer_secret="",
         woocommerce_agentcart_token="",
+        woocommerce_signed_request_secret="",
+        woocommerce_signed_request_signer="agentcart-service",
         woocommerce_merchant_id="woocommerce-demo-tea",
         woocommerce_merchant_name="Woo Demo Tea Shop",
         payment_provider="demo",
@@ -249,6 +253,33 @@ def skill_audit_packet(quote_id: str = "woo_quote_123") -> dict[str, object]:
 
 
 class AgentCartTests(unittest.TestCase):
+    def test_agentcart_signed_request_headers_bind_canonical_request(self) -> None:
+        body = b'{"items":[]}'
+        headers = agentcart.agentcart_signed_request_headers(
+            "https://merchant.example/index.php?rest_route=%2Fagentcart%2Fv1%2Fquote",
+            method="POST",
+            body=body,
+            secret="service-signing-secret",
+            signer="agentcart-service",
+        )
+
+        self.assertEqual(headers["X-AgentCart-Signed-Method"], "POST")
+        self.assertEqual(headers["X-AgentCart-Signed-Path"], "/index.php?rest_route=%2Fagentcart%2Fv1%2Fquote")
+        self.assertEqual(headers["X-AgentCart-Content-Digest"], "sha-256=" + hashlib.sha256(body).hexdigest())
+        canonical = "\n".join(
+            [
+                "agentcart-signed-request-v1",
+                headers["X-AgentCart-Signed-Method"],
+                headers["X-AgentCart-Signed-Path"],
+                headers["X-AgentCart-Content-Digest"],
+                headers["X-AgentCart-Nonce"],
+                headers["X-AgentCart-Expires-At"],
+                headers["X-AgentCart-Signer"],
+            ]
+        )
+        expected = hmac.new(b"service-signing-secret", canonical.encode(), hashlib.sha256).hexdigest()
+        self.assertEqual(headers["X-AgentCart-Signature"], "sha256=" + expected)
+
     def test_catalog_search_returns_demo_tea_products(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(pathlib.Path(raw_tmp))

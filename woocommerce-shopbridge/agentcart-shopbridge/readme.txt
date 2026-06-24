@@ -52,6 +52,9 @@ actions.
 * Optional x402 exact-payment shim that emits quote-bound `PAYMENT-REQUIRED`
   metadata when network, asset, payTo, currency, decimals, and verifier are
   configured.
+* Optional signed-request mode that binds method, path, body digest, nonce,
+  expiry, and signer for quote, checkout, status, refund, and cancellation
+  calls.
 * Merchant-token-protected refund and cancellation endpoints.
 * Admin actions to generate or rotate local merchant and verifier tokens while
   respecting secrets managed in wp-config.php.
@@ -92,7 +95,7 @@ configured by the merchant.
 3. Open `WooCommerce -> AgentCart`.
 4. Configure stable merchant id, support email, payment recipient or Stripe
    profile, optional x402 exact-payment settings, verifier URL, checkout mode,
-   and product exposure mode.
+   optional signed-request mode, and product exposure mode.
    Use Credential Actions on the same page to generate or rotate local tokens
    when they are not managed through wp-config.php.
 5. Add normal WooCommerce products and expose only the products that are safe

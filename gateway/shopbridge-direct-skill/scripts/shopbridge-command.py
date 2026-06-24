@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -47,6 +48,16 @@ REGISTRY_PATH = (
     os.getenv("SHOPBRIDGE_REGISTRY_PATH")
     or os.getenv("AGENTCART_MERCHANT_REGISTRY_PATH")
     or ""
+).strip()
+SIGNED_REQUEST_SECRET = (
+    os.getenv("SHOPBRIDGE_SIGNED_REQUEST_SECRET")
+    or os.getenv("AGENTCART_SIGNED_REQUEST_SECRET")
+    or ""
+).strip()
+SIGNED_REQUEST_SIGNER = (
+    os.getenv("SHOPBRIDGE_SIGNED_REQUEST_SIGNER")
+    or os.getenv("AGENTCART_SIGNED_REQUEST_SIGNER")
+    or "agentcart-direct-skill"
 ).strip()
 
 
@@ -107,7 +118,9 @@ def request_json(
     if data is not None:
         request_headers["Content-Type"] = "application/json"
     origin = (base_url or BASE_URL).rstrip("/")
-    req = urllib.request.Request(f"{origin}{path}", data=data, headers=request_headers, method=method)
+    url = f"{origin}{path}"
+    request_headers.update(signed_request_headers(url, method=method, body=data or b""))
+    req = urllib.request.Request(url, data=data, headers=request_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode())
@@ -118,6 +131,41 @@ def request_json(
         except json.JSONDecodeError:
             detail = body
         raise SystemExit(json.dumps({"error": {"status": exc.code, "detail": detail}}, indent=2))
+
+
+def signed_request_headers(url: str, *, method: str, body: bytes) -> dict[str, str]:
+    if not SIGNED_REQUEST_SECRET:
+        return {}
+    parsed = urllib.parse.urlsplit(url)
+    signed_path = parsed.path or "/"
+    if parsed.query:
+        signed_path += "?" + parsed.query
+    signed_method = method.upper()
+    digest = "sha-256=" + hashlib.sha256(body).hexdigest()
+    nonce = uuid.uuid4().hex + uuid.uuid4().hex[:8]
+    expires_at = str(int(time.time()) + 300)
+    signer = SIGNED_REQUEST_SIGNER or "agentcart-direct-skill"
+    canonical_request = "\n".join(
+        [
+            "agentcart-signed-request-v1",
+            signed_method,
+            signed_path,
+            digest,
+            nonce,
+            expires_at,
+            signer,
+        ]
+    )
+    signature = hmac.new(SIGNED_REQUEST_SECRET.encode(), canonical_request.encode(), hashlib.sha256).hexdigest()
+    return {
+        "X-AgentCart-Signed-Method": signed_method,
+        "X-AgentCart-Signed-Path": signed_path,
+        "X-AgentCart-Content-Digest": digest,
+        "X-AgentCart-Nonce": nonce,
+        "X-AgentCart-Expires-At": expires_at,
+        "X-AgentCart-Signer": signer,
+        "X-AgentCart-Signature": "sha256=" + signature,
+    }
 
 
 def money(cents: int, currency: str) -> str:
@@ -1620,6 +1668,8 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "registry_url_configured": bool(configured_registry_url(args)),
             "registry_path_configured": bool(configured_registry_path(args)),
             "registry_max_age_days": registry_max_age_days(args),
+            "signed_requests_configured": bool(SIGNED_REQUEST_SECRET),
+            "signed_request_signer": SIGNED_REQUEST_SIGNER if SIGNED_REQUEST_SECRET else "",
             "tempo_demo_proof_url_configured": bool(MPP_PROOF_URL),
             "tempo_demo_command": MPP_COMMAND,
         },

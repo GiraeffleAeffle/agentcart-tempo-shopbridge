@@ -20,8 +20,8 @@ AgentCart-created orders intentionally clear WooCommerce's customer IP and user-
 The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_support_email` only. It does not fall back to the WordPress admin email.
 It also publishes configured-only `protocol_profiles[]` so buyer agents can
 select the ShopBridge commerce adapter, MPP payment adapter, Stripe/card MPP
-adapter, x402 exact-payment adapter, or registry mapping before requesting a
-quote. Signed HTTP remains absent until that adapter exists.
+adapter, x402 exact-payment adapter, registry mapping, or signed-request auth
+profile before requesting a quote.
 
 ## Merchant Setup
 
@@ -71,6 +71,8 @@ define('AGENTCART_X402_MAX_TIMEOUT_SECONDS', 300);
 define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/agentcart/tempo');
 define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
 define('AGENTCART_CHECKOUT_MODE', 'external_verifier_only'); // trusted_token_or_verifier or external_verifier_only
+define('AGENTCART_SIGNED_REQUEST_MODE', 'require_checkout'); // off, allow, require_checkout, require_mutations, or require_all_sensitive
+define('AGENTCART_SIGNED_REQUEST_SECRET', 'replace-with-request-signing-secret');
 define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
 define('AGENTCART_RETURNS_URL', 'https://shop.example/returns');
 define('AGENTCART_SUBSTITUTION_POLICY', 'approval_required'); // approval_required, not_allowed, or merchant_allowed
@@ -261,6 +263,27 @@ There are also two checkout authorization modes:
   create quote-bound demo orders when no verifier is configured.
 - `external_verifier_only`: production mode. Order creation requires an external
   verifier; the merchant token cannot create a paid order through demo fallback.
+
+Signed request mode is an additional request-authentication gate. When
+configured with `AGENTCART_SIGNED_REQUEST_SECRET`, ShopBridge can require
+HMAC-SHA256 signatures for checkout only, checkout/refund/cancellation, or all
+sensitive quote/checkout/status/refund/cancellation endpoints. The signature
+binds:
+
+```text
+agentcart-signed-request-v1
+METHOD
+/request/path?query
+sha-256=<hex body digest>
+nonce
+expires_at_unix_seconds
+signer
+```
+
+The required headers are `X-AgentCart-Signed-Method`,
+`X-AgentCart-Signed-Path`, `X-AgentCart-Content-Digest`,
+`X-AgentCart-Nonce`, `X-AgentCart-Expires-At`, `X-AgentCart-Signer`, and
+`X-AgentCart-Signature`. Nonces are single-use until expiry.
 
 The verifier response must bind the payment to the exact quote and transaction.
 See `../docs/VERIFIER_CONTRACT.md` for the production verifier contract. Minimal

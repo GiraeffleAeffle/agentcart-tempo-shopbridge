@@ -48,9 +48,11 @@ catalog, quote, VAT, shipping, merchant of record, order, delivery, refund, and
 audit fields.
 Merchant manifests publish configured-only `protocol_profiles[]` so agents can
 choose the ShopBridge commerce adapter, MPP/Stripe/x402 payment adapter, or
-registry mapping before making quote calls. The x402 adapter emits
-quote-bound payment requirements when configured, but WooCommerce still marks an
-order paid only after the verifier confirms the receipt.
+registry/signed-request mapping before making quote calls. The x402 adapter
+emits quote-bound payment requirements when configured, but WooCommerce still
+marks an order paid only after the verifier confirms the receipt. Signed
+request mode is optional and binds method, path, body digest, nonce, expiry,
+and signer for sensitive endpoint calls.
 
 The hackathon demo uses EUR product quotes and a pathUSD Tempo testnet proof.
 That is not real EUR settlement. Production needs one of:
@@ -112,6 +114,8 @@ This creates `dist/shopbridge-direct-skill.zip`. See `docs/BUYER_SETUP.md` for
 skill-only and service-backed setup. For verified multi-merchant discovery in
 skill-only mode, configure `SHOPBRIDGE_REGISTRY_URL` or
 `SHOPBRIDGE_REGISTRY_PATH` once instead of passing registry records every time.
+If a merchant enables signed request mode, set
+`SHOPBRIDGE_SIGNED_REQUEST_SECRET` in the buyer skill environment.
 
 When `AGENTCART_TOKEN` is set, open protected browser pages with the token once:
 

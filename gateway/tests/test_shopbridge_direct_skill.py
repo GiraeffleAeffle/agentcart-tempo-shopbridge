@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import hmac
 import json
 import sys
 import tempfile
@@ -324,6 +326,41 @@ def sample_order_status(**overrides):
 
 
 class ShopBridgeDirectSkillTests(unittest.TestCase):
+    def test_signed_request_headers_bind_method_path_body_nonce_and_expiry(self) -> None:
+        original_secret = shopbridge_direct.SIGNED_REQUEST_SECRET
+        original_signer = shopbridge_direct.SIGNED_REQUEST_SIGNER
+        try:
+            shopbridge_direct.SIGNED_REQUEST_SECRET = "test-signing-secret"
+            shopbridge_direct.SIGNED_REQUEST_SIGNER = "buyer-agent"
+            body = b'{"hello":"world"}'
+            headers = shopbridge_direct.signed_request_headers(
+                "https://merchant.example/wp-json/agentcart/v1/quote?x=1",
+                method="POST",
+                body=body,
+            )
+        finally:
+            shopbridge_direct.SIGNED_REQUEST_SECRET = original_secret
+            shopbridge_direct.SIGNED_REQUEST_SIGNER = original_signer
+
+        self.assertEqual(headers["X-AgentCart-Signed-Method"], "POST")
+        self.assertEqual(headers["X-AgentCart-Signed-Path"], "/wp-json/agentcart/v1/quote?x=1")
+        self.assertEqual(headers["X-AgentCart-Content-Digest"], "sha-256=" + hashlib.sha256(body).hexdigest())
+        self.assertEqual(headers["X-AgentCart-Signer"], "buyer-agent")
+        self.assertRegex(headers["X-AgentCart-Nonce"], r"^[a-f0-9]{40}$")
+        canonical = "\n".join(
+            [
+                "agentcart-signed-request-v1",
+                headers["X-AgentCart-Signed-Method"],
+                headers["X-AgentCart-Signed-Path"],
+                headers["X-AgentCart-Content-Digest"],
+                headers["X-AgentCart-Nonce"],
+                headers["X-AgentCart-Expires-At"],
+                headers["X-AgentCart-Signer"],
+            ]
+        )
+        expected = hmac.new(b"test-signing-secret", canonical.encode(), hashlib.sha256).hexdigest()
+        self.assertEqual(headers["X-AgentCart-Signature"], "sha256=" + expected)
+
     def test_doctor_reports_missing_buyer_configuration_without_network(self) -> None:
         with (
             mock.patch.dict(shopbridge_direct.os.environ, {}, clear=True),

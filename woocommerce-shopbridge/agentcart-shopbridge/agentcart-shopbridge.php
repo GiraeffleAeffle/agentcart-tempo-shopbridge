@@ -50,6 +50,11 @@ final class AgentCart_ShopBridge {
     const X402_PAY_TO_OPTION = 'agentcart_shopbridge_x402_pay_to';
     const X402_FACILITATOR_URL_OPTION = 'agentcart_shopbridge_x402_facilitator_url';
     const X402_MAX_TIMEOUT_SECONDS_OPTION = 'agentcart_shopbridge_x402_max_timeout_seconds';
+    const SIGNED_REQUEST_MODE_OPTION = 'agentcart_shopbridge_signed_request_mode';
+    const SIGNED_REQUEST_SECRET_OPTION = 'agentcart_shopbridge_signed_request_secret';
+    const SIGNED_REQUEST_NONCE_PREFIX = 'agentcart_shopbridge_signed_nonce_';
+    const SIGNED_REQUEST_MAX_TTL_SECONDS = 900;
+    const SIGNED_REQUEST_CLOCK_SKEW_SECONDS = 60;
     const SUPPORT_EMAIL_OPTION = 'agentcart_shopbridge_support_email';
     const RETURNS_URL_OPTION = 'agentcart_shopbridge_returns_url';
     const SUBSTITUTION_POLICY_OPTION = 'agentcart_shopbridge_substitution_policy';
@@ -244,6 +249,16 @@ final class AgentCart_ShopBridge {
             'sanitize_callback' => [__CLASS__, 'sanitize_checkout_mode_setting'],
             'default' => 'trusted_token_or_verifier',
         ]);
+        register_setting('agentcart_shopbridge', self::SIGNED_REQUEST_MODE_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_signed_request_mode_setting'],
+            'default' => 'off',
+        ]);
+        register_setting('agentcart_shopbridge', self::SIGNED_REQUEST_SECRET_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
         register_setting('agentcart_shopbridge', self::PRODUCT_EXPOSURE_MODE_OPTION, [
             'type' => 'string',
             'sanitize_callback' => [__CLASS__, 'sanitize_product_exposure_mode_setting'],
@@ -340,6 +355,11 @@ final class AgentCart_ShopBridge {
         return in_array($mode, ['trusted_token_or_verifier', 'external_verifier_only'], true) ? $mode : 'trusted_token_or_verifier';
     }
 
+    public static function sanitize_signed_request_mode_setting($value) {
+        $mode = sanitize_key((string) $value);
+        return in_array($mode, ['off', 'allow', 'require_checkout', 'require_mutations', 'require_all_sensitive'], true) ? $mode : 'off';
+    }
+
     public static function sanitize_merchant_id_setting($value) {
         $value = strtolower(trim(sanitize_text_field((string) $value)));
         $value = preg_replace('/[^a-z0-9._-]+/', '-', $value);
@@ -374,6 +394,7 @@ final class AgentCart_ShopBridge {
         $orders_url = rest_url(self::API_NAMESPACE . '/orders');
         $payment_verifier_url = self::payment_verifier_url();
         $checkout_mode = self::checkout_mode();
+        $signed_request_mode = self::signed_request_mode();
         $tempo_recipient = self::tempo_recipient();
         $stripe_profile_id = self::stripe_profile_id();
         $x402_network = self::x402_network();
@@ -459,6 +480,11 @@ final class AgentCart_ShopBridge {
                         <th scope="row">Checkout mode</th>
                         <td><?php echo esc_html(self::checkout_mode_label($checkout_mode)); ?></td>
                         <td><?php echo self::admin_status_badge(self::external_verifier_required_for_checkout(), 'Verifier only', 'Token fallback enabled'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Signed HTTP requests</th>
+                        <td><?php echo esc_html(self::signed_request_mode_label($signed_request_mode)); ?></td>
+                        <td><?php echo self::admin_status_badge(self::signed_request_profile_configured(), 'Configured', 'Off or missing secret'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Stripe/card MPP</th>
@@ -570,6 +596,8 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
                     <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
                     <?php self::render_checkout_mode_setting_row($checkout_mode); ?>
+                    <?php self::render_signed_request_mode_setting_row($signed_request_mode); ?>
+                    <?php self::render_password_setting_row('Signed request secret', self::SIGNED_REQUEST_SECRET_OPTION, self::signed_request_secret(), 'AGENTCART_SIGNED_REQUEST_SECRET', 'Shared HMAC secret for request-bound signatures. Use with signed request mode to reduce bearer-token-only checkout, status, refund, and cancellation access.'); ?>
                     <?php self::render_product_exposure_setting_rows($product_exposure_mode, $product_exposure_tag, $product_exposure_categories, $product_blocked_categories); ?>
                     <?php self::render_stock_hold_setting_rows($stock_hold_mode, $stock_hold_minutes); ?>
                 </table>
@@ -666,6 +694,14 @@ final class AgentCart_ShopBridge {
             }
             update_option(self::PAYMENT_VERIFIER_TOKEN_OPTION, wp_generate_password(48, false, false), false);
             return 'Payment verifier token generated. Configure the same bearer token on the external verifier.';
+        }
+
+        if ($action === 'rotate_signed_request_secret') {
+            if (defined('AGENTCART_SIGNED_REQUEST_SECRET')) {
+                return 'Signed request secret is managed in wp-config.php and was not changed.';
+            }
+            update_option(self::SIGNED_REQUEST_SECRET_OPTION, wp_generate_password(64, false, false), false);
+            return 'Signed request secret generated. Configure the same secret in trusted buyer agents or the AgentCart gateway.';
         }
 
         return null;
@@ -814,6 +850,24 @@ final class AgentCart_ShopBridge {
                         <?php endif; ?>
                     </td>
                 </tr>
+                <tr>
+                    <th scope="row">Signed request HMAC secret</th>
+                    <td>
+                        Shared secret used to sign method, path, body digest, nonce, and expiry
+                        for request-bound quote, checkout, status, refund, and cancellation calls.
+                    </td>
+                    <td>
+                        <?php if (defined('AGENTCART_SIGNED_REQUEST_SECRET')) : ?>
+                            <?php echo self::admin_status_badge(true, 'Managed in wp-config.php'); ?>
+                        <?php else : ?>
+                            <form method="post">
+                                <?php wp_nonce_field('agentcart_shopbridge_credential_action'); ?>
+                                <input type="hidden" name="agentcart_credential_action" value="rotate_signed_request_secret" />
+                                <?php submit_button('Generate / rotate signing secret', 'secondary', 'submit', false); ?>
+                            </form>
+                        <?php endif; ?>
+                    </td>
+                </tr>
             </tbody>
         </table>
         <?php
@@ -928,6 +982,10 @@ final class AgentCart_ShopBridge {
         if (is_wp_error($rate_limit)) {
             return $rate_limit;
         }
+        $signed_request = self::enforce_signed_request_policy($request, self::rate_limit_bucket_for_request($request));
+        if (is_wp_error($signed_request)) {
+            return $signed_request;
+        }
         return true;
     }
 
@@ -948,6 +1006,10 @@ final class AgentCart_ShopBridge {
         $rate_limit = self::enforce_rate_limit($request, 'checkout');
         if (is_wp_error($rate_limit)) {
             return $rate_limit;
+        }
+        $signed_request = self::enforce_signed_request_policy($request, 'checkout');
+        if (is_wp_error($signed_request)) {
+            return $signed_request;
         }
         if (self::external_verifier_required_for_checkout()) {
             if (self::payment_verifier_url() !== '') {
@@ -980,6 +1042,13 @@ final class AgentCart_ShopBridge {
         if (is_wp_error($rate_limit)) {
             return $rate_limit;
         }
+        $signed_request = self::enforce_signed_request_policy($request, 'order_status');
+        if (is_wp_error($signed_request)) {
+            return $signed_request;
+        }
+        if (self::signed_request_verified($request)) {
+            return true;
+        }
         if (self::has_valid_merchant_token($request)) {
             return true;
         }
@@ -1003,6 +1072,13 @@ final class AgentCart_ShopBridge {
         if (is_wp_error($rate_limit)) {
             return $rate_limit;
         }
+        $signed_request = self::enforce_signed_request_policy($request, 'refund');
+        if (is_wp_error($signed_request)) {
+            return $signed_request;
+        }
+        if (self::signed_request_verified($request)) {
+            return true;
+        }
         if (self::has_valid_merchant_token($request)) {
             return true;
         }
@@ -1021,6 +1097,13 @@ final class AgentCart_ShopBridge {
         if (is_wp_error($rate_limit)) {
             return $rate_limit;
         }
+        $signed_request = self::enforce_signed_request_policy($request, 'cancellation');
+        if (is_wp_error($signed_request)) {
+            return $signed_request;
+        }
+        if (self::signed_request_verified($request)) {
+            return true;
+        }
         if (self::has_valid_merchant_token($request)) {
             return true;
         }
@@ -1029,6 +1112,172 @@ final class AgentCart_ShopBridge {
             'Cancellation creation requires the merchant token. Buyer-facing cancellation requests should be approved by the merchant or trusted gateway before this endpoint is called.',
             ['status' => 401]
         );
+    }
+
+    private static function enforce_signed_request_policy(WP_REST_Request $request, $bucket) {
+        $bucket = sanitize_key((string) $bucket);
+        $mode = self::signed_request_mode();
+        if ($mode === 'off') {
+            return true;
+        }
+
+        $required = self::signed_request_required_for_bucket($bucket);
+        $has_signature = trim((string) $request->get_header('x-agentcart-signature')) !== '';
+        if (!$required && !$has_signature) {
+            return true;
+        }
+
+        if (self::signed_request_secret() === '') {
+            return new WP_Error(
+                'agentcart_signed_request_not_configured',
+                'Signed request mode requires a signed request secret.',
+                ['status' => 401, 'bucket' => $bucket]
+            );
+        }
+        if ($required && !$has_signature) {
+            return new WP_Error(
+                'agentcart_signed_request_required',
+                'This AgentCart endpoint requires a signed HTTP request.',
+                ['status' => 401, 'bucket' => $bucket]
+            );
+        }
+
+        $verification = self::verify_signed_request($request, $bucket);
+        if (is_wp_error($verification)) {
+            return $verification;
+        }
+        $request->set_param('_agentcart_signed_request_verified', true);
+        $request->set_param('_agentcart_signed_request_signer', (string) ($verification['signer'] ?? ''));
+        return true;
+    }
+
+    private static function verify_signed_request(WP_REST_Request $request, $bucket) {
+        $method = strtoupper(trim((string) $request->get_header('x-agentcart-signed-method')));
+        if ($method === '') {
+            return new WP_Error('agentcart_signed_request_missing_method', 'Signed request header X-AgentCart-Signed-Method is required.', ['status' => 401, 'bucket' => $bucket]);
+        }
+        if ($method !== strtoupper((string) $request->get_method())) {
+            return new WP_Error('agentcart_signed_request_method_mismatch', 'Signed request method does not match the HTTP method.', ['status' => 401, 'bucket' => $bucket]);
+        }
+
+        $path = trim((string) $request->get_header('x-agentcart-signed-path'));
+        if ($path === '') {
+            return new WP_Error('agentcart_signed_request_missing_path', 'Signed request header X-AgentCart-Signed-Path is required.', ['status' => 401, 'bucket' => $bucket]);
+        }
+        if (!hash_equals(self::current_request_path_with_query(), $path)) {
+            return new WP_Error('agentcart_signed_request_path_mismatch', 'Signed request path does not match the HTTP request target.', ['status' => 401, 'bucket' => $bucket]);
+        }
+
+        $digest = strtolower(trim((string) $request->get_header('x-agentcart-content-digest')));
+        if ($digest === '') {
+            return new WP_Error('agentcart_signed_request_missing_digest', 'Signed request header X-AgentCart-Content-Digest is required.', ['status' => 401, 'bucket' => $bucket]);
+        }
+        $expected_digest = self::signed_request_content_digest($request);
+        if (!hash_equals($expected_digest, $digest)) {
+            return new WP_Error('agentcart_signed_request_digest_mismatch', 'Signed request body digest does not match the request body.', ['status' => 401, 'bucket' => $bucket]);
+        }
+
+        $nonce = trim((string) $request->get_header('x-agentcart-nonce'));
+        if ($nonce === '') {
+            return new WP_Error('agentcart_signed_request_missing_nonce', 'Signed request header X-AgentCart-Nonce is required.', ['status' => 401, 'bucket' => $bucket]);
+        }
+        if (strlen($nonce) < 12 || strlen($nonce) > 128 || preg_match('/[^A-Za-z0-9._:-]/', $nonce)) {
+            return new WP_Error('agentcart_signed_request_invalid_nonce', 'Signed request nonce must be 12-128 safe characters.', ['status' => 401, 'bucket' => $bucket]);
+        }
+
+        $expires_raw = trim((string) $request->get_header('x-agentcart-expires-at'));
+        if ($expires_raw === '') {
+            return new WP_Error('agentcart_signed_request_missing_expiry', 'Signed request header X-AgentCart-Expires-At is required.', ['status' => 401, 'bucket' => $bucket]);
+        }
+        if (!ctype_digit($expires_raw)) {
+            return new WP_Error('agentcart_signed_request_invalid_expiry', 'Signed request expiry must be a Unix timestamp in seconds.', ['status' => 401, 'bucket' => $bucket]);
+        }
+        $expires_at = intval($expires_raw);
+        $now = time();
+        if ($expires_at + self::SIGNED_REQUEST_CLOCK_SKEW_SECONDS < $now) {
+            return new WP_Error('agentcart_signed_request_expired', 'Signed request has expired.', ['status' => 401, 'bucket' => $bucket]);
+        }
+        if ($expires_at > $now + self::SIGNED_REQUEST_MAX_TTL_SECONDS) {
+            return new WP_Error('agentcart_signed_request_expiry_too_far', 'Signed request expiry is too far in the future.', ['status' => 401, 'bucket' => $bucket]);
+        }
+
+        $signer = sanitize_text_field((string) ($request->get_header('x-agentcart-signer') ?: 'agentcart'));
+        $signature = strtolower(trim((string) $request->get_header('x-agentcart-signature')));
+        if (strpos($signature, 'sha256=') === 0) {
+            $signature = substr($signature, 7);
+        }
+        if ($signature === '') {
+            return new WP_Error('agentcart_signed_request_missing_signature', 'Signed request header X-AgentCart-Signature is required.', ['status' => 401, 'bucket' => $bucket]);
+        }
+        if (!preg_match('/^[a-f0-9]{64}$/', $signature)) {
+            return new WP_Error('agentcart_signed_request_invalid_signature', 'Signed request signature must be a hex HMAC-SHA256 value.', ['status' => 401, 'bucket' => $bucket]);
+        }
+
+        $canonical = self::signed_request_canonical_string($method, $path, $expected_digest, $nonce, $expires_raw, $signer);
+        $expected_signature = hash_hmac('sha256', $canonical, self::signed_request_secret());
+        if (!hash_equals($expected_signature, $signature)) {
+            return new WP_Error('agentcart_signed_request_signature_mismatch', 'Signed request signature does not match the canonical request.', ['status' => 401, 'bucket' => $bucket]);
+        }
+
+        $nonce_key = self::signed_request_nonce_transient_name($signer, $nonce);
+        if (get_transient($nonce_key) !== false) {
+            return new WP_Error('agentcart_signed_request_replay', 'Signed request nonce has already been used.', ['status' => 409, 'bucket' => $bucket]);
+        }
+        set_transient($nonce_key, '1', max(60, ($expires_at - $now) + self::SIGNED_REQUEST_CLOCK_SKEW_SECONDS));
+
+        return [
+            'state' => 'verified',
+            'signer' => $signer,
+            'bucket' => $bucket,
+            'expires_at' => $expires_at,
+        ];
+    }
+
+    private static function signed_request_verified(WP_REST_Request $request) {
+        return $request->get_param('_agentcart_signed_request_verified') === true;
+    }
+
+    private static function signed_request_required_for_bucket($bucket) {
+        $mode = self::signed_request_mode();
+        $bucket = sanitize_key((string) $bucket);
+        if ($mode === 'require_checkout') {
+            return $bucket === 'checkout';
+        }
+        if ($mode === 'require_mutations') {
+            return in_array($bucket, ['checkout', 'refund', 'cancellation'], true);
+        }
+        if ($mode === 'require_all_sensitive') {
+            return in_array($bucket, ['quote', 'checkout', 'order_status', 'refund', 'cancellation'], true);
+        }
+        return false;
+    }
+
+    private static function signed_request_content_digest(WP_REST_Request $request) {
+        return 'sha-256=' . hash('sha256', (string) $request->get_body());
+    }
+
+    private static function signed_request_canonical_string($method, $path, $digest, $nonce, $expires_at, $signer) {
+        return implode("\n", [
+            'agentcart-signed-request-v1',
+            strtoupper((string) $method),
+            (string) $path,
+            strtolower((string) $digest),
+            (string) $nonce,
+            (string) $expires_at,
+            (string) $signer,
+        ]);
+    }
+
+    private static function signed_request_nonce_transient_name($signer, $nonce) {
+        return self::SIGNED_REQUEST_NONCE_PREFIX . hash('sha256', (string) $signer . '|' . (string) $nonce);
+    }
+
+    private static function current_request_path_with_query() {
+        $uri = (string) wp_unslash($_SERVER['REQUEST_URI'] ?? '');
+        $parts = parse_url($uri);
+        $path = (string) ($parts['path'] ?? '');
+        $query = (string) ($parts['query'] ?? '');
+        return $query !== '' ? $path . '?' . $query : $path;
     }
 
     private static function has_valid_merchant_token(WP_REST_Request $request) {
@@ -1441,6 +1690,9 @@ final class AgentCart_ShopBridge {
         if (self::x402_profile_configured()) {
             $protocols[] = 'x402-compatible';
         }
+        if (self::signed_request_profile_configured()) {
+            $protocols[] = 'signed-http-ready';
+        }
         return $protocols;
     }
 
@@ -1559,6 +1811,35 @@ final class AgentCart_ShopBridge {
                 'payment_signature_header' => 'PAYMENT-SIGNATURE',
                 'payment_response_header' => 'PAYMENT-RESPONSE',
                 'verifier_required' => true,
+            ];
+        }
+
+        if (self::signed_request_profile_configured()) {
+            $profiles[] = [
+                'id' => 'signed-http-ready',
+                'type' => 'auth',
+                'standard' => 'ERC-8128-style signed HTTP',
+                'status' => 'available',
+                'signature_scheme' => 'agentcart-hmac-sha256-v1',
+                'mode' => self::signed_request_mode(),
+                'required_for' => self::signed_request_required_buckets(),
+                'max_ttl_seconds' => self::SIGNED_REQUEST_MAX_TTL_SECONDS,
+                'clock_skew_seconds' => self::SIGNED_REQUEST_CLOCK_SKEW_SECONDS,
+                'replay_protection' => 'nonce_transient',
+                'canonical' => [
+                    'version' => 'agentcart-signed-request-v1',
+                    'fields' => ['method', 'path', 'content_digest', 'nonce', 'expires_at', 'signer'],
+                    'separator' => '\\n',
+                ],
+                'headers' => [
+                    'signed_method' => 'X-AgentCart-Signed-Method',
+                    'signed_path' => 'X-AgentCart-Signed-Path',
+                    'content_digest' => 'X-AgentCart-Content-Digest',
+                    'nonce' => 'X-AgentCart-Nonce',
+                    'expires_at' => 'X-AgentCart-Expires-At',
+                    'signer' => 'X-AgentCart-Signer',
+                    'signature' => 'X-AgentCart-Signature',
+                ],
             ];
         }
 
@@ -1838,6 +2119,11 @@ final class AgentCart_ShopBridge {
         if (!self::external_verifier_required_for_checkout()) {
             $missing_production[] = 'external-verifier-only checkout mode';
         }
+        if (!self::signed_request_required_for_bucket('checkout')) {
+            $missing_production[] = 'signed checkout request gate';
+        } elseif (self::signed_request_secret() === '') {
+            $missing_production[] = 'signed request secret';
+        }
         if (self::tempo_recipient() === '' && self::stripe_profile_id() === '') {
             $missing_production[] = 'Tempo recipient or Stripe profile';
         }
@@ -1861,6 +2147,9 @@ final class AgentCart_ShopBridge {
             'checkout_mode' => self::checkout_mode(),
             'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
             'trusted_token_checkout_enabled' => !self::external_verifier_required_for_checkout(),
+            'signed_request_mode' => self::signed_request_mode(),
+            'signed_request_configured' => self::signed_request_profile_configured(),
+            'signed_request_required_for' => self::signed_request_required_buckets(),
             'agentcart_enabled_product_count' => $enabled_product_count,
             'product_exposure_mode' => self::product_exposure_mode(),
             'product_exposure_tag' => self::product_exposure_mode() === 'tag' ? self::product_exposure_tag() : null,
@@ -1983,6 +2272,39 @@ final class AgentCart_ShopBridge {
                     Use trusted gateway token mode for private demos. Use external verifier only before allowing public buyer agents to create paid WooCommerce orders.
                     <?php if ($constant_defined): ?>
                         <br><strong>Configured in wp-config.php via <code>AGENTCART_CHECKOUT_MODE</code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <?php
+    }
+
+    private static function render_signed_request_mode_setting_row($signed_request_mode) {
+        $constant_defined = defined('AGENTCART_SIGNED_REQUEST_MODE');
+        $modes = [
+            'off' => 'Off',
+            'allow' => 'Allow signed requests',
+            'require_checkout' => 'Require for checkout',
+            'require_mutations' => 'Require for checkout, refunds, and cancellations',
+            'require_all_sensitive' => 'Require for quote, checkout, status, refunds, and cancellations',
+        ];
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::SIGNED_REQUEST_MODE_OPTION); ?>">Signed request mode</label></th>
+            <td>
+                <select
+                    id="<?php echo esc_attr(self::SIGNED_REQUEST_MODE_OPTION); ?>"
+                    name="<?php echo esc_attr(self::SIGNED_REQUEST_MODE_OPTION); ?>"
+                    <?php disabled($constant_defined); ?>
+                >
+                    <?php foreach ($modes as $value => $label): ?>
+                        <option value="<?php echo esc_attr($value); ?>" <?php selected($signed_request_mode, $value); ?>><?php echo esc_html($label); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="description">
+                    Optional request-bound HMAC signatures for quote, checkout, status, refund, and cancellation calls. This is the current ERC-8128-style adapter seam; wallet signatures can replace the HMAC signer later without changing commerce payloads.
+                    <?php if ($constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_SIGNED_REQUEST_MODE</code>.</strong>
                     <?php endif; ?>
                 </p>
             </td>
@@ -2230,6 +2552,9 @@ final class AgentCart_ShopBridge {
                 'merchant_substitution_policy' => true,
                 'merchant_cancellation_policy' => true,
                 'x402_exact_payment_required' => self::x402_profile_configured(),
+                'signed_http_requests' => self::signed_request_profile_configured(),
+                'signed_request_required_for_checkout' => self::signed_request_required_for_bucket('checkout'),
+                'signed_request_nonce_replay_protection' => self::signed_request_profile_configured(),
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'carrier_tracking_adapter_contract' => true,
@@ -2348,6 +2673,9 @@ final class AgentCart_ShopBridge {
                 'x402_network' => self::x402_network(),
                 'x402_asset' => self::x402_asset(),
                 'x402_pay_to_configured' => self::x402_pay_to() !== '',
+                'signed_request_mode' => self::signed_request_mode(),
+                'signed_request_configured' => self::signed_request_profile_configured(),
+                'signed_request_required_for' => self::signed_request_required_buckets(),
                 'refunds_use_same_verifier' => true,
             ],
             'refund_policy' => [
@@ -4280,6 +4608,8 @@ final class AgentCart_ShopBridge {
                 'verification_mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
                 'checkout_mode' => self::checkout_mode(),
                 'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
+                'signed_request_mode' => self::signed_request_mode(),
+                'signed_request_required_for' => self::signed_request_required_buckets(),
                 'tempo_network' => self::tempo_network(),
                 'tempo_recipient' => self::tempo_recipient(),
                 'stripe_profile_id' => self::stripe_profile_id(),
@@ -4316,6 +4646,16 @@ final class AgentCart_ShopBridge {
                 'checkout_mode' => self::checkout_mode(),
                 'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
                 'trusted_token_checkout_enabled' => !self::external_verifier_required_for_checkout(),
+            ],
+            'request_signature' => [
+                'configured' => self::signed_request_profile_configured(),
+                'mode' => self::signed_request_mode(),
+                'required_for_checkout' => self::signed_request_required_for_bucket('checkout'),
+                'required_for' => self::signed_request_required_buckets(),
+                'profile_id' => self::signed_request_profile_configured() ? 'signed-http-ready' : null,
+                'signature_scheme' => 'agentcart-hmac-sha256-v1',
+                'headers' => self::signed_request_header_names(),
+                'max_ttl_seconds' => self::SIGNED_REQUEST_MAX_TTL_SECONDS,
             ],
             'protocols' => [
                 [
@@ -4557,6 +4897,52 @@ final class AgentCart_ShopBridge {
         return self::sanitize_checkout_mode_setting((string) get_option(self::CHECKOUT_MODE_OPTION, 'trusted_token_or_verifier'));
     }
 
+    private static function signed_request_mode() {
+        if (defined('AGENTCART_SIGNED_REQUEST_MODE')) {
+            $value = self::sanitize_signed_request_mode_setting((string) AGENTCART_SIGNED_REQUEST_MODE);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return self::sanitize_signed_request_mode_setting((string) get_option(self::SIGNED_REQUEST_MODE_OPTION, 'off'));
+    }
+
+    private static function signed_request_secret() {
+        if (defined('AGENTCART_SIGNED_REQUEST_SECRET')) {
+            $value = trim((string) AGENTCART_SIGNED_REQUEST_SECRET);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string) get_option(self::SIGNED_REQUEST_SECRET_OPTION, ''));
+    }
+
+    private static function signed_request_profile_configured() {
+        return self::signed_request_mode() !== 'off' && self::signed_request_secret() !== '';
+    }
+
+    private static function signed_request_required_buckets() {
+        $buckets = [];
+        foreach (['quote', 'checkout', 'order_status', 'refund', 'cancellation'] as $bucket) {
+            if (self::signed_request_required_for_bucket($bucket)) {
+                $buckets[] = $bucket;
+            }
+        }
+        return $buckets;
+    }
+
+    private static function signed_request_header_names() {
+        return [
+            'signed_method' => 'X-AgentCart-Signed-Method',
+            'signed_path' => 'X-AgentCart-Signed-Path',
+            'content_digest' => 'X-AgentCart-Content-Digest',
+            'nonce' => 'X-AgentCart-Nonce',
+            'expires_at' => 'X-AgentCart-Expires-At',
+            'signer' => 'X-AgentCart-Signer',
+            'signature' => 'X-AgentCart-Signature',
+        ];
+    }
+
     private static function external_verifier_required_for_checkout() {
         return self::checkout_mode() === 'external_verifier_only';
     }
@@ -4565,6 +4951,17 @@ final class AgentCart_ShopBridge {
         return $mode === 'external_verifier_only'
             ? 'External verifier only'
             : 'Trusted gateway token or external verifier';
+    }
+
+    private static function signed_request_mode_label($mode) {
+        $labels = [
+            'off' => 'Off',
+            'allow' => 'Allow signed requests',
+            'require_checkout' => 'Require for checkout',
+            'require_mutations' => 'Require for checkout, refunds, and cancellations',
+            'require_all_sensitive' => 'Require for quote, checkout, status, refunds, and cancellations',
+        ];
+        return $labels[$mode] ?? 'Off';
     }
 
     private static function tempo_recipient() {

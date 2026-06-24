@@ -86,6 +86,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_shopbridge_token", uninstall)
         self.assertIn("agentcart_shopbridge_stock_holds", uninstall)
         self.assertIn("agentcart_shopbridge_registry_public_check", uninstall)
+        self.assertIn("agentcart_shopbridge_signed_request_mode", uninstall)
+        self.assertIn("agentcart_shopbridge_signed_request_secret", uninstall)
+        self.assertIn("agentcart_shopbridge_signed_nonce_", uninstall)
         self.assertIn("agentcart_shopbridge_x402_network", uninstall)
         self.assertIn("agentcart_shopbridge_x402_pay_to", uninstall)
         self.assertIn("agentcart_shopbridge_quote_", uninstall)
@@ -426,7 +429,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'id' => 'x402-compatible'", profiles_body)
         self.assertIn("if (self::x402_profile_configured())", profiles_body)
         self.assertIn("'payment_required_header' => 'PAYMENT-REQUIRED'", profiles_body)
-        self.assertNotIn("'id' => 'signed-http-ready'", profiles_body)
+        self.assertIn("'id' => 'signed-http-ready'", profiles_body)
+        self.assertIn("if (self::signed_request_profile_configured())", profiles_body)
         self.assertIn("protocol_profiles(manifest)", registry_tool)
         self.assertIn("validate_protocol_profiles", smoke)
 
@@ -470,6 +474,55 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'x402_max_amount_required' => self::x402_atomic_amount", verifier_body)
         self.assertIn("agentcart_payment_x402_amount_mismatch", verifier_body)
         self.assertIn("agentcart_payment_x402_pay_to_mismatch", verifier_body)
+
+    def test_signed_http_request_gate_is_configured_only_and_replay_protected(self) -> None:
+        settings_body = function_body("register_settings")
+        render_body = function_body("render_settings_page")
+        profiles_body = function_body("protocol_profiles")
+        auth_body = function_body("enforce_signed_request_policy")
+        verifier_body = function_body("verify_signed_request")
+        quote_hash_body = function_body("quote_hash_payload")
+        requirements_body = function_body("payment_requirements")
+        readiness_body = function_body("readiness")
+        checkout_body = function_body("authorize_checkout")
+        status_body = function_body("authorize_order_status")
+        refund_body = function_body("authorize_refund")
+        cancellation_body = function_body("authorize_cancellation")
+
+        for symbol in [
+            "SIGNED_REQUEST_MODE_OPTION",
+            "SIGNED_REQUEST_SECRET_OPTION",
+            "SIGNED_REQUEST_NONCE_PREFIX",
+            "AGENTCART_SIGNED_REQUEST_MODE",
+            "AGENTCART_SIGNED_REQUEST_SECRET",
+        ]:
+            self.assertIn(symbol, SOURCE)
+        self.assertIn("sanitize_signed_request_mode_setting", settings_body)
+        self.assertIn("render_signed_request_mode_setting_row", render_body)
+        self.assertIn("Signed request secret", render_body)
+        self.assertIn("'id' => 'signed-http-ready'", profiles_body)
+        self.assertIn("if (self::signed_request_profile_configured())", profiles_body)
+        self.assertIn("'signature_scheme' => 'agentcart-hmac-sha256-v1'", profiles_body + requirements_body)
+        for error in [
+            "agentcart_signed_request_missing_method",
+            "agentcart_signed_request_missing_path",
+            "agentcart_signed_request_missing_digest",
+            "agentcart_signed_request_missing_nonce",
+            "agentcart_signed_request_missing_expiry",
+            "agentcart_signed_request_signature_mismatch",
+            "agentcart_signed_request_replay",
+        ]:
+            self.assertIn(error, verifier_body)
+        self.assertIn("hash_hmac('sha256'", verifier_body)
+        self.assertIn("get_transient($nonce_key)", verifier_body)
+        self.assertIn("set_transient($nonce_key", verifier_body)
+        self.assertIn("signed_request_required_for_bucket", auth_body + readiness_body)
+        self.assertIn("signed_request_required_for", quote_hash_body + requirements_body)
+        self.assertIn("enforce_signed_request_policy($request, 'checkout')", checkout_body)
+        self.assertIn("enforce_signed_request_policy($request, 'order_status')", status_body)
+        self.assertIn("enforce_signed_request_policy($request, 'refund')", refund_body)
+        self.assertIn("enforce_signed_request_policy($request, 'cancellation')", cancellation_body)
+        self.assertIn("signed_request_verified($request)", status_body + refund_body + cancellation_body)
 
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)

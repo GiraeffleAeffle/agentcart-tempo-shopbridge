@@ -66,6 +66,15 @@ more than 10 minutes in the future, and records older than
 `SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS` days. The default is `180`; use `0` only for
 local fixtures where you intentionally want to disable the freshness window.
 
+If a merchant advertises the `signed-http-ready` profile and requires signed
+requests, configure the shared HMAC secret provided by that merchant or your
+trusted registry/onboarding channel:
+
+```sh
+export SHOPBRIDGE_SIGNED_REQUEST_SECRET=replace-with-shopbridge-signing-secret
+export SHOPBRIDGE_SIGNED_REQUEST_SIGNER=household-agent
+```
+
 Check the skill install and configuration first. This is read-only and does not
 call merchant endpoints unless `probe:true` is supplied:
 

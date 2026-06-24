@@ -27,6 +27,13 @@ Optional environment for verified merchant discovery:
 - `SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS`: registry record freshness window; default
   `180`, set `0` only for local fixtures
 
+Optional environment for merchants that require signed requests:
+
+- `SHOPBRIDGE_SIGNED_REQUEST_SECRET`: HMAC secret shared with the merchant's
+  ShopBridge signed request setting
+- `SHOPBRIDGE_SIGNED_REQUEST_SIGNER`: signer label published in
+  `X-AgentCart-Signer`; default `agentcart-direct-skill`
+
 Optional environment for demo checkout:
 
 - `SHOPBRIDGE_MPP_PROOF_URL`: Tempo MPP paid endpoint, for example `http://127.0.0.1:4250/paid`
