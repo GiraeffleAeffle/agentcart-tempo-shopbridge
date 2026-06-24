@@ -1,6 +1,11 @@
 # Delivery Tracking And Refund Verification
 
-> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
+> Status: alpha implemented for the contract shape. ShopBridge exposes
+> fulfillment, cancellation, refund, and aftercare state; the AgentCart service
+> now stores aftercare state, enforces idempotent refund requests, tracks
+> remaining refundable amount, and forwards refund idempotency to ShopBridge.
+> Production still needs real carrier polling/webhooks and provider-backed rail
+> refunds.
 
 
 The hackathon demo exposes a merchant-estimated delivery window. Production
@@ -109,6 +114,12 @@ includes:
   `unpaid_no_refund_due`;
 - `next_actions`: stable action ids such as `request_cancellation`,
   `request_refund`, `open_tracking`, or `complete_verified_refund`.
+
+The AgentCart service also returns `aftercare_state` from `/v1/orders/{id}` and
+after `/v1/orders/{id}/refresh` or `/v1/orders/{id}/refunds`. This gives buyer
+agents one stable place to check `remaining_refundable_cents`,
+`fulfillment_phase`, and `next_actions` even when the merchant backend is a
+local demo adapter.
 
 Item-level policy comes from normal WooCommerce tags/categories/attributes and
 optional ShopBridge product switches for perishable, deposit-bearing,

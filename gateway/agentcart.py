@@ -1289,8 +1289,17 @@ class WooCommerceAdapter:
         )
         reason = str(request.get("reason") or "AgentCart demo refund").strip() or "AgentCart demo refund"
         rail = str(request.get("rail") or order.get("payment_receipt", {}).get("method") or "agentcart-demo")
+        idempotency_key = str(request.get("refund_idempotency_key") or request.get("idempotency_key") or request.get("requested_reference") or "")
+        requested_reference = str(request.get("requested_reference") or idempotency_key)
         if self.mode == "plugin":
-            return self.create_plugin_refund(order, amount_cents=amount_cents, reason=reason, rail=rail)
+            return self.create_plugin_refund(
+                order,
+                amount_cents=amount_cents,
+                reason=reason,
+                rail=rail,
+                idempotency_key=idempotency_key,
+                requested_reference=requested_reference,
+            )
         return {
             "platform": "woocommerce-mock",
             "state": "demo_refund_recorded",
@@ -1308,7 +1317,16 @@ class WooCommerceAdapter:
             },
         }
 
-    def create_plugin_refund(self, order: dict[str, Any], *, amount_cents: int, reason: str, rail: str) -> dict[str, Any]:
+    def create_plugin_refund(
+        self,
+        order: dict[str, Any],
+        *,
+        amount_cents: int,
+        reason: str,
+        rail: str,
+        idempotency_key: str,
+        requested_reference: str,
+    ) -> dict[str, Any]:
         self.require_plugin_config()
         merchant_order = order.get("merchant_order") if isinstance(order.get("merchant_order"), dict) else {}
         merchant_order_id = str(merchant_order.get("id") or order.get("merchant_order_id") or "")
@@ -1320,6 +1338,9 @@ class WooCommerceAdapter:
             "rail": rail,
             "agentcart_order_id": order.get("id"),
             "payment_receipt_id": (order.get("payment_receipt") or {}).get("id"),
+            "idempotency_key": idempotency_key,
+            "refund_idempotency_key": idempotency_key,
+            "requested_reference": requested_reference,
         }
         raw_refund = self.plugin_json(
             self.plugin_url(f"/wp-json/agentcart/v1/orders/{merchant_order_id}/refunds", {}),
@@ -1419,6 +1440,15 @@ class WooCommerceAdapter:
         if payload is not None:
             body = json.dumps(payload, default=json_default).encode()
             headers["Content-Type"] = "application/json"
+        headers.update(
+            agentcart_signed_request_headers(
+                url,
+                method=method,
+                body=body or b"",
+                secret=self.config.woocommerce_signed_request_secret,
+                signer=self.config.woocommerce_signed_request_signer,
+            )
+        )
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -1902,6 +1932,7 @@ class AgentCartService:
             self.state.setdefault("energy_offers", {})
             self.state.setdefault("challenges", {})
             self.state.setdefault("idempotency", {})
+            self.state.setdefault("refund_idempotency", {})
             self.state.setdefault("audit_tail", [])
             self.state.setdefault("audit_imports", {})
             stock = self.state.setdefault("stock", {})
@@ -3459,6 +3490,30 @@ class AgentCartService:
                         "responses": {"200": {"description": "Updated order and merchant status"}},
                     }
                 },
+                "/v1/orders/{order_id}/refunds": {
+                    "post": {
+                        "operationId": "requestRefund",
+                        "summary": "Request or record an idempotent merchant refund",
+                        "parameters": [
+                            {"name": "order_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                            {
+                                "name": "Idempotency-Key",
+                                "in": "header",
+                                "required": False,
+                                "schema": {"type": "string"},
+                            },
+                        ],
+                        "requestBody": {
+                            "required": True,
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RefundRequest"}}},
+                        },
+                        "responses": {
+                            "201": {"description": "Refund recorded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RefundResponse"}}}},
+                            "200": {"description": "Idempotent refund replay", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RefundResponse"}}}},
+                            "409": {"description": "Refund idempotency conflict or no refundable amount remaining"},
+                        },
+                    }
+                },
                 "/v1/audit/{purchase_id}": {
                     "get": {
                         "operationId": "getAuditLog",
@@ -3887,8 +3942,69 @@ class AgentCartService:
                     "shipment": {"type": "object"},
                     "calendar_event": {"type": "object"},
                     "payment_receipt": {"$ref": "#/components/schemas/PaymentReceipt"},
+                    "aftercare_state": {"$ref": "#/components/schemas/AftercareState"},
                 },
                 "required": ["id", "quote_id", "approval_id", "state", "payment_receipt"],
+            },
+            "AftercareState": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string"},
+                    "order_state": {"type": "string"},
+                    "merchant_status": {"type": "string"},
+                    "fulfillment_phase": {"type": "string"},
+                    "cancellation_state": {"type": "string"},
+                    "refund_state": {"type": "string"},
+                    "remaining_refundable_cents": {"type": "integer"},
+                    "currency": {"type": "string"},
+                    "fulfillment_locked": {"type": "boolean"},
+                    "cancellation_does_not_execute_refund": {"type": "boolean"},
+                    "rail_refund_requires_verifier": {"type": "boolean"},
+                    "next_actions": {"type": "array", "items": {"type": "string"}},
+                    "merchant_aftercare_state": {"type": ["object", "null"]},
+                },
+                "required": ["fulfillment_phase", "cancellation_state", "refund_state", "remaining_refundable_cents", "next_actions"],
+            },
+            "RefundRequest": {
+                "type": "object",
+                "properties": {
+                    "amount_cents": {"type": "integer", "minimum": 1},
+                    "reason": {"type": "string"},
+                    "rail": {"type": "string"},
+                    "idempotency_key": {"type": "string"},
+                    "refund_idempotency_key": {"type": "string"},
+                    "requested_reference": {"type": "string"},
+                },
+                "description": "One of refund_idempotency_key, idempotency_key, requested_reference, or Idempotency-Key header is required.",
+            },
+            "Refund": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "order_id": {"type": "string"},
+                    "merchant_order_id": {"type": "string"},
+                    "merchant_refund_id": {"type": "string"},
+                    "state": {"type": "string"},
+                    "amount_cents": {"type": "integer"},
+                    "currency": {"type": "string"},
+                    "rail": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "idempotency_key": {"type": "string"},
+                    "requested_reference": {"type": "string"},
+                    "real_refund_verified": {"type": "boolean"},
+                    "merchant_refund": {"type": "object"},
+                    "created_at": {"type": "string"},
+                },
+                "required": ["id", "order_id", "state", "amount_cents", "currency", "real_refund_verified"],
+            },
+            "RefundResponse": {
+                "type": "object",
+                "properties": {
+                    "idempotent_replay": {"type": "boolean"},
+                    "order": {"$ref": "#/components/schemas/Order"},
+                    "refund": {"$ref": "#/components/schemas/Refund"},
+                },
+                "required": ["order", "refund"],
             },
         }
 
@@ -3915,10 +4031,12 @@ Recommended flow:
 5. Wait for explicit approval by chat, Home Assistant, or approval page.
 6. Checkout approved quote: POST /v1/checkout
 7. On 402, retry with Authorization: Payment credential.
-8. Read order, delivery window, shipment status, calendar sync state, and audit log.
-9. If a purchase happened through the skill-only path, import its checkout audit_packet:
+8. Read order aftercare_state, delivery window, shipment status, calendar sync state, and audit log.
+9. For refunds, POST /v1/orders/{{order_id}}/refunds with an Idempotency-Key or refund_idempotency_key.
+   - Say "refund executed" only when real_refund_verified is true; demo refunds only record merchant refund state.
+10. If a purchase happened through the skill-only path, import its checkout audit_packet:
    - POST /v1/audit/import
-10. Export an audit bundle for a quote/purchase:
+11. Export an audit bundle for a quote/purchase:
    - GET /v1/audit/{{purchase_id}}/export
 
 Safety rules:
@@ -3926,6 +4044,7 @@ Safety rules:
 - Policy is evaluated at quote and checkout.
 - Human approval is required by default and can be delivered by API, web, chat, or Home Assistant.
 - Skill-only audit imports must carry a valid audit_packet_hash and are idempotent by that hash.
+- Refund requests must be idempotent and must respect aftercare_state.remaining_refundable_cents.
 - Audit exports are read-only bundles for review, backup, or support handoff.
 - Merchant remains merchant of record.
 - Payment provider: {provider["name"]}
@@ -5672,6 +5791,7 @@ separate human confirmation.
         )
         order["vikunja_task"] = self.sync_vikunja_task(order, quote)
         order["calendar_event"] = self.sync_home_assistant_delivery_event(order, quote)
+        order["aftercare_state"] = self.aftercare_state(order)
         self.state["orders"][order_id] = order
         self.save_state()
         return order
@@ -5892,6 +6012,12 @@ separate human confirmation.
             raise NotFound(f"Unknown order: {order_id}")
         return order
 
+    def public_order(self, order_id: str) -> dict[str, Any]:
+        with self.lock:
+            order = json.loads(json.dumps(self.get_order(order_id), default=json_default))
+        order["aftercare_state"] = self.aftercare_state(order)
+        return order
+
     def refresh_order_status(self, order_id: str) -> dict[str, Any]:
         with self.lock:
             order = json.loads(json.dumps(self.get_order(order_id), default=json_default))
@@ -5924,6 +6050,11 @@ separate human confirmation.
                 current_merchant_order["payment_status"] = status.get("payment_status") or current_merchant_order.get("payment_status")
                 current_merchant_order["fulfillment"] = status.get("fulfillment") if isinstance(status.get("fulfillment"), dict) else current_merchant_order.get("fulfillment")
                 current_merchant_order["refunds"] = status.get("refunds") if isinstance(status.get("refunds"), list) else current_merchant_order.get("refunds", [])
+                current_merchant_order["aftercare_state"] = (
+                    status.get("aftercare_state")
+                    if isinstance(status.get("aftercare_state"), dict)
+                    else current_merchant_order.get("aftercare_state")
+                )
                 current_merchant_order["last_status_refresh_at"] = isoformat(utcnow())
             fulfillment = status.get("fulfillment") if isinstance(status.get("fulfillment"), dict) else {}
             if fulfillment:
@@ -5940,6 +6071,7 @@ separate human confirmation.
                 )
                 if current["shipment"].get("tracking_number") and current["shipment"].get("status") == "preparing":
                     current["shipment"]["status"] = "shipped"
+            current["aftercare_state"] = self.aftercare_state(current)
             current["updated_at"] = isoformat(utcnow())
             self.save_state()
             updated = json.loads(json.dumps(current, default=json_default))
@@ -5957,14 +6089,161 @@ separate human confirmation.
         )
         return {"order": updated, "merchant_status": status, "refresh": {"state": "updated"}}
 
+    def refunded_cents(self, order: dict[str, Any]) -> int:
+        refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
+        total = 0
+        for refund in refunds:
+            if not isinstance(refund, dict):
+                continue
+            try:
+                total += max(0, int(refund.get("amount_cents") or 0))
+            except (TypeError, ValueError):
+                continue
+        return total
+
+    def remaining_refundable_cents(self, order: dict[str, Any]) -> int:
+        total = max(0, int(order.get("total_cents") or 0))
+        return max(0, total - self.refunded_cents(order))
+
+    def aftercare_state(self, order: dict[str, Any]) -> dict[str, Any]:
+        shipment = order.get("shipment") if isinstance(order.get("shipment"), dict) else {}
+        merchant_order = order.get("merchant_order") if isinstance(order.get("merchant_order"), dict) else {}
+        merchant_aftercare = (
+            merchant_order.get("aftercare_state")
+            if isinstance(merchant_order.get("aftercare_state"), dict)
+            else {}
+        )
+        order_state = str(order.get("state") or "")
+        merchant_status = str(merchant_order.get("status") or merchant_order.get("state") or "")
+        shipment_status = str(shipment.get("status") or "").lower()
+        has_tracking = bool(shipment.get("tracking_number") or shipment.get("tracking_url"))
+
+        if merchant_aftercare.get("fulfillment_phase"):
+            fulfillment_phase = str(merchant_aftercare["fulfillment_phase"])
+        elif order_state in {"cancelled", "failed", "refunded"} or merchant_status in {"cancelled", "failed", "refunded"}:
+            fulfillment_phase = "closed"
+        elif shipment_status in {"delivered", "fulfilled"}:
+            fulfillment_phase = "fulfilled"
+        elif has_tracking or shipment_status in {"shipped", "in_transit", "out_for_delivery"}:
+            fulfillment_phase = "shipped"
+        else:
+            fulfillment_phase = "pre_fulfillment"
+
+        remaining_refundable_cents = self.remaining_refundable_cents(order)
+        has_payment = isinstance(order.get("payment_receipt"), dict)
+        if merchant_aftercare.get("refund_state"):
+            refund_state = str(merchant_aftercare["refund_state"])
+            merchant_remaining = merchant_aftercare.get("remaining_refundable_cents")
+            try:
+                remaining_refundable_cents = min(remaining_refundable_cents, max(0, int(merchant_remaining)))
+            except (TypeError, ValueError):
+                pass
+        elif not has_payment:
+            refund_state = "unpaid_no_refund_due"
+        elif remaining_refundable_cents > 0:
+            refund_state = "refund_available"
+        else:
+            refund_state = "no_refund_remaining"
+
+        if merchant_aftercare.get("cancellation_state"):
+            cancellation_state = str(merchant_aftercare["cancellation_state"])
+        elif order_state in {"cancelled"} or merchant_status == "cancelled":
+            cancellation_state = "already_cancelled"
+        elif fulfillment_phase in {"shipped", "fulfilled", "closed"}:
+            cancellation_state = "fulfillment_locked" if fulfillment_phase == "shipped" else "terminal"
+        else:
+            cancellation_state = "not_available"
+
+        next_actions = []
+        if shipment.get("tracking_url"):
+            next_actions.append("open_tracking")
+        elif shipment.get("tracking_number"):
+            next_actions.append("track_with_carrier")
+        else:
+            next_actions.append("check_status_later")
+        if cancellation_state == "cancellable_before_fulfillment":
+            next_actions.append("request_cancellation")
+        if refund_state == "refund_available":
+            next_actions.append("request_refund")
+        if order_state == "cancelled" and remaining_refundable_cents > 0:
+            next_actions.append("complete_verified_refund")
+        next_actions.append("export_audit")
+
+        merchant_next_actions = merchant_aftercare.get("next_actions")
+        if isinstance(merchant_next_actions, list):
+            for action in merchant_next_actions:
+                if isinstance(action, str) and action not in next_actions:
+                    next_actions.append(action)
+
+        return {
+            "source": "merchant_status" if merchant_aftercare else "agentcart_service",
+            "order_state": order_state,
+            "merchant_status": merchant_status,
+            "fulfillment_phase": fulfillment_phase,
+            "cancellation_state": cancellation_state,
+            "refund_state": refund_state,
+            "remaining_refundable_cents": remaining_refundable_cents,
+            "currency": str(order.get("currency") or "EUR"),
+            "fulfillment_locked": fulfillment_phase in {"shipped", "fulfilled", "closed"},
+            "cancellation_does_not_execute_refund": True,
+            "rail_refund_requires_verifier": True,
+            "next_actions": next_actions,
+            "merchant_aftercare_state": merchant_aftercare or None,
+        }
+
+    def refund_idempotency_key(self, request: dict[str, Any]) -> str:
+        return str(
+            request.get("refund_idempotency_key")
+            or request.get("idempotency_key")
+            or request.get("requested_reference")
+            or ""
+        ).strip()
+
+    def refund_request_hash(self, order_id: str, request: dict[str, Any]) -> str:
+        return canonical_json_hash(
+            {
+                "order_id": order_id,
+                "request": {
+                    key: value
+                    for key, value in request.items()
+                    if key not in {"token"}
+                },
+            }
+        )
+
+    def existing_refund_for_idempotency(self, order: dict[str, Any], refund_id: str) -> dict[str, Any] | None:
+        refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
+        for refund in refunds:
+            if isinstance(refund, dict) and str(refund.get("id") or "") == refund_id:
+                return refund
+        return None
+
     def refund_order(self, order_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        idempotency_key = self.refund_idempotency_key(request)
+        if not idempotency_key:
+            raise BadRequest("refund_idempotency_key, idempotency_key, requested_reference, or Idempotency-Key header is required for refunds")
+        request_hash = self.refund_request_hash(order_id, request)
         with self.lock:
             order = json.loads(json.dumps(self.get_order(order_id), default=json_default))
+            replay = self.state.setdefault("refund_idempotency", {}).get(idempotency_key)
+            if isinstance(replay, dict):
+                if str(replay.get("order_id") or "") != order_id:
+                    raise Conflict("refund idempotency key is already bound to a different order")
+                if str(replay.get("request_hash") or "") != request_hash:
+                    raise Conflict("refund idempotency key is already bound to a different refund request")
+                refund = self.existing_refund_for_idempotency(order, str(replay.get("refund_id") or ""))
+                if not refund:
+                    raise Conflict("refund idempotency key points to a missing refund record")
+                order["aftercare_state"] = self.aftercare_state(order)
+                return {"idempotent_replay": True, "order": order, "refund": refund}
+        remaining_refundable_cents = self.remaining_refundable_cents(order)
+        if remaining_refundable_cents <= 0:
+            raise Conflict("order has no refundable amount remaining")
         amount_cents = safe_int(
-            request.get("amount_cents", order.get("total_cents", 1)),
+            request.get("amount_cents", remaining_refundable_cents),
             field="amount_cents",
             minimum=1,
-            maximum=max(1, int(order.get("total_cents") or 1)),
+            maximum=max(1, remaining_refundable_cents),
         )
         reason = str(request.get("reason") or "Hackathon demo refund through WooCommerce ShopBridge").strip()
         rail = str(request.get("rail") or order.get("payment_receipt", {}).get("method") or "agentcart-demo")
@@ -5975,6 +6254,9 @@ separate human confirmation.
                 "amount_cents": amount_cents,
                 "reason": reason,
                 "rail": rail,
+                "idempotency_key": idempotency_key,
+                "refund_idempotency_key": idempotency_key,
+                "requested_reference": str(request.get("requested_reference") or idempotency_key),
             },
         )
         refund = {
@@ -5987,6 +6269,8 @@ separate human confirmation.
             "currency": str(merchant_refund.get("currency") or order.get("currency") or "EUR"),
             "rail": str(merchant_refund.get("rail") or rail),
             "reason": reason,
+            "idempotency_key": idempotency_key,
+            "requested_reference": str(request.get("requested_reference") or idempotency_key),
             "real_refund_verified": bool(merchant_refund.get("real_refund_verified")),
             "merchant_refund": merchant_refund,
             "created_at": isoformat(utcnow()),
@@ -5999,9 +6283,16 @@ separate human confirmation.
                 "rail_refund_verified" if refund["real_refund_verified"] else "demo_refund_recorded"
             )
             current_order["state"] = "refund_recorded"
+            current_order["aftercare_state"] = self.aftercare_state(current_order)
+            self.state.setdefault("refund_idempotency", {})[idempotency_key] = {
+                "order_id": order_id,
+                "refund_id": refund["id"],
+                "request_hash": request_hash,
+                "created_at": refund["created_at"],
+            }
             current_order["updated_at"] = isoformat(utcnow())
             self.save_state()
-            order_after = current_order
+            order_after = json.loads(json.dumps(current_order, default=json_default))
 
         self.audit(
             "order.refund_recorded",
@@ -6014,6 +6305,7 @@ separate human confirmation.
                 "merchant_refund_id": refund["merchant_refund_id"],
                 "real_refund_verified": refund["real_refund_verified"],
                 "rail": refund["rail"],
+                "idempotency_key": idempotency_key,
             },
         )
         return {"order": order_after, "refund": refund}
@@ -6370,7 +6662,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         order_match = ORDER_ROUTE.match(path)
         if order_match:
             self.require_auth_if_configured()
-            self.send_json(self.service.get_order(order_match.group(1)))
+            self.send_json(self.service.public_order(order_match.group(1)))
             return
         audit_export_match = AUDIT_EXPORT_ROUTE.match(path)
         if audit_export_match:
@@ -6439,7 +6731,10 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             self.require_auth_if_configured()
             self.service.refund_order(
                 demo_refund_match.group(1),
-                {"reason": "Hackathon demo: merchant records a refund through WooCommerce ShopBridge"},
+                {
+                    "idempotency_key": f"demo-refund-{demo_refund_match.group(1)}",
+                    "reason": "Hackathon demo: merchant records a refund through WooCommerce ShopBridge",
+                },
             )
             self.redirect(f"/orders/{demo_refund_match.group(1)}")
             return
@@ -6503,7 +6798,13 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             return
         order_refund_match = ORDER_REFUND_ROUTE.match(path)
         if order_refund_match:
-            self.send_json(self.service.refund_order(order_refund_match.group(1), payload), status=201)
+            header_idempotency_key = self.headers.get("Idempotency-Key", "").strip()
+            if header_idempotency_key and not any(
+                payload.get(key) for key in ("refund_idempotency_key", "idempotency_key", "requested_reference")
+            ):
+                payload["idempotency_key"] = header_idempotency_key
+            result = self.service.refund_order(order_refund_match.group(1), payload)
+            self.send_json(result, status=200 if result.get("idempotent_replay") else 201)
             return
         raise NotFound("route not found")
 

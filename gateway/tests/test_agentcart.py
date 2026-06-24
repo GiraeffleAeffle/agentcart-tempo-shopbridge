@@ -280,6 +280,55 @@ class AgentCartTests(unittest.TestCase):
         expected = hmac.new(b"service-signing-secret", canonical.encode(), hashlib.sha256).hexdigest()
         self.assertEqual(headers["X-AgentCart-Signature"], "sha256=" + expected)
 
+    def test_woocommerce_plugin_json_adds_signed_request_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                woocommerce_mode="plugin",
+                woocommerce_base_url="http://woo.test",
+                woocommerce_agentcart_token="merchant-token",
+                woocommerce_signed_request_secret="plugin-signing-secret",
+            )
+            adapter = service.adapters["woocommerce-demo-tea"]
+            captured: dict[str, object] = {}
+
+            class FakeResponse:
+                def __enter__(self) -> "FakeResponse":
+                    return self
+
+                def __exit__(self, *_args: object) -> None:
+                    return None
+
+                def read(self) -> bytes:
+                    return b'{"ok":true}'
+
+            original_urlopen = urllib.request.urlopen
+
+            def fake_urlopen(request: urllib.request.Request, *, timeout: int = 0) -> FakeResponse:
+                captured["request"] = request
+                captured["timeout"] = timeout
+                return FakeResponse()
+
+            try:
+                urllib.request.urlopen = fake_urlopen  # type: ignore[assignment]
+                result = adapter.plugin_json(
+                    "http://woo.test/index.php?rest_route=%2Fagentcart%2Fv1%2Forders",
+                    method="POST",
+                    payload={"ok": True},
+                )
+            finally:
+                urllib.request.urlopen = original_urlopen  # type: ignore[assignment]
+
+            self.assertEqual(result, {"ok": True})
+            request = captured["request"]
+            self.assertIsInstance(request, urllib.request.Request)
+            headers = {key.lower(): value for key, value in request.header_items()}  # type: ignore[union-attr]
+            self.assertEqual(headers["x-agentcart-merchant-token"], "merchant-token")
+            self.assertEqual(headers["x-agentcart-signer"], "agentcart-service")
+            self.assertEqual(headers["x-agentcart-signed-method"], "POST")
+            self.assertEqual(headers["x-agentcart-signed-path"], "/index.php?rest_route=%2Fagentcart%2Fv1%2Forders")
+            self.assertIn("x-agentcart-signature", headers)
+
     def test_catalog_search_returns_demo_tea_products(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(pathlib.Path(raw_tmp))
@@ -308,6 +357,8 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("/v1/quote-tournament", openapi["paths"])
             self.assertIn("/v1/audit/import", openapi["paths"])
             self.assertIn("/v1/audit/{purchase_id}/export", openapi["paths"])
+            self.assertIn("/v1/orders/{order_id}/refunds", openapi["paths"])
+            self.assertIn("AftercareState", openapi["components"]["schemas"])
             capability = service.capability_document()
             self.assertIn("agentcart-service", capability["protocol_profile_ids"])
             self.assertNotIn("mpp-http-auth", capability["protocol_profile_ids"])
@@ -1337,6 +1388,8 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(order["calendar_event"]["state"], "skipped")
             self.assertEqual(order["shipment"]["status"], "not_shipped")
             self.assertIn("delivery_window", order)
+            self.assertEqual(order["aftercare_state"]["refund_state"], "refund_available")
+            self.assertIn("request_refund", order["aftercare_state"]["next_actions"])
             self.assertEqual(order["approval_record_hash"], approval["approval_record_hash"])
             self.assertEqual(order["approval_decision_hash"], decided["decision_record"]["decision_record_hash"])
             self.assertEqual(service.state["stock"]["tea_sencha_100g"], 11)
@@ -1393,15 +1446,32 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(status, 201)
             order_id = body["order"]["id"]
 
-            result = service.refund_order(order_id, {"reason": "customer changed their mind"})
+            with self.assertRaises(agentcart.BadRequest):
+                service.refund_order(order_id, {"reason": "customer changed their mind"})
+
+            refund_request = {"idempotency_key": "refund-order-1", "reason": "customer changed their mind"}
+            result = service.refund_order(order_id, refund_request)
 
             refund = result["refund"]
             self.assertEqual(refund["order_id"], order_id)
             self.assertEqual(refund["amount_cents"], 1339)
             self.assertEqual(refund["state"], "demo_refund_recorded")
+            self.assertEqual(refund["idempotency_key"], "refund-order-1")
             self.assertFalse(refund["real_refund_verified"])
             self.assertEqual(result["order"]["refund_state"], "demo_refund_recorded")
             self.assertEqual(result["order"]["refunds"][0]["id"], refund["id"])
+            self.assertEqual(result["order"]["aftercare_state"]["refund_state"], "no_refund_remaining")
+            self.assertEqual(result["order"]["aftercare_state"]["remaining_refundable_cents"], 0)
+
+            replay = service.refund_order(order_id, refund_request)
+            self.assertTrue(replay["idempotent_replay"])
+            self.assertEqual(replay["refund"]["id"], refund["id"])
+            self.assertEqual(len(replay["order"]["refunds"]), 1)
+
+            with self.assertRaises(agentcart.Conflict):
+                service.refund_order(order_id, {"idempotency_key": "refund-order-1", "reason": "different reason"})
+            with self.assertRaises(agentcart.Conflict):
+                service.refund_order(order_id, {"idempotency_key": "refund-order-2", "reason": "another refund"})
 
     def test_skill_audit_packet_import_is_hash_checked_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -1611,6 +1681,7 @@ class AgentCartTests(unittest.TestCase):
                         "status": "not_shipped",
                         "source": "merchant_demo",
                     },
+                    "payment_receipt": {"id": "pay_1", "method": "demo", "protocol": "demo", "status": "succeeded"},
                     "merchant_order": {
                         "status_url": "http://woo.test/wp-json/agentcart/v1/orders/9001/status",
                         "status_token": "status-token",
@@ -1634,6 +1705,13 @@ class AgentCartTests(unittest.TestCase):
                         "source": "woocommerce_order_meta",
                         "note": "Carrier tracking metadata was read from WooCommerce order meta.",
                     },
+                    "aftercare_state": {
+                        "fulfillment_phase": "shipped",
+                        "cancellation_state": "fulfillment_locked",
+                        "refund_state": "refund_available",
+                        "remaining_refundable_cents": 1480,
+                        "next_actions": ["open_tracking", "request_refund"],
+                    },
                 }
 
             service.http_json = fake_http_json  # type: ignore[method-assign]
@@ -1645,6 +1723,9 @@ class AgentCartTests(unittest.TestCase):
             shipment = result["order"]["shipment"]
             self.assertEqual(shipment["status"], "shipped")
             self.assertEqual(shipment["tracking_number"], "AC-DEMO-9001")
+            self.assertEqual(result["order"]["aftercare_state"]["source"], "merchant_status")
+            self.assertEqual(result["order"]["aftercare_state"]["fulfillment_phase"], "shipped")
+            self.assertIn("request_refund", result["order"]["aftercare_state"]["next_actions"])
             calendar = service.render_delivery_calendar()
             self.assertIn("SUMMARY:Delivery: 1x Hazel's Chocolate Tea", calendar)
             self.assertIn("Carrier:", calendar)
@@ -1924,6 +2005,23 @@ class AgentCartTests(unittest.TestCase):
                         },
                         "payment_verification": {"state": "verified", "mode": "trusted_agentcart_token"},
                     }
+                if route == "/agentcart/v1/orders/9001/refunds":
+                    self.assertEqual(method, "POST")
+                    self.assertEqual(payload["idempotency_key"], "woo-refund-1")  # type: ignore[index]
+                    self.assertEqual(payload["refund_idempotency_key"], "woo-refund-1")  # type: ignore[index]
+                    self.assertEqual(payload["requested_reference"], "woo-refund-1")  # type: ignore[index]
+                    self.assertEqual(payload["amount_cents"], 2480)  # type: ignore[index]
+                    return {
+                        "platform": "woocommerce-agentcart-plugin",
+                        "state": "demo_refund_recorded",
+                        "refund_id": "9101",
+                        "order_id": "9001",
+                        "amount_cents": 2480,
+                        "currency": "EUR",
+                        "rail": "demo",
+                        "real_refund_verified": False,
+                        "verification": {"state": "demo_refund_recorded", "real_refund_verified": False},
+                    }
                 raise AssertionError(f"unexpected plugin call: {method} {url}")
 
             adapter.plugin_json = fake_plugin_json  # type: ignore[method-assign]
@@ -1975,6 +2073,14 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(order["merchant_order"]["payment_verification"]["state"], "verified")
             self.assertEqual(order["shipment"]["status"], "preparing")
             self.assertTrue(any(urllib.parse.parse_qs(urllib.parse.urlparse(call["url"]).query).get("rest_route") == ["/agentcart/v1/orders"] for call in calls))
+
+            refund_result = service.refund_order(
+                order["id"],
+                {"idempotency_key": "woo-refund-1", "reason": "customer requested refund"},
+            )
+            self.assertEqual(refund_result["refund"]["merchant_refund_id"], "9101")
+            self.assertEqual(refund_result["refund"]["idempotency_key"], "woo-refund-1")
+            self.assertTrue(any(urllib.parse.parse_qs(urllib.parse.urlparse(call["url"]).query).get("rest_route") == ["/agentcart/v1/orders/9001/refunds"] for call in calls))
 
     def test_approval_token_is_required(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

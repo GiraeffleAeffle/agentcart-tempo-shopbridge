@@ -263,9 +263,11 @@ protected, idempotent cancellation endpoint that cancels eligible AgentCart
 orders before fulfillment locks, reports when a separate rail refund is still
 required, exposes an `aftercare_state` contract across order/status/refund and
 cancellation responses, and normalizes tracking from common Woo shipment plugin
-metadata into a stable adapter contract. Production still needs richer refund
-workflows, carrier API polling/webhooks, and durable household aftercare state
-in the AgentCart service path.
+metadata into a stable adapter contract. The AgentCart service path now stores
+and returns `aftercare_state`, enforces idempotent refund requests, rejects
+refunds above the remaining refundable amount, and forwards refund idempotency
+to ShopBridge. Production still needs richer refund workflows and carrier API
+polling/webhooks.
 
 Current grocery alpha status: ShopBridge exposes structured package-size
 metadata from WooCommerce product weights, structured tag/dietary/allergen
