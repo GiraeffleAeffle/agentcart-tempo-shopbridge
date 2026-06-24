@@ -84,6 +84,11 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         hosted_registry_submit_token="",
         registry_monitor_interval_seconds=0,
         registry_monitor_history_limit=50,
+        registry_alert_webhook_url="",
+        registry_alert_webhook_token="",
+        registry_alert_homeassistant_enabled=False,
+        registry_alert_min_severity="warning",
+        registry_alert_include_resolved=True,
     )
     if overrides:
         config = agentcart.Config(**{**config.__dict__, **overrides})
@@ -615,6 +620,94 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(second["changes"]["new_alert_count"], 0)
             self.assertGreaterEqual(second["changes"]["resolved_alert_count"], 1)
             self.assertEqual(service.registry_monitor_status()["snapshot_count"], 2)
+
+    def test_registry_monitor_posts_webhook_for_alert_deltas(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            signed_registry_record(
+                                manifest,
+                                updated_at="2000-01-01T00:00:00Z",
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+                registry_alert_webhook_url="https://ops.example/agentcart-alerts",
+                registry_alert_webhook_token="alert-token",
+            )
+            calls: list[dict[str, object]] = []
+
+            def fake_http_json(
+                url: str,
+                *,
+                method: str,
+                token: str,
+                payload: dict[str, object] | None = None,
+                headers_extra: dict[str, str] | None = None,
+                timeout: int = 10,
+            ) -> dict[str, object]:
+                calls.append(
+                    {
+                        "url": url,
+                        "method": method,
+                        "token": token,
+                        "payload": payload or {},
+                        "headers_extra": headers_extra or {},
+                        "timeout": timeout,
+                    }
+                )
+                return {"ok": True}
+
+            service.http_json = fake_http_json  # type: ignore[method-assign]
+
+            first = service.run_registry_monitor({"trigger": "test"})
+
+            self.assertEqual(first["notifications"]["state"], "sent")
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["url"], "https://ops.example/agentcart-alerts")
+            self.assertEqual(calls[0]["token"], "alert-token")
+            event = calls[0]["payload"]
+            self.assertEqual(event["schema"], "agentcart.registry_alert_notification.v1")
+            self.assertEqual(event["changes"]["new_alert_count"], 1)
+            self.assertEqual(event["changes"]["resolved_alert_count"], 0)
+            self.assertEqual(event["changes"]["new_alerts"][0]["code"], "registry_record_stale")
+
+            repeated = service.run_registry_monitor({"trigger": "test"})
+
+            self.assertEqual(repeated["notifications"]["state"], "skipped")
+            self.assertEqual(
+                repeated["notifications"]["reason"],
+                "no_new_or_resolved_alerts_at_configured_severity",
+            )
+            self.assertEqual(len(calls), 1)
+
+            registry_path.write_text(
+                json.dumps({"entries": [signed_registry_record(manifest)]}),
+                encoding="utf-8",
+            )
+            resolved = service.run_registry_monitor({"trigger": "test"})
+
+            self.assertEqual(resolved["notifications"]["state"], "sent")
+            self.assertEqual(len(calls), 2)
+            resolved_event = calls[1]["payload"]
+            self.assertEqual(resolved_event["changes"]["new_alert_count"], 0)
+            self.assertEqual(resolved_event["changes"]["resolved_alert_count"], 1)
+            self.assertEqual(resolved_event["changes"]["resolved_alerts"][0]["code"], "registry_record_stale")
+            monitor_status = service.registry_monitor_status(include_snapshots=False)
+            self.assertEqual(monitor_status["last_notifications"]["state"], "sent")
+            self.assertEqual(monitor_status["notification_count"], 3)
+            self.assertEqual(monitor_status["configured"]["alert_delivery"]["sink_count"], 1)
 
     def test_hosted_registry_submission_rejects_record_hash_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

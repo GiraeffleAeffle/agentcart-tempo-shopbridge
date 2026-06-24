@@ -161,6 +161,11 @@ class Config:
     hosted_registry_submit_token: str
     registry_monitor_interval_seconds: int
     registry_monitor_history_limit: int
+    registry_alert_webhook_url: str
+    registry_alert_webhook_token: str
+    registry_alert_homeassistant_enabled: bool
+    registry_alert_min_severity: str
+    registry_alert_include_resolved: bool
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -263,6 +268,11 @@ class Config:
             ).strip(),
             registry_monitor_interval_seconds=int(os.getenv("AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS", "0")),
             registry_monitor_history_limit=int(os.getenv("AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT", "50")),
+            registry_alert_webhook_url=os.getenv("AGENTCART_REGISTRY_ALERT_WEBHOOK_URL", "").strip(),
+            registry_alert_webhook_token=os.getenv("AGENTCART_REGISTRY_ALERT_WEBHOOK_TOKEN", "").strip(),
+            registry_alert_homeassistant_enabled=bool_env("AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED", False),
+            registry_alert_min_severity=os.getenv("AGENTCART_REGISTRY_ALERT_MIN_SEVERITY", "warning").strip().lower(),
+            registry_alert_include_resolved=bool_env("AGENTCART_REGISTRY_ALERT_INCLUDE_RESOLVED", True),
         )
 
 
@@ -1954,6 +1964,8 @@ class AgentCartService:
             monitor.setdefault("snapshots", [])
             monitor.setdefault("last_snapshot", None)
             monitor.setdefault("last_run_at", None)
+            monitor.setdefault("last_notifications", None)
+            monitor.setdefault("notification_history", [])
             self.state.setdefault("audit_tail", [])
             self.state.setdefault("audit_imports", {})
             stock = self.state.setdefault("stock", {})
@@ -3479,6 +3491,177 @@ class AgentCartService:
             "resolved_alerts": [previous_by_fingerprint[fingerprint] for fingerprint in resolved_fingerprints],
         }
 
+    def registry_alert_sink_config(self) -> dict[str, Any]:
+        webhook_configured = bool(self.config.registry_alert_webhook_url)
+        homeassistant_configured = bool(
+            self.config.registry_alert_homeassistant_enabled
+            and self.config.homeassistant_url
+            and self.config.homeassistant_token
+            and self.config.ha_notify_services
+        )
+        return {
+            "webhook_configured": webhook_configured,
+            "homeassistant_configured": homeassistant_configured,
+            "homeassistant_enabled": self.config.registry_alert_homeassistant_enabled,
+            "min_severity": self.normalized_registry_alert_min_severity(),
+            "include_resolved": self.config.registry_alert_include_resolved,
+            "sink_count": int(webhook_configured) + int(homeassistant_configured),
+        }
+
+    def normalized_registry_alert_min_severity(self) -> str:
+        value = (self.config.registry_alert_min_severity or "warning").lower()
+        return value if value in {"info", "warning", "critical"} else "warning"
+
+    def registry_alert_allowed(self, alert: dict[str, Any]) -> bool:
+        severity_rank = {"info": 1, "warning": 2, "critical": 3}
+        severity = str(alert.get("severity") or "info").lower()
+        minimum = self.normalized_registry_alert_min_severity()
+        return severity_rank.get(severity, 0) >= severity_rank[minimum]
+
+    def registry_alert_notification_payload(
+        self,
+        snapshot: dict[str, Any],
+        changes: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        new_alerts = [
+            alert
+            for alert in changes.get("new_alerts", [])
+            if isinstance(alert, dict) and self.registry_alert_allowed(alert)
+        ]
+        resolved_alerts = [
+            alert
+            for alert in changes.get("resolved_alerts", [])
+            if isinstance(alert, dict) and self.registry_alert_allowed(alert)
+        ]
+        if not self.config.registry_alert_include_resolved:
+            resolved_alerts = []
+        if not new_alerts and not resolved_alerts:
+            return None
+
+        return {
+            "schema": "agentcart.registry_alert_notification.v1",
+            "id": f"registry_alert_{uuid.uuid4().hex[:16]}",
+            "created_at": isoformat(utcnow()),
+            "trigger": str(snapshot.get("trigger") or ""),
+            "registry_url": f"{self.config.public_url}/registry",
+            "monitor_url": f"{self.config.public_url}/v1/registry/monitor",
+            "health_url": f"{self.config.public_url}/v1/registry/health",
+            "snapshot_id": str(snapshot.get("id") or ""),
+            "summary": snapshot.get("summary") if isinstance(snapshot.get("summary"), dict) else {},
+            "changes": {
+                "state_changed": bool(changes.get("state_changed")),
+                "previous_state": changes.get("previous_state"),
+                "current_state": changes.get("current_state"),
+                "new_alert_count": len(new_alerts),
+                "resolved_alert_count": len(resolved_alerts),
+                "new_alerts": new_alerts,
+                "resolved_alerts": resolved_alerts,
+            },
+        }
+
+    def registry_alert_delivery_skipped(self, reason: str) -> dict[str, Any]:
+        return {
+            "schema": "agentcart.registry_alert_delivery.v1",
+            "state": "skipped",
+            "reason": reason,
+            "created_at": isoformat(utcnow()),
+            "configured": self.registry_alert_sink_config(),
+            "results": [],
+        }
+
+    def deliver_registry_monitor_notifications(
+        self,
+        snapshot: dict[str, Any],
+        changes: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = self.registry_alert_notification_payload(snapshot, changes)
+        if not payload:
+            return self.registry_alert_delivery_skipped("no_new_or_resolved_alerts_at_configured_severity")
+
+        configured = self.registry_alert_sink_config()
+        if not configured["sink_count"]:
+            return {
+                **self.registry_alert_delivery_skipped("no_registry_alert_sinks_configured"),
+                "event": payload,
+            }
+
+        results = []
+        if self.config.registry_alert_webhook_url:
+            results.append(self.send_registry_alert_webhook(payload))
+        if configured["homeassistant_configured"]:
+            results.append(self.send_registry_alert_homeassistant(payload))
+
+        sent_count = sum(1 for result in results if result.get("ok"))
+        state = "sent" if sent_count == len(results) else "partial" if sent_count else "failed"
+        return {
+            "schema": "agentcart.registry_alert_delivery.v1",
+            "state": state,
+            "created_at": isoformat(utcnow()),
+            "configured": configured,
+            "event": payload,
+            "results": results,
+        }
+
+    def send_registry_alert_webhook(self, payload: dict[str, Any]) -> dict[str, Any]:
+        url = self.config.registry_alert_webhook_url
+        try:
+            self.http_json(
+                url,
+                method="POST",
+                token=self.config.registry_alert_webhook_token,
+                payload=payload,
+                headers_extra={
+                    "X-AgentCart-Event": "registry.alert",
+                    "X-AgentCart-Event-Id": str(payload.get("id") or ""),
+                },
+                timeout=8,
+            )
+            return {"sink": "webhook", "url": url, "ok": True}
+        except AgentCartError as exc:
+            return {"sink": "webhook", "url": url, "ok": False, "error": str(exc), "detail": exc.detail}
+
+    def send_registry_alert_homeassistant(self, payload: dict[str, Any]) -> dict[str, Any]:
+        changes = payload.get("changes") if isinstance(payload.get("changes"), dict) else {}
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        new_alerts = changes.get("new_alerts") if isinstance(changes.get("new_alerts"), list) else []
+        resolved_alerts = changes.get("resolved_alerts") if isinstance(changes.get("resolved_alerts"), list) else []
+        first_alert = next((alert for alert in new_alerts if isinstance(alert, dict)), None)
+        title = "AgentCart registry alert"
+        message = (
+            f"{len(new_alerts)} new, {len(resolved_alerts)} resolved; "
+            f"state {summary.get('state') or changes.get('current_state') or 'unknown'}."
+        )
+        if isinstance(first_alert, dict) and first_alert.get("message"):
+            message = f"{message} {first_alert['message']}"
+        data = {
+            "title": title,
+            "message": message,
+            "data": {
+                "tag": "agentcart_registry_alert",
+                "url": payload.get("registry_url") or f"{self.config.public_url}/registry",
+            },
+        }
+        results = []
+        for service in self.config.ha_notify_services:
+            if "." not in service:
+                results.append({"service": service, "ok": False, "error": "notify service must look like notify.mobile_app_name"})
+                continue
+            domain, service_name = service.split(".", 1)
+            url = f"{self.config.homeassistant_url}/api/services/{domain}/{service_name}"
+            try:
+                self.http_json(
+                    url,
+                    method="POST",
+                    token=self.config.homeassistant_token,
+                    payload=data,
+                    timeout=8,
+                )
+                results.append({"service": service, "ok": True})
+            except AgentCartError as exc:
+                results.append({"service": service, "ok": False, "error": str(exc), "detail": exc.detail})
+        ok = any(result.get("ok") for result in results)
+        return {"sink": "homeassistant", "ok": ok, "results": results}
+
     def run_registry_monitor(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
         request = request or {}
         trigger = str(request.get("trigger") or "manual").strip()[:60] or "manual"
@@ -3499,10 +3682,23 @@ class AgentCartService:
             monitor["last_changes"] = changes
             monitor["last_run_at"] = snapshot["created_at"]
             self.save_state()
+        notifications = self.deliver_registry_monitor_notifications(snapshot, changes)
+        with self.lock:
+            monitor = self.state.setdefault("registry_monitor", {})
+            monitor["last_notifications"] = notifications
+            history = monitor.setdefault("notification_history", [])
+            if not isinstance(history, list):
+                history = []
+                monitor["notification_history"] = history
+            history.append(notifications)
+            limit = max(1, int(self.config.registry_monitor_history_limit or 50))
+            del history[:-limit]
+            self.save_state()
         return {
             "schema": "agentcart.registry_monitor_run.v1",
             "snapshot": snapshot,
             "changes": changes,
+            "notifications": notifications,
             "monitor": self.registry_monitor_status(include_snapshots=False),
         }
 
@@ -3512,20 +3708,31 @@ class AgentCartService:
             snapshots = monitor.get("snapshots") if isinstance(monitor.get("snapshots"), list) else []
             last_snapshot = monitor.get("last_snapshot") if isinstance(monitor.get("last_snapshot"), dict) else None
             last_changes = monitor.get("last_changes") if isinstance(monitor.get("last_changes"), dict) else None
+            notification_history = (
+                monitor.get("notification_history")
+                if isinstance(monitor.get("notification_history"), list)
+                else []
+            )
             result = {
                 "schema": "agentcart.registry_monitor_status.v1",
                 "configured": {
                     "interval_seconds": self.config.registry_monitor_interval_seconds,
                     "history_limit": self.config.registry_monitor_history_limit,
                     "scheduled": self.config.registry_monitor_interval_seconds > 0,
+                    "alert_delivery": self.registry_alert_sink_config(),
                 },
                 "last_run_at": monitor.get("last_run_at"),
                 "snapshot_count": len(snapshots),
                 "last_snapshot": last_snapshot,
                 "last_changes": last_changes,
+                "last_notifications": monitor.get("last_notifications")
+                if isinstance(monitor.get("last_notifications"), dict)
+                else None,
+                "notification_count": len(notification_history),
             }
             if include_snapshots:
                 result["snapshots"] = list(snapshots)
+                result["notification_history"] = list(notification_history)
             return json.loads(json.dumps(result, default=json_default))
 
     def registry_manifest_url(self, adapter: Any) -> str:
@@ -7945,6 +8152,17 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
         text = str(state or "unknown")
         return f"<span class=\"badge badge-health-{esc(text)}\">{esc(text)}</span>"
 
+    def delivery_state_label(state: Any) -> str:
+        text = str(state or "not-run")
+        css = {
+            "sent": "badge-health-healthy",
+            "partial": "badge-health-attention",
+            "skipped": "badge-alert-info",
+            "failed": "badge-health-critical",
+            "not-run": "badge-alert-info",
+        }.get(text, "badge-alert-info")
+        return f"<span class=\"badge {css}\">{esc(text)}</span>"
+
     def payment_cell(candidate: dict[str, Any]) -> str:
         summary = candidate.get("payment_summary") if isinstance(candidate.get("payment_summary"), dict) else {}
         quote_currency = str(summary.get("quote_currency") or candidate.get("currency") or "EUR")
@@ -7983,8 +8201,17 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
     last_snapshot = monitor.get("last_snapshot") if isinstance(monitor.get("last_snapshot"), dict) else {}
     last_snapshot_summary = last_snapshot.get("summary") if isinstance(last_snapshot.get("summary"), dict) else {}
     last_changes = monitor.get("last_changes") if isinstance(monitor.get("last_changes"), dict) else {}
+    last_notifications = monitor.get("last_notifications") if isinstance(monitor.get("last_notifications"), dict) else {}
+    alert_delivery = monitor_config.get("alert_delivery") if isinstance(monitor_config.get("alert_delivery"), dict) else {}
     state_counts = summary.get("state_counts") if isinstance(summary.get("state_counts"), dict) else {}
     state_count_label = ", ".join(f"{key}: {value}" for key, value in sorted(state_counts.items())) or "none"
+    delivery_sink_count = int(alert_delivery.get("sink_count") or 0)
+    delivery_reason = str(last_notifications.get("reason") or "")
+    delivery_detail = (
+        f"{delivery_sink_count} sink{'s' if delivery_sink_count != 1 else ''}, min severity: {alert_delivery.get('min_severity') or 'warning'}"
+    )
+    if delivery_reason:
+        delivery_detail = f"{delivery_detail}; {delivery_reason}"
     hosted_store = health.get("hosted_store") if isinstance(health.get("hosted_store"), dict) else {}
     alerts = health.get("alerts") if isinstance(health.get("alerts"), list) else []
     alert_rows = "\n".join(
@@ -8138,6 +8365,7 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
       <div class="card"><h3>Status Mix</h3><p>{esc(state_count_label)}</p></div>
       <div class="card"><h3>Monitor</h3><p>{health_state_label(last_snapshot_summary.get('state') or 'not-run')}<br><span class="muted">last run: {esc(monitor.get('last_run_at') or 'never')}</span><br><span class="muted">{esc(monitor.get('snapshot_count') or 0)} snapshots, scheduled: {esc('on' if monitor_config.get('scheduled') else 'off')}</span></p></div>
       <div class="card"><h3>Monitor Changes</h3><p><strong>{esc(last_changes.get('new_alert_count') or 0)}</strong> new alerts, <strong>{esc(last_changes.get('resolved_alert_count') or 0)}</strong> resolved<br><span class="muted">state changed: {esc('yes' if last_changes.get('state_changed') else 'no')}</span></p></div>
+      <div class="card"><h3>Alert Delivery</h3><p>{delivery_state_label(last_notifications.get('state') or 'not-run')}<br><span class="muted">{esc(delivery_detail)}</span><br><span class="muted">{esc(monitor.get('notification_count') or 0)} delivery records</span></p></div>
     </section>
     <table>
       <thead><tr><th>Severity</th><th>Code</th><th>Scope</th><th>Action</th></tr></thead>

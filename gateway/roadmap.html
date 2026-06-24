@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">49</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 49%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">50</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 50%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -543,13 +543,13 @@
   <script>
     const areas = [
       { name: "Core Commerce", value: 79, note: "catalog, quote, approval, order, stock, tax and shipping shape" },
-      { name: "Trust And Registry", value: 68, note: "manifest profiles, domain proof, hosted record feed, persisted health snapshots, revocations, signed request gate" },
+      { name: "Trust And Registry", value: 72, note: "manifest profiles, domain proof, hosted record feed, persisted health snapshots, alert delivery, revocations, signed request gate" },
       { name: "Payments", value: 36, note: "demo proofs, verifier contracts, and idempotent refund path done; real rail ops still open" },
       { name: "Merchant UX", value: 42, note: "settings done; setup wizard and low-friction refresh remain" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
       { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
       { name: "Woo Release", value: 34, note: "ZIP works with runtime compatibility checks; WordPress.org review and PHPCS remain" },
-      { name: "Operations", value: 31, note: "smoke pipeline, deployed-runtime compile gate, and registry monitor snapshots exist; alerting and beta ops remain" }
+      { name: "Operations", value: 38, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, and alert delta delivery exist; beta ops remain" }
     ];
 
     const gates = [
@@ -596,11 +596,11 @@
         code: "IAM",
         title: "Merchant registry",
         status: "active",
-        value: 78,
-        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted submit/revoke persistence, raw hosted feed, health endpoint/page, persisted monitor snapshots, revocations, and quote tournament entry point.",
-        remaining: "Add alert delivery, onchain/append-only backing, stronger governance, and merchant-facing registry health alerts inside WordPress.",
+        value: 84,
+        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted submit/revoke persistence, raw hosted feed, health endpoint/page, persisted monitor snapshots, webhook/Home Assistant alert delivery, revocations, and quote tournament entry point.",
+        remaining: "Add email/WordPress admin delivery, onchain/append-only backing, stronger governance, and merchant-facing registry health alerts inside WordPress.",
         items: [
-          { id: "IAM-001", priority: "P0", title: "Registry alert delivery", description: "Send monitor failures and stale manifest warnings to WordPress admin, email, webhook, or Home Assistant." },
+          { id: "IAM-001", priority: "P0", title: "Registry alert delivery", description: "Webhook and Home Assistant monitor alert delivery exist; add WordPress-admin and email channels before broad merchant pilots." },
           { id: "IAM-002", priority: "P1", title: "Transparency log export", description: "Append signed registry submissions, refreshes, and revocations to an auditable feed that agents can verify." },
           { id: "IAM-003", priority: "P2", title: "Onchain identity mapping", description: "Map merchant records to ERC-8004-style identity metadata without making onchain registration mandatory for early pilots." }
         ]
@@ -726,11 +726,11 @@
         code: "OBS",
         title: "Observability",
         status: "open",
-        value: 30,
-        scope: "Health endpoints, registry monitor snapshots, and verify pipeline exist.",
-        remaining: "Add metrics, structured logs, alert delivery, payment failure dashboards, and merchant support diagnostics.",
+        value: 40,
+        scope: "Health endpoints, registry monitor snapshots, alert delivery results, notification history, and verify pipeline exist.",
+        remaining: "Add metrics, structured logs, payment failure dashboards, channel retry/backoff policy, and merchant support diagnostics.",
         items: [
-          { id: "OBS-001", priority: "P0", title: "Alert delivery pipeline", description: "Route registry, verifier, payment, quote, checkout, and refund failures to configured operational channels." },
+          { id: "OBS-001", priority: "P0", title: "Alert delivery pipeline", description: "Registry alert deltas route to webhook and Home Assistant; extend the same delivery contract to verifier, payment, quote, checkout, and refund failures." },
           { id: "OBS-002", priority: "P1", title: "Structured logs and metrics", description: "Emit consistent request, quote, registry, verifier, checkout, refund, and delivery metrics with correlation IDs." },
           { id: "OBS-003", priority: "P2", title: "Support diagnostics bundle", description: "Export a redacted diagnostic packet that merchants can share when AgentCart setup or checkout fails." }
         ]

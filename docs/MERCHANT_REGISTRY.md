@@ -125,6 +125,11 @@ AGENTCART_HOSTED_REGISTRY_PATH=/data/hosted-merchant-registry.json
 AGENTCART_HOSTED_REGISTRY_TOKEN=replace-with-submit-token
 AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS=0
 AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT=50
+AGENTCART_REGISTRY_ALERT_WEBHOOK_URL=
+AGENTCART_REGISTRY_ALERT_WEBHOOK_TOKEN=
+AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED=false
+AGENTCART_REGISTRY_ALERT_MIN_SEVERITY=warning
+AGENTCART_REGISTRY_ALERT_INCLUDE_RESOLVED=true
 ```
 
 `GET /v1/registry/records` exposes the raw hosted record feed plus revocations.
@@ -138,6 +143,21 @@ operator actions.
 new/resolved alert deltas; `GET /v1/registry/monitor` returns the retained
 snapshot history. The optional `AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS`
 scheduler can run the same monitor automatically.
+
+Monitor alert delivery is opt-in. When `AGENTCART_REGISTRY_ALERT_WEBHOOK_URL`
+is set, AgentCart posts an `agentcart.registry_alert_notification.v1` JSON event
+for new alerts and, by default, resolved alerts. The payload includes the
+snapshot id, registry/health/monitor URLs, summary state, new alert objects, and
+resolved alert objects. `AGENTCART_REGISTRY_ALERT_WEBHOOK_TOKEN` is sent as a
+Bearer token. Set `AGENTCART_REGISTRY_ALERT_MIN_SEVERITY` to `info`, `warning`,
+or `critical` to control noise, and set
+`AGENTCART_REGISTRY_ALERT_INCLUDE_RESOLVED=false` if only new alerts should
+notify.
+
+If `AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED=true`, AgentCart also sends a
+compact Home Assistant notification through the configured `HOMEASSISTANT_URL`,
+`HOMEASSISTANT_TOKEN`, and `HA_NOTIFY_SERVICES`. The monitor JSON and registry
+page show whether alert delivery was skipped, sent, partial, or failed.
 
 `hmac-sha256` remains available for private/local feeds, but it is an
 implementation shortcut. Public trust should use a merchant-owned proof such as

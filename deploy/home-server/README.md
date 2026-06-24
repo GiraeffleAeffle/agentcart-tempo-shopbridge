@@ -68,6 +68,15 @@ WooCommerce admin defaults come from `.env`: `WOO_ADMIN_USER` and
 set from `.env`: `AGENTCART_RETURNS_URL`, `AGENTCART_SUBSTITUTION_POLICY`, and
 `AGENTCART_CANCELLATION_WINDOW_MINUTES`.
 
+## Registry Monitor Alerts
+
+AgentCart can run the hosted merchant registry monitor manually with
+`POST /v1/registry/monitor/run` or on a schedule with
+`AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS`. To deliver new or resolved
+registry alert deltas, set `AGENTCART_REGISTRY_ALERT_WEBHOOK_URL`, or enable
+`AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED=true` with `HOMEASSISTANT_URL`,
+`HOMEASSISTANT_TOKEN`, and `HA_NOTIFY_SERVICES`.
+
 ## Files Expected In Repo Root
 
 ```text
