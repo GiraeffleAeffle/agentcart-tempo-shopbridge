@@ -96,7 +96,8 @@ configured by the merchant.
 4. Use the Quick Start panel to prepare sandbox access defaults when secrets are
    not managed through `wp-config.php`. This generates local signed-request
    compatibility and registry metadata, but does not expose products or configure
-   payment recipients.
+   payment recipients. The same panel can run a sandbox quote check through the
+   WooCommerce-backed quote path and then clean up the test quote/stock hold.
 5. Configure stable merchant id, support email, payment recipient or Stripe
    profile, optional x402 exact-payment settings, verifier URL, checkout mode,
    optional signed-request mode, and product exposure mode.

@@ -39,6 +39,7 @@ $options = [
     'agentcart_shopbridge_registry_claim_fingerprint',
     'agentcart_shopbridge_registry_updated_at',
     'agentcart_shopbridge_registry_public_check',
+    'agentcart_shopbridge_sandbox_quote_check',
     'agentcart_shopbridge_product_exposure_mode',
     'agentcart_shopbridge_product_exposure_tag',
     'agentcart_shopbridge_product_exposure_categories',

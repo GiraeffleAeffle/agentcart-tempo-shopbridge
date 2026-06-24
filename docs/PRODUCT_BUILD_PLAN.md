@@ -166,7 +166,10 @@ renders a guided setup checklist and Quick Start panel in
 `WooCommerce -> AgentCart` for merchant id, agent-safe products, tax/shipping,
 payment verifier, registry proof, and sandbox testing. The Quick Start panel
 can prepare local sandbox access defaults, show setup progress, and surface
-buyer-agent endpoint URLs without silently exposing products. The plugin
+buyer-agent endpoint URLs without silently exposing products. It can also run a
+sandbox quote check through the same WooCommerce-backed quote code path used by
+buyer agents, then delete the test quote transient and release its soft stock
+hold so merchant tests do not consume availability. The plugin
 publishes a registry onboarding bundle with the suggested record, proof,
 revocation document, and one-entry feed so registries can ingest the shop
 without merchant-side hash copy/paste. The admin registry proof panel can

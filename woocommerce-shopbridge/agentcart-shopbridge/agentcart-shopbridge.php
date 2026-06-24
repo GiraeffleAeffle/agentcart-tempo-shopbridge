@@ -62,6 +62,7 @@ final class AgentCart_ShopBridge {
     const REGISTRY_CLAIM_FINGERPRINT_OPTION = 'agentcart_shopbridge_registry_claim_fingerprint';
     const REGISTRY_UPDATED_AT_OPTION = 'agentcart_shopbridge_registry_updated_at';
     const REGISTRY_PUBLIC_CHECK_OPTION = 'agentcart_shopbridge_registry_public_check';
+    const SANDBOX_QUOTE_CHECK_OPTION = 'agentcart_shopbridge_sandbox_quote_check';
     const PRODUCT_EXPOSURE_MODE_OPTION = 'agentcart_shopbridge_product_exposure_mode';
     const PRODUCT_EXPOSURE_TAG_OPTION = 'agentcart_shopbridge_product_exposure_tag';
     const PRODUCT_EXPOSURE_CATEGORIES_OPTION = 'agentcart_shopbridge_product_exposure_categories';
@@ -423,7 +424,18 @@ final class AgentCart_ShopBridge {
             <h1>AgentCart ShopBridge</h1>
             <?php foreach ([$setup_action_notice, $product_action_notice, $credential_action_notice, $registry_action_notice] as $notice) : ?>
                 <?php if ($notice !== null) : ?>
-                    <div class="notice notice-success is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
+                    <?php
+                    $notice_type = 'success';
+                    $notice_message = '';
+                    if (is_array($notice)) {
+                        $notice_type = sanitize_key((string) ($notice['type'] ?? 'success'));
+                        $notice_message = (string) ($notice['message'] ?? '');
+                    } else {
+                        $notice_message = (string) $notice;
+                    }
+                    $notice_class = in_array($notice_type, ['success', 'warning', 'error', 'info'], true) ? 'notice-' . $notice_type : 'notice-success';
+                    ?>
+                    <div class="notice <?php echo esc_attr($notice_class); ?> is-dismissible"><p><?php echo esc_html($notice_message); ?></p></div>
                 <?php endif; ?>
             <?php endforeach; ?>
             <p>
@@ -665,6 +677,17 @@ final class AgentCart_ShopBridge {
         if ($action === 'prepare_sandbox_secrets') {
             return self::prepare_sandbox_defaults();
         }
+        if ($action === 'run_sandbox_quote_check') {
+            $result = self::run_sandbox_quote_check();
+            update_option(self::SANDBOX_QUOTE_CHECK_OPTION, $result, false);
+            if (($result['state'] ?? '') === 'passed') {
+                return 'Sandbox quote check passed: WooCommerce returned a quote for ' . ($result['product_title'] ?? 'an AgentCart product') . '.';
+            }
+            return [
+                'type' => 'error',
+                'message' => 'Sandbox quote check failed: ' . ($result['message'] ?? 'review the Quick Start panel for details.'),
+            ];
+        }
 
         return null;
     }
@@ -694,6 +717,155 @@ final class AgentCart_ShopBridge {
             return 'Sandbox access defaults are already prepared or managed in wp-config.php.';
         }
         return 'Sandbox access prepared: ' . implode(', ', $changes) . '. Review product exposure and payment settings before public checkout.';
+    }
+
+    private static function run_sandbox_quote_check() {
+        $checked_at = gmdate('c');
+        $ship_to = self::sandbox_quote_ship_to();
+        $product = self::sandbox_quote_test_product($ship_to['country']);
+        if (!$product instanceof WC_Product) {
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'message' => 'No published, in-stock, AgentCart-enabled simple product can ship to ' . $ship_to['country'] . '.',
+                'ship_to' => $ship_to,
+            ];
+        }
+
+        $request = new WP_REST_Request('POST', '/' . self::API_NAMESPACE . '/quote');
+        $request->set_header('Content-Type', 'application/json');
+        $request->set_body(wp_json_encode([
+            'items' => [
+                [
+                    'product_id' => 'woo_' . $product->get_id(),
+                    'quantity' => 1,
+                ],
+            ],
+            'ship_to' => $ship_to,
+        ]));
+
+        $quote = self::quote($request);
+        if (is_wp_error($quote)) {
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'product_id' => 'woo_' . $product->get_id(),
+                'product_title' => $product->get_name(),
+                'ship_to' => $ship_to,
+                'error_code' => $quote->get_error_code(),
+                'message' => $quote->get_error_message(),
+                'error_data' => $quote->get_error_data(),
+            ];
+        }
+        if (!is_array($quote)) {
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'product_id' => 'woo_' . $product->get_id(),
+                'product_title' => $product->get_name(),
+                'ship_to' => $ship_to,
+                'message' => 'Quote endpoint returned an unexpected response.',
+            ];
+        }
+
+        $quote_id = (string) ($quote['id'] ?? '');
+        if ($quote_id !== '') {
+            delete_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id);
+            self::release_stock_hold($quote_id);
+        }
+        $shipping = isset($quote['shipping']) && is_array($quote['shipping']) ? $quote['shipping'] : [];
+        $vat_lines = isset($quote['vat_lines']) && is_array($quote['vat_lines']) ? $quote['vat_lines'] : [];
+        $payment_requirements = isset($quote['payment_requirements']) && is_array($quote['payment_requirements']) ? $quote['payment_requirements'] : [];
+
+        return [
+            'state' => 'passed',
+            'checked_at' => $checked_at,
+            'product_id' => 'woo_' . $product->get_id(),
+            'product_title' => $product->get_name(),
+            'ship_to' => $ship_to,
+            'quote_id' => $quote_id,
+            'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+            'subtotal_cents' => intval($quote['subtotal_cents'] ?? 0),
+            'shipping_cents' => intval($shipping['amount_cents'] ?? 0),
+            'shipping_label' => (string) ($shipping['label'] ?? ''),
+            'total_cents' => intval($quote['total_cents'] ?? 0),
+            'vat_line_count' => count($vat_lines),
+            'payment_protocol_profile_ids' => isset($payment_requirements['payment_protocol_profile_ids']) && is_array($payment_requirements['payment_protocol_profile_ids'])
+                ? array_values(array_map('strval', $payment_requirements['payment_protocol_profile_ids']))
+                : [],
+            'cleanup' => 'quote transient deleted and soft stock hold released',
+        ];
+    }
+
+    private static function sandbox_quote_test_product($country) {
+        if (!function_exists('wc_get_products')) {
+            return null;
+        }
+        $products = wc_get_products(array_merge(self::agentcart_product_query_args(), [
+            'limit' => 25,
+            'return' => 'objects',
+        ]));
+        foreach ($products as $product) {
+            if (!$product instanceof WC_Product || !self::is_product_agentcart_enabled($product)) {
+                continue;
+            }
+            if (!self::product_ships_to_country($product, $country)) {
+                continue;
+            }
+            if (is_wp_error(self::validate_product_stock_for_agentcart($product, 1))) {
+                continue;
+            }
+            return $product;
+        }
+        return null;
+    }
+
+    private static function sandbox_quote_ship_to() {
+        $countries = self::shipping_countries();
+        $base_country = class_exists('WooCommerce') && WC() && WC()->countries ? strtoupper((string) WC()->countries->get_base_country()) : 'DE';
+        $country = in_array($base_country, $countries, true) ? $base_country : (string) ($countries[0] ?? 'DE');
+        return [
+            'first_name' => 'AgentCart',
+            'last_name' => 'Sandbox',
+            'address_1' => 'Sandbox Street 1',
+            'city' => self::sandbox_quote_city($country),
+            'postcode' => self::sandbox_quote_postcode($country),
+            'country' => $country,
+            'email' => self::support_email() ?: 'agentcart-sandbox@example.invalid',
+        ];
+    }
+
+    private static function sandbox_quote_postcode($country) {
+        $postcodes = [
+            'AT' => '1010',
+            'BE' => '1000',
+            'CH' => '8001',
+            'DE' => '10115',
+            'DK' => '1050',
+            'FR' => '75001',
+            'LU' => '1111',
+            'NL' => '1012',
+            'PL' => '00-001',
+            'US' => '10001',
+        ];
+        return $postcodes[$country] ?? '1000';
+    }
+
+    private static function sandbox_quote_city($country) {
+        $cities = [
+            'AT' => 'Wien',
+            'BE' => 'Brussels',
+            'CH' => 'Zuerich',
+            'DE' => 'Berlin',
+            'DK' => 'Copenhagen',
+            'FR' => 'Paris',
+            'LU' => 'Luxembourg',
+            'NL' => 'Amsterdam',
+            'PL' => 'Warsaw',
+            'US' => 'New York',
+        ];
+        return $cities[$country] ?? 'Test City';
     }
 
     private static function maybe_handle_product_exposure_action() {
@@ -2014,6 +2186,7 @@ final class AgentCart_ShopBridge {
         $quote_url = rest_url(self::API_NAMESPACE . '/quote');
         $registry_bundle_url = self::registry_bundle_url();
         $signed_request_ready = self::signed_request_profile_configured();
+        $sandbox_quote_check = self::sandbox_quote_check_result();
         ?>
         <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
             <tbody>
@@ -2064,9 +2237,64 @@ final class AgentCart_ShopBridge {
                     </td>
                     <td><?php echo self::admin_status_badge($signed_request_ready, 'Signed profile ready', 'Unsigned allowed'); ?></td>
                 </tr>
+                <tr>
+                    <th scope="row">Sandbox quote check</th>
+                    <td>
+                        Runs the same WooCommerce-backed quote path used by buyer agents against
+                        one currently AgentCart-enabled product. The test deletes its quote
+                        transient and releases its own soft stock hold after the check.
+                    </td>
+                    <td>
+                        <form method="post">
+                            <?php wp_nonce_field('agentcart_shopbridge_setup_action'); ?>
+                            <input type="hidden" name="agentcart_setup_action" value="run_sandbox_quote_check" />
+                            <?php submit_button('Run quote check', 'secondary', 'submit', false); ?>
+                        </form>
+                    </td>
+                </tr>
+                <?php if (!empty($sandbox_quote_check)) : ?>
+                    <tr>
+                        <th scope="row">Last quote check</th>
+                        <td colspan="2">
+                            <?php echo self::admin_status_badge(($sandbox_quote_check['state'] ?? '') === 'passed', 'Passed', 'Failed'); ?>
+                            <p class="description">
+                                <?php echo esc_html((string) ($sandbox_quote_check['checked_at'] ?? '')); ?>
+                                <?php if (($sandbox_quote_check['state'] ?? '') === 'passed') : ?>
+                                    &middot;
+                                    <?php echo esc_html((string) ($sandbox_quote_check['product_title'] ?? 'AgentCart product')); ?>
+                                    to <?php echo esc_html((string) (($sandbox_quote_check['ship_to']['country'] ?? '') ?: 'configured country')); ?>
+                                    &middot;
+                                    total <?php echo esc_html(self::admin_money_from_cents(intval($sandbox_quote_check['total_cents'] ?? 0), (string) ($sandbox_quote_check['currency'] ?? get_woocommerce_currency()))); ?>
+                                    &middot;
+                                    shipping <?php echo esc_html(self::admin_money_from_cents(intval($sandbox_quote_check['shipping_cents'] ?? 0), (string) ($sandbox_quote_check['currency'] ?? get_woocommerce_currency()))); ?>
+                                    &middot;
+                                    VAT lines <?php echo esc_html((string) intval($sandbox_quote_check['vat_line_count'] ?? 0)); ?>
+                                <?php else : ?>
+                                    &middot;
+                                    <?php echo esc_html((string) ($sandbox_quote_check['message'] ?? 'Quote check failed.')); ?>
+                                <?php endif; ?>
+                            </p>
+                            <?php if (!empty($sandbox_quote_check['quote_hash'])) : ?>
+                                <p class="description">Quote hash: <code><?php echo esc_html((string) $sandbox_quote_check['quote_hash']); ?></code></p>
+                            <?php endif; ?>
+                            <?php if (!empty($sandbox_quote_check['cleanup'])) : ?>
+                                <p class="description"><?php echo esc_html((string) $sandbox_quote_check['cleanup']); ?></p>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endif; ?>
             </tbody>
         </table>
         <?php
+    }
+
+    private static function sandbox_quote_check_result() {
+        $result = get_option(self::SANDBOX_QUOTE_CHECK_OPTION, []);
+        return is_array($result) ? $result : [];
+    }
+
+    private static function admin_money_from_cents($cents, $currency) {
+        return number_format_i18n(max(0, intval($cents)) / 100, 2) . ' ' . strtoupper(sanitize_text_field((string) $currency));
     }
 
     private static function render_setup_guide($setup_guide) {

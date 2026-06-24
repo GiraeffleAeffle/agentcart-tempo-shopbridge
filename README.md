@@ -168,8 +168,10 @@ A GitHub repo or ZIP does not make the plugin appear in WordPress plugin search.
 After activation, open `WooCommerce -> AgentCart`. The Quick Start panel can
 prepare sandbox access defaults, show setup progress, and surface the manifest,
 catalog, quote, and registry bundle URLs without requiring merchants to copy
-internal option names. It does not automatically expose products or configure a
-payment recipient.
+internal option names. It can also run a sandbox quote check through the same
+WooCommerce-backed quote path buyer agents use, then delete the test quote and
+release its soft stock hold. It does not automatically expose products or
+configure a payment recipient.
 
 The plugin exposes:
 
