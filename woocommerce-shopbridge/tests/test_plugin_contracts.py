@@ -176,8 +176,10 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         status_body = function_body("authorize_order_status")
         refund_body = function_body("authorize_refund")
         cancellation_body = function_body("authorize_cancellation")
+        well_known_body = function_body("maybe_serve_well_known_manifest")
 
         self.assertIn("enforce_rate_limit", public_body)
+        self.assertIn("enforce_well_known_rate_limit($path)", well_known_body)
         self.assertIn("enforce_rate_limit($request, 'checkout')", checkout_body)
         self.assertIn("enforce_rate_limit($request, 'order_status')", status_body)
         self.assertIn("enforce_rate_limit($request, 'refund')", refund_body)
@@ -324,16 +326,26 @@ class ShopBridgePluginContractTests(unittest.TestCase):
     def test_rate_limiter_has_endpoint_policies_and_retry_metadata(self) -> None:
         policy_body = function_body("rate_limit_policy")
         limiter_body = function_body("enforce_rate_limit")
+        client_limiter_body = function_body("enforce_rate_limit_for_client")
+        error_body = function_body("rate_limit_error")
         key_body = function_body("rate_limit_client_key")
+        server_key_body = function_body("rate_limit_client_key_from_server")
+        well_known_bucket_body = function_body("well_known_rate_limit_bucket_for_path")
         capability_body = function_body("capability_document")
 
-        for bucket in ["'catalog'", "'quote'", "'checkout'", "'order_status'", "'refund'", "'cancellation'"]:
+        for bucket in ["'catalog'", "'registry'", "'quote'", "'checkout'", "'order_status'", "'refund'", "'cancellation'"]:
             self.assertIn(bucket, policy_body)
-        self.assertIn("agentcart_rate_limited", limiter_body)
-        self.assertIn("'retry_after_seconds'", limiter_body)
-        self.assertIn("set_transient", limiter_body)
-        self.assertIn("REMOTE_ADDR", key_body)
-        self.assertNotIn("x-forwarded-for", key_body)
+        self.assertIn("enforce_rate_limit_for_client", limiter_body)
+        self.assertIn("agentcart_rate_limited", error_body)
+        self.assertIn("'retry_after_seconds'", error_body)
+        self.assertIn("'reset_at'", error_body)
+        self.assertIn("set_transient", client_limiter_body)
+        self.assertIn("rate_limit_client_key_from_server", key_body)
+        self.assertIn("REMOTE_ADDR", server_key_body)
+        self.assertIn("HTTP_USER_AGENT", server_key_body)
+        self.assertNotIn("x-forwarded-for", server_key_body)
+        self.assertIn("/.well-known/agentcart.json", well_known_bucket_body)
+        self.assertIn("'registry'", well_known_bucket_body)
         self.assertIn("'endpoint_rate_limits'", capability_body)
         self.assertIn("'rate_limits'", capability_body)
 

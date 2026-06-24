@@ -63,6 +63,34 @@ The local review-risk check is:
 ./scripts/check-wordpress-plugin-review.py
 ```
 
+The official-tool gate is:
+
+```sh
+./scripts/check-wordpress-official-gates.py
+```
+
+It validates that the repo carries WordPress Coding Standards tooling config in
+`woocommerce-shopbridge/composer.json` and `woocommerce-shopbridge/phpcs.xml.dist`.
+When `phpcs` is available globally or through `woocommerce-shopbridge/vendor/bin`,
+the script runs PHPCS/WPCS against the packaged plugin source. To require those
+external tools on a release machine, run:
+
+```sh
+cd woocommerce-shopbridge
+composer install
+cd ..
+AGENTCART_WORDPRESS_OFFICIAL_TOOLS_REQUIRED=1 ./scripts/check-wordpress-official-gates.py
+```
+
+WordPress Plugin Check needs a prepared WordPress install. Point the gate at the
+exact command for that environment:
+
+```sh
+AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND='wp plugin check agentcart-shopbridge --path=/path/to/wordpress' \
+  AGENTCART_WORDPRESS_OFFICIAL_TOOLS_REQUIRED=1 \
+  ./scripts/check-wordpress-official-gates.py
+```
+
 The package check verifies:
 
 - ZIP exists and is under 10 MB;
@@ -86,9 +114,12 @@ Check or PHPCS would otherwise catch later:
   hosted registry connection wrappers and use WordPress HTTP APIs, JSON headers,
   timeouts, response-code checks, and error handling;
 - admin badge HTML escapes generated attributes and labels.
+- public REST and `.well-known` discovery/registry endpoints are covered by the
+  baseline rate limiter and return retry metadata.
 
 These checks are not substitutes for WordPress Plugin Check, PHPCS, or manual
-review. They are project-specific guards for this plugin and generated package.
+review. They are project-specific guards for this plugin and generated package;
+the official-tool gate above is the bridge to strict WPCS/Plugin Check runs.
 
 ## External Service Disclosure
 
@@ -120,9 +151,10 @@ merchant id, shop domain, and idempotency key.
    ./scripts/verify.sh
    ```
 
-4. Run WordPress Plugin Check and PHPCS/WordPress Coding Standards locally when
-   added to the project. Treat warnings about escaping, sanitization, nonces,
-   HTTP calls, text domains, licensing, and external services as blockers.
+4. Run WordPress Plugin Check and PHPCS/WordPress Coding Standards locally with
+   `AGENTCART_WORDPRESS_OFFICIAL_TOOLS_REQUIRED=1`. Treat warnings about
+   escaping, sanitization, nonces, HTTP calls, text domains, licensing, and
+   external services as blockers.
 5. Upload `dist/agentcart-shopbridge.zip` at the WordPress.org add-plugin page.
 6. Watch the email address on the submitting account. Review is manual; respond
    in the existing review thread rather than resubmitting for ordinary fixes.

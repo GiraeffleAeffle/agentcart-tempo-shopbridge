@@ -108,6 +108,40 @@ def check_admin_badge_escaping(source: str) -> None:
             fail(f"admin_status_badge must escape generated HTML: {literal}")
 
 
+def check_rate_limit_controls(source: str) -> None:
+    well_known_body = function_body(source, "maybe_serve_well_known_manifest")
+    policy_body = function_body(source, "rate_limit_policy")
+    limiter_body = function_body(source, "enforce_rate_limit_for_client")
+    error_body = function_body(source, "rate_limit_error")
+    key_body = function_body(source, "rate_limit_client_key_from_server")
+    document_body = function_body(source, "public_rate_limits_document")
+    for literal in [
+        "enforce_well_known_rate_limit($path)",
+        "header('Retry-After: '",
+        "'/.well-known/agentcart-registry-proof.json'",
+        "'/.well-known/agentcart-registry-revocations.json'",
+        "'/.well-known/agentcart-registry-bundle.json'",
+    ]:
+        if literal not in well_known_body:
+            fail(f"well-known registry endpoints must be rate limited: {literal}")
+    for bucket in ["'catalog'", "'registry'", "'quote'", "'checkout'", "'order_status'", "'refund'", "'cancellation'"]:
+        if bucket not in policy_body:
+            fail(f"rate limit policy missing bucket: {bucket}")
+    for literal in ["get_transient($transient)", "set_transient($transient", "rate_limit_error("]:
+        if literal not in limiter_body:
+            fail(f"rate limiter missing transient guard: {literal}")
+    for literal in ["'retry_after_seconds'", "'reset_at'", "gmdate('c'", "'remaining'"]:
+        if literal not in error_body:
+            fail(f"rate limit error missing retry metadata: {literal}")
+    for literal in ["wp_unslash($_SERVER['REMOTE_ADDR']", "wp_unslash($_SERVER['HTTP_USER_AGENT']"]:
+        if literal not in key_body:
+            fail(f"rate limit client key must use sanitized server data: {literal}")
+    if "x-forwarded-for" in key_body.lower():
+        fail("rate limit client key must not trust X-Forwarded-For directly")
+    if "'registry'" not in document_body:
+        fail("capability document must advertise registry rate limits")
+
+
 def main() -> int:
     try:
         source = PLUGIN.read_text(encoding="utf-8")
@@ -115,6 +149,7 @@ def main() -> int:
         check_custom_admin_actions(source)
         check_external_http_verifier_calls(source)
         check_admin_badge_escaping(source)
+        check_rate_limit_controls(source)
     except (AssertionError, OSError) as exc:
         print(f"wordpress plugin review check failed: {exc}", file=sys.stderr)
         return 1

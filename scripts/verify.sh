@@ -30,6 +30,7 @@ py311_files=(
   scripts/build-release-manifest.py
   scripts/check-wordpress-plugin-package.py
   scripts/check-wordpress-plugin-review.py
+  scripts/check-wordpress-official-gates.py
   scripts/verify-release.py
   scripts/verify-verifier-fixtures.py
   scripts/woocommerce-shopbridge-smoke.py
@@ -79,7 +80,9 @@ fi
 bash -n "$ROOT_DIR/scripts/woocommerce-demo-smoke.sh"
 python3 -m py_compile "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
+python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
 python3 "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
+python3 "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
 python3 -m unittest discover -s "$ROOT_DIR/woocommerce-shopbridge/tests"
 
 section "WooCommerce ShopBridge live smoke"

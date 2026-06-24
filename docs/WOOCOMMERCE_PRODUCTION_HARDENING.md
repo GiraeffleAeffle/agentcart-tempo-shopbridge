@@ -60,7 +60,8 @@ Production should add richer product controls:
 - Use external verifier mode for public order creation.
 - Keep token mode for trusted local gateways only.
 - Keep the plugin's baseline REST rate limits enabled for catalog, quote,
-  order, status, and refund endpoints.
+  order, status, refund, cancellation, and `.well-known` registry/discovery
+  endpoints. Current `429` errors include retry and reset metadata.
 - Add host-level reverse-proxy/CDN/WAF rate limits for public production shops.
 - Store and reject used transaction references.
 - Require idempotency keys for order creation and refunds.
@@ -88,7 +89,8 @@ harness for end-to-end endpoint behavior.
 - cancellation endpoint requires an idempotency key;
 - cancellation endpoint rejects shipped or terminal orders;
 - cancellation endpoint never claims real refund execution;
-- public REST endpoints return `429` after rate-limit exhaustion;
+- public REST and `.well-known` registry/discovery endpoints return `429` after
+  rate-limit exhaustion;
 - unsupported destination country fails before payment;
 - products outside the selected exposure mode are absent from catalog and
   rejected in quote;
@@ -106,7 +108,9 @@ For a real WordPress plugin release:
   WordPress `readme.txt`;
 - keep uninstall cleanup policy conservative: remove settings and ephemeral
   state, preserve commerce audit metadata;
-- add PHPCS/WordPress coding standard checks;
+- run `scripts/check-wordpress-official-gates.py`; install the
+  `woocommerce-shopbridge/composer.json` dev tools and use strict mode before a
+  public submission;
 - add GitHub release zip build;
 - document required WooCommerce versions;
 - document verifier contract and merchant compliance caveats.

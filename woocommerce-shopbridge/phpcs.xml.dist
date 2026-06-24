@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<ruleset name="AgentCart ShopBridge">
+  <description>WordPress coding standards gate for the AgentCart ShopBridge plugin.</description>
+
+  <file>agentcart-shopbridge</file>
+
+  <arg name="extensions" value="php"/>
+  <arg name="basepath" value="."/>
+  <arg name="colors"/>
+  <arg name="parallel" value="4"/>
+
+  <config name="minimum_supported_wp_version" value="6.4"/>
+  <config name="testVersion" value="8.1-"/>
+
+  <exclude-pattern>*/vendor/*</exclude-pattern>
+
+  <rule ref="WordPress"/>
+  <rule ref="PHPCompatibilityWP"/>
+
+  <!-- The plugin intentionally exposes JSON endpoint keys in snake_case because
+       they are part of the public AgentCart protocol contract. -->
+  <rule ref="WordPress.NamingConventions.ValidVariableName">
+    <exclude name="WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase"/>
+  </rule>
+</ruleset>

@@ -44,7 +44,8 @@ actions.
   and product-specific shipping country overrides.
 * WooCommerce cart, tax, shipping, stock, and order creation integration.
 * Quote hash binding and single-use quote consumption.
-* Baseline REST rate limits and idempotency/replay checks.
+* Baseline REST and `.well-known` endpoint rate limits with retry metadata,
+  plus idempotency/replay checks.
 * External payment verifier hook for quote-bound Tempo MPP, Stripe/card MPP, or
   other rails.
 * Configured-only manifest protocol profiles so agents can choose ShopBridge,

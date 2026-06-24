@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">50</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 50%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">51</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 51%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -548,7 +548,7 @@
       { name: "Merchant UX", value: 42, note: "settings done; setup wizard and low-friction refresh remain" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
       { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
-      { name: "Woo Release", value: 34, note: "ZIP works with runtime compatibility checks; WordPress.org review and PHPCS remain" },
+      { name: "Woo Release", value: 42, note: "ZIP, package checks, review-risk checks, PHPCS/WPCS config, and official-tool gate exist; strict clean Plugin Check remains" },
       { name: "Operations", value: 38, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, and alert delta delivery exist; beta ops remain" }
     ];
 
@@ -700,11 +700,11 @@
         code: "WPR",
         title: "WordPress plugin release",
         status: "partial",
-        value: 34,
-        scope: "Installable ZIP, release artifacts, and Python 3.11 runtime compatibility checks work.",
-        remaining: "Pass Plugin Check, PHPCS, readme assets, deeper WP integration tests, i18n, and WordPress.org submission rules.",
+        value: 42,
+        scope: "Installable ZIP, release artifacts, package checks, review-risk checks, PHPCS/WPCS config, and official-tool gate work.",
+        remaining: "Run strict clean PHPCS/Plugin Check in a prepared WordPress install, then add readme assets, deeper WP integration tests, i18n, and submission polish.",
         items: [
-          { id: "WPR-001", priority: "P0", title: "Plugin Check and PHPCS", description: "Add official WordPress Plugin Check and PHPCS gates to local verify and CI before release packaging." },
+          { id: "WPR-001", priority: "P0", title: "Plugin Check and PHPCS", description: "PHPCS/WPCS config and official-tool wrapper are in the pipeline; strict release mode still needs installed tools and clean output." },
           { id: "WPR-002", priority: "P1", title: "WordPress.org assets", description: "Prepare readme, screenshots, icons, banners, tags, and required disclosures for directory submission." },
           { id: "WPR-003", priority: "P2", title: "Uninstall and privacy review", description: "Verify uninstall cleanup, stored options, logs, and privacy disclosures against WordPress.org expectations." }
         ]
@@ -713,11 +713,11 @@
         code: "SEC",
         title: "Security and abuse controls",
         status: "planned",
-        value: 26,
-        scope: "Basic validation, signed calls, and opt-in exposure exist.",
-        remaining: "Add rate limits, WAF guidance, prompt-injection tests, malware review assumptions, and incident playbooks.",
+        value: 36,
+        scope: "Basic validation, signed calls, opt-in exposure, REST rate limits, and .well-known registry/discovery rate limits exist.",
+        remaining: "Add WAF guidance, prompt-injection tests, malware review assumptions, richer abuse telemetry, and incident playbooks.",
         items: [
-          { id: "SEC-001", priority: "P0", title: "REST rate limits", description: "Add per-endpoint throttles and automated abuse tests for quote, checkout, registry, and signed request paths." },
+          { id: "SEC-001", priority: "P0", title: "REST rate limits", description: "Per-endpoint throttles cover quote, checkout, status, refund, cancellation, and .well-known registry/discovery paths; add runtime integration abuse tests next." },
           { id: "SEC-002", priority: "P1", title: "Prompt-injection corpus", description: "Test product names, descriptions, merchant text, and registry profiles against buyer-agent prompt-injection handling." },
           { id: "SEC-003", priority: "P2", title: "Incident playbooks", description: "Write revoke, disable, rollback, support, and disclosure procedures for compromised merchants or abusive clients." }
         ]

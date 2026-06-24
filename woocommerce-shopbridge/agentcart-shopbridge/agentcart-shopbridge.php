@@ -1267,6 +1267,19 @@ final class AgentCart_ShopBridge {
         if (!in_array($path, ['/.well-known/agentcart.json', '/.well-known/agentcart-registry-proof.json', '/.well-known/agentcart-registry-revocations.json', '/.well-known/agentcart-registry-bundle.json'], true)) {
             return;
         }
+        $rate_limit = self::enforce_well_known_rate_limit($path);
+        if (is_wp_error($rate_limit)) {
+            $data = $rate_limit->get_error_data();
+            $status = is_array($data) ? intval($data['status'] ?? 429) : 429;
+            $retry_after = is_array($data) ? intval($data['retry_after_seconds'] ?? self::RATE_LIMIT_WINDOW_SECONDS) : self::RATE_LIMIT_WINDOW_SECONDS;
+            status_header($status);
+            header('Retry-After: ' . max(1, $retry_after));
+            wp_send_json([
+                'code' => $rate_limit->get_error_code(),
+                'message' => $rate_limit->get_error_message(),
+                'data' => $data,
+            ], $status);
+        }
         if (!class_exists('WooCommerce')) {
             wp_send_json(['error' => 'WooCommerce is required.'], 503);
         }
@@ -1595,26 +1608,27 @@ final class AgentCart_ShopBridge {
     }
 
     private static function enforce_rate_limit(WP_REST_Request $request, $bucket = null) {
-        $policy = self::rate_limit_policy($bucket ?: self::rate_limit_bucket_for_request($request));
+        $bucket = $bucket ?: self::rate_limit_bucket_for_request($request);
+        return self::enforce_rate_limit_for_client($bucket, self::rate_limit_client_key($request));
+    }
+
+    private static function enforce_well_known_rate_limit($path) {
+        $bucket = self::well_known_rate_limit_bucket_for_path($path);
+        return self::enforce_rate_limit_for_client($bucket, self::rate_limit_client_key_from_server(''));
+    }
+
+    private static function enforce_rate_limit_for_client($bucket, $client_key) {
+        $policy = self::rate_limit_policy($bucket);
         if (!$policy || intval($policy['limit'] ?? 0) <= 0) {
             return true;
         }
         $window = intval($policy['window'] ?? self::RATE_LIMIT_WINDOW_SECONDS);
         $limit = intval($policy['limit']);
-        $transient = self::rate_limit_transient_name($request, (string) $policy['bucket'], $window);
+        $window_start = self::rate_limit_window_start($window);
+        $transient = self::rate_limit_transient_name_for_client((string) $policy['bucket'], $window, $window_start, $client_key);
         $count = intval(get_transient($transient));
         if ($count >= $limit) {
-            return new WP_Error(
-                'agentcart_rate_limited',
-                'Too many AgentCart requests. Try again shortly.',
-                [
-                    'status' => 429,
-                    'bucket' => (string) $policy['bucket'],
-                    'limit' => $limit,
-                    'window_seconds' => $window,
-                    'retry_after_seconds' => $window,
-                ]
-            );
+            return self::rate_limit_error($policy, $window_start, $window, $count);
         }
         set_transient($transient, (string) ($count + 1), $window);
         return true;
@@ -1626,6 +1640,7 @@ final class AgentCart_ShopBridge {
             'capability' => ['bucket' => 'capability', 'limit' => 120, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
             'catalog' => ['bucket' => 'catalog', 'limit' => 120, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
             'product' => ['bucket' => 'product', 'limit' => 120, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
+            'registry' => ['bucket' => 'registry', 'limit' => 60, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
             'quote' => ['bucket' => 'quote', 'limit' => 30, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
             'checkout' => ['bucket' => 'checkout', 'limit' => 12, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
             'order_status' => ['bucket' => 'order_status', 'limit' => 60, 'window' => self::RATE_LIMIT_WINDOW_SECONDS],
@@ -1638,7 +1653,7 @@ final class AgentCart_ShopBridge {
 
     private static function public_rate_limits_document() {
         $document = [];
-        foreach (['capability', 'catalog', 'product', 'quote', 'checkout', 'order_status', 'refund', 'cancellation'] as $bucket) {
+        foreach (['capability', 'catalog', 'product', 'registry', 'quote', 'checkout', 'order_status', 'refund', 'cancellation'] as $bucket) {
             $policy = self::rate_limit_policy($bucket);
             $document[$bucket] = [
                 'limit' => intval($policy['limit']),
@@ -1668,22 +1683,63 @@ final class AgentCart_ShopBridge {
     }
 
     private static function rate_limit_transient_name(WP_REST_Request $request, $bucket, $window) {
-        $window_start = intval(floor(time() / max(1, intval($window))));
+        return self::rate_limit_transient_name_for_client(
+            $bucket,
+            $window,
+            self::rate_limit_window_start($window),
+            self::rate_limit_client_key($request)
+        );
+    }
+
+    private static function rate_limit_transient_name_for_client($bucket, $window, $window_start, $client_key) {
         return self::RATE_LIMIT_TRANSIENT_PREFIX . hash('sha256', implode('|', [
             sanitize_key((string) $bucket),
-            (string) $window_start,
-            self::rate_limit_client_key($request),
+            (string) intval($window_start),
+            (string) intval($window),
+            (string) $client_key,
         ]));
     }
 
     private static function rate_limit_client_key(WP_REST_Request $request) {
-        $ip = sanitize_text_field((string) wp_unslash($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-        $agent = sanitize_text_field((string) wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
         $token_hint = '';
         if (self::has_valid_merchant_token($request)) {
             $token_hint = hash('sha256', self::merchant_token_value());
         }
+        return self::rate_limit_client_key_from_server($token_hint);
+    }
+
+    private static function rate_limit_client_key_from_server($token_hint = '') {
+        $ip = sanitize_text_field((string) wp_unslash($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        $agent = sanitize_text_field((string) wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
         return hash('sha256', implode('|', [$ip, $agent, $token_hint]));
+    }
+
+    private static function rate_limit_window_start($window) {
+        $window = max(1, intval($window));
+        return intval(floor(time() / $window)) * $window;
+    }
+
+    private static function rate_limit_error($policy, $window_start, $window, $count) {
+        $reset_at = intval($window_start) + max(1, intval($window));
+        $retry_after = max(1, $reset_at - time());
+        $limit = intval($policy['limit']);
+        return new WP_Error(
+            'agentcart_rate_limited',
+            'Too many AgentCart requests. Try again shortly.',
+            [
+                'status' => 429,
+                'bucket' => (string) $policy['bucket'],
+                'limit' => $limit,
+                'window_seconds' => intval($window),
+                'retry_after_seconds' => $retry_after,
+                'remaining' => max(0, $limit - intval($count)),
+                'reset_at' => gmdate('c', $reset_at),
+            ]
+        );
+    }
+
+    private static function well_known_rate_limit_bucket_for_path($path) {
+        return $path === '/.well-known/agentcart.json' ? 'capability' : 'registry';
     }
 
     private static function merchant_token_value() {
