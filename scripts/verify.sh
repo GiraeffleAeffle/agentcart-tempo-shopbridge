@@ -107,10 +107,12 @@ section "Stripe MPP verifier syntax"
   cd "$ROOT_DIR/gateway"
   npm run stripe:mpp:check
   bash -n scripts/stripe-link-mpp-smoke.sh
+  bash -n scripts/verifier-replay-smoke.sh
 )
 
 section "Verifier contract fixtures"
 python3 "$ROOT_DIR/scripts/verify-verifier-fixtures.py" >/dev/null
+bash "$ROOT_DIR/gateway/scripts/verifier-replay-smoke.sh"
 
 section "Compose config"
 AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token \

@@ -58,7 +58,8 @@ The hackathon demo uses EUR product quotes and a pathUSD Tempo testnet proof.
 That is not real EUR settlement. Production needs one of:
 
 - merchant acceptance of stablecoin settlement and accounting;
-- quote-bound FX through the verifier/payment provider contract hash;
+- quote-bound FX through the verifier/payment provider contract hash plus
+  replay-safe transaction references;
 - Stripe/card MPP settlement;
 - a future EUR-compatible MPP rail.
 

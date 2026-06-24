@@ -83,6 +83,8 @@ Expected success response:
   "pay_to": "0x...",
   "max_amount_required": "14800000",
   "transaction_reference": "0x...",
+  "replay_reference": "0x...",
+  "replay_request_hash": "sha256...",
   "real_settlement_verified": true
 }
 ```
@@ -92,7 +94,10 @@ The canonical Stripe/card MPP success fixture is checked in at
 
 ShopBridge rejects mismatched quote hash, payment contract hash, amount,
 currency, rail, rail-specific merchant recipient/profile fields, or missing
-transaction reference. It also rejects reused payment transaction references.
+transaction reference. Exact verifier retries may return
+`idempotent_replay: true` with the same transaction reference. Reused payment
+references with different amount, currency, quote hash, payment contract hash,
+rail, or destination/profile fail closed with `replay_conflict: true`.
 
 ## Refund Verification Request
 
@@ -140,6 +145,8 @@ return:
   "original_transaction_reference": "0x...",
   "rail": "stripe-card-mpp",
   "refund_reference": "re_...",
+  "replay_reference": "re_...",
+  "replay_request_hash": "sha256...",
   "real_refund_verified": true
 }
 ```
@@ -149,8 +156,9 @@ The canonical Stripe/card MPP refund success fixture is checked in at
 
 Negative contract fixtures are checked in at `docs/fixtures/verifier/negative/`.
 They cover amount mismatch, quote-hash mismatch, payment-contract mismatch,
-Stripe profile mismatch, payment reference replay, refund original-reference
-mismatch, missing refund requested reference, and refund reference replay.
+Stripe profile mismatch, payment reference replay, payment replay conflict,
+refund original-reference mismatch, missing refund requested reference, and
+refund reference replay.
 
 ShopBridge requires a refund idempotency key before calling the verifier. It
 rejects refund amounts above the remaining refundable amount, exact idempotent
@@ -183,9 +191,12 @@ replay store for the running process. Set
 runs; `/health` then fails closed unless a replay store path is configured.
 `AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS` controls the local lock timeout.
 `/health` exposes replay-store kind, whether durable replay is required and
-configured, lock mode, bucket counts, and replay-store read errors. Provider
-failures are classified in JSON with `provider_error_class`, `provider_status`,
-`provider_code`, `request_id`, and `retryable` fields.
+configured, lock mode, writeability, bucket counts, and replay-store read/write
+errors. Each accepted replay entry stores a `request_hash` over the replay
+bucket, provider reference, and quote/payment/refund fields. Exact repeats are
+marked as idempotent; changed repeats are rejected as replay conflicts.
+Provider failures are classified in JSON with `provider_error_class`,
+`provider_status`, `provider_code`, `request_id`, and `retryable` fields.
 
 For production, use a durable store with transactional uniqueness constraints
 for payment transaction references, refund requested references, and refund

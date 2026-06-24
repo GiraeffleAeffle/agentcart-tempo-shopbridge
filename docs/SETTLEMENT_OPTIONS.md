@@ -49,8 +49,8 @@ Buyer-side skill flow:
 Ideal future option for EU merchants.
 
 - Quote and settlement currency can both be EUR.
-- Verifier still must bind amount, recipient, quote hash, expiry, and replay
-  protection.
+- Verifier still must bind amount, recipient, quote hash, payment contract hash,
+  expiry, and replay protection.
 - Merchant onboarding must explain payouts, refunds, disputes, and compliance.
 
 ## Verifier Contract

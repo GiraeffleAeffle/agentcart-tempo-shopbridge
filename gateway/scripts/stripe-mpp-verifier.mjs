@@ -86,6 +86,7 @@ function readiness() {
     replay_store_required: requireDurableReplayStore,
     replay_store_durable: replay.durable,
     replay_store_locking: replay.locking,
+    replay_store_writable: replay.writable,
     replay_store_counts: replay.counts,
     replay_store_error: replay.error,
     missing,
@@ -102,6 +103,7 @@ function requireReady() {
         missing: status.missing,
         replay_store_required: status.replay_store_required,
         replay_store_durable: status.replay_store_durable,
+        replay_store_writable: status.replay_store_writable,
         replay_store_error: status.replay_store_error,
       },
       503,
@@ -176,6 +178,40 @@ function normalizeReplayStore(raw) {
   };
 }
 
+function normalizeReplayMetadata(value) {
+  if (Array.isArray(value)) return value.map((entry) => normalizeReplayMetadata(entry));
+  if (!value || typeof value !== "object") return value;
+  const normalized = {};
+  for (const key of Object.keys(value).sort()) {
+    const entry = value[key];
+    if (entry !== undefined) normalized[key] = normalizeReplayMetadata(entry);
+  }
+  return normalized;
+}
+
+function replayComparableMetadata(entry) {
+  if (!entry || typeof entry !== "object") return {};
+  const metadata = { ...entry };
+  delete metadata.first_seen_at;
+  delete metadata.last_seen_at;
+  delete metadata.replay_count;
+  delete metadata.request_hash;
+  return normalizeReplayMetadata(metadata);
+}
+
+function replayRequestHash(bucket, reference, metadata = {}) {
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        bucket,
+        reference: String(reference || "").trim(),
+        metadata: normalizeReplayMetadata(metadata),
+      }),
+    )
+    .digest("hex");
+}
+
 function loadReplayStore() {
   if (!replayStorePath) return memoryReplayStore;
   if (!fs.existsSync(replayStorePath)) return blankReplayStore();
@@ -193,6 +229,27 @@ function saveReplayStore(store) {
   const tempPath = `${replayStorePath}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tempPath, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(tempPath, replayStorePath);
+}
+
+function replayStoreWriteProbe() {
+  if (!replayStorePath) return { ok: true, durable: false };
+  const directory = path.dirname(replayStorePath);
+  try {
+    fs.mkdirSync(directory, { recursive: true });
+    if (fs.existsSync(replayStorePath)) {
+      fs.accessSync(replayStorePath, fs.constants.R_OK | fs.constants.W_OK);
+    }
+    const probePath = path.join(directory, `.agentcart-replay-probe-${process.pid}-${Date.now()}`);
+    fs.writeFileSync(probePath, "ok\n", { mode: 0o600 });
+    fs.unlinkSync(probePath);
+    return { ok: true, durable: true };
+  } catch (error) {
+    return {
+      ok: false,
+      durable: true,
+      error: `Could not write verifier replay store: ${error.message}`,
+    };
+  }
 }
 
 async function acquireReplayStoreLock() {
@@ -261,9 +318,13 @@ function replayStoreDiagnostics() {
     locking: replayStorePath ? "lockfile" : "process",
     counts: null,
     error: null,
+    writable: !replayStorePath,
   };
   try {
     const store = loadReplayStore();
+    const writeProbe = replayStoreWriteProbe();
+    diagnostics.writable = Boolean(writeProbe.ok);
+    if (!writeProbe.ok) diagnostics.error = writeProbe.error;
     diagnostics.counts = {
       payments: Object.keys(store.payments || {}).length,
       refund_requests: Object.keys(store.refund_requests || {}).length,
@@ -280,28 +341,52 @@ async function claimReplayReference(bucket, reference, metadata = {}) {
   if (!key) {
     return { ok: false, response: jsonResponse({ ok: false, error: "replay reference is required." }, 400) };
   }
+  const normalizedMetadata = normalizeReplayMetadata(metadata);
+  const requestHash = replayRequestHash(bucket, key, normalizedMetadata);
   return withReplayStoreMutation((store) => {
     if (!store[bucket] || typeof store[bucket] !== "object") store[bucket] = {};
-    if (store[bucket][key]) {
+    const existing = store[bucket][key];
+    if (existing) {
+      const existingHash =
+        typeof existing.request_hash === "string" && existing.request_hash
+          ? existing.request_hash
+          : replayRequestHash(bucket, key, replayComparableMetadata(existing));
+      if (existingHash === requestHash) {
+        existing.request_hash = existingHash;
+        existing.last_seen_at = new Date().toISOString();
+        existing.replay_count = Number(existing.replay_count || 0) + 1;
+        return {
+          ok: true,
+          idempotentReplay: true,
+          existing,
+          requestHash,
+        };
+      }
       return {
         ok: false,
         save: false,
         response: jsonResponse(
           {
             ok: false,
-            error: `${bucket.slice(0, -1).replace("_", " ")} reference has already been used.`,
+            error: `${bucket.slice(0, -1).replace("_", " ")} reference has already been used for different payment fields.`,
+            replay_conflict: true,
+            replay_bucket: bucket,
             replay_reference: key,
-            first_seen_at: store[bucket][key].first_seen_at || null,
+            first_seen_at: existing.first_seen_at || null,
+            existing_request_hash: existingHash,
+            request_hash: requestHash,
           },
           409,
         ),
       };
     }
     store[bucket][key] = {
-      ...metadata,
+      ...normalizedMetadata,
       first_seen_at: new Date().toISOString(),
+      request_hash: requestHash,
+      replay_count: 0,
     };
-    return { ok: true };
+    return { ok: true, requestHash };
   });
 }
 
@@ -561,6 +646,7 @@ async function verifyPayment(payload) {
   if (!replayClaim.ok) return replayClaim.response;
   return jsonResponse({
     ok: true,
+    idempotent_replay: replayClaim.idempotentReplay || undefined,
     provider: "stripe",
     rail: "stripe-card-mpp",
     amount_cents: expected.amountCents,
@@ -569,6 +655,8 @@ async function verifyPayment(payload) {
     payment_contract_hash: expected.paymentContractHash || undefined,
     stripe_profile_id: stripeProfileId,
     transaction_reference: transactionReference,
+    replay_reference: transactionReference,
+    replay_request_hash: replayClaim.requestHash,
     mpp_receipt: mppReceipt,
     real_settlement_verified: true,
   });
@@ -629,6 +717,7 @@ async function verifyTempoFxPayment(receipt, expected) {
   if (!replayClaim.ok) return replayClaim.response;
   return jsonResponse({
     ok: true,
+    idempotent_replay: replayClaim.idempotentReplay || undefined,
     provider: "tempo_mpp",
     rail: "tempo-mpp",
     amount_cents: expected.amountCents,
@@ -638,6 +727,8 @@ async function verifyTempoFxPayment(receipt, expected) {
     network: expected.tempoNetwork || network,
     recipient: expected.tempoRecipient || recipient,
     transaction_reference: transactionReference,
+    replay_reference: transactionReference,
+    replay_request_hash: replayClaim.requestHash,
     real_settlement_verified: false,
     fx: {
       mode: "demo_fixed_1_1",
@@ -720,6 +811,7 @@ async function verifyRefund(payload) {
   if (!refundClaim.ok) return refundClaim.response;
   return jsonResponse({
     ok: true,
+    idempotent_replay: requestClaim.idempotentReplay || refundClaim.idempotentReplay || undefined,
     provider: "stripe",
     rail: "stripe-card-mpp",
     amount_cents: amountCents,
@@ -727,6 +819,8 @@ async function verifyRefund(payload) {
     quote_hash: quoteHash,
     original_transaction_reference: originalReference,
     refund_reference: refundResult.id,
+    replay_reference: refundResult.id,
+    replay_request_hash: refundClaim.requestHash,
     refund_status: refundResult.status,
     real_refund_verified: true,
   });
@@ -748,11 +842,11 @@ async function paid(request, payload) {
   return result.withReceipt(
     jsonResponse({
       ok: true,
-    rail: "stripe-card-mpp",
-    quote_hash: expected.quoteHash,
-    payment_contract_hash: expected.paymentContractHash || undefined,
-    amount_cents: expected.amountCents,
-    currency: expected.currency.toUpperCase(),
+      rail: "stripe-card-mpp",
+      quote_hash: expected.quoteHash,
+      payment_contract_hash: expected.paymentContractHash || undefined,
+      amount_cents: expected.amountCents,
+      currency: expected.currency.toUpperCase(),
       stripe_profile_id: stripeProfileId,
     }),
   );

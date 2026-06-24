@@ -8,5 +8,7 @@
   "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "stripe_profile_id": "profile_test_agentcart_shop",
   "transaction_reference": "pi_agentcart_fixture_001",
+  "replay_reference": "pi_agentcart_fixture_001",
+  "replay_request_hash": "155c28c2cad720e1d0f75b3d8c6b145e78428a20cde3e11e4184cc67c730a1d9",
   "real_settlement_verified": true
 }

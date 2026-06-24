@@ -4,6 +4,8 @@ These fixtures pin the production-shaped external verifier boundary between
 ShopBridge and a rail-specific verifier. Payment fixtures include the
 `payment_contract_hash` that binds quote total, currency, quote hash, selected
 rail, and destination/profile into one verifier contract.
+Success fixtures also include `replay_reference` and `replay_request_hash`, so
+the verifier can distinguish exact idempotent retries from replay conflicts.
 
 - `payment-request.stripe-card-mpp.json`: payload ShopBridge sends before
   creating a paid WooCommerce order.
@@ -25,4 +27,4 @@ python3 scripts/verify-verifier-fixtures.py
 The validator also checks that the WooCommerce plugin still builds verifier
 payloads with the required contract fields and that the Stripe sandbox verifier
 keeps replay-protection hooks for payment, refund request, and refund
-references.
+references, including request-hash conflict checks.

@@ -145,7 +145,9 @@ def verify_payment_success(payload: dict[str, Any], request: dict[str, Any]) -> 
         "payment contract hash mismatch",
     )
     require(payload.get("stripe_profile_id") == path_value(request, "expected.stripe_profile_id"), "payment profile mismatch")
-    require_non_empty_string(payload, "transaction_reference")
+    reference = require_non_empty_string(payload, "transaction_reference")
+    require(payload.get("replay_reference") == reference, "payment replay_reference must match transaction_reference")
+    require_quote_hash(require_non_empty_string(payload, "replay_request_hash"), "payment replay_request_hash")
     require(payload.get("real_settlement_verified") is True, "payment success must represent real settlement verification")
 
 
@@ -180,7 +182,9 @@ def verify_refund_success(payload: dict[str, Any], request: dict[str, Any]) -> N
         payload.get("original_transaction_reference") == path_value(request, "expected.original_transaction_reference"),
         "refund original transaction reference mismatch",
     )
-    require_non_empty_string(payload, "refund_reference")
+    reference = require_non_empty_string(payload, "refund_reference")
+    require(payload.get("replay_reference") == reference, "refund replay_reference must match refund_reference")
+    require_quote_hash(require_non_empty_string(payload, "replay_request_hash"), "refund replay_request_hash")
     require(payload.get("real_refund_verified") is True, "refund success must represent real refund verification")
 
 
@@ -230,6 +234,13 @@ def verify_negative_fixture(path: pathlib.Path) -> None:
     elif case_name == "payment_replay_reference":
         require(case.get("replay_bucket") == "payments", f"{case_name} must replay the payments bucket")
         require_non_empty_string(payload, str(case.get("reference_path") or "transaction_reference"))
+    elif case_name == "payment_replay_conflict":
+        require(case.get("replay_bucket") == "payments", f"{case_name} must replay the payments bucket")
+        require_non_empty_string(payload, str(case.get("reference_path") or "transaction_reference"))
+        require(
+            path_value(payload, "amount_cents") != path_value(load_fixture("payment-success.stripe-card-mpp.json"), "amount_cents"),
+            f"{case_name} must mutate payment amount away from the original replay metadata",
+        )
     elif case_name == "refund_original_reference_mismatch":
         require(
             path_value(payload, "expected.original_transaction_reference")
@@ -264,6 +275,7 @@ def verify_negative_fixtures() -> None:
         "payment_contract_hash_mismatch",
         "payment_stripe_profile_mismatch",
         "payment_replay_reference",
+        "payment_replay_conflict",
         "refund_original_reference_mismatch",
         "refund_requested_reference_missing",
         "refund_replay_reference",
@@ -349,8 +361,15 @@ def verify_stripe_verifier_replay_fields() -> None:
         "withReplayStoreMutation",
         "replayStoreDiagnostics",
         "replay_store_locking",
+        "replay_store_writable",
         "replay_store_counts",
         "replayStoreLockPath",
+        "replayStoreWriteProbe",
+        "replayRequestHash",
+        "replayComparableMetadata",
+        "idempotent_replay",
+        "replay_conflict",
+        "request_hash",
         "claimReplayReference(\"payments\"",
         "claimReplayReference(\"refund_requests\"",
         "claimReplayReference(\"refunds\"",

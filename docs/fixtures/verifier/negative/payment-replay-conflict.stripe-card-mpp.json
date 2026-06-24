@@ -1,0 +1,16 @@
+{
+  "case": "payment_replay_conflict",
+  "should_reject": true,
+  "base_fixture": "payment-success.stripe-card-mpp.json",
+  "replay_bucket": "payments",
+  "reference_path": "transaction_reference",
+  "mutation": {
+    "path": "amount_cents",
+    "value": 1999
+  },
+  "expected_rejection": {
+    "layer": "external_verifier",
+    "status": 409,
+    "reason": "payment reference has already been used for different payment fields"
+  }
+}
