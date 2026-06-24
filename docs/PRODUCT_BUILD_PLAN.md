@@ -20,6 +20,37 @@ AgentCart should support two buyer integration paths:
 ShopBridge remains the merchant-side WooCommerce plugin. The payment verifier
 remains the settlement authority.
 
+For standards alignment, see `docs/STANDARDS_ALIGNMENT.md`. The short version:
+do not pivot the product around one protocol. Keep the AgentCart commerce core
+stable, and add adapters for x402/MPP, ERC-8004, ERC-8128, ERC-8183, AP2, ACP,
+UCP, MCP, and A2A at explicit seams.
+
+## Current Product Goal
+
+AgentCart should become the WooCommerce retail bridge for agentic commerce:
+verified merchant discovery, final quote binding, explicit buyer approval,
+payment-proof handoff, WooCommerce order/refund/fulfillment state, and portable
+audit. The merchant path should feel like a normal WooCommerce plugin install.
+The buyer path should start skill-first and require the AgentCart service only
+when the household wants durable policy, audit, calendar/tasks, or stronger
+local integrations.
+
+## Next Build Sequence
+
+| Order | Slice | Why now |
+| --- | --- | --- |
+| 1 | Registry transparency and refresh UX | Safe multi-merchant discovery is the foundation for standards like ERC-8004 and for buyer trust |
+| 2 | Manifest protocol profiles | Agents need machine-readable claims for `agentcart-shopbridge`, x402/MPP, Stripe/card MPP, and signed HTTP support |
+| 3 | x402 compatibility shim | Makes the existing HTTP 402/payment-requirements flow understandable to x402-capable agents without replacing the verifier seam |
+| 4 | Signed HTTP request verification | Hardens quote, checkout, status, cancellation, and refund endpoints beyond bearer-token-only auth |
+| 5 | Protocol translators | Lets AP2/ACP/UCP/MCP/A2A clients use the same AgentCart quote/order model |
+| 6 | Escrow/custom-order flow | Adds ERC-8183-style jobs only where normal retail checkout is the wrong model |
+
+The immediate next implementation slice is **Registry transparency and refresh
+UX**. It should show merchants and buyer agents whether a registry record is
+current, verified, stale, revoked, or excluded, without making merchants copy
+hashes manually.
+
 ## Visual Architecture
 
 ```mermaid

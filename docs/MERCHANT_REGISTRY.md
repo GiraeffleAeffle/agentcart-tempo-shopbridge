@@ -10,6 +10,12 @@
 AgentCart's registry should be an identity and integrity anchor, not an ad
 marketplace and not a product catalog.
 
+Standards direction: this off-chain record shape should stay compatible with a
+future ERC-8004-style registration file for ShopBridge merchants or hosted
+service providers. The registry should identify and validate merchant endpoints;
+it should not require public registration of a household's private shopping
+agent.
+
 ## Goals
 
 - Let agents discover shops that support AgentCart ShopBridge.

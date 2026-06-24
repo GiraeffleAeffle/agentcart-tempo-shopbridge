@@ -7,13 +7,18 @@ This file turns the hackathon "what's next" list into concrete engineering
 tracks. The current repository is still a prototype; production use requires
 the items below.
 
+The standards direction is tracked in `docs/STANDARDS_ALIGNMENT.md`: AgentCart
+keeps a stable commerce core and adds adapters for x402/MPP, ERC-8004,
+ERC-8128, ERC-8183, AP2, ACP, UCP, MCP, and A2A at explicit seams.
+
 ## Status Summary
 
 | Track | Current state | Production target | Next implementation slice |
 | --- | --- | --- | --- |
 | WooCommerce plugin hardening | Demo-capable ShopBridge plugin with catalog, quote, order, status, refund metadata, verifier hook, admin-configurable stable merchant id, local credential generation/rotation actions, admin readiness checks plus a guided setup checklist, WordPress readme/uninstall packaging metadata, WordPress.org package/review-risk guards, baseline REST rate limits, idempotent order creation, single-use quote locking, merchant-controlled product exposure modes including category mode, category blocklist, product-level max quantity, checkout exclusion override, product shipping-country overrides, soft quote stock holds, structured restricted-goods metadata, structured item commerce-policy metadata with explicit product aftercare overrides, store-level aftercare policy defaults, and merchant-approved cancellation endpoint that never executes refunds | Installable merchant plugin with strict auth, idempotency, replay protection, richer product controls, privacy defaults, tests | Add WordPress/Woo integration tests, official Plugin Check/PHPCS, fulfillment-aware cancellation state machine, hard stock reservation adapters, and host-level WAF guidance |
+| Standards alignment | AgentCart has a stable commerce core, MPP-shaped checkout, merchant registry/domain proof, rail-neutral verifier contract, skill-only buyer path, and audit import/export | Standards-ready retail profile with adapters for x402/MPP payments, ERC-8004 identity, ERC-8128 signed HTTP requests, AP2/ACP/UCP/MCP/A2A clients, and ERC-8183 custom jobs | Add manifest protocol profiles after registry transparency/refresh UX |
 | Stripe/card and EUR settlement | Plugin advertises `stripe-card-mpp` only when Stripe profile + verifier are configured; checked-in positive/negative fixtures pin the payment/refund verifier contract; sandbox verifier has lock-protected file-backed replay storage, a fail-closed durable replay readiness gate, health diagnostics, and provider error classification | External verifier can validate Stripe/card credentials, execute EUR settlement/refunds, and bind result to quote hash | Move replay storage/metrics into a durable managed store and add provider-specific operational alerts |
-| Merchant discovery registry | Gateway and direct skill verify stable claims, domain proofs, endpoint scope, payment binding, stale records, and merchant-hosted revocation documents; ShopBridge publishes a registry onboarding bundle that loaders can ingest as a feed | Public identity/integrity registry with no private demand or catalog data on-chain | Move record source to an append-only/onchain registry and add registry transparency monitoring |
+| Merchant discovery registry | Gateway and direct skill verify stable claims, domain proofs, endpoint scope, payment binding, stale records, and merchant-hosted revocation documents; ShopBridge publishes a registry onboarding bundle that loaders can ingest as a feed | Public identity/integrity registry with no private demand or catalog data on-chain, with a clean path to ERC-8004 registration metadata | Add registry transparency/refresh UX, then move record source to an append-only/onchain registry |
 | Delivery tracking/refunds | Woo status endpoint returns merchant-estimated delivery plus a normalized tracking adapter contract for Woo Shipment Tracking, AfterShip-style, ParcelPanel-style, and generic order meta; refund endpoint records/verifies via external verifier | Carrier API polling/webhooks and rail-specific refund execution/verification | Add carrier-specific status polling/webhook adapters and durable refund state machine |
 | Home-server package | Single-household deployment exists; clean repo has gateway + plugin, home-server compose package, buyer setup guide, packaged skill-only ZIP, portable approval records, skill-only audit packets, idempotent `/v1/audit/import`, `/v1/audit/{purchase_id}/export`, imported-packet dashboard/order proof visibility, approval-bound payment handoff command, release manifest, release verifier, optional detached HMAC manifest signatures for private channels, and upgrade/rollback notes | Self-hostable NUC/Dappnode-style stack for AgentCart, Household OS, Vikunja, Home Assistant integration, optional Woo demo | Add public asymmetric release signing or managed updates, stronger audit retention/search/permissions, plus a non-technical setup wizard |
 
@@ -47,13 +52,18 @@ AgentCart is production-ready only when:
 
 ## Suggested Milestones
 
-1. **Merchant alpha**: one external WooCommerce test shop can install ShopBridge
+1. **Registry transparency alpha**: merchant admin and buyer registry pages show
+   current, stale, revoked, failed, and verified records with refresh/check
+   actions and machine-readable reasons.
+2. **Merchant alpha**: one external WooCommerce test shop can install ShopBridge
    and expose catalog/quote/order using trusted-token mode.
-2. **Payment verifier alpha**: external verifier validates one real rail
+3. **Manifest profiles alpha**: manifests declare supported AgentCart,
+   x402/MPP, Stripe/card MPP, registry, and signed-request profiles.
+4. **Payment verifier alpha**: external verifier validates one real rail
    end-to-end, preferably Stripe/card EUR settlement for normal merchants.
-3. **Registry alpha**: merchant publishes signed manifest; registry stores only
+5. **Registry source alpha**: merchant publishes signed manifest; registry stores only
    domain, manifest URL, hash, network, recipient, and timestamps.
-4. **Household package alpha**: one clean NUC install runs AgentCart,
+6. **Household package alpha**: one clean NUC install runs AgentCart,
    Household OS, Vikunja, and Home Assistant integration from documented env.
-5. **Production beta**: refunds, tracking, idempotency, replay protection, and
+7. **Production beta**: refunds, tracking, idempotency, replay protection, and
    admin readiness checks are tested.
