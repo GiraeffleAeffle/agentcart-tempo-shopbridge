@@ -7129,11 +7129,13 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
         errors = status.get("errors") if isinstance(status.get("errors"), list) else []
         error_text = ", ".join(str(error) for error in errors[:4])
         checked_at = str(status.get("checked_at") or "")
+        error_html = f"<br><code>{esc(error_text)}</code>" if error_text else ""
+        checked_html = f'<br><span class="muted">checked {esc(checked_at)}</span>' if checked_at else ""
         return (
             f"<span class=\"badge badge-{esc(state)}\">{esc(state)}</span><br>"
             f"<span class=\"muted\">{esc(reason)}</span>"
-            f"{('<br><code>' + esc(error_text) + '</code>') if error_text else ''}"
-            f"{('<br><span class=\"muted\">checked ' + esc(checked_at) + '</span>') if checked_at else ''}"
+            f"{error_html}"
+            f"{checked_html}"
         )
 
     def hash_anchor_cell(entry: dict[str, Any]) -> str:
