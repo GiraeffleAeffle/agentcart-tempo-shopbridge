@@ -204,7 +204,9 @@ python3 gateway/scripts/registry_record.py verify --record-file merchant-registr
 ```
 
 The hosted alpha feed is available at `GET /v1/registry/records`; the normalized
-agent-facing registry remains `GET /v1/registry`.
+agent-facing registry remains `GET /v1/registry`. Operators and agents can also
+check aggregate verifier state, freshness, revocations, and action items at
+`GET /v1/registry/health`.
 
 ## Production Roadmap
 

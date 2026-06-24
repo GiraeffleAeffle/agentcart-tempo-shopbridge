@@ -358,6 +358,7 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("x-service-info", openapi)
             self.assertIn("/v1/registry", openapi["paths"])
             self.assertIn("/v1/registry/records", openapi["paths"])
+            self.assertIn("/v1/registry/health", openapi["paths"])
             self.assertIn("/v1/quote-tournament", openapi["paths"])
             self.assertIn("/v1/audit/import", openapi["paths"])
             self.assertIn("/v1/audit/{purchase_id}/export", openapi["paths"])
@@ -368,6 +369,7 @@ class AgentCartTests(unittest.TestCase):
             self.assertNotIn("mpp-http-auth", capability["protocol_profile_ids"])
             self.assertEqual(capability["endpoints"]["registry_records"], "/v1/registry/records")
             self.assertEqual(capability["endpoints"]["registry_submit"], "/v1/registry/records")
+            self.assertEqual(capability["endpoints"]["registry_health"], "/v1/registry/health")
             self.assertEqual(service.capability_document()["endpoints"]["audit_import"], "/v1/audit/import")
             self.assertEqual(
                 service.capability_document()["endpoints"]["audit_export"],
@@ -525,6 +527,11 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("signed-tea-shop", entries)
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
             self.assertIn("signed-tea-shop", service.adapters)
+            health = service.registry_health(registry)
+            self.assertEqual(health["summary"]["state"], "healthy")
+            self.assertGreaterEqual(health["summary"]["eligible_count"], 1)
+            self.assertIn("verified", health["summary"]["state_counts"])
+            self.assertTrue(any(check["merchant_id"] == "signed-tea-shop" for check in health["checks"]))
 
     def test_hosted_registry_submission_publishes_verified_record(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -869,7 +876,15 @@ class AgentCartTests(unittest.TestCase):
             self.assertFalse(entries["signed-tea-shop"]["registry_status"]["eligible"])
             self.assertIn("record_stale", entries["signed-tea-shop"]["verification"]["errors"])
             self.assertNotIn("signed-tea-shop", service.adapters)
+            health = service.registry_health(registry)
+            self.assertEqual(health["summary"]["state"], "attention")
+            self.assertEqual(health["summary"]["warning_count"], 1)
+            self.assertTrue(
+                any(alert["code"] == "registry_record_stale" for alert in health["alerts"])
+            )
             html = agentcart.render_registry_page(service)
+            self.assertIn("Registry Health", html)
+            self.assertIn("registry_record_stale", html)
             self.assertIn("badge-stale", html)
             self.assertIn("record_stale", html)
 
@@ -884,7 +899,15 @@ class AgentCartTests(unittest.TestCase):
             try:
                 with urllib.request.urlopen(f"{base_url}/registry", timeout=5) as response:
                     self.assertEqual(response.status, 200)
-                    self.assertIn(b"AgentCart", response.read())
+                    body = response.read()
+                    self.assertIn(b"AgentCart", body)
+                    self.assertIn(b"Registry Health", body)
+                    self.assertIn(b"Health JSON", body)
+                with urllib.request.urlopen(f"{base_url}/v1/registry/health", timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+                    health = json.loads(response.read())
+                self.assertEqual(health["schema"], "agentcart.registry_health.v1")
+                self.assertIn("summary", health)
                 with self.assertRaises(urllib.error.HTTPError) as raised:
                     urllib.request.urlopen(f"{base_url}/registry?q=sencha", timeout=5)
                 self.assertEqual(raised.exception.code, 401)

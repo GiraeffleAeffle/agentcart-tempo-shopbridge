@@ -3195,6 +3195,207 @@ class AgentCartService:
             "agent_safety": self.registry_agent_safety(),
         }
 
+    def registry_health(self, registry: dict[str, Any] | None = None) -> dict[str, Any]:
+        registry = registry or self.registry_document()
+        entries = registry.get("entries") if isinstance(registry.get("entries"), list) else []
+        registry_meta = registry.get("registry") if isinstance(registry.get("registry"), dict) else {}
+        hosted_store = registry_meta.get("hosted_store") if isinstance(registry_meta.get("hosted_store"), dict) else {}
+        source_errors = registry_meta.get("source_errors") if isinstance(registry_meta.get("source_errors"), list) else []
+        state_counts: dict[str, int] = {}
+        checks = []
+        alerts = []
+        now = utcnow()
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            status = entry.get("registry_status") if isinstance(entry.get("registry_status"), dict) else {}
+            verification = entry.get("verification") if isinstance(entry.get("verification"), dict) else {}
+            state = str(status.get("state") or verification.get("state") or "unknown")
+            eligible = bool(status.get("eligible"))
+            errors = [str(error) for error in status.get("errors", []) if error] if isinstance(status.get("errors"), list) else []
+            updated_at = str(entry.get("updated_at") or verification.get("updated_at") or "")
+            age_days = self.registry_record_age_days(updated_at, now=now)
+            check = {
+                "merchant_id": str(entry.get("merchant_id") or ""),
+                "name": str(entry.get("name") or ""),
+                "domain": str(entry.get("domain") or ""),
+                "manifest_url": str(entry.get("manifest_url") or ""),
+                "registry_record_hash": str(entry.get("registry_record_hash") or ""),
+                "state": state,
+                "eligible": eligible,
+                "reason": str(status.get("reason") or ""),
+                "errors": errors,
+                "error_count": len(errors),
+                "checked_at": str(status.get("checked_at") or verification.get("checked_at") or ""),
+                "updated_at": updated_at,
+                "age_days": age_days,
+                "manifest_fetched": bool(verification.get("manifest_fetched")),
+                "manifest_source": str(verification.get("manifest_source") or ""),
+                "payment_recipient_configured": bool((entry.get("payment") or {}).get("recipient_configured"))
+                if isinstance(entry.get("payment"), dict)
+                else False,
+            }
+            checks.append(check)
+            state_counts[state] = state_counts.get(state, 0) + 1
+
+            alert = self.registry_health_alert_for_check(check)
+            if alert:
+                alerts.append(alert)
+            freshness_alert = self.registry_freshness_alert_for_check(check)
+            if freshness_alert:
+                alerts.append(freshness_alert)
+
+        for error in source_errors:
+            if isinstance(error, dict):
+                alerts.append(
+                    {
+                        "severity": "critical",
+                        "code": "registry_source_error",
+                        "merchant_id": "",
+                        "message": str(error.get("message") or "Registry source could not be loaded."),
+                        "detail": error.get("detail"),
+                        "suggested_action": "Fix the configured registry path, URL, or JSON document before relying on quote tournaments.",
+                    }
+                )
+
+        if not entries:
+            alerts.append(
+                {
+                    "severity": "warning",
+                    "code": "registry_empty",
+                    "merchant_id": "",
+                    "message": "No registry entries are currently visible.",
+                    "suggested_action": "Submit a ShopBridge registry bundle or configure a registry source.",
+                }
+            )
+
+        if hosted_store.get("enabled") and int(hosted_store.get("entry_count") or 0) == 0:
+            alerts.append(
+                {
+                    "severity": "info",
+                    "code": "hosted_registry_empty",
+                    "merchant_id": "",
+                    "message": "Hosted registry persistence is enabled but has no active merchant records.",
+                    "suggested_action": "Use the ShopBridge admin submit action after merchant setup is complete.",
+                }
+            )
+        if isinstance(hosted_store.get("error"), dict):
+            alerts.append(
+                {
+                    "severity": "critical",
+                    "code": "hosted_registry_store_error",
+                    "merchant_id": "",
+                    "message": str(hosted_store["error"].get("message") or "Hosted registry store could not be read."),
+                    "detail": hosted_store["error"].get("detail"),
+                    "suggested_action": "Repair or replace the hosted registry JSON store.",
+                }
+            )
+
+        severity_rank = {"critical": 3, "warning": 2, "info": 1}
+        max_severity = max((severity_rank.get(str(alert.get("severity")), 0) for alert in alerts), default=0)
+        overall_state = "critical" if max_severity >= 3 else "attention" if max_severity >= 2 else "healthy"
+        eligible_count = sum(1 for check in checks if check["eligible"])
+        warning_count = sum(1 for alert in alerts if alert.get("severity") == "warning")
+        critical_count = sum(1 for alert in alerts if alert.get("severity") == "critical")
+        return {
+            "schema": "agentcart.registry_health.v1",
+            "generated_at": isoformat(now),
+            "summary": {
+                "state": overall_state,
+                "entry_count": len(checks),
+                "eligible_count": eligible_count,
+                "ineligible_count": len(checks) - eligible_count,
+                "state_counts": dict(sorted(state_counts.items())),
+                "alert_count": len(alerts),
+                "critical_count": critical_count,
+                "warning_count": warning_count,
+                "hosted_entry_count": int(hosted_store.get("entry_count") or 0),
+                "hosted_revocation_count": int(hosted_store.get("revocation_count") or 0),
+                "source_error_count": len(source_errors),
+            },
+            "hosted_store": hosted_store,
+            "alerts": alerts,
+            "checks": checks,
+            "source_errors": source_errors,
+        }
+
+    def registry_record_age_days(self, updated_at: str, *, now: dt.datetime) -> int | None:
+        if not updated_at:
+            return None
+        try:
+            parsed = parse_time(updated_at)
+        except ValueError:
+            return None
+        return max(0, (now - parsed).days)
+
+    def registry_health_alert_for_check(self, check: dict[str, Any]) -> dict[str, Any] | None:
+        state = str(check.get("state") or "unknown")
+        merchant_id = str(check.get("merchant_id") or "")
+        name = str(check.get("name") or merchant_id or "merchant")
+        errors = check.get("errors") if isinstance(check.get("errors"), list) else []
+        if state == "failed":
+            endpoint_errors = [error for error in errors if "fetch_failed" in str(error) or str(error).startswith("endpoint_")]
+            code = "registry_endpoint_check_failed" if endpoint_errors else "registry_verification_failed"
+            return {
+                "severity": "critical",
+                "code": code,
+                "merchant_id": merchant_id,
+                "message": f"{name} is not eligible because registry verification failed.",
+                "errors": errors,
+                "suggested_action": "Re-run the merchant public endpoint check, refresh the registry bundle, and resubmit after fixing errors.",
+            }
+        if state == "stale":
+            return {
+                "severity": "warning",
+                "code": "registry_record_stale",
+                "merchant_id": merchant_id,
+                "message": f"{name} has a stale registry record and is excluded from external quote tournaments.",
+                "errors": errors,
+                "suggested_action": "Refresh registry metadata in ShopBridge and submit the new bundle.",
+            }
+        if state == "revoked":
+            return {
+                "severity": "warning",
+                "code": "registry_record_revoked",
+                "merchant_id": merchant_id,
+                "message": f"{name} has a revoked registry record.",
+                "errors": errors,
+                "suggested_action": "Keep it revoked or publish a fresh replacement record from the merchant domain.",
+            }
+        if state == "unknown":
+            return {
+                "severity": "warning",
+                "code": "registry_status_unknown",
+                "merchant_id": merchant_id,
+                "message": f"{name} has no recognized registry status.",
+                "errors": errors,
+                "suggested_action": "Inspect the registry entry and verifier output.",
+            }
+        return None
+
+    def registry_freshness_alert_for_check(self, check: dict[str, Any]) -> dict[str, Any] | None:
+        if check.get("state") != "verified":
+            return None
+        age_days = check.get("age_days")
+        if not isinstance(age_days, int):
+            return None
+        max_age = self.config.merchant_registry_max_age_days
+        if max_age <= 0:
+            return None
+        warning_age = max(1, int(max_age * 0.8))
+        if age_days < warning_age:
+            return None
+        merchant_id = str(check.get("merchant_id") or "")
+        name = str(check.get("name") or merchant_id or "merchant")
+        return {
+            "severity": "warning",
+            "code": "registry_record_near_stale",
+            "merchant_id": merchant_id,
+            "message": f"{name} registry record is {age_days} days old and near the {max_age}-day freshness limit.",
+            "suggested_action": "Refresh and resubmit the merchant registry bundle before it becomes stale.",
+        }
+
     def registry_manifest_url(self, adapter: Any) -> str:
         if getattr(adapter, "adapter_type", "") == "woocommerce" and self.config.woocommerce_base_url:
             return f"{self.config.woocommerce_base_url}/.well-known/agentcart.json"
@@ -3591,6 +3792,7 @@ class AgentCartService:
                 "registry": "/v1/registry",
                 "registry_records": "/v1/registry/records",
                 "registry_submit": "/v1/registry/records",
+                "registry_health": "/v1/registry/health",
                 "quote_tournament": "/v1/quote-tournament?q=tea&country=DE",
                 "integrations": "/v1/integrations/status",
                 "open_tasks": "/v1/tasks/open?limit=20",
@@ -3724,6 +3926,19 @@ class AgentCartService:
                             "401": {"description": "Registry submit token required"},
                         },
                     },
+                },
+                "/v1/registry/health": {
+                    "get": {
+                        "operationId": "getRegistryHealth",
+                        "summary": "Get merchant registry health, verifier alerts, and freshness summary",
+                        "security": [],
+                        "responses": {
+                            "200": {
+                                "description": "Registry health summary",
+                                "content": {"application/json": {"schema": {"type": "object"}}},
+                            }
+                        },
+                    }
                 },
                 "/v1/quote-tournament": {
                     "get": {
@@ -4423,6 +4638,7 @@ Discovery:
 - OpenAPI: /openapi.json
 - Capabilities: /.well-known/agentcart.json
 - Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records
+- Registry health: GET /v1/registry/health
 
 Current caveat:
 The default demo provider follows the HTTP 402 Payment-auth shape but does not move real funds. Use a real
@@ -6965,6 +7181,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         if path == "/v1/registry/records":
             self.send_json(self.service.hosted_registry_feed())
             return
+        if path == "/v1/registry/health":
+            self.send_json(self.service.registry_health())
+            return
         if path == "/v1/quote-tournament":
             self.require_auth_if_configured()
             self.send_json(
@@ -7488,6 +7707,7 @@ def audit_export_link(purchase_id: Any) -> str:
 
 def render_registry_page(service: AgentCartService, query_text: str = "", country: str = "DE", postal_code: str = "") -> str:
     registry = service.registry_document()
+    health = service.registry_health(registry)
     entries = registry.get("entries", [])
     tournament: dict[str, Any] | None = None
     tournament_error = ""
@@ -7548,6 +7768,10 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
         values = [str(value) for value in profile_ids if value]
         return "<br>".join(f"<code>{esc(value)}</code>" for value in values) if values else '<span class="muted">not declared</span>'
 
+    def health_state_label(state: Any) -> str:
+        text = str(state or "unknown")
+        return f"<span class=\"badge badge-health-{esc(text)}\">{esc(text)}</span>"
+
     def payment_cell(candidate: dict[str, Any]) -> str:
         summary = candidate.get("payment_summary") if isinstance(candidate.get("payment_summary"), dict) else {}
         quote_currency = str(summary.get("quote_currency") or candidate.get("currency") or "EUR")
@@ -7579,6 +7803,24 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
         </tr>
         """
         for entry in entries
+    )
+
+    summary = health.get("summary") if isinstance(health.get("summary"), dict) else {}
+    state_counts = summary.get("state_counts") if isinstance(summary.get("state_counts"), dict) else {}
+    state_count_label = ", ".join(f"{key}: {value}" for key, value in sorted(state_counts.items())) or "none"
+    hosted_store = health.get("hosted_store") if isinstance(health.get("hosted_store"), dict) else {}
+    alerts = health.get("alerts") if isinstance(health.get("alerts"), list) else []
+    alert_rows = "\n".join(
+        f"""
+        <tr>
+          <td><span class="badge badge-alert-{esc(alert.get('severity') or 'info')}">{esc(alert.get('severity') or 'info')}</span></td>
+          <td><code>{esc(alert.get('code') or '')}</code></td>
+          <td>{esc(alert.get('merchant_id') or 'registry')}</td>
+          <td>{esc(alert.get('message') or '')}<br><span class="muted">{esc(alert.get('suggested_action') or '')}</span></td>
+        </tr>
+        """
+        for alert in alerts[:8]
+        if isinstance(alert, dict)
     )
 
     winner = (tournament or {}).get("winner") if isinstance(tournament, dict) else None
@@ -7667,6 +7909,10 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
     .winner {{ border-color:#b6d7ce; background:#f1faf7; }}
     .badge {{ display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; font-weight:750; background:#eef1f3; color:#3d4951; }}
     .badge-verified, .badge-local {{ background:#e8f6ef; color:#0a6c60; }}
+    .badge-health-healthy {{ background:#e8f6ef; color:#0a6c60; }}
+    .badge-health-attention, .badge-alert-warning {{ background:#fff5d9; color:#8a4b12; }}
+    .badge-health-critical, .badge-alert-critical {{ background:#fff1f1; color:#9b1c1c; }}
+    .badge-alert-info {{ background:#eef1f3; color:#3d4951; }}
     .badge-stale {{ background:#fff5d9; color:#8a4b12; }}
     .badge-revoked, .badge-failed {{ background:#fff1f1; color:#9b1c1c; }}
     .muted {{ color:var(--muted); }}
@@ -7689,6 +7935,7 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>
       <a class="button secondary" href="/protocol-fields.html">Field Map</a>
       <a class="button secondary" href="/v1/registry">Registry JSON</a>
+      <a class="button secondary" href="/v1/registry/health">Health JSON</a>
       <a class="button" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115">Hazel Comparison</a>
     </div>
     <form method="get" action="/registry">
@@ -7704,6 +7951,18 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
       <div class="card"><h3>Private RFQ</h3><p>The concrete buyer intent is sent only to selected merchants as a quote request, then bound to a quote hash.</p></div>
       <div class="card"><h3>User-Owned Ranking</h3><p>The household agent ranks by policy, final price, delivery, stock, and trust. No paid placement signal is used.</p></div>
     </section>
+
+    <h2>Registry Health</h2>
+    <section class="grid">
+      <div class="card"><h3>Overall</h3><p>{health_state_label(summary.get('state'))}<br><span class="muted">{esc(summary.get('eligible_count') or 0)} eligible of {esc(summary.get('entry_count') or 0)} entries</span></p></div>
+      <div class="card"><h3>Alerts</h3><p><strong>{esc(summary.get('critical_count') or 0)}</strong> critical, <strong>{esc(summary.get('warning_count') or 0)}</strong> warning<br><span class="muted">{esc(summary.get('alert_count') or 0)} total alerts</span></p></div>
+      <div class="card"><h3>Hosted Store</h3><p><strong>{esc(summary.get('hosted_entry_count') or 0)}</strong> active records, <strong>{esc(summary.get('hosted_revocation_count') or 0)}</strong> revocations<br><span class="muted">submit auth: {esc('required' if hosted_store.get('submit_auth_required') else 'not required')}</span></p></div>
+      <div class="card"><h3>Status Mix</h3><p>{esc(state_count_label)}</p></div>
+    </section>
+    <table>
+      <thead><tr><th>Severity</th><th>Code</th><th>Scope</th><th>Action</th></tr></thead>
+      <tbody>{alert_rows or '<tr><td colspan="4">No registry health alerts.</td></tr>'}</tbody>
+    </table>
 
     <h2>Registered Merchants</h2>
     <table>

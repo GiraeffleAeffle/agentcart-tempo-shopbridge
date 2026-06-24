@@ -440,7 +440,7 @@
           <tr>
             <td>Trust</td>
             <td>Agents can verify merchant identity, endpoint freshness, signed sensitive calls, and quote/order integrity without trusting arbitrary page text.</td>
-            <td>Registry, hosted submit/revoke persistence, and signed request gates are present. Freshness monitoring, transparency backing, and stronger governance remain.</td>
+            <td>Registry, hosted submit/revoke persistence, health summaries, and signed request gates are present. Scheduled monitoring, transparency backing, and stronger governance remain.</td>
           </tr>
           <tr>
             <td>Payments</td>
@@ -460,7 +460,7 @@
   <script>
     const areas = [
       { name: "Core Commerce", value: 79, note: "catalog, quote, approval, order, stock, tax and shipping shape" },
-      { name: "Trust And Registry", value: 62, note: "manifest profiles, domain proof, hosted record feed, revocations, signed request gate" },
+      { name: "Trust And Registry", value: 66, note: "manifest profiles, domain proof, hosted record feed, health alerts, revocations, signed request gate" },
       { name: "Payments", value: 36, note: "demo proofs, verifier contracts, and idempotent refund path done; real rail ops still open" },
       { name: "Merchant UX", value: 42, note: "settings done; setup wizard and low-friction refresh remain" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
@@ -494,9 +494,9 @@
       {
         title: "Merchant registry",
         status: "active",
-        value: 66,
-        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted submit/revoke persistence, raw hosted feed, revocations, and quote tournament entry point.",
-        remaining: "Add monitoring, onchain/append-only backing, stronger governance, and merchant-facing registry health alerts."
+        value: 72,
+        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted submit/revoke persistence, raw hosted feed, health endpoint/page, revocations, and quote tournament entry point.",
+        remaining: "Add scheduled monitoring, alert delivery, onchain/append-only backing, stronger governance, and merchant-facing registry health alerts inside WordPress."
       },
       {
         title: "Signed requests",

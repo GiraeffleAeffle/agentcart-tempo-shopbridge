@@ -129,6 +129,9 @@ AGENTCART_HOSTED_REGISTRY_TOKEN=replace-with-submit-token
 `POST /v1/registry/records` accepts ShopBridge admin submit/revoke requests,
 stores the raw merchant record, verifies it with the same domain-proof and
 manifest checks, and refreshes the agent-facing `GET /v1/registry` view.
+`GET /v1/registry/health` summarizes verifier states, source errors, hosted
+record/revocation counts, stale records, endpoint failures, and suggested
+operator actions.
 
 `hmac-sha256` remains available for private/local feeds, but it is an
 implementation shortcut. Public trust should use a merchant-owned proof such as
@@ -310,6 +313,8 @@ The gateway now:
 - rejects absolute catalog/quote endpoint URLs outside the registered merchant
   domain;
 - exposes `verification.state`, `verification.errors`, and manifest source;
+- exposes `GET /v1/registry/health` for aggregate registry health, freshness
+  warnings, source errors, and operator action items;
 - makes quote tournament exclude unverified external merchants by default.
 
 Once that interface is stable, the source of records can move from local JSON or
