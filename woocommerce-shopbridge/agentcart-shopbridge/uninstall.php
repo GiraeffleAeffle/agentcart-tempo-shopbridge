@@ -13,7 +13,7 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 
 global $wpdb;
 
-$options = [
+$agentcart_shopbridge_options = [
     'agentcart_shopbridge_merchant_id',
     'agentcart_shopbridge_token',
     'agentcart_shopbridge_payment_verifier_url',
@@ -57,11 +57,11 @@ $options = [
     'agentcart_shopbridge_stock_holds',
 ];
 
-foreach ($options as $option) {
-    delete_option($option);
+foreach ($agentcart_shopbridge_options as $agentcart_shopbridge_option) {
+    delete_option($agentcart_shopbridge_option);
 }
 
-$option_prefixes = [
+$agentcart_shopbridge_option_prefixes = [
     'agentcart_shopbridge_checkout_lock_',
     'agentcart_shopbridge_quote_lock_',
     'agentcart_shopbridge_refund_lock_',
@@ -74,12 +74,13 @@ $option_prefixes = [
     '_transient_timeout_agentcart_shopbridge_signed_nonce_',
 ];
 
-foreach ($option_prefixes as $prefix) {
-    $like = $wpdb->esc_like($prefix) . '%';
+foreach ($agentcart_shopbridge_option_prefixes as $agentcart_shopbridge_prefix) {
+    $agentcart_shopbridge_like = $wpdb->esc_like($agentcart_shopbridge_prefix) . '%';
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Uninstall cleanup must remove plugin-owned transient rows by prefix.
     $wpdb->query(
         $wpdb->prepare(
             "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
-            $like
+            $agentcart_shopbridge_like
         )
     );
 }

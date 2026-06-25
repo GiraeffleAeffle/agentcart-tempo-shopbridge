@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">56</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 56%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">57</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 57%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -513,7 +513,7 @@
           <tr>
             <td>Merchant setup</td>
             <td>A Woo merchant installs the ZIP or WordPress.org plugin, enables AgentCart, picks payment rails, and publishes a valid manifest without touching code.</td>
-            <td>Quick Start, readiness UX, sandbox quote and checkout tests, hosted registry submit/revoke UX, and registry health checks exist. Plugin Check hardening and deeper WP admin walkthroughs remain.</td>
+            <td>Quick Start, readiness UX, sandbox quote and checkout tests, hosted registry submit/revoke UX, registry health checks, PHPCS/WPCS, and Plugin Check are wired. Deeper WP admin walkthroughs remain.</td>
           </tr>
           <tr>
             <td>Buyer setup</td>
@@ -533,7 +533,7 @@
           <tr>
             <td>Operations</td>
             <td>Release, monitoring, logs, failure modes, support docs, and plugin review gates are boring and repeatable.</td>
-            <td>Verify pipeline and registry monitor snapshots exist. WordPress.org readiness, alerting, and support runbooks still need work.</td>
+            <td>Verify pipeline, strict WordPress official gates, and registry monitor snapshots exist. WordPress.org assets, alerting, and support runbooks still need work.</td>
           </tr>
         </tbody>
       </table>
@@ -548,7 +548,7 @@
       { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
       { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
-      { name: "Woo Release", value: 42, note: "ZIP, package checks, review-risk checks, PHPCS/WPCS config, and official-tool gate exist; strict clean Plugin Check remains" },
+      { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
       { name: "Operations", value: 46, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, verifier logs/metrics/alerts, and alert delta delivery exist; beta ops remain" }
     ];
 
@@ -687,9 +687,9 @@
         code: "ONB",
         title: "Merchant onboarding UX",
         status: "partial",
-        value: 78,
+        value: 80,
         scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote/checkout tests, registry connection actions, and registry-side health/monitor checks.",
-        remaining: "Add deeper WP admin walkthrough tests, Plugin Check/PHPCS polish, and merchant-facing copy cleanup.",
+        remaining: "Add deeper WP admin walkthrough tests and merchant-facing copy cleanup.",
         items: [
           { id: "ONB-001", priority: "P0", title: "Guided checkout test", description: "Add one-click test quote, approval, payment verification, order creation, and cleanup from the ShopBridge admin page." },
           { id: "ONB-002", priority: "P1", title: "Registry health in WordPress", description: "Surface hosted registry connection, monitor snapshot, domain proof, and manifest freshness in the merchant admin UI." },
@@ -700,11 +700,11 @@
         code: "WPR",
         title: "WordPress plugin release",
         status: "partial",
-        value: 42,
-        scope: "Installable ZIP, release artifacts, package checks, review-risk checks, PHPCS/WPCS config, and official-tool gate work.",
-        remaining: "Run strict clean PHPCS/Plugin Check in a prepared WordPress install, then add readme assets, deeper WP integration tests, i18n, and submission polish.",
+        value: 58,
+        scope: "Installable ZIP, release artifacts, package checks, review-risk checks, Composer-pinned PHPCS/WPCS, and strict local Plugin Check runner pass.",
+        remaining: "Add readme assets, deeper WP integration tests, i18n, submission polish, and a final WordPress.org account submission pass.",
         items: [
-          { id: "WPR-001", priority: "P0", title: "Plugin Check and PHPCS", description: "PHPCS/WPCS config and official-tool wrapper are in the pipeline; strict release mode still needs installed tools and clean output." },
+          { id: "WPR-001", priority: "P0", title: "Plugin Check and PHPCS", description: "Implemented: Composer-pinned WPCS tooling passes, and strict release mode starts a local WordPress/Woo install, installs official Plugin Check, and fails unless Plugin Check reports no errors." },
           { id: "WPR-002", priority: "P1", title: "WordPress.org assets", description: "Prepare readme, screenshots, icons, banners, tags, and required disclosures for directory submission." },
           { id: "WPR-003", priority: "P2", title: "Uninstall and privacy review", description: "Verify uninstall cleanup, stored options, logs, and privacy disclosures against WordPress.org expectations." }
         ]

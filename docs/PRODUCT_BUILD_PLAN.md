@@ -203,9 +203,10 @@ rotate local merchant and verifier tokens while respecting secrets managed
 through `wp-config.php`. The pipeline also runs project-specific WordPress.org
 package and review-risk guards for headers, readme metadata, external service
 disclosure, superglobal unslashing, custom admin nonces, registry admin nonces,
-setup-wizard admin nonces, and verifier HTTP-call boundaries. Production still
-needs WP/Woo integration tests, official Plugin Check/PHPCS, and stronger
-hosted registry/payment-provider onboarding.
+setup-wizard admin nonces, verifier HTTP-call boundaries, Composer-pinned
+PHPCS/WPCS, and an isolated official Plugin Check run. Production still needs
+WP/Woo integration tests and stronger hosted registry/payment-provider
+onboarding.
 
 ### 3. Idempotent Order And Replay Safety
 

@@ -79,11 +79,18 @@ external tools on a release machine, run:
 cd woocommerce-shopbridge
 composer install
 cd ..
-AGENTCART_WORDPRESS_OFFICIAL_TOOLS_REQUIRED=1 ./scripts/check-wordpress-official-gates.py
+./scripts/check-wordpress-official-gates.py --strict
 ```
 
-WordPress Plugin Check needs a prepared WordPress install. Point the gate at the
-exact command for that environment:
+Strict mode also runs `scripts/run-wordpress-plugin-check.sh` when no custom
+Plugin Check command is configured. That script starts the bundled local
+WordPress/WooCommerce demo stack on `127.0.0.1:18098`, installs the official
+Plugin Check plugin, and fails unless Plugin Check reports `No errors found`.
+Set `AGENTCART_PLUGIN_CHECK_KEEP_STACK=1` if you want to inspect the temporary
+WordPress stack after the run.
+
+For a separate prepared WordPress install, point the gate at the exact command
+for that environment:
 
 ```sh
 AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND='wp plugin check agentcart-shopbridge --path=/path/to/wordpress' \
@@ -154,10 +161,17 @@ monitor status is enabled.
    ./scripts/verify.sh
    ```
 
-4. Run WordPress Plugin Check and PHPCS/WordPress Coding Standards locally with
-   `AGENTCART_WORDPRESS_OFFICIAL_TOOLS_REQUIRED=1`. Treat warnings about
-   escaping, sanitization, nonces, HTTP calls, text domains, licensing, and
-   external services as blockers.
+4. Run strict WordPress official gates locally:
+
+   ```sh
+   cd woocommerce-shopbridge
+   composer install
+   cd ..
+   ./scripts/check-wordpress-official-gates.py --strict
+   ```
+
+   Treat warnings about escaping, sanitization, nonces, HTTP calls, text
+   domains, licensing, and external services as blockers.
 5. Upload `dist/agentcart-shopbridge.zip` at the WordPress.org add-plugin page.
 6. Watch the email address on the submitting account. Review is manual; respond
    in the existing review thread rather than resubmitting for ordinary fixes.
@@ -171,7 +185,6 @@ monitor status is enabled.
 
 These items are still important before submitting for broad merchant use:
 
-- run Plugin Check against the packaged plugin;
 - add at least one screenshot for the settings/readiness page;
 - verify the package on a clean WordPress + WooCommerce install with `WP_DEBUG`
   enabled;

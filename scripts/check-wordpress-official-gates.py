@@ -16,6 +16,7 @@ PLUGIN_TOOLS_DIR = ROOT / "woocommerce-shopbridge"
 COMPOSER_JSON = PLUGIN_TOOLS_DIR / "composer.json"
 PHPCS_XML = PLUGIN_TOOLS_DIR / "phpcs.xml.dist"
 PLUGIN_DIR = PLUGIN_TOOLS_DIR / "agentcart-shopbridge"
+LOCAL_PLUGIN_CHECK = ROOT / "scripts" / "run-wordpress-plugin-check.sh"
 
 
 def fail(message: str) -> None:
@@ -42,8 +43,8 @@ def require_tool_config() -> None:
             fail(f"composer.json require-dev missing {package}")
 
     ruleset = PHPCS_XML.read_text(encoding="utf-8")
-    for rule in ['<rule ref="WordPress"/>', '<rule ref="PHPCompatibilityWP"/>']:
-        if rule not in ruleset:
+    for rule in ["WordPress", "PHPCompatibilityWP"]:
+        if f'<rule ref="{rule}"' not in ruleset:
             fail(f"phpcs.xml.dist missing {rule}")
     if "<file>agentcart-shopbridge</file>" not in ruleset:
         fail("phpcs.xml.dist must target the packaged plugin directory")
@@ -63,9 +64,11 @@ def run_command(command: list[str], *, cwd: Path) -> None:
     subprocess.run(command, cwd=str(cwd), check=True)
 
 
-def plugin_check_command(raw: str) -> list[str] | None:
+def plugin_check_command(raw: str, *, strict: bool) -> list[str] | None:
     raw = raw.strip()
     if not raw:
+        if strict and LOCAL_PLUGIN_CHECK.exists():
+            return [str(LOCAL_PLUGIN_CHECK)]
         return None
     return shlex.split(raw)
 
@@ -97,7 +100,7 @@ def main() -> int:
         else:
             print("official PHPCS/WPCS gate skipped: phpcs not installed")
 
-        plugin_check = plugin_check_command(args.plugin_check_command)
+        plugin_check = plugin_check_command(args.plugin_check_command, strict=strict)
         if plugin_check:
             run_command(plugin_check, cwd=ROOT)
             print("official WordPress Plugin Check gate ok")

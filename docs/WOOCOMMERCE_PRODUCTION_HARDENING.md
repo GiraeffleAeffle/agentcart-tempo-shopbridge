@@ -115,9 +115,9 @@ For a real WordPress plugin release:
   WordPress `readme.txt`;
 - keep uninstall cleanup policy conservative: remove settings and ephemeral
   state, preserve commerce audit metadata;
-- run `scripts/check-wordpress-official-gates.py`; install the
-  `woocommerce-shopbridge/composer.json` dev tools and use strict mode before a
-  public submission;
+- run `scripts/check-wordpress-official-gates.py --strict` after installing the
+  `woocommerce-shopbridge/composer.json` dev tools; strict mode also runs the
+  official Plugin Check plugin in the bundled local WordPress/Woo stack;
 - add GitHub release zip build;
 - document required WooCommerce versions;
 - document verifier contract and merchant compliance caveats.

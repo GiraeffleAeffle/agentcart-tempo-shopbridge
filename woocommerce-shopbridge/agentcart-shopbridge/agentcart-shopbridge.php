@@ -493,97 +493,97 @@ final class AgentCart_ShopBridge {
                     <tr>
                         <th scope="row">Discovery manifest</th>
                         <td><code><?php echo esc_html($manifest_url); ?></code></td>
-                        <td><?php echo self::admin_status_badge(true, 'Published'); ?></td>
+                        <td><?php self::render_admin_status_badge(true, 'Published'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Registry domain proof</th>
                         <td><code><?php echo esc_html($registry_proof_url); ?></code></td>
-                        <td><?php echo self::admin_status_badge(self::registry_domain_proof_configured(), 'Auto-managed', 'Needs merchant id'); ?></td>
+                        <td><?php self::render_admin_status_badge(self::registry_domain_proof_configured(), 'Auto-managed', 'Needs merchant id'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Registry revocations</th>
                         <td><code><?php echo esc_html($registry_revocation_url); ?></code></td>
-                        <td><?php echo self::admin_status_badge(true, 'Published'); ?></td>
+                        <td><?php self::render_admin_status_badge(true, 'Published'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Registry onboarding bundle</th>
                         <td><code><?php echo esc_html($registry_bundle_url); ?></code></td>
-                        <td><?php echo self::admin_status_badge(self::registry_domain_proof_configured(), 'Ready'); ?></td>
+                        <td><?php self::render_admin_status_badge(self::registry_domain_proof_configured(), 'Ready'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Merchant token</th>
                         <td>Used by a trusted AgentCart gateway for demo or private integrations.</td>
-                        <td><?php echo self::admin_status_badge((bool) self::merchant_token_value(), 'Configured', 'Missing'); ?></td>
+                        <td><?php self::render_admin_status_badge((bool) self::merchant_token_value(), 'Configured', 'Missing'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Tempo recipient</th>
                         <td><code><?php echo esc_html($tempo_recipient ?: 'not configured'); ?></code></td>
-                        <td><?php echo self::admin_status_badge($tempo_recipient !== '', 'Configured', 'Missing'); ?></td>
+                        <td><?php self::render_admin_status_badge($tempo_recipient !== '', 'Configured', 'Missing'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Payment verifier</th>
                         <td><code><?php echo esc_html($payment_verifier_url ?: 'trusted gateway token mode'); ?></code></td>
-                        <td><?php echo self::admin_status_badge($payment_verifier_url !== '', 'Production shape', 'Demo mode'); ?></td>
+                        <td><?php self::render_admin_status_badge($payment_verifier_url !== '', 'Production shape', 'Demo mode'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Checkout mode</th>
                         <td><?php echo esc_html(self::checkout_mode_label($checkout_mode)); ?></td>
-                        <td><?php echo self::admin_status_badge(self::external_verifier_required_for_checkout(), 'Verifier only', 'Token fallback enabled'); ?></td>
+                        <td><?php self::render_admin_status_badge(self::external_verifier_required_for_checkout(), 'Verifier only', 'Token fallback enabled'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Signed HTTP requests</th>
                         <td><?php echo esc_html(self::signed_request_mode_label($signed_request_mode)); ?></td>
-                        <td><?php echo self::admin_status_badge(self::signed_request_profile_configured(), 'Configured', 'Off or missing signing key'); ?></td>
+                        <td><?php self::render_admin_status_badge(self::signed_request_profile_configured(), 'Configured', 'Off or missing signing key'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Stripe/card MPP</th>
                         <td><code><?php echo esc_html($stripe_profile_id ?: 'not configured'); ?></code></td>
-                        <td><?php echo self::admin_status_badge($stripe_profile_id !== '' && $payment_verifier_url !== '', 'Configured', 'Needs Stripe profile + verifier'); ?></td>
+                        <td><?php self::render_admin_status_badge($stripe_profile_id !== '' && $payment_verifier_url !== '', 'Configured', 'Needs Stripe profile + verifier'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">x402 exact profile</th>
                         <td><code><?php echo esc_html(self::x402_profile_configured() ? $x402_network . ' / ' . $x402_asset_symbol : 'not configured'); ?></code></td>
-                        <td><?php echo self::admin_status_badge(self::x402_profile_configured(), 'Configured', 'Needs network + asset + payTo + verifier'); ?></td>
+                        <td><?php self::render_admin_status_badge(self::x402_profile_configured(), 'Configured', 'Needs network + asset + payTo + verifier'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Support email</th>
                         <td><code><?php echo esc_html($support_email ?: 'not published'); ?></code></td>
-                        <td><?php echo self::admin_status_badge($support_email !== '', 'Configured', 'Missing'); ?></td>
+                        <td><?php self::render_admin_status_badge($support_email !== '', 'Configured', 'Missing'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Public origin</th>
                         <td><code><?php echo esc_html(home_url('/')); ?></code></td>
-                        <td><?php echo self::admin_status_badge(self::public_origin_is_https(), 'HTTPS', 'Needs HTTPS'); ?></td>
+                        <td><?php self::render_admin_status_badge(self::public_origin_is_https(), 'HTTPS', 'Needs HTTPS'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Legal pages</th>
                         <td><?php echo esc_html(self::legal_pages_configured() ? 'Terms and returns pages are configured.' : 'Terms and returns pages need review.'); ?></td>
-                        <td><?php echo self::admin_status_badge(self::legal_pages_configured(), 'Configured', 'Missing'); ?></td>
+                        <td><?php self::render_admin_status_badge(self::legal_pages_configured(), 'Configured', 'Missing'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Aftercare policy</th>
                         <td><?php echo esc_html(self::merchant_policy_summary()); ?></td>
-                        <td><?php echo self::admin_status_badge($returns_url !== '', 'Published', 'Needs returns URL'); ?></td>
+                        <td><?php self::render_admin_status_badge($returns_url !== '', 'Published', 'Needs returns URL'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Tax and shipping</th>
                         <td><?php echo esc_html(self::tax_and_shipping_configured() ? 'WooCommerce tax and shipping countries are configured.' : 'Review WooCommerce tax and shipping setup before production.'); ?></td>
-                        <td><?php echo self::admin_status_badge(self::tax_and_shipping_configured(), 'Configured', 'Needs setup'); ?></td>
+                        <td><?php self::render_admin_status_badge(self::tax_and_shipping_configured(), 'Configured', 'Needs setup'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">AgentCart-enabled products</th>
                         <td><?php echo esc_html((string) $readiness['agentcart_enabled_product_count']); ?> published simple products are exposed through <?php echo esc_html(self::product_exposure_mode_label($product_exposure_mode)); ?>.</td>
-                        <td><?php echo self::admin_status_badge($readiness['agentcart_enabled_product_count'] > 0, 'Configured', 'None enabled'); ?></td>
+                        <td><?php self::render_admin_status_badge($readiness['agentcart_enabled_product_count'] > 0, 'Configured', 'None enabled'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Demo readiness</th>
                         <td><?php echo esc_html(empty($readiness['missing_for_demo']) ? 'Ready for agent catalog, quote, order, and refund demo.' : implode(', ', $readiness['missing_for_demo'])); ?></td>
-                        <td><?php echo self::admin_status_badge($readiness['demo_ready'], 'Demo ready', 'Needs setup'); ?></td>
+                        <td><?php self::render_admin_status_badge($readiness['demo_ready'], 'Demo ready', 'Needs setup'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Production readiness</th>
                         <td><?php echo esc_html(empty($readiness['missing_for_production']) ? 'External payment verifier and merchant rail settings are configured.' : implode(', ', $readiness['missing_for_production'])); ?></td>
-                        <td><?php echo self::admin_status_badge($readiness['production_ready'], 'Production-shaped', 'Roadmap'); ?></td>
+                        <td><?php self::render_admin_status_badge($readiness['production_ready'], 'Production-shaped', 'Roadmap'); ?></td>
                     </tr>
                 </tbody>
             </table>
@@ -708,7 +708,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function maybe_handle_setup_action() {
-        if (strtoupper((string) wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+        if (strtoupper((string) sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? ''))) !== 'POST') {
             return null;
         }
         if (empty($_POST['agentcart_setup_action'])) {
@@ -1120,7 +1120,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function maybe_handle_product_exposure_action() {
-        if (strtoupper((string) wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+        if (strtoupper((string) sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? ''))) !== 'POST') {
             return null;
         }
         if (empty($_POST['agentcart_product_action'])) {
@@ -1156,7 +1156,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function maybe_handle_credential_action() {
-        if (strtoupper((string) wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+        if (strtoupper((string) sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? ''))) !== 'POST') {
             return null;
         }
         if (empty($_POST['agentcart_credential_action'])) {
@@ -1209,7 +1209,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function maybe_handle_registry_action() {
-        if (strtoupper((string) wp_unslash($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') {
+        if (strtoupper((string) sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? ''))) !== 'POST') {
             return null;
         }
         if (empty($_POST['agentcart_registry_action'])) {
@@ -1321,7 +1321,7 @@ final class AgentCart_ShopBridge {
                 <tr>
                     <th scope="row">Last public check</th>
                     <td>
-                        <?php echo self::admin_status_badge($last_state === 'verified', $last_state === 'verified' ? 'Verified' : 'Needs check', $last_state === 'failed' ? 'Failed' : 'Not checked'); ?>
+                        <?php self::render_admin_status_badge($last_state === 'verified', $last_state === 'verified' ? 'Verified' : 'Needs check', $last_state === 'failed' ? 'Failed' : 'Not checked'); ?>
                         <?php if ($last_checked !== '') : ?>
                             <br><span class="description"><?php echo esc_html($last_checked); ?></span>
                         <?php endif; ?>
@@ -1343,7 +1343,7 @@ final class AgentCart_ShopBridge {
                             Optional hosted registry endpoint for submitting the generated bundle or a revocation request.
                         </p>
                     </td>
-                    <td><?php echo self::admin_status_badge($registry_connection_url !== '', 'Configured', 'Not configured'); ?></td>
+                    <td><?php self::render_admin_status_badge($registry_connection_url !== '', 'Configured', 'Not configured'); ?></td>
                 </tr>
                 <tr>
                     <th scope="row">Last registry submission</th>
@@ -1356,7 +1356,7 @@ final class AgentCart_ShopBridge {
                             <br><span class="description"><?php echo esc_html($connection_message); ?></span>
                         <?php endif; ?>
                     </td>
-                    <td><?php echo self::admin_status_badge($connection_state === 'submitted', 'Submitted', $connection_state === 'failed' ? 'Failed' : 'Not submitted'); ?></td>
+                    <td><?php self::render_admin_status_badge($connection_state === 'submitted', 'Submitted', $connection_state === 'failed' ? 'Failed' : 'Not submitted'); ?></td>
                 </tr>
                 <tr>
                     <th scope="row">Registry health endpoint</th>
@@ -1366,12 +1366,12 @@ final class AgentCart_ShopBridge {
                             <br><span class="description">Monitor: <code><?php echo esc_html($registry_monitor_url); ?></code></span>
                         <?php endif; ?>
                     </td>
-                    <td><?php echo self::admin_status_badge($registry_health_url !== '', 'Available', 'Needs registry connection'); ?></td>
+                    <td><?php self::render_admin_status_badge($registry_health_url !== '', 'Available', 'Needs registry connection'); ?></td>
                 </tr>
                 <tr>
                     <th scope="row">Last registry health</th>
                     <td>
-                        <?php echo self::admin_status_badge($health_state === 'verified', 'Verified', $health_state === 'failed' ? 'Failed' : ($health_state === 'attention' ? 'Needs attention' : 'Not checked')); ?>
+                        <?php self::render_admin_status_badge($health_state === 'verified', 'Verified', $health_state === 'failed' ? 'Failed' : ($health_state === 'attention' ? 'Needs attention' : 'Not checked')); ?>
                         <?php if ($health_checked_at !== '') : ?>
                             <br><span class="description"><?php echo esc_html($health_checked_at); ?></span>
                         <?php endif; ?>
@@ -1404,7 +1404,7 @@ final class AgentCart_ShopBridge {
                         <?php endif; ?>
                     </td>
                     <td>
-                        <?php echo self::admin_status_badge(!empty($current_record['eligible']) && ($current_record['state'] ?? '') === 'verified', 'Eligible', 'Not eligible'); ?>
+                        <?php self::render_admin_status_badge(!empty($current_record['eligible']) && ($current_record['state'] ?? '') === 'verified', 'Eligible', 'Not eligible'); ?>
                     </td>
                 </tr>
                 <tr>
@@ -1420,7 +1420,7 @@ final class AgentCart_ShopBridge {
                             <span class="description">No registry monitor status fetched yet.</span>
                         <?php endif; ?>
                     </td>
-                    <td><?php echo self::admin_status_badge(($monitor['state'] ?? '') === 'fetched', 'Fetched', ($monitor['state'] ?? '') === 'unauthorized' ? 'Needs token' : 'Not available'); ?></td>
+                    <td><?php self::render_admin_status_badge(($monitor['state'] ?? '') === 'fetched', 'Fetched', ($monitor['state'] ?? '') === 'unauthorized' ? 'Needs token' : 'Not available'); ?></td>
                 </tr>
             </tbody>
         </table>
@@ -1486,7 +1486,7 @@ final class AgentCart_ShopBridge {
                     </td>
                     <td>
                         <?php if (defined('AGENTCART_SHOPBRIDGE_TOKEN')) : ?>
-                            <?php echo self::admin_status_badge(true, 'Managed in wp-config.php'); ?>
+                            <?php self::render_admin_status_badge(true, 'Managed in wp-config.php'); ?>
                         <?php else : ?>
                             <form method="post">
                                 <?php wp_nonce_field('agentcart_shopbridge_credential_action'); ?>
@@ -1505,7 +1505,7 @@ final class AgentCart_ShopBridge {
                     </td>
                     <td>
                         <?php if (defined('AGENTCART_PAYMENT_VERIFIER_TOKEN')) : ?>
-                            <?php echo self::admin_status_badge(true, 'Managed in wp-config.php'); ?>
+                            <?php self::render_admin_status_badge(true, 'Managed in wp-config.php'); ?>
                         <?php else : ?>
                             <form method="post">
                                 <?php wp_nonce_field('agentcart_shopbridge_credential_action'); ?>
@@ -1525,7 +1525,7 @@ final class AgentCart_ShopBridge {
                     </td>
                     <td>
                         <?php if (defined('AGENTCART_SIGNED_REQUEST_SECRET')) : ?>
-                            <?php echo self::admin_status_badge(true, 'Managed in wp-config.php'); ?>
+                            <?php self::render_admin_status_badge(true, 'Managed in wp-config.php'); ?>
                         <?php else : ?>
                             <form method="post" style="display: inline-block; margin-right: 8px;">
                                 <?php wp_nonce_field('agentcart_shopbridge_credential_action'); ?>
@@ -1619,6 +1619,7 @@ final class AgentCart_ShopBridge {
         if (!$product instanceof WC_Product) {
             return;
         }
+        // phpcs:disable WordPress.Security.NonceVerification.Missing -- WooCommerce verifies the product edit nonce before woocommerce_admin_process_product_object runs.
         $product->update_meta_data(self::PRODUCT_ENABLED_META, isset($_POST[self::PRODUCT_ENABLED_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_BLOCKED_META, isset($_POST[self::PRODUCT_BLOCKED_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_PERISHABLE_META, isset($_POST[self::PRODUCT_PERISHABLE_META]) ? 'yes' : 'no');
@@ -1627,14 +1628,15 @@ final class AgentCart_ShopBridge {
         $product->update_meta_data(self::PRODUCT_SUBSTITUTION_SENSITIVE_META, isset($_POST[self::PRODUCT_SUBSTITUTION_SENSITIVE_META]) ? 'yes' : 'no');
         $max_quantity = isset($_POST[self::PRODUCT_MAX_QUANTITY_META]) ? absint(wp_unslash($_POST[self::PRODUCT_MAX_QUANTITY_META])) : 20;
         $product->update_meta_data(self::PRODUCT_MAX_QUANTITY_META, (string) max(1, min(999, $max_quantity ?: 20)));
-        $shipping_countries = isset($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META])
-            ? self::sanitize_country_list_setting(wp_unslash($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META]))
-            : '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitize_country_list_setting() sanitizes the unslashed country-code list.
+        $raw_shipping_countries = isset($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META]) ? wp_unslash($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META]) : '';
+        $shipping_countries = self::sanitize_country_list_setting($raw_shipping_countries);
         $product->update_meta_data(self::PRODUCT_SHIPPING_COUNTRIES_META, $shipping_countries);
+        // phpcs:enable WordPress.Security.NonceVerification.Missing
     }
 
     public static function maybe_serve_well_known_manifest() {
-        $path = parse_url((string) wp_unslash($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+        $path = wp_parse_url((string) sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? '')), PHP_URL_PATH);
         if (!in_array($path, ['/.well-known/agentcart.json', '/.well-known/agentcart-registry-proof.json', '/.well-known/agentcart-registry-revocations.json', '/.well-known/agentcart-registry-bundle.json'], true)) {
             return;
         }
@@ -2000,8 +2002,8 @@ final class AgentCart_ShopBridge {
     }
 
     private static function current_request_path_with_query() {
-        $uri = (string) wp_unslash($_SERVER['REQUEST_URI'] ?? '');
-        $parts = parse_url($uri);
+        $uri = (string) sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
+        $parts = wp_parse_url($uri);
         $path = (string) ($parts['path'] ?? '');
         $query = (string) ($parts['query'] ?? '');
         return $query !== '' ? $path . '?' . $query : $path;
@@ -3143,6 +3145,10 @@ final class AgentCart_ShopBridge {
         return '<span style="display:inline-block;padding:3px 8px;border-radius:999px;background:' . esc_attr($background) . ';color:' . esc_attr($color) . ';font-weight:600;">' . esc_html($label) . '</span>';
     }
 
+    private static function render_admin_status_badge($ok, $ok_label, $missing_label = 'Missing') {
+        echo self::admin_status_badge($ok, $ok_label, $missing_label); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- admin_status_badge() escapes label and style values before returning fixed badge markup.
+    }
+
     private static function render_setup_wizard_panel($setup_guide, $readiness) {
         $steps = is_array($setup_guide['steps'] ?? null) ? $setup_guide['steps'] : [];
         $complete_count = 0;
@@ -3172,7 +3178,7 @@ final class AgentCart_ShopBridge {
                         </div>
                         <p class="description"><?php echo esc_html($complete_count . ' of ' . count($steps) . ' setup steps complete.'); ?></p>
                     </td>
-                    <td><?php echo self::admin_status_badge(!empty($readiness['demo_ready']), 'Demo ready', 'Needs setup'); ?></td>
+                    <td><?php self::render_admin_status_badge(!empty($readiness['demo_ready']), 'Demo ready', 'Needs setup'); ?></td>
                 </tr>
                 <tr>
                     <th scope="row">Next action</th>
@@ -3209,7 +3215,7 @@ final class AgentCart_ShopBridge {
                         <code><?php echo esc_html($quote_url); ?></code><br>
                         <code><?php echo esc_html($registry_bundle_url); ?></code>
                     </td>
-                    <td><?php echo self::admin_status_badge($signed_request_ready, 'Signed profile ready', 'Unsigned allowed'); ?></td>
+                    <td><?php self::render_admin_status_badge($signed_request_ready, 'Signed profile ready', 'Unsigned allowed'); ?></td>
                 </tr>
                 <tr>
                     <th scope="row">Sandbox quote check</th>
@@ -3246,7 +3252,7 @@ final class AgentCart_ShopBridge {
                     <tr>
                         <th scope="row">Last quote check</th>
                         <td colspan="2">
-                            <?php echo self::admin_status_badge(($sandbox_quote_check['state'] ?? '') === 'passed', 'Passed', 'Failed'); ?>
+                            <?php self::render_admin_status_badge(($sandbox_quote_check['state'] ?? '') === 'passed', 'Passed', 'Failed'); ?>
                             <p class="description">
                                 <?php echo esc_html((string) ($sandbox_quote_check['checked_at'] ?? '')); ?>
                                 <?php if (($sandbox_quote_check['state'] ?? '') === 'passed') : ?>
@@ -3277,7 +3283,7 @@ final class AgentCart_ShopBridge {
                     <tr>
                         <th scope="row">Last checkout test</th>
                         <td colspan="2">
-                            <?php echo self::admin_status_badge(($sandbox_checkout_test['state'] ?? '') === 'passed', 'Passed', 'Failed'); ?>
+                            <?php self::render_admin_status_badge(($sandbox_checkout_test['state'] ?? '') === 'passed', 'Passed', 'Failed'); ?>
                             <p class="description">
                                 <?php echo esc_html((string) ($sandbox_checkout_test['checked_at'] ?? '')); ?>
                                 <?php if (($sandbox_checkout_test['state'] ?? '') === 'passed') : ?>
@@ -3348,7 +3354,7 @@ final class AgentCart_ShopBridge {
                     <tr>
                         <th scope="row"><?php echo esc_html($step['label']); ?></th>
                         <td>
-                            <?php echo self::admin_status_badge(($step['state'] ?? '') === 'complete', 'Complete', 'Needs setup'); ?>
+                            <?php self::render_admin_status_badge(($step['state'] ?? '') === 'complete', 'Complete', 'Needs setup'); ?>
                             <p class="description"><?php echo esc_html($step['summary']); ?></p>
                         </td>
                         <td>
@@ -3865,8 +3871,8 @@ final class AgentCart_ShopBridge {
                 <tr>
                     <th scope="row">Last preview</th>
                     <td>
-                        <?php echo self::admin_status_badge($state === 'passed', $state === 'passed' ? 'Generated' : 'Failed', 'Failed'); ?>
-                        <?php echo self::admin_status_badge($is_current, 'Current settings', 'Settings changed'); ?>
+                        <?php self::render_admin_status_badge($state === 'passed', $state === 'passed' ? 'Generated' : 'Failed', 'Failed'); ?>
+                        <?php self::render_admin_status_badge($is_current, 'Current settings', 'Settings changed'); ?>
                         <?php if ($checked_at !== '') : ?>
                             <br><span class="description"><?php echo esc_html($checked_at); ?></span>
                         <?php endif; ?>
@@ -4945,8 +4951,8 @@ final class AgentCart_ShopBridge {
             $existing_orders = wc_get_orders([
                 'limit' => 1,
                 'return' => 'objects',
-                'meta_key' => $meta_key,
-                'meta_value' => $meta_value,
+                'meta_key' => $meta_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Idempotency lookup must query Woo order meta by exact AgentCart key.
+                'meta_value' => $meta_value, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Idempotency lookup must query Woo order meta by exact AgentCart value.
             ]);
             if (!empty($existing_orders)) {
                 return $existing_orders[0];
@@ -4963,8 +4969,8 @@ final class AgentCart_ShopBridge {
         $existing_orders = wc_get_orders([
             'limit' => 1,
             'return' => 'objects',
-            'meta_key' => '_agentcart_merchant_quote_id',
-            'meta_value' => $merchant_quote_id,
+            'meta_key' => '_agentcart_merchant_quote_id', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Quote replay lookup must query Woo order meta by merchant quote id.
+            'meta_value' => $merchant_quote_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Quote replay lookup must query Woo order meta by merchant quote id.
         ]);
         return !empty($existing_orders) ? $existing_orders[0] : null;
     }
@@ -5429,8 +5435,8 @@ final class AgentCart_ShopBridge {
         $existing_orders = wc_get_orders([
             'limit' => 1,
             'return' => 'objects',
-            'meta_key' => '_agentcart_payment_transaction_reference',
-            'meta_value' => $transaction_reference,
+            'meta_key' => '_agentcart_payment_transaction_reference', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Payment replay protection must query Woo order meta by transaction reference.
+            'meta_value' => $transaction_reference, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Payment replay protection must query Woo order meta by transaction reference.
         ]);
         if (!empty($existing_orders)) {
             return new WP_Error('agentcart_payment_replay', 'Payment transaction reference has already been used.', ['status' => 409]);
@@ -6385,7 +6391,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function x402_header_value($document) {
-        return base64_encode(wp_json_encode($document, JSON_UNESCAPED_SLASHES));
+        return base64_encode(wp_json_encode($document, JSON_UNESCAPED_SLASHES)); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- x402 transports the payment document as a base64 HTTP header value, not obfuscated code.
     }
 
     private static function x402_unavailable_reason($quote = null) {
@@ -6553,14 +6559,16 @@ final class AgentCart_ShopBridge {
             if ($secret === '') {
                 return [];
             }
-            return [[
-                'id' => 'wp-config',
-                'secret' => $secret,
-                'state' => 'active',
-                'created_at' => '',
-                'retire_after' => null,
-                'source' => 'wp-config',
-            ]];
+            return [
+                [
+                    'id' => 'wp-config',
+                    'secret' => $secret,
+                    'state' => 'active',
+                    'created_at' => '',
+                    'retire_after' => null,
+                    'source' => 'wp-config',
+                ],
+            ];
         }
 
         $stored = get_option(self::SIGNED_REQUEST_KEYS_OPTION, []);
@@ -6844,7 +6852,7 @@ final class AgentCart_ShopBridge {
             'denomination' => 'USD stablecoin',
             'token_standard' => 'TIP-20',
             'network' => $network ?: 'testnet',
-            'token_address' => '0x20c0000000000000000000000000000000000000',
+            'token_address' => '0x20c0000000000000000000000000000000000000', // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- Token address is an opaque chain address string and PHP 8.1+ is required.
         ];
     }
 
@@ -7092,7 +7100,7 @@ final class AgentCart_ShopBridge {
         ];
         $mode = self::product_exposure_mode();
         if ($mode === 'manual') {
-            $args['meta_query'] = self::agentcart_enabled_meta_query();
+            $args['meta_query'] = self::agentcart_enabled_meta_query(); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Manual product exposure intentionally filters by plugin product meta.
         } elseif ($mode === 'tag') {
             $args['tag'] = [self::product_exposure_tag()];
         } elseif ($mode === 'category') {
