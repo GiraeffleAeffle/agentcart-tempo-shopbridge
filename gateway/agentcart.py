@@ -5692,6 +5692,14 @@ class AgentCartService:
                     "idempotency_key": {"type": "string"},
                     "requested_reference": {"type": "string"},
                     "real_refund_verified": {"type": "boolean"},
+                    "refund_reference": {"type": "string"},
+                    "provider": {"type": "string"},
+                    "verification_mode": {"type": "string"},
+                    "verification_state": {"type": "string"},
+                    "replay_reference": {"type": "string"},
+                    "replay_request_hash": {"type": "string"},
+                    "refund_status": {"type": "string"},
+                    "original_transaction_reference": {"type": "string"},
                     "merchant_refund": {"type": "object"},
                     "created_at": {"type": "string"},
                 },
@@ -7956,6 +7964,85 @@ separate human confirmation.
                 return refund
         return None
 
+    def canonical_refund_rail(self, rail: Any) -> str:
+        value = str(rail or "").strip().lower().replace("_", "-")
+        aliases = {
+            "tempo": "tempo-mpp",
+            "mpp": "tempo-mpp",
+            "stripe": "stripe-card-mpp",
+            "stripe-card": "stripe-card-mpp",
+            "card": "stripe-card-mpp",
+            "demo": "agentcart-demo",
+            "demo-payment-proof": "agentcart-demo",
+        }
+        return aliases.get(value, value)
+
+    def provider_refund_evidence(
+        self,
+        merchant_refund: dict[str, Any],
+        *,
+        expected_amount_cents: int,
+        expected_currency: str,
+        expected_rail: str,
+    ) -> dict[str, Any]:
+        verification = merchant_refund.get("verification") if isinstance(merchant_refund.get("verification"), dict) else {}
+        real_refund_verified = bool(merchant_refund.get("real_refund_verified") or verification.get("real_refund_verified"))
+        refund_reference = str(
+            merchant_refund.get("refund_reference")
+            or verification.get("refund_reference")
+            or verification.get("transaction_reference")
+            or ""
+        ).strip()
+        provider = str(merchant_refund.get("provider") or verification.get("provider") or "").strip()
+        verification_mode = str(verification.get("mode") or merchant_refund.get("mode") or "").strip()
+        verification_state = str(verification.get("state") or merchant_refund.get("state") or "").strip()
+        replay_reference = str(merchant_refund.get("replay_reference") or verification.get("replay_reference") or "").strip()
+        replay_request_hash = str(merchant_refund.get("replay_request_hash") or verification.get("replay_request_hash") or "").strip()
+        refund_status = str(merchant_refund.get("refund_status") or verification.get("refund_status") or "").strip()
+        original_transaction_reference = str(
+            merchant_refund.get("original_transaction_reference")
+            or verification.get("original_transaction_reference")
+            or ""
+        ).strip()
+        try:
+            merchant_amount = int(merchant_refund.get("amount_cents", verification.get("amount_cents", expected_amount_cents)))
+        except (TypeError, ValueError) as exc:
+            raise UpstreamError("merchant refund amount is not a valid integer") from exc
+        if merchant_amount <= 0:
+            raise UpstreamError("merchant refund amount must be greater than zero")
+        merchant_currency = str(merchant_refund.get("currency") or verification.get("currency") or expected_currency).upper()
+        merchant_rail = self.canonical_refund_rail(merchant_refund.get("rail") or verification.get("rail") or expected_rail)
+        expected_rail_canonical = self.canonical_refund_rail(expected_rail)
+
+        if merchant_amount != expected_amount_cents:
+            raise UpstreamError("merchant refund amount does not match the request")
+        if merchant_currency != expected_currency.upper():
+            raise UpstreamError("merchant refund currency does not match the request")
+        if real_refund_verified:
+            if not verification:
+                raise UpstreamError("merchant claimed a real refund without verifier evidence")
+            if verification_mode not in {"external_verifier", "provider_api", "rail_verifier"}:
+                raise UpstreamError("merchant real refund evidence has an unsupported verifier mode")
+            if verification_state != "rail_refund_verified":
+                raise UpstreamError("merchant real refund evidence is not rail_refund_verified")
+            if not refund_reference:
+                raise UpstreamError("merchant real refund evidence is missing refund_reference")
+            if merchant_rail != expected_rail_canonical:
+                raise UpstreamError("merchant real refund rail does not match the request")
+
+        return {
+            "real_refund_verified": real_refund_verified,
+            "refund_reference": refund_reference,
+            "provider": provider,
+            "verification_mode": verification_mode,
+            "verification_state": verification_state,
+            "replay_reference": replay_reference,
+            "replay_request_hash": replay_request_hash,
+            "refund_status": refund_status,
+            "original_transaction_reference": original_transaction_reference,
+            "verification": verification,
+        }
+
     def refund_order(self, order_id: str, request: dict[str, Any]) -> dict[str, Any]:
         idempotency_key = self.refund_idempotency_key(request)
         if not idempotency_key:
@@ -7997,6 +8084,12 @@ separate human confirmation.
                 "requested_reference": str(request.get("requested_reference") or idempotency_key),
             },
         )
+        refund_evidence = self.provider_refund_evidence(
+            merchant_refund,
+            expected_amount_cents=amount_cents,
+            expected_currency=str(order.get("currency") or "EUR"),
+            expected_rail=rail,
+        )
         refund = {
             "id": f"refund_{uuid.uuid4().hex[:12]}",
             "order_id": order_id,
@@ -8009,7 +8102,15 @@ separate human confirmation.
             "reason": reason,
             "idempotency_key": idempotency_key,
             "requested_reference": str(request.get("requested_reference") or idempotency_key),
-            "real_refund_verified": bool(merchant_refund.get("real_refund_verified")),
+            "real_refund_verified": refund_evidence["real_refund_verified"],
+            "refund_reference": refund_evidence["refund_reference"],
+            "provider": refund_evidence["provider"],
+            "verification_mode": refund_evidence["verification_mode"],
+            "verification_state": refund_evidence["verification_state"],
+            "replay_reference": refund_evidence["replay_reference"],
+            "replay_request_hash": refund_evidence["replay_request_hash"],
+            "refund_status": refund_evidence["refund_status"],
+            "original_transaction_reference": refund_evidence["original_transaction_reference"],
             "merchant_refund": merchant_refund,
             "created_at": isoformat(utcnow()),
         }
@@ -9637,6 +9738,7 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
           <td>{esc(money(int(refund.get('amount_cents') or 0), refund.get('currency', 'EUR')))}</td>
           <td>{esc(refund.get('rail') or '')}</td>
           <td>{esc(refund.get('real_refund_verified'))}</td>
+          <td>{esc(refund.get('provider') or '')}<br><span class="topline">{esc(refund.get('refund_reference') or '')}</span></td>
           <td>{esc(refund.get('reason') or '')}</td>
         </tr>
         """
@@ -9748,7 +9850,7 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
 
     <h2 id="refunds">Refund Demo</h2>
     {refund_action}
-    <table><thead><tr><th>Refund</th><th>State</th><th>Amount</th><th>Rail</th><th>Real Rail Refund</th><th>Reason</th></tr></thead><tbody>{refund_rows or '<tr><td colspan="6">No refunds recorded yet.</td></tr>'}</tbody></table>
+    <table><thead><tr><th>Refund</th><th>State</th><th>Amount</th><th>Rail</th><th>Real Rail Refund</th><th>Provider Reference</th><th>Reason</th></tr></thead><tbody>{refund_rows or '<tr><td colspan="7">No refunds recorded yet.</td></tr>'}</tbody></table>
 
     <h2>Order Integrations</h2>
     <table><tbody>

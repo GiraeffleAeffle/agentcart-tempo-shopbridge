@@ -2836,14 +2836,28 @@ class AgentCartTests(unittest.TestCase):
                     self.assertEqual(payload["amount_cents"], 2480)  # type: ignore[index]
                     return {
                         "platform": "woocommerce-agentcart-plugin",
-                        "state": "demo_refund_recorded",
+                        "state": "rail_refund_verified",
                         "refund_id": "9101",
                         "order_id": "9001",
                         "amount_cents": 2480,
                         "currency": "EUR",
-                        "rail": "demo",
-                        "real_refund_verified": False,
-                        "verification": {"state": "demo_refund_recorded", "real_refund_verified": False},
+                        "rail": "tempo_mpp",
+                        "real_refund_verified": True,
+                        "refund_reference": "tempo-refund-abc",
+                        "verification": {
+                            "state": "rail_refund_verified",
+                            "mode": "external_verifier",
+                            "provider": "tempo",
+                            "real_refund_verified": True,
+                            "amount_cents": 2480,
+                            "currency": "EUR",
+                            "rail": "tempo_mpp",
+                            "refund_reference": "tempo-refund-abc",
+                            "original_transaction_reference": "tempo-payment-abc",
+                            "replay_reference": "tempo-refund-abc",
+                            "replay_request_hash": "refund-replay-hash",
+                            "refund_status": "succeeded",
+                        },
                     }
                 raise AssertionError(f"unexpected plugin call: {method} {url}")
 
@@ -2899,11 +2913,65 @@ class AgentCartTests(unittest.TestCase):
 
             refund_result = service.refund_order(
                 order["id"],
-                {"idempotency_key": "woo-refund-1", "reason": "customer requested refund"},
+                {"idempotency_key": "woo-refund-1", "reason": "customer requested refund", "rail": "tempo_mpp"},
             )
             self.assertEqual(refund_result["refund"]["merchant_refund_id"], "9101")
             self.assertEqual(refund_result["refund"]["idempotency_key"], "woo-refund-1")
+            self.assertTrue(refund_result["refund"]["real_refund_verified"])
+            self.assertEqual(refund_result["refund"]["state"], "rail_refund_verified")
+            self.assertEqual(refund_result["refund"]["refund_reference"], "tempo-refund-abc")
+            self.assertEqual(refund_result["refund"]["provider"], "tempo")
+            self.assertEqual(refund_result["refund"]["replay_request_hash"], "refund-replay-hash")
+            self.assertEqual(refund_result["order"]["refund_state"], "rail_refund_verified")
             self.assertTrue(any(urllib.parse.parse_qs(urllib.parse.urlparse(call["url"]).query).get("rest_route") == ["/agentcart/v1/orders/9001/refunds"] for call in calls))
+
+    def test_verified_refund_requires_provider_reference_and_matching_amount(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+            order_id = "order_verified_refund_guard"
+            service.state["orders"][order_id] = {
+                "id": order_id,
+                "merchant_id": "demo-tea-shop",
+                "merchant_order_id": "merchant-guard-1",
+                "quote_id": "quote-guard-1",
+                "state": "accepted",
+                "items": [{"quantity": 1, "title": "Sencha Daily Green Tea"}],
+                "total_cents": 1480,
+                "currency": "EUR",
+                "payment_receipt": {"id": "pay-guard-1", "method": "tempo_mpp", "status": "succeeded"},
+                "merchant_order": {"id": "merchant-guard-1"},
+                "refunds": [],
+            }
+
+            adapter = service.adapter_for_merchant("demo-tea-shop")
+
+            def fake_refund(_order: dict[str, object], _request: dict[str, object]) -> dict[str, object]:
+                return {
+                    "platform": "demo-tea-shop",
+                    "state": "rail_refund_verified",
+                    "refund_id": "merchant-refund-guard",
+                    "amount_cents": 1480,
+                    "currency": "EUR",
+                    "rail": "tempo_mpp",
+                    "real_refund_verified": True,
+                    "verification": {
+                        "state": "rail_refund_verified",
+                        "mode": "external_verifier",
+                        "real_refund_verified": True,
+                        "amount_cents": 1480,
+                        "currency": "EUR",
+                        "rail": "tempo_mpp",
+                    },
+                }
+
+            adapter.create_merchant_refund = fake_refund  # type: ignore[method-assign]
+
+            with self.assertRaises(agentcart.UpstreamError):
+                service.refund_order(
+                    order_id,
+                    {"idempotency_key": "guard-refund-1", "reason": "customer requested refund", "rail": "tempo_mpp"},
+                )
+            self.assertEqual(service.state["orders"][order_id]["refunds"], [])
 
     def test_approval_token_is_required(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

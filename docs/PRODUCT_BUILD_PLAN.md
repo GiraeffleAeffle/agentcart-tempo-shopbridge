@@ -302,9 +302,10 @@ metadata into a stable adapter contract, including delayed, failed, returned,
 and partial-delivery exception events. The AgentCart service path now stores
 and returns `aftercare_state`, enforces idempotent refund requests, rejects
 refunds above the remaining refundable amount, forwards refund idempotency to
-ShopBridge, and carries delivery exceptions into aftercare/calendar state.
-Production still needs richer refund workflows, carrier API polling/webhooks,
-and delivery reschedule adapters.
+ShopBridge, validates provider refund references before marking real rail
+refunds, and carries delivery exceptions into aftercare/calendar state.
+Production still needs managed provider refund operations, richer cancellation
+status, carrier API polling/webhooks, and delivery reschedule adapters.
 
 Current grocery alpha status: ShopBridge exposes structured package-size
 metadata from WooCommerce product weights, structured tag/dietary/allergen

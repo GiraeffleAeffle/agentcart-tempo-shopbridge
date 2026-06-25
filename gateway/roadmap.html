@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">66</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 66%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">67</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 67%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -544,7 +544,7 @@
     const areas = [
       { name: "Core Commerce", value: 87, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, soft holds, hard reservation adapter contract, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 81, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate" },
-      { name: "Payments", value: 66, note: "quote-bound verifier contract hash, receipt validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
+      { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 68, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, aftercare summary, and audit packets; more runtime adapters remain" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
@@ -635,11 +635,11 @@
         code: "RFD",
         title: "Refund and cancellation flow",
         status: "partial",
-        value: 38,
-        scope: "Woo order surface, aftercare state, idempotent refund requests, and buyer-facing refund status are visible.",
-        remaining: "Implement provider-backed refund execution and richer cancellation status in the AgentCart service path.",
+        value: 52,
+        scope: "Woo order surface, aftercare state, idempotent refund requests, verifier-backed rail refund evidence, and buyer-facing refund status are visible.",
+        remaining: "Move provider refund operations to managed production rail deployments and add richer cancellation status in the AgentCart service path.",
         items: [
-          { id: "RFD-001", priority: "P0", title: "Provider refund execution", description: "Execute refunds through the selected payment rail and verify the provider refund result before marking aftercare complete." },
+          { id: "RFD-001", priority: "P0", title: "Provider refund execution", description: "Implemented alpha: ShopBridge can call the configured rail verifier for refunds, and AgentCart now marks real refunds only when provider reference, verifier mode/state, amount, currency, and rail evidence match." },
           { id: "RFD-002", priority: "P1", title: "Cancellation state machine", description: "Normalize cancellable, locked, cancelled, refund-required, and refunded states across WooCommerce order statuses." },
           { id: "RFD-003", priority: "P2", title: "Buyer aftercare messages", description: "Generate buyer-agent refund and cancellation messages only from structured order and refund state." }
         ]
@@ -759,7 +759,7 @@
       open: "Open"
     };
 
-    const overallValue = 66;
+    const overallValue = 67;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

@@ -128,6 +128,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
 
     def test_external_refund_reference_is_replay_checked_before_refund_record_creation(self) -> None:
         body = function_body("create_refund")
+        verifier_body = function_body("call_refund_verifier")
+        response_body = function_body("serialize_refund_response")
 
         self.assertIn("refund_reference_used", body)
         self.assertIn("agentcart_refund_replay", body)
@@ -135,6 +137,12 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             body.index("refund_reference_used"),
             body.index("wc_create_refund"),
         )
+        self.assertIn("agentcart_refund_not_real_verified", verifier_body)
+        self.assertIn("'real_refund_verified' => true", verifier_body)
+        self.assertIn("'replay_reference'", verifier_body + response_body)
+        self.assertIn("'replay_request_hash'", verifier_body + response_body)
+        self.assertIn("'refund_status'", verifier_body + response_body)
+        self.assertIn("'rail_refund_verified'", response_body)
 
     def test_external_payment_references_are_replay_checked_before_paid_order_creation(self) -> None:
         body = function_body("call_payment_verifier")

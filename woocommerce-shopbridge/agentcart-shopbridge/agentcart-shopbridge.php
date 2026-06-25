@@ -4873,9 +4873,13 @@ final class AgentCart_ShopBridge {
 
     private static function serialize_refund_response(WC_Order $order, $refund, $state = 'refund_recorded') {
         $verification = self::stored_refund_verification($refund);
+        $response_state = $state;
+        if ($state === 'refund_recorded' && is_array($verification) && !empty($verification['real_refund_verified'])) {
+            $response_state = 'rail_refund_verified';
+        }
         return [
             'platform' => 'woocommerce-agentcart-plugin',
-            'state' => $state,
+            'state' => $response_state,
             'order_id' => (string) $order->get_id(),
             'refund_id' => (string) $refund->get_id(),
             'amount_cents' => self::cents((float) $refund->get_amount()),
@@ -4885,6 +4889,12 @@ final class AgentCart_ShopBridge {
             'requested_reference' => (string) $refund->get_meta(self::REFUND_REQUESTED_REFERENCE_META, true),
             'refund_reference' => (string) $refund->get_meta(self::REFUND_REFERENCE_META, true),
             'real_refund_verified' => is_array($verification) && !empty($verification['real_refund_verified']),
+            'provider' => is_array($verification) ? (string) ($verification['provider'] ?? '') : '',
+            'verification_state' => is_array($verification) ? (string) ($verification['state'] ?? '') : '',
+            'verification_mode' => is_array($verification) ? (string) ($verification['mode'] ?? '') : '',
+            'replay_reference' => is_array($verification) ? (string) ($verification['replay_reference'] ?? '') : '',
+            'replay_request_hash' => is_array($verification) ? (string) ($verification['replay_request_hash'] ?? '') : '',
+            'refund_status' => is_array($verification) ? (string) ($verification['refund_status'] ?? '') : '',
             'verification' => $verification,
             'aftercare_state' => self::aftercare_state($order),
             'refunds' => self::serialize_refunds($order),
@@ -5636,17 +5646,24 @@ final class AgentCart_ShopBridge {
         if ($refund_reference === '') {
             return new WP_Error('agentcart_refund_reference_required', 'External refund verifier must return a refund_reference.', ['status' => 402]);
         }
+        if (empty($decoded['real_refund_verified'])) {
+            return new WP_Error('agentcart_refund_not_real_verified', 'External refund verifier did not confirm real rail refund execution.', ['status' => 402]);
+        }
         return [
             'state' => 'rail_refund_verified',
             'mode' => 'external_verifier',
             'rail' => $verified_rail,
-            'real_refund_verified' => !empty($decoded['real_refund_verified']),
+            'real_refund_verified' => true,
             'amount_cents' => $verified_amount,
             'currency' => $currency,
             'quote_hash' => $quote_hash,
             'original_transaction_reference' => $transaction_reference,
             'refund_reference' => $refund_reference,
             'provider' => sanitize_text_field((string) ($decoded['provider'] ?? 'external_verifier')),
+            'replay_reference' => sanitize_text_field((string) ($decoded['replay_reference'] ?? '')),
+            'replay_request_hash' => sanitize_text_field((string) ($decoded['replay_request_hash'] ?? '')),
+            'refund_status' => sanitize_text_field((string) ($decoded['refund_status'] ?? '')),
+            'idempotent_replay' => !empty($decoded['idempotent_replay']),
         ];
     }
 
@@ -5677,6 +5694,7 @@ final class AgentCart_ShopBridge {
     private static function serialize_refunds(WC_Order $order) {
         $result = [];
         foreach ($order->get_refunds() as $refund) {
+            $verification = self::stored_refund_verification($refund);
             $result[] = [
                 'id' => (string) $refund->get_id(),
                 'amount_cents' => self::cents((float) $refund->get_amount()),
@@ -5686,7 +5704,8 @@ final class AgentCart_ShopBridge {
                 'idempotency_key' => (string) $refund->get_meta(self::REFUND_IDEMPOTENCY_KEY_META, true),
                 'requested_reference' => (string) $refund->get_meta(self::REFUND_REQUESTED_REFERENCE_META, true),
                 'refund_reference' => (string) $refund->get_meta(self::REFUND_REFERENCE_META, true),
-                'verification' => self::stored_refund_verification($refund),
+                'verification' => $verification,
+                'real_refund_verified' => is_array($verification) && !empty($verification['real_refund_verified']),
                 'created_at' => $refund->get_date_created() ? $refund->get_date_created()->date('c') : null,
             ];
         }

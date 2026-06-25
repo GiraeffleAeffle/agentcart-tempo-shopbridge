@@ -4,9 +4,10 @@
 > fulfillment, cancellation, refund, and aftercare state; the AgentCart service
 > now stores aftercare state, enforces idempotent refund requests, tracks
 > remaining refundable amount, forwards refund idempotency to ShopBridge, and
-> surfaces carrier exception states for buyer aftercare and calendars.
+> validates provider refund evidence before marking a rail refund verified. It
+> also surfaces carrier exception states for buyer aftercare and calendars.
 > Production still needs real carrier polling/webhooks, reschedule adapters, and
-> provider-backed rail refunds.
+> managed provider refund operations.
 
 
 The hackathon demo exposes a merchant-estimated delivery window. Production
@@ -140,7 +141,11 @@ quote context even if product metadata changes later.
 ShopBridge refunds require an idempotency key. Exact replays return the
 existing WooCommerce refund, conflicting replays are rejected, and amounts above
 the remaining refundable amount fail closed before verifier or Woo refund
-creation.
+creation. When a verifier is configured, ShopBridge records a real rail refund
+only when the verifier returns `real_refund_verified=true`, a provider
+`refund_reference`, matching amount/currency/rail, and the original payment
+reference. AgentCart repeats the guard before displaying `real_refund_verified`
+in its own order and proof views.
 
 For Stripe/card:
 

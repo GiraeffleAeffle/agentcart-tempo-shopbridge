@@ -165,7 +165,11 @@ rejects refund amounts above the remaining refundable amount, exact idempotent
 replays return the existing WooCommerce refund, and conflicting replays fail
 closed. ShopBridge also rejects mismatched `quote_hash`, original transaction
 reference, rail, amount, currency, missing refund reference, or a reused refund
-reference already recorded on the same order. Production verifier
+reference already recorded on the same order. A configured external verifier
+must return `real_refund_verified=true`; otherwise ShopBridge does not create a
+WooCommerce refund record for that verifier response. AgentCart also validates
+provider reference, verifier mode/state, amount, currency, and rail before it
+marks its own refund record as `real_refund_verified`. Production verifier
 implementations should also reject reused refund references globally for the
 payment rail/account.
 
