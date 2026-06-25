@@ -85,6 +85,7 @@ final class AgentCart_ShopBridge {
     const PRODUCT_DEPOSIT_META = '_agentcart_deposit_possible';
     const PRODUCT_FINAL_SALE_META = '_agentcart_final_sale';
     const PRODUCT_SUBSTITUTION_SENSITIVE_META = '_agentcart_substitution_sensitive';
+    const PRODUCT_RESTRICTED_GOODS_ALLOWED_META = '_agentcart_restricted_goods_allowed';
     const STOCK_HOLD_MODE_OPTION = 'agentcart_shopbridge_stock_hold_mode';
     const STOCK_HOLD_MINUTES_OPTION = 'agentcart_shopbridge_stock_hold_minutes';
     const STOCK_HOLDS_OPTION = 'agentcart_shopbridge_stock_holds';
@@ -1600,6 +1601,12 @@ final class AgentCart_ShopBridge {
             'desc_tip' => true,
         ]);
         woocommerce_wp_checkbox([
+            'id' => self::PRODUCT_RESTRICTED_GOODS_ALLOWED_META,
+            'label' => __('Allow restricted AgentCart checkout', 'agentcart-shopbridge'),
+            'description' => __('By default, products matching restricted-goods labels are blocked from AgentCart catalog and checkout. Enable only after confirming the shop has the required legal, age-gate, and human-review flow.', 'agentcart-shopbridge'),
+            'desc_tip' => true,
+        ]);
+        woocommerce_wp_checkbox([
             'id' => self::PRODUCT_PERISHABLE_META,
             'label' => __('AgentCart perishable item', 'agentcart-shopbridge'),
             'description' => __('Marks this product as perishable or temperature-sensitive for agent refund, return, cancellation, and delivery review.', 'agentcart-shopbridge'),
@@ -1653,6 +1660,7 @@ final class AgentCart_ShopBridge {
         // phpcs:disable WordPress.Security.NonceVerification.Missing -- WooCommerce verifies the product edit nonce before woocommerce_admin_process_product_object runs.
         $product->update_meta_data(self::PRODUCT_ENABLED_META, isset($_POST[self::PRODUCT_ENABLED_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_BLOCKED_META, isset($_POST[self::PRODUCT_BLOCKED_META]) ? 'yes' : 'no');
+        $product->update_meta_data(self::PRODUCT_RESTRICTED_GOODS_ALLOWED_META, isset($_POST[self::PRODUCT_RESTRICTED_GOODS_ALLOWED_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_PERISHABLE_META, isset($_POST[self::PRODUCT_PERISHABLE_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_DEPOSIT_META, isset($_POST[self::PRODUCT_DEPOSIT_META]) ? 'yes' : 'no');
         $product->update_meta_data(self::PRODUCT_FINAL_SALE_META, isset($_POST[self::PRODUCT_FINAL_SALE_META]) ? 'yes' : 'no');
@@ -4101,6 +4109,7 @@ final class AgentCart_ShopBridge {
                 'soft_quote_stock_holds' => self::soft_stock_hold_enabled(),
                 'hard_quote_stock_reservation_adapter' => self::hard_stock_reservation_enabled(),
                 'structured_restricted_goods_metadata' => true,
+                'restricted_goods_blocked_by_default' => true,
                 'structured_commerce_policy_metadata' => true,
                 'merchant_aftercare_policy_defaults' => true,
                 'merchant_substitution_policy' => true,
@@ -4139,6 +4148,8 @@ final class AgentCart_ShopBridge {
                 'blocked_categories_absent_from_catalog' => true,
                 'restricted_goods_metadata' => true,
                 'restricted_goods_require_human_review' => true,
+                'restricted_goods_blocked_by_default' => true,
+                'restricted_goods_allow_override_meta_key' => self::PRODUCT_RESTRICTED_GOODS_ALLOWED_META,
                 'commerce_policy_metadata' => true,
                 'aftercare_override_meta_keys' => [
                     'perishable' => self::PRODUCT_PERISHABLE_META,
@@ -7483,7 +7494,23 @@ final class AgentCart_ShopBridge {
         foreach (self::product_blocked_category_matches($product) as $slug) {
             $reasons[] = 'blocked_category:' . $slug;
         }
+        foreach (self::product_restricted_goods_block_matches($product) as $code) {
+            $reasons[] = 'restricted_goods:' . $code;
+        }
         return array_values(array_unique($reasons));
+    }
+
+    private static function product_restricted_goods_block_matches(WC_Product $product) {
+        if ($product->get_meta(self::PRODUCT_RESTRICTED_GOODS_ALLOWED_META, true) === 'yes') {
+            return [];
+        }
+        $matches = [];
+        foreach (self::product_restricted_goods($product) as $flag) {
+            if (is_array($flag) && !empty($flag['code'])) {
+                $matches[] = sanitize_key((string) $flag['code']);
+            }
+        }
+        return array_values(array_unique(array_filter($matches)));
     }
 
     private static function product_exposure_preview_result() {
@@ -7577,6 +7604,8 @@ final class AgentCart_ShopBridge {
             'currency' => get_woocommerce_currency(),
             'max_quantity' => self::product_max_quantity($product),
             'blocked_reasons' => array_values(array_map('strval', $blocked_reasons)),
+            'restricted_goods' => self::product_restricted_goods($product),
+            'restricted_goods_override' => $product->get_meta(self::PRODUCT_RESTRICTED_GOODS_ALLOWED_META, true) === 'yes',
         ];
     }
 
@@ -8573,6 +8602,8 @@ final class AgentCart_ShopBridge {
         $category_slugs = self::product_category_slugs($product);
         $blocked_category_matches = self::product_blocked_category_matches($product);
         $restricted_goods = self::product_restricted_goods($product, $agent_labels);
+        $blocked_reasons = self::product_agentcart_block_reasons($product);
+        $restricted_goods_allowed = $product->get_meta(self::PRODUCT_RESTRICTED_GOODS_ALLOWED_META, true) === 'yes';
         $commerce_policy = self::product_commerce_policy($product, $agent_labels);
         return [
             'id' => 'woo_' . $product->get_id(),
@@ -8605,10 +8636,13 @@ final class AgentCart_ShopBridge {
             'agentcart_policy' => [
                 'max_quantity' => self::product_max_quantity($product),
                 'blocked' => self::is_product_agentcart_blocked($product),
+                'blocked_reasons' => $blocked_reasons,
                 'blocked_category_slugs' => $blocked_category_matches,
                 'exposure_mode' => self::product_exposure_mode(),
                 'exposure_categories' => self::product_exposure_mode() === 'category' ? self::product_exposure_categories() : [],
                 'restricted_goods' => $restricted_goods,
+                'restricted_goods_blocked_by_default' => true,
+                'restricted_goods_allowed_by_merchant' => $restricted_goods_allowed,
                 'commerce_policy' => $commerce_policy,
                 'requires_human_review' => !empty($restricted_goods) || !empty($commerce_policy['flags']),
             ],

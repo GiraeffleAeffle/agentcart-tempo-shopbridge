@@ -149,7 +149,9 @@ Deliverables:
 - enforce per-product quantity limits, checkout exclusion overrides, category
   blocklists, product shipping-country overrides, soft quote stock holds, a
   fail-closed hard reservation adapter contract, and structured
-  restricted-goods metadata;
+  restricted-goods metadata that blocks matched products from AgentCart catalog,
+  quote, and checkout by default unless the merchant explicitly allows the
+  product;
 - expose perishable, deposit-bearing, final-sale, and substitution-sensitive
   handling metadata from normal WooCommerce tags, attributes, categories, and
   optional product-level AgentCart override switches;
@@ -293,7 +295,10 @@ refund request draft without calling merchant-token refund, cancellation, or
 order mutation endpoints. It also surfaces item-level policy review for
 perishable, deposit-bearing, final-sale, substitution-sensitive, or restricted
 products, plus store-level cancellation and substitution policy defaults from
-the approved quote/order. The WooCommerce plugin now has a merchant-token
+the approved quote/order. The WooCommerce plugin now blocks restricted-goods
+matches from AgentCart catalog/quote/checkout by default unless the merchant
+explicitly allows the product after confirming their review/compliance flow.
+It also has a merchant-token
 protected, idempotent cancellation endpoint that cancels eligible AgentCart
 orders before fulfillment locks, reports when a separate rail refund is still
 required, exposes an `aftercare_state` contract across order/status/refund and

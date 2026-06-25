@@ -163,6 +163,11 @@ merchant chooses one exposure mode in `WooCommerce -> AgentCart`:
 
 Merchants can also configure blocked category slugs. Blocked categories are
 excluded from catalog, quote, and checkout in every exposure mode.
+Products whose WooCommerce tags, attributes, or category slugs match
+restricted-goods rules are also blocked by default. A merchant can explicitly
+allow a restricted product from the product edit screen after confirming their
+legal, age-gate, and human-review flow; the product still carries structured
+`restricted_goods` metadata for buyer agents.
 
 The legacy bulk action is still available for merchants who want to mark the
 current catalog for manual mode in one onboarding step. The plugin maps exposed
@@ -178,7 +183,8 @@ Woo fields into an agent-readable product schema:
   constraints without merchant-specific setup
 - structured `restricted_goods` policy metadata for age-restricted, medical,
   weapon/fireworks, and stored-value categories when normal Woo labels indicate
-  those risks
+  those risks, with default catalog/quote/checkout blocking unless the merchant
+  explicitly allows the product
 - structured `commerce_policy` metadata for perishable, deposit-bearing,
   final-sale, and substitution-sensitive products when normal Woo tags,
   attributes, or categories indicate those handling rules
@@ -404,9 +410,11 @@ the terms that were approved at checkout.
 Order status and refund policy responses also include item-level commerce
 policy summaries. Perishable, deposit-bearing, final-sale,
 substitution-sensitive, and restricted items can require buyer-agent review
-before refunds, returns, cancellations, or substitutions. This is guidance and
-audit metadata for agents; real refund authority still stays with WooCommerce
-plus the configured payment verifier.
+before refunds, returns, cancellations, or substitutions. Restricted goods are
+blocked from AgentCart catalog/quote/checkout by default unless the merchant
+explicitly allows that product. This is guidance and audit metadata for agents;
+real refund authority still stays with WooCommerce plus the configured payment
+verifier.
 
 ## Discovery
 

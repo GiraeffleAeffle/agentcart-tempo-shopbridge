@@ -489,6 +489,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("has_term", match_body)
         self.assertIn("product_has_category_slug", match_body)
         self.assertIn("blocked_category:", block_body)
+        self.assertIn("restricted_goods:", block_body)
+        self.assertIn("product_restricted_goods_block_matches", block_body)
+        self.assertIn("'restricted_goods_override'", row_body)
         self.assertNotIn("set_agentcart_exposure_for_published_simple_products", preview_body)
 
     def test_admin_setup_guide_is_rendered_and_exposed_publicly(self) -> None:
@@ -831,9 +834,11 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("PRODUCT_DEPOSIT_META", SOURCE)
         self.assertIn("PRODUCT_FINAL_SALE_META", SOURCE)
         self.assertIn("PRODUCT_SUBSTITUTION_SENSITIVE_META", SOURCE)
+        self.assertIn("PRODUCT_RESTRICTED_GOODS_ALLOWED_META", SOURCE)
 
         product_options_body = function_body("render_product_agentcart_options")
         self.assertIn("Exclude from AgentCart checkout", product_options_body)
+        self.assertIn("Allow restricted AgentCart checkout", product_options_body)
         self.assertIn("AgentCart max quantity", product_options_body)
         self.assertIn("AgentCart shipping countries", product_options_body)
         self.assertIn("AgentCart perishable item", product_options_body)
@@ -849,13 +854,16 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("PRODUCT_DEPOSIT_META", save_body)
         self.assertIn("PRODUCT_FINAL_SALE_META", save_body)
         self.assertIn("PRODUCT_SUBSTITUTION_SENSITIVE_META", save_body)
+        self.assertIn("PRODUCT_RESTRICTED_GOODS_ALLOWED_META", save_body)
         self.assertIn("sanitize_country_list_setting", save_body)
 
         product_body = function_body("serialize_product")
         self.assertIn("'max_quantity'", product_body)
         self.assertIn("'agentcart_policy'", product_body)
         self.assertIn("is_product_agentcart_blocked", product_body)
+        self.assertIn("'blocked_reasons'", product_body)
         self.assertIn("'blocked_category_slugs'", product_body)
+        self.assertIn("'restricted_goods_allowed_by_merchant'", product_body)
 
         capability_body = function_body("capability_document")
         self.assertIn("'per_product_agentcart_max_quantity'", capability_body)
@@ -864,6 +872,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'per_product_aftercare_policy_overrides'", capability_body)
         self.assertIn("'product_policy'", capability_body)
         self.assertIn("'blocked_categories_absent_from_catalog'", capability_body)
+        self.assertIn("'restricted_goods_blocked_by_default'", capability_body)
+        self.assertIn("'restricted_goods_allow_override_meta_key'", capability_body)
 
     def test_catalog_exposes_structured_package_size_from_woo_weight(self) -> None:
         product_body = function_body("serialize_product")
@@ -895,6 +905,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
     def test_catalog_and_quote_expose_restricted_goods_policy_metadata(self) -> None:
         product_body = function_body("serialize_product")
         restricted_body = function_body("product_restricted_goods")
+        block_body = function_body("product_restricted_goods_block_matches")
+        eligibility_body = function_body("product_agentcart_block_reasons")
         rules_body = function_body("restricted_goods_rules")
         quote_cart_body = function_body("quote_from_cart")
 
@@ -904,6 +916,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         for code in ["'age_restricted'", "'medical'", "'weapons'", "'stored_value'"]:
             self.assertIn(code, rules_body)
         self.assertIn("product_category_slugs", restricted_body)
+        self.assertIn("PRODUCT_RESTRICTED_GOODS_ALLOWED_META", block_body)
+        self.assertIn("product_restricted_goods", block_body)
+        self.assertIn("restricted_goods:", eligibility_body)
         self.assertIn("'category_slugs'", product_body)
         self.assertIn("'restricted_goods'", quote_cart_body)
         self.assertIn("'agentcart_policy'", quote_cart_body)
@@ -1247,12 +1262,14 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         catalog_body = function_body("catalog")
         count_body = function_body("agentcart_enabled_product_count")
         eligibility_body = function_body("is_product_agentcart_enabled")
+        block_body = function_body("product_agentcart_block_reasons")
 
         self.assertIn("array_filter", catalog_body)
         self.assertIn("is_product_agentcart_enabled", catalog_body)
         self.assertIn("array_filter", count_body)
         self.assertIn("is_product_agentcart_enabled", count_body)
         self.assertIn("is_product_agentcart_blocked", eligibility_body)
+        self.assertIn("product_restricted_goods_block_matches", block_body)
 
 
 if __name__ == "__main__":

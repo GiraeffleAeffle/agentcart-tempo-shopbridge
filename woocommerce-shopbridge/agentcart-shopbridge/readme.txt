@@ -74,7 +74,9 @@ actions.
 * Structured policy metadata for restricted goods, perishables, deposits,
   final-sale goods, substitutions, refunds, and cancellations, inferred from
   WooCommerce tags, categories, and attributes with optional explicit product
-  overrides.
+  overrides. Restricted-goods matches are blocked from AgentCart catalog,
+  quote, and checkout by default unless the merchant explicitly allows the
+  product after confirming their review and compliance flow.
 * Auto-managed domain-proof, revocation, and registry-onboarding bundle fields
   for an AgentCart merchant registry.
 

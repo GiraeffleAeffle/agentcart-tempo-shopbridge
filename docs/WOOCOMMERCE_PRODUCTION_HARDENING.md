@@ -12,7 +12,10 @@ override, per-product shipping-country overrides, soft AgentCart quote holds
 for managed stock, a fail-closed hard reservation adapter contract, structured
 restricted-goods metadata, and structured commerce-policy metadata for
 perishable, deposit-bearing, final-sale, and substitution-sensitive products in
-catalog, quote, order status, and refund policy payloads. Store-level
+catalog, quote, order status, and refund policy payloads. Restricted-goods
+matches are blocked from catalog, quote, and checkout by default unless the
+merchant explicitly allows the product after confirming their compliance and
+human-review flow. Store-level
 aftercare policy defaults for returns, substitutions, and cancellation requests
 are configurable from the AgentCart settings page and bound into the quote hash.
 Production merchant onboarding still needs the controls below.
@@ -37,7 +40,8 @@ Current behavior exposes only published simple products selected by the
 merchant's exposure mode, excludes product-level checkout blocks, and rejects
 quote or checkout quantities above each product's AgentCart limit. Blocked
 category slugs are excluded across every exposure mode, and restricted-goods
-metadata tells buyer agents when human review is required. Product-specific
+matches are blocked by default while still telling buyer agents when human
+review is required. Product-specific
 shipping countries and quote-bound stock holds are rechecked before paid order
 creation. Hard stock-hold mode requires merchant inventory hooks to reserve,
 confirm, and release provider-backed reservations, and fails closed when those

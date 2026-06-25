@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">69</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 69%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">70</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 70%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -542,7 +542,7 @@
 
   <script>
     const areas = [
-      { name: "Core Commerce", value: 87, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, soft holds, hard reservation adapter contract, and stale-quote recovery shape" },
+      { name: "Core Commerce", value: 88, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 81, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
@@ -570,12 +570,12 @@
         code: "CAT",
         title: "Product exposure safety",
         status: "alpha",
-        value: 83,
-        scope: "Merchant-controlled enablement, manual product opt-in, tag/category/all-products modes, exposure preview, stock visibility, categories, shipping countries, and safer catalog surface.",
-        remaining: "Add restricted-goods default warnings, catalog diff history, and clearer defaults for stores with many products.",
+        value: 87,
+        scope: "Merchant-controlled enablement, manual product opt-in, tag/category/all-products modes, exposure preview, restricted-goods default blocking, stock visibility, categories, shipping countries, and safer catalog surface.",
+        remaining: "Add catalog diff history and clearer defaults for stores with many products.",
         items: [
           { id: "CAT-001", priority: "P0", title: "Bulk exposure policy", description: "Implemented: merchants can expose products by manual checkbox, WooCommerce tag, WooCommerce category, or all published simple products, with a non-mutating preview of included and blocked catalog entries." },
-          { id: "CAT-002", priority: "P1", title: "Restricted-goods guardrails", description: "Warn or block high-risk product classes such as alcohol, tobacco, medicine, gift cards, and age-restricted goods by default." },
+          { id: "CAT-002", priority: "P1", title: "Restricted-goods guardrails", description: "Implemented: products matching restricted-goods rules are blocked from catalog, quote, and checkout by default, with an explicit per-product merchant allow override and retained structured review metadata." },
           { id: "CAT-003", priority: "P2", title: "Catalog diff preview", description: "Show merchants what changed in the agent-readable catalog before publishing or refreshing registry metadata." }
         ]
       },
@@ -759,7 +759,7 @@
       open: "Open"
     };
 
-    const overallValue = 69;
+    const overallValue = 70;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 
