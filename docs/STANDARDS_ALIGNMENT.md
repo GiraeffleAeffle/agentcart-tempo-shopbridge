@@ -52,7 +52,7 @@ standards/adapters -> AgentCart commerce core -> WooCommerce + verifier rails
 | x402 / HTTP 402 | Payment requirement, authorization retry, and payment response shape | MPP-shaped HTTP 402 flow exists, but not x402 V2 headers | Add x402-compatible challenge/proof adapter while keeping verifier contract rail-neutral |
 | MPP | Machine payment proof rail | Tempo demo proof and MPP-shaped flow exist | Keep as one payment protocol under `payment_requirements.protocols[]` |
 | Stripe machine payments / stablecoin acceptance | Production-friendly merchant settlement path for eligible merchants | Verifier fixtures and sandbox helper exist; US-region limitation documented | Treat as one rail behind the verifier seam, not as the whole checkout model |
-| ERC-8004 | Public identity, registration file, reputation, and validation for agents/service providers | Off-chain merchant registry with domain proof, revocation, hash binding | Add an ERC-8004 mapping/export for merchant/ShopBridge service records |
+| ERC-8004 | Public identity, registration file, reputation, and validation for agents/service providers | Off-chain merchant registry with domain proof, revocation, hash binding, transparency export, and optional ERC-8004-style identity mapping metadata | Add real onchain registry adapter and reputation/validation mapping when pilots need it |
 | ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC signed requests over method/path/body digest/nonce/expiry plus key rotation metadata | Add wallet-signature adapter while preserving the same canonical request fields |
 | ERC-8183 | Escrowed jobs with evaluator attestation | Not implemented | Use later for custom orders, services, pre-orders, disputes, and escrow flows; not required for normal grocery checkout |
 | AP2 / ACP / UCP | Agentic commerce/cart/authorization protocols | Not implemented as protocol adapters | Build translators into AgentCart Quote, Approval, Payment Requirements, and Order models |
@@ -136,14 +136,19 @@ Deliverables:
   document, payment binding, endpoint domain scope, and stale timestamp;
 - gateway registry page that distinguishes eligible, stale, revoked, and failed
   records with machine-readable reasons;
-- docs that describe how this later maps to ERC-8004 registration files.
+- optional `onchain_identity` / `erc8004_identity` metadata that lets a registry
+  record point at an ERC-8004-style service id, chain id, registry contract,
+  registration URI, transaction hash, or attestation hash without making
+  registration mandatory.
 
 Definition of done:
 
 - a merchant does not copy hashes manually;
 - a buyer agent can explain why a merchant was included or excluded;
 - the same verified record shape can still be sourced from off-chain JSON,
-  merchant bundle URL, append-only feed, or future onchain registry.
+  merchant bundle URL, append-only feed, or future onchain registry;
+- absent onchain identity metadata never blocks early pilot merchants, while
+  malformed metadata rejects a record that claims such a mapping.
 
 ### Slice 2: Manifest Protocol Profiles
 

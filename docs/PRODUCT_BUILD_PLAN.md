@@ -187,10 +187,14 @@ first-party alpha endpoint for that connection:
 same domain-proof path, exposes active records at `GET /v1/registry/records`,
 removes revoked hashes from the active feed, and exports submit, refresh, and
 revoke events through a public hash-chained transparency log at
-`GET /v1/registry/transparency`. It also exposes aggregate registry health at
-`GET /v1/registry/health`. The registry page surfaces that health summary with
-stale/failed/revoked alerts and operator action items. Authenticated operators
-can persist snapshots and alert deltas with
+`GET /v1/registry/transparency`. Registry entries can also carry optional
+ERC-8004-style `onchain_identity` / `erc8004_identity` metadata, which the
+gateway normalizes, validates, binds to the manifest registry claim when used,
+and exposes as a mapping status without making onchain registration mandatory.
+It also exposes aggregate registry health at `GET /v1/registry/health`. The
+registry page surfaces that health summary with stale/failed/revoked alerts and
+operator action items. Authenticated operators can persist snapshots and alert
+deltas with
 `POST /v1/registry/monitor/run`, inspect them at `GET /v1/registry/monitor`,
 deliver new/resolved alert changes through webhook, Home Assistant, or SMTP
 email, and inspect the same delivery status from the ShopBridge WordPress admin

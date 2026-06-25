@@ -2745,6 +2745,7 @@ class AgentCartService:
             errors.append("manifest_domain_mismatch")
 
         errors.extend(self.verify_registry_signature(record))
+        errors.extend(self.verify_registry_onchain_identity(record))
 
         manifest_snapshot = record.get("manifest_snapshot")
         if isinstance(manifest_snapshot, dict):
@@ -2971,6 +2972,130 @@ class AgentCartService:
                 return True
         return False
 
+    def raw_registry_onchain_identity(self, value: dict[str, Any]) -> Any:
+        if "onchain_identity" in value:
+            return value.get("onchain_identity")
+        return value.get("erc8004_identity")
+
+    def registry_onchain_identity_payload(self, value: dict[str, Any]) -> dict[str, str]:
+        raw = self.raw_registry_onchain_identity(value)
+        if not isinstance(raw, dict):
+            return {}
+        standard = str(raw.get("standard") or raw.get("type") or "").strip()
+        if not standard and "erc8004_identity" in value:
+            standard = "ERC-8004"
+        aliases = {
+            "chain": "chain_id",
+            "chainId": "chain_id",
+            "registry": "registry_address",
+            "registry_contract": "registry_address",
+            "contract": "registry_address",
+            "tx_hash": "registration_tx_hash",
+            "transaction_hash": "registration_tx_hash",
+            "uri": "registration_uri",
+        }
+        payload: dict[str, str] = {}
+        if standard:
+            payload["standard"] = standard
+        for source_key in (
+            "chain_id",
+            "chain",
+            "chainId",
+            "registry_address",
+            "registry",
+            "registry_contract",
+            "contract",
+            "service_id",
+            "agent_id",
+            "registration_uri",
+            "uri",
+            "registration_tx_hash",
+            "tx_hash",
+            "transaction_hash",
+            "attestation_hash",
+            "proof_url",
+        ):
+            target_key = aliases.get(source_key, source_key)
+            if target_key in payload:
+                continue
+            text = str(raw.get(source_key) or "").strip()
+            if text:
+                payload[target_key] = text
+        return payload
+
+    def verify_registry_onchain_identity(self, record: dict[str, Any]) -> list[str]:
+        raw = self.raw_registry_onchain_identity(record)
+        if raw is None:
+            return []
+        if not isinstance(raw, dict):
+            return ["onchain_identity_must_be_object"]
+        errors: list[str] = []
+        payload = self.registry_onchain_identity_payload(record)
+        standard = payload.get("standard", "").lower().replace("_", "-")
+        if standard not in {"erc-8004", "erc8004", "eip-8004", "eip8004"}:
+            errors.append("onchain_identity_standard_unsupported")
+        if not any(
+            payload.get(field)
+            for field in (
+                "agent_id",
+                "service_id",
+                "registration_uri",
+                "registration_tx_hash",
+                "attestation_hash",
+                "registry_address",
+            )
+        ):
+            errors.append("onchain_identity_missing_anchor")
+        chain_id = payload.get("chain_id", "")
+        if chain_id and not re.fullmatch(r"(eip155:)?[0-9]{1,20}", chain_id):
+            errors.append("onchain_identity_chain_id_invalid")
+        registry_address = payload.get("registry_address", "")
+        if registry_address and not re.fullmatch(r"0x[0-9a-fA-F]{40}", registry_address):
+            errors.append("onchain_identity_registry_address_invalid")
+        for hash_field in ("registration_tx_hash", "attestation_hash"):
+            supplied_hash = payload.get(hash_field, "")
+            if supplied_hash.startswith("0x") and not re.fullmatch(r"0x[0-9a-fA-F]{64}", supplied_hash):
+                errors.append(f"onchain_identity_{hash_field}_invalid")
+        proof_url = payload.get("proof_url", "")
+        if proof_url:
+            parsed = urllib.parse.urlparse(proof_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                errors.append("onchain_identity_proof_url_invalid")
+            elif parsed.scheme != "https" and not self.is_local_registry_host(parsed.hostname or ""):
+                errors.append("onchain_identity_proof_url_requires_https")
+        return errors
+
+    def registry_onchain_identity_for_entry(
+        self,
+        record: dict[str, Any],
+        manifest: dict[str, Any] | None,
+        verification: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = self.registry_onchain_identity_payload(record)
+        profile_ids = (
+            record.get("protocol_profile_ids")
+            if isinstance(record.get("protocol_profile_ids"), list)
+            else self.manifest_protocol_profile_ids(manifest or {})
+        )
+        if not payload:
+            ready = "erc8004-ready" in {str(profile_id) for profile_id in profile_ids}
+            return {
+                "standard": "ERC-8004",
+                "configured": False,
+                "required": False,
+                "status": "ready_for_mapping" if ready else "not_registered",
+                "note": "Onchain registration is optional for early pilots.",
+            }
+        return {
+            **payload,
+            "standard": payload.get("standard") or "ERC-8004",
+            "configured": True,
+            "required": False,
+            "status": "mapped" if verification.get("state") == "verified" else "invalid",
+            "record_hash": registry_record_hash(record),
+            "registry_claim_hash": str(record.get("registry_claim_hash") or ""),
+        }
+
     def verify_registry_claim_binding(self, record: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
         expected_hash = str(record.get("registry_claim_hash") or "")
         if not expected_hash:
@@ -3016,6 +3141,12 @@ class AgentCartService:
         claim_profile_ids = sorted(str(value) for value in claim.get("protocol_profile_ids", []) if value)
         if record_profile_ids and record_profile_ids != claim_profile_ids:
             errors.append("registry_claim_protocol_profile_ids_mismatch")
+        record_onchain_identity = self.registry_onchain_identity_payload(record)
+        claim_onchain_identity = self.registry_onchain_identity_payload(claim)
+        if record_onchain_identity and not claim_onchain_identity:
+            errors.append("registry_claim_onchain_identity_missing")
+        elif record_onchain_identity and canonical_json_hash(record_onchain_identity) != canonical_json_hash(claim_onchain_identity):
+            errors.append("registry_claim_onchain_identity_mismatch")
         record_endpoints = record.get("endpoints") if isinstance(record.get("endpoints"), dict) else {}
         claim_endpoints = claim.get("endpoints") if isinstance(claim.get("endpoints"), dict) else {}
         for name, endpoint in record_endpoints.items():
@@ -3153,6 +3284,7 @@ class AgentCartService:
                 "recipient": str(record.get("payment_recipient") or "") or None,
                 "recipient_configured": bool(record.get("payment_recipient")),
             },
+            "onchain_identity": self.registry_onchain_identity_for_entry(record, manifest, verification),
             "delivery": {
                 "ship_to_countries": [
                     str(value).upper()
@@ -3220,6 +3352,13 @@ class AgentCartService:
                 "network": self.config.tempo_mpp_network,
                 "recipient": self.config.tempo_mpp_recipient_address or None,
                 "recipient_configured": bool(self.config.tempo_mpp_recipient_address),
+            },
+            "onchain_identity": {
+                "standard": "ERC-8004",
+                "configured": False,
+                "required": False,
+                "status": "not_registered",
+                "note": "Local demo adapters are not published onchain.",
             },
             "delivery": {
                 "ship_to_countries": shipping_countries,
@@ -4971,6 +5110,7 @@ class AgentCartService:
                                 "supported_protocols": {"type": "array", "items": {"type": "string"}},
                                 "protocol_profile_ids": {"type": "array", "items": {"type": "string"}},
                                 "protocol_profiles": {"type": "array", "items": {"type": "object"}},
+                                "onchain_identity": {"type": "object"},
                                 "delivery": {"type": "object"},
                                 "ranking": {"type": "object"},
                             },
@@ -8418,10 +8558,13 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
         )
 
     def hash_anchor_cell(entry: dict[str, Any]) -> str:
+        onchain_identity = entry.get("onchain_identity") if isinstance(entry.get("onchain_identity"), dict) else {}
+        onchain_status = str(onchain_identity.get("status") or "not_registered")
         return (
             f"Record <code>{esc(short_hash(entry.get('registry_record_hash')))}</code><br>"
             f"Claim <code>{esc(short_hash(entry.get('registry_claim_hash')))}</code><br>"
-            f"Manifest <code>{esc(short_hash(entry.get('manifest_hash')))}</code>"
+            f"Manifest <code>{esc(short_hash(entry.get('manifest_hash')))}</code><br>"
+            f"Onchain <code>{esc(onchain_status)}</code>"
         )
 
     def profiles_cell(entry: dict[str, Any]) -> str:

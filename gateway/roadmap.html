@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">59</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 59%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">60</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 60%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -523,7 +523,7 @@
           <tr>
             <td>Trust</td>
             <td>Agents can verify merchant identity, endpoint freshness, signed sensitive calls, and quote/order integrity without trusting arbitrary page text.</td>
-            <td>Registry, hosted submit/revoke persistence, hash-chained transparency export, health summaries, persisted monitor snapshots, signed request gates, webhook/Home Assistant/SMTP alerts, and Woo admin delivery status are present. Onchain backing and stronger governance remain.</td>
+            <td>Registry, hosted submit/revoke persistence, hash-chained transparency export, optional onchain identity mapping, health summaries, persisted monitor snapshots, signed request gates, webhook/Home Assistant/SMTP alerts, and Woo admin delivery status are present. Onchain backing and stronger governance remain.</td>
           </tr>
           <tr>
             <td>Payments</td>
@@ -543,7 +543,7 @@
   <script>
     const areas = [
       { name: "Core Commerce", value: 84, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, and stale-quote recovery shape" },
-      { name: "Trust And Registry", value: 78, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate" },
+      { name: "Trust And Registry", value: 81, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate" },
       { name: "Payments", value: 66, note: "quote-bound verifier contract hash, receipt validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
@@ -596,13 +596,13 @@
         code: "IAM",
         title: "Merchant registry",
         status: "active",
-        value: 90,
-        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted submit/revoke persistence, raw hosted feed, hash-chained transparency export, health endpoint/page, persisted monitor snapshots, webhook/Home Assistant/SMTP alert delivery, WordPress admin delivery status, revocations, and quote tournament entry point.",
-        remaining: "Add onchain backing, stronger governance, and alert runbooks before broad merchant pilots.",
+        value: 93,
+        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted submit/revoke persistence, raw hosted feed, hash-chained transparency export, optional ERC-8004-style identity mapping, health endpoint/page, persisted monitor snapshots, webhook/Home Assistant/SMTP alert delivery, WordPress admin delivery status, revocations, and quote tournament entry point.",
+        remaining: "Add real onchain backing, stronger governance, and alert runbooks before broad merchant pilots.",
         items: [
           { id: "IAM-001", priority: "P0", title: "Registry alert delivery", description: "Implemented: monitor alert delivery supports webhook, Home Assistant, and SMTP email, while the registry page and ShopBridge WordPress admin surface last delivery state and failures." },
           { id: "IAM-002", priority: "P1", title: "Transparency log export", description: "Implemented: hosted submit, refresh, and revoke operations append hash-chained events exposed at /v1/registry/transparency with chain verification metadata." },
-          { id: "IAM-003", priority: "P2", title: "Onchain identity mapping", description: "Map merchant records to ERC-8004-style identity metadata without making onchain registration mandatory for early pilots." }
+          { id: "IAM-003", priority: "P2", title: "Onchain identity mapping", description: "Implemented: registry records can carry optional ERC-8004-style onchain_identity metadata, which the gateway validates, binds to registry claims when present, and exposes without requiring onchain registration." }
         ]
       },
       {

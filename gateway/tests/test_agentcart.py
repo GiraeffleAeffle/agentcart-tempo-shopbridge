@@ -412,6 +412,8 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("woocommerce-demo-tea", entries)
             self.assertEqual(entries["demo-tea-shop"]["ranking"]["role"], "identity_anchor_only")
             self.assertFalse(entries["demo-tea-shop"]["ranking"]["paid_placement"])
+            self.assertEqual(entries["demo-tea-shop"]["onchain_identity"]["status"], "not_registered")
+            self.assertFalse(entries["demo-tea-shop"]["onchain_identity"]["required"])
             self.assertEqual(entries["woocommerce-demo-tea"]["manifest_url"], "http://woo.example/.well-known/agentcart.json")
             self.assertRegex(entries["demo-tea-shop"]["manifest_hash"], r"^[0-9a-f]{64}$")
             self.assertIn("DE", entries["demo-tea-shop"]["delivery"]["ship_to_countries"])
@@ -445,10 +447,193 @@ class AgentCartTests(unittest.TestCase):
             )
             self.assertRegex(entries["signed-tea-shop"]["registry_record_hash"], r"^[0-9a-f]{64}$")
             self.assertEqual(entries["signed-tea-shop"]["verification"]["manifest_source"], "snapshot")
+            self.assertEqual(entries["signed-tea-shop"]["onchain_identity"]["status"], "not_registered")
             self.assertIn("signed-tea-shop", service.adapters)
             self.assertEqual(service.adapters["signed-tea-shop"].adapter_type, "shopbridge-registry")
             html = agentcart.render_registry_page(service)
             self.assertIn("mpp-http-auth", html)
+
+    def test_registry_record_exposes_optional_erc8004_identity_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            manifest["protocol_profiles"].append(
+                {
+                    "id": "erc8004-ready",
+                    "type": "registry",
+                    "standard": "ERC-8004",
+                    "status": "ready_for_mapping",
+                }
+            )
+            onchain_identity = {
+                "standard": "ERC-8004",
+                "chain_id": "eip155:8453",
+                "registry_address": "0x2222222222222222222222222222222222222222",
+                "agent_id": "agentcart:signed-tea-shop",
+                "registration_uri": "https://signed.example/.well-known/agentcart.json",
+                "registration_tx_hash": "0x" + "3" * 64,
+            }
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            signed_registry_record(
+                                manifest,
+                                onchain_identity=onchain_identity,
+                                protocol_profile_ids=["agentcart-shopbridge", "mpp-http-auth", "erc8004-ready"],
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            registry = service.registry_document()
+
+            entry = {item["merchant_id"]: item for item in registry["entries"]}["signed-tea-shop"]
+            self.assertEqual(entry["verification"]["state"], "verified")
+            self.assertEqual(entry["onchain_identity"]["status"], "mapped")
+            self.assertTrue(entry["onchain_identity"]["configured"])
+            self.assertFalse(entry["onchain_identity"]["required"])
+            self.assertEqual(entry["onchain_identity"]["standard"], "ERC-8004")
+            self.assertEqual(entry["onchain_identity"]["chain_id"], "eip155:8453")
+            self.assertEqual(entry["onchain_identity"]["registry_address"], "0x2222222222222222222222222222222222222222")
+            self.assertEqual(entry["onchain_identity"]["record_hash"], entry["registry_record_hash"])
+            self.assertIn("erc8004-ready", entry["protocol_profile_ids"])
+            self.assertIn("Onchain <code>mapped</code>", agentcart.render_registry_page(service))
+
+    def test_registry_record_rejects_invalid_onchain_identity_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            signed_registry_record(
+                                manifest,
+                                onchain_identity={
+                                    "standard": "unknown-standard",
+                                    "chain_id": "base-mainnet",
+                                    "registry_address": "not-an-address",
+                                },
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            registry = service.registry_document()
+
+            entry = {item["merchant_id"]: item for item in registry["entries"]}["signed-tea-shop"]
+            self.assertEqual(entry["verification"]["state"], "rejected")
+            self.assertEqual(entry["onchain_identity"]["status"], "invalid")
+            self.assertIn("onchain_identity_standard_unsupported", entry["verification"]["errors"])
+            self.assertIn("onchain_identity_chain_id_invalid", entry["verification"]["errors"])
+            self.assertIn("onchain_identity_registry_address_invalid", entry["verification"]["errors"])
+            self.assertNotIn("signed-tea-shop", service.adapters)
+
+    def test_registry_claim_binding_includes_onchain_identity_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            onchain_identity = {
+                "standard": "ERC-8004",
+                "chain_id": "8453",
+                "registry_address": "0x2222222222222222222222222222222222222222",
+                "service_id": "agentcart:signed-tea-shop",
+            }
+            claim = {
+                "merchant_id": "signed-tea-shop",
+                "name": "Signed Tea Shop",
+                "domain": "signed.example",
+                "manifest_url": "https://signed.example/.well-known/agentcart.json",
+                "supported_protocols": ["agentcart-shopbridge", "mpp"],
+                "protocol_profile_ids": ["agentcart-shopbridge", "mpp-http-auth", "erc8004-ready"],
+                "payment_network": "testnet",
+                "payment_recipient": "0x1111111111111111111111111111111111111111",
+                "ship_to_countries": ["DE"],
+                "onchain_identity": onchain_identity,
+            }
+            manifest["discovery"] = {"registry_claim": claim}
+            manifest["protocol_profiles"].append(
+                {
+                    "id": "erc8004-ready",
+                    "type": "registry",
+                    "standard": "ERC-8004",
+                    "status": "ready_for_mapping",
+                }
+            )
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            signed_registry_record(
+                                manifest,
+                                registry_claim_hash_alg="sha-256",
+                                registry_claim_hash=agentcart.canonical_json_hash(claim),
+                                onchain_identity=onchain_identity,
+                                protocol_profile_ids=claim["protocol_profile_ids"],
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            registry = service.registry_document()
+
+            entry = {item["merchant_id"]: item for item in registry["entries"]}["signed-tea-shop"]
+            self.assertEqual(entry["verification"]["state"], "verified")
+            self.assertEqual(entry["onchain_identity"]["status"], "mapped")
+
+            bad_claim = dict(claim)
+            bad_claim["onchain_identity"] = {**onchain_identity, "service_id": "agentcart:other-shop"}
+            manifest["discovery"] = {"registry_claim": bad_claim}
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            signed_registry_record(
+                                manifest,
+                                registry_claim_hash_alg="sha-256",
+                                registry_claim_hash=agentcart.canonical_json_hash(bad_claim),
+                                onchain_identity=onchain_identity,
+                                protocol_profile_ids=claim["protocol_profile_ids"],
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            registry = service.registry_document()
+            entry = {item["merchant_id"]: item for item in registry["entries"]}["signed-tea-shop"]
+            self.assertEqual(entry["verification"]["state"], "rejected")
+            self.assertIn("registry_claim_onchain_identity_mismatch", entry["verification"]["errors"])
 
     def test_registry_verification_accepts_profile_only_payment_binding(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

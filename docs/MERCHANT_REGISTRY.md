@@ -38,6 +38,13 @@ agent.
   "registry_claim_hash": "abc123...",
   "supported_protocols": ["agentcart-shopbridge", "mpp-http-auth"],
   "protocol_profile_ids": ["agentcart-shopbridge", "mpp-http-auth", "erc8004-ready"],
+  "onchain_identity": {
+    "standard": "ERC-8004",
+    "chain_id": "eip155:8453",
+    "registry_address": "0x2222222222222222222222222222222222222222",
+    "agent_id": "agentcart:tea-shop.example",
+    "registration_uri": "https://shop.example/.well-known/agentcart.json"
+  },
   "payment_network": "tempo-testnet",
   "payment_recipient": "0x...",
   "ship_to_countries": ["DE", "AT"],
@@ -102,11 +109,14 @@ eligible merchants, but final bidding should not leak household demand broadly.
 6. Agent fetches the manifest from the merchant domain.
 7. Agent canonicalizes the stable registry claim inside the manifest and
    verifies its hash. Legacy records can still bind the full manifest hash.
-8. Agent verifies the detached signature, merchant-domain proof, or onchain
-   proof over the registry record.
-9. Agent verifies that payment recipient/network in the manifest matches the
+8. If optional `onchain_identity` metadata is present, the agent validates its
+   ERC-8004-style mapping shape and verifies that the manifest registry claim
+   binds the same metadata.
+9. Agent verifies the detached signature, merchant-domain proof, or future
+   onchain proof over the registry record.
+10. Agent verifies that payment recipient/network in the manifest matches the
    registry record.
-10. Agent verifies that absolute catalog/quote endpoint URLs stay on the
+11. Agent verifies that absolute catalog/quote endpoint URLs stay on the
     registered merchant domain.
 11. Agent requests private catalog/quote data from the merchant endpoint.
 
@@ -353,11 +363,15 @@ The gateway now:
   hashes from the active feed;
 - appends hosted submit, refresh, and revoke events to a public hash-chained
   transparency export at `/v1/registry/transparency`;
+- normalizes optional ERC-8004-style `onchain_identity` / `erc8004_identity`
+  metadata and exposes the mapping status without requiring onchain
+  registration for early pilots;
 - fetches each manifest, or reads `manifest_snapshot` for reproducible local
   tests;
 - canonicalizes and hashes either the stable registry claim or legacy manifest;
-- verifies domain, hash, signature/proof, revocation URL/document, updated timestamp,
-  payment recipient, and shipping country scope;
+- verifies domain, hash, signature/proof, optional onchain identity mapping,
+  revocation URL/document, updated timestamp, payment recipient, and shipping
+  country scope;
 - verifies `hmac-sha256` private-feed records and `https-domain-proof`
   merchant-owned records;
 - rejects absolute catalog/quote endpoint URLs outside the registered merchant
@@ -375,7 +389,8 @@ or merchant adapters.
 
 ## Open Questions
 
-- Should registry updates be wallet-signed, DNS-based, or both?
+- Should registry updates be wallet-signed, DNS-based, onchain events, or a
+  combination?
 - How should merchants rotate payment recipients?
 - Should there be a neutral allowlist for consumer-protection-compliant shops?
 - How can small merchants stay discoverable without recreating ad-market
