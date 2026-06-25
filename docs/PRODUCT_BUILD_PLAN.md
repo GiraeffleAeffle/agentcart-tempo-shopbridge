@@ -167,16 +167,19 @@ renders a guided setup checklist and Quick Start panel in
 payment verifier, registry proof, and sandbox testing. The Quick Start panel
 can prepare local sandbox access defaults, show setup progress, and surface
 buyer-agent endpoint URLs without silently exposing products. It can also run a
-sandbox quote check through the same WooCommerce-backed quote code path used by
-buyer agents, then delete the test quote transient and release its soft stock
-hold so merchant tests do not consume availability. The plugin
+sandbox quote check and guided checkout test through the same WooCommerce-backed
+quote/order code paths used by buyer agents, then clean up the test quote,
+stock hold, and test order so merchant tests do not consume availability. The plugin
 publishes a registry onboarding bundle with the suggested record, proof,
 revocation document, and one-entry feed so registries can ingest the shop
 without merchant-side hash copy/paste. The admin registry proof panel can
 refresh generated registry metadata, store a public endpoint check result for
 the manifest, proof, revocation document, and bundle, and optionally submit or
 revoke the current record through a merchant-configured hosted registry
-connection. The gateway now has a first-party alpha endpoint for that connection:
+connection. It can also fetch the configured registry's health and monitor JSON
+so the merchant can see the current record state, manifest freshness, and last
+monitor snapshot from the WooCommerce admin page. The gateway now has a
+first-party alpha endpoint for that connection:
 `POST /v1/registry/records` persists submitted records, verifies them with the
 same domain-proof path, exposes active records at `GET /v1/registry/records`,
 removes revoked hashes from the active feed, and exposes aggregate registry

@@ -66,8 +66,12 @@ def check_external_http_verifier_calls(source: str) -> None:
     payment_body = function_body(source, "call_payment_verifier")
     refund_body = function_body(source, "call_refund_verifier")
     registry_body = function_body(source, "call_registry_connection")
+    public_fetch_body = function_body(source, "fetch_public_json")
+    registry_health_body = function_body(source, "fetch_registry_connection_json")
     if source.count("wp_remote_post(") != 3:
         fail("external HTTP calls should be limited to the payment/refund verifier and registry connection wrappers")
+    if source.count("wp_remote_get(") != 2:
+        fail("external HTTP GET calls should be limited to public endpoint checks and registry health checks")
     for name, body in [("payment verifier", payment_body), ("refund verifier", refund_body)]:
         for literal in [
             "wp_remote_post($verifier_url",
@@ -97,6 +101,25 @@ def check_external_http_verifier_calls(source: str) -> None:
     ]:
         if literal not in registry_body:
             fail(f"registry connection HTTP call missing review guard: {literal}")
+    for name, body in [("public endpoint fetch", public_fetch_body), ("registry health fetch", registry_health_body)]:
+        for literal in [
+            "wp_remote_get(",
+            "'Accept' => 'application/json'",
+            "'timeout' =>",
+            "is_wp_error($response)",
+            "wp_remote_retrieve_response_code($response)",
+            "wp_remote_retrieve_body($response)",
+            "json_decode($raw_body, true)",
+        ]:
+            if literal not in body:
+                fail(f"{name} HTTP call missing review guard: {literal}")
+    for literal in [
+        "$headers['Authorization'] = 'Bearer ' . $token",
+        "$headers['X-AgentCart-Token'] = $token",
+        "'redirection' => 0",
+    ]:
+        if literal not in registry_health_body:
+            fail(f"registry health HTTP call missing review guard: {literal}")
     if re.search(r"\b(curl_exec|file_get_contents)\s*\(", source):
         fail("use WordPress HTTP APIs instead of curl_exec/file_get_contents")
 

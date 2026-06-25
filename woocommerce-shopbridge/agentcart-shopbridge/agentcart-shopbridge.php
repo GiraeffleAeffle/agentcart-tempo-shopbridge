@@ -65,6 +65,7 @@ final class AgentCart_ShopBridge {
     const REGISTRY_CONNECTION_URL_OPTION = 'agentcart_shopbridge_registry_connection_url';
     const REGISTRY_CONNECTION_TOKEN_OPTION = 'agentcart_shopbridge_registry_connection_token';
     const REGISTRY_CONNECTION_STATUS_OPTION = 'agentcart_shopbridge_registry_connection_status';
+    const REGISTRY_HEALTH_CHECK_OPTION = 'agentcart_shopbridge_registry_health_check';
     const REGISTRY_REVOKED_RECORDS_OPTION = 'agentcart_shopbridge_registry_revoked_records';
     const SANDBOX_QUOTE_CHECK_OPTION = 'agentcart_shopbridge_sandbox_quote_check';
     const SANDBOX_CHECKOUT_TEST_OPTION = 'agentcart_shopbridge_sandbox_checkout_test';
@@ -1178,6 +1179,18 @@ final class AgentCart_ShopBridge {
                 : 'Registry public endpoint check found issues. Review the Registry Transparency section.';
         }
 
+        if ($action === 'check_registry_health') {
+            $result = self::run_registry_health_check();
+            update_option(self::REGISTRY_HEALTH_CHECK_OPTION, $result, false);
+            if (($result['state'] ?? '') === 'verified') {
+                return 'Registry health check passed: the current record is verified and eligible.';
+            }
+            return [
+                'type' => ($result['state'] ?? '') === 'failed' ? 'error' : 'warning',
+                'message' => 'Registry health check needs attention: ' . ($result['message'] ?? 'review the Registry Transparency section.'),
+            ];
+        }
+
         if ($action === 'submit_registry_bundle') {
             $result = self::submit_registry_connection('upsert');
             update_option(self::REGISTRY_CONNECTION_STATUS_OPTION, $result, false);
@@ -1219,11 +1232,21 @@ final class AgentCart_ShopBridge {
         $last_checked = (string) ($registry_public_check['checked_at'] ?? '');
         $errors = is_array($registry_public_check['errors'] ?? null) ? $registry_public_check['errors'] : [];
         $endpoints = is_array($registry_public_check['endpoints'] ?? null) ? $registry_public_check['endpoints'] : [];
+        $registry_health_check = self::registry_health_check_result();
         $registry_connection_url = self::registry_connection_url();
+        $registry_health_url = self::registry_connection_endpoint_url('health');
+        $registry_monitor_url = self::registry_connection_endpoint_url('monitor');
         $connection_state = (string) ($registry_connection_status['state'] ?? 'not_submitted');
         $connection_operation = (string) ($registry_connection_status['operation'] ?? '');
         $connection_checked_at = (string) ($registry_connection_status['checked_at'] ?? '');
         $connection_message = (string) ($registry_connection_status['message'] ?? '');
+        $health_state = (string) ($registry_health_check['state'] ?? 'not_checked');
+        $health_checked_at = (string) ($registry_health_check['checked_at'] ?? '');
+        $health_message = (string) ($registry_health_check['message'] ?? '');
+        $health_errors = is_array($registry_health_check['errors'] ?? null) ? $registry_health_check['errors'] : [];
+        $health = is_array($registry_health_check['health'] ?? null) ? $registry_health_check['health'] : [];
+        $current_record = is_array($health['current_record'] ?? null) ? $health['current_record'] : [];
+        $monitor = is_array($registry_health_check['monitor'] ?? null) ? $registry_health_check['monitor'] : [];
         $endpoint_rows = '';
         foreach (['manifest', 'proof', 'revocations', 'bundle'] as $key) {
             $endpoint = is_array($endpoints[$key] ?? null) ? $endpoints[$key] : [];
@@ -1278,6 +1301,70 @@ final class AgentCart_ShopBridge {
                     </td>
                     <td><?php echo self::admin_status_badge($connection_state === 'submitted', 'Submitted', $connection_state === 'failed' ? 'Failed' : 'Not submitted'); ?></td>
                 </tr>
+                <tr>
+                    <th scope="row">Registry health endpoint</th>
+                    <td>
+                        <code><?php echo esc_html($registry_health_url ?: 'not configured'); ?></code>
+                        <?php if ($registry_monitor_url !== '') : ?>
+                            <br><span class="description">Monitor: <code><?php echo esc_html($registry_monitor_url); ?></code></span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo self::admin_status_badge($registry_health_url !== '', 'Available', 'Needs registry connection'); ?></td>
+                </tr>
+                <tr>
+                    <th scope="row">Last registry health</th>
+                    <td>
+                        <?php echo self::admin_status_badge($health_state === 'verified', 'Verified', $health_state === 'failed' ? 'Failed' : ($health_state === 'attention' ? 'Needs attention' : 'Not checked')); ?>
+                        <?php if ($health_checked_at !== '') : ?>
+                            <br><span class="description"><?php echo esc_html($health_checked_at); ?></span>
+                        <?php endif; ?>
+                        <?php if ($health_message !== '') : ?>
+                            <br><span class="description"><?php echo esc_html($health_message); ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if (!empty($health_errors)) : ?>
+                            <code><?php echo esc_html(implode(', ', array_map('strval', $health_errors))); ?></code>
+                        <?php else : ?>
+                            <span class="description">No stored registry health errors.</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Registry entry health</th>
+                    <td>
+                        <?php if (!empty($current_record)) : ?>
+                            State: <code><?php echo esc_html((string) ($current_record['state'] ?? 'unknown')); ?></code>
+                            &middot; eligible: <code><?php echo !empty($current_record['eligible']) ? esc_html('yes') : esc_html('no'); ?></code>
+                            <?php if (isset($current_record['age_days'])) : ?>
+                                <br><span class="description">Manifest freshness: <?php echo esc_html((string) intval($current_record['age_days'])); ?> days old; updated_at <?php echo esc_html((string) ($current_record['updated_at'] ?? 'unknown')); ?></span>
+                            <?php endif; ?>
+                            <?php if (!empty($current_record['checked_at'])) : ?>
+                                <br><span class="description">Registry checked_at <?php echo esc_html((string) $current_record['checked_at']); ?></span>
+                            <?php endif; ?>
+                        <?php else : ?>
+                            <span class="description">Run registry health after submitting the bundle.</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php echo self::admin_status_badge(!empty($current_record['eligible']) && ($current_record['state'] ?? '') === 'verified', 'Eligible', 'Not eligible'); ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Registry monitor snapshot</th>
+                    <td>
+                        <?php if (($monitor['state'] ?? '') === 'fetched') : ?>
+                            last run <?php echo esc_html((string) ($monitor['last_run_at'] ?? 'never')); ?>
+                            &middot; snapshots <?php echo esc_html((string) intval($monitor['snapshot_count'] ?? 0)); ?>
+                            <br><span class="description">Last snapshot state: <?php echo esc_html((string) ($monitor['last_snapshot_state'] ?? 'unknown')); ?>; alerts <?php echo esc_html((string) intval($monitor['last_snapshot_alert_count'] ?? 0)); ?>; new/resolved <?php echo esc_html((string) intval($monitor['last_changes_new_alert_count'] ?? 0)); ?>/<?php echo esc_html((string) intval($monitor['last_changes_resolved_alert_count'] ?? 0)); ?></span>
+                        <?php elseif (!empty($monitor['error'])) : ?>
+                            <span class="description"><?php echo esc_html((string) $monitor['error']); ?></span>
+                        <?php else : ?>
+                            <span class="description">No registry monitor status fetched yet.</span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo self::admin_status_badge(($monitor['state'] ?? '') === 'fetched', 'Fetched', ($monitor['state'] ?? '') === 'unauthorized' ? 'Needs token' : 'Not available'); ?></td>
+                </tr>
             </tbody>
         </table>
         <div style="margin-top: 12px;">
@@ -1290,6 +1377,11 @@ final class AgentCart_ShopBridge {
                 <?php wp_nonce_field('agentcart_shopbridge_registry_action'); ?>
                 <input type="hidden" name="agentcart_registry_action" value="check_public_registry_endpoints" />
                 <?php submit_button('Check public registry endpoints', 'secondary', 'submit', false); ?>
+            </form>
+            <form method="post" style="display: inline-block; margin-left: 8px;">
+                <?php wp_nonce_field('agentcart_shopbridge_registry_action'); ?>
+                <input type="hidden" name="agentcart_registry_action" value="check_registry_health" />
+                <?php submit_button('Check registry health', 'secondary', 'submit', false); ?>
             </form>
             <form method="post" style="display: inline-block; margin-left: 8px;">
                 <?php wp_nonce_field('agentcart_shopbridge_registry_action'); ?>
@@ -1968,6 +2060,11 @@ final class AgentCart_ShopBridge {
         return is_array($stored) ? $stored : [];
     }
 
+    private static function registry_health_check_result() {
+        $stored = get_option(self::REGISTRY_HEALTH_CHECK_OPTION, []);
+        return is_array($stored) ? $stored : [];
+    }
+
     private static function registry_connection_url() {
         if (defined('AGENTCART_REGISTRY_CONNECTION_URL')) {
             $value = esc_url_raw((string) AGENTCART_REGISTRY_CONNECTION_URL);
@@ -2076,6 +2173,249 @@ final class AgentCart_ShopBridge {
             'status' => $status,
             'message' => $message !== '' ? $message : (($status >= 200 && $status < 300) ? 'Registry accepted the request.' : 'Registry returned HTTP ' . $status . '.'),
             'response' => is_array($decoded) ? self::canonicalize_json_value($decoded) : null,
+        ];
+    }
+
+    private static function run_registry_health_check() {
+        $checked_at = self::current_registry_timestamp();
+        $record_hash = self::registry_record_hash_value();
+        $merchant_id = self::merchant()['id'];
+        $health_url = self::registry_connection_endpoint_url('health');
+        $monitor_url = self::registry_connection_endpoint_url('monitor');
+        if (self::registry_connection_url() === '' || $health_url === '') {
+            return [
+                'schema' => 'agentcart.shopbridge.registry_health_check.v1',
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'record_hash' => $record_hash,
+                'merchant_id' => $merchant_id,
+                'message' => 'Registry connection URL is not configured.',
+                'errors' => ['registry_connection_url_missing'],
+            ];
+        }
+
+        $health_result = self::fetch_registry_connection_json($health_url, false);
+        $monitor_result = $monitor_url !== '' ? self::fetch_registry_connection_json($monitor_url, true) : [
+            'ok' => false,
+            'status' => 0,
+            'error' => 'registry_monitor_url_missing',
+            'body' => null,
+        ];
+        $errors = [];
+        $health_summary = [];
+        $current_record = [];
+        if (empty($health_result['ok'])) {
+            $errors[] = 'registry_health_fetch_failed';
+        } else {
+            $health_body = is_array($health_result['body'] ?? null) ? $health_result['body'] : [];
+            $health_summary = self::registry_health_response_summary($health_body);
+            $current_record = self::registry_health_current_record_check($health_body, $record_hash, $merchant_id);
+            if (empty($current_record)) {
+                $errors[] = 'current_record_not_found_in_registry_health';
+            } else {
+                $record_state = sanitize_key((string) ($current_record['state'] ?? 'unknown'));
+                if ($record_state !== 'verified') {
+                    $errors[] = 'current_record_' . ($record_state ?: 'unknown');
+                }
+                if (empty($current_record['eligible'])) {
+                    $errors[] = 'current_record_not_eligible';
+                }
+                $record_errors = is_array($current_record['errors'] ?? null) ? $current_record['errors'] : [];
+                foreach ($record_errors as $record_error) {
+                    $errors[] = 'registry_' . sanitize_key((string) $record_error);
+                }
+            }
+        }
+
+        $monitor_summary = self::registry_monitor_response_summary($monitor_result);
+        $errors = array_values(array_unique(array_filter($errors)));
+        $state = empty($health_result['ok']) ? 'failed' : (empty($errors) ? 'verified' : 'attention');
+        return [
+            'schema' => 'agentcart.shopbridge.registry_health_check.v1',
+            'state' => $state,
+            'checked_at' => $checked_at,
+            'registry_url' => self::registry_connection_endpoint_url('registry'),
+            'health_url' => $health_url,
+            'monitor_url' => $monitor_url,
+            'record_hash' => $record_hash,
+            'merchant_id' => $merchant_id,
+            'message' => $state === 'verified'
+                ? 'Current registry record is verified and eligible.'
+                : 'Current registry record is not verified, not eligible, or could not be found.',
+            'errors' => $errors,
+            'health' => [
+                'ok' => !empty($health_result['ok']),
+                'status' => intval($health_result['status'] ?? 0),
+                'error' => sanitize_text_field((string) ($health_result['error'] ?? '')),
+                'summary' => $health_summary,
+                'current_record' => $current_record,
+            ],
+            'monitor' => $monitor_summary,
+        ];
+    }
+
+    private static function registry_connection_endpoint_url($endpoint) {
+        $endpoint = sanitize_key((string) $endpoint);
+        if (!in_array($endpoint, ['registry', 'records', 'health', 'monitor'], true)) {
+            return '';
+        }
+        $registry_url = self::registry_connection_url();
+        if ($registry_url === '') {
+            return '';
+        }
+        $parts = wp_parse_url($registry_url);
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return '';
+        }
+        $scheme = strtolower((string) $parts['scheme']);
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            return '';
+        }
+        $host = strtolower((string) $parts['host']);
+        $port = isset($parts['port']) ? ':' . intval($parts['port']) : '';
+        $path = (string) ($parts['path'] ?? '');
+        $registry_path = '/v1/registry';
+        $position = strpos($path, '/v1/registry');
+        if ($position !== false) {
+            $registry_path = substr($path, 0, $position + strlen('/v1/registry'));
+        }
+        $base = $scheme . '://' . $host . $port . $registry_path;
+        if ($endpoint === 'registry') {
+            return esc_url_raw($base);
+        }
+        return esc_url_raw($base . '/' . $endpoint);
+    }
+
+    private static function fetch_registry_connection_json($url, $authenticated = false) {
+        $headers = [
+            'Accept' => 'application/json',
+        ];
+        $token = self::registry_connection_token();
+        if ($authenticated && $token !== '') {
+            $headers['Authorization'] = 'Bearer ' . $token;
+            $headers['X-AgentCart-Token'] = $token;
+            $headers['X-AgentCart-Registry-Token'] = $token;
+        }
+        $response = wp_remote_get(esc_url_raw((string) $url), [
+            'timeout' => 8,
+            'redirection' => 0,
+            'headers' => $headers,
+        ]);
+        if (is_wp_error($response)) {
+            return [
+                'ok' => false,
+                'status' => 0,
+                'error' => $response->get_error_message(),
+                'body' => null,
+            ];
+        }
+        $status = intval(wp_remote_retrieve_response_code($response));
+        $raw_body = wp_remote_retrieve_body($response);
+        $decoded = json_decode($raw_body, true);
+        if ($status < 200 || $status >= 300 || !is_array($decoded)) {
+            return [
+                'ok' => false,
+                'status' => $status,
+                'error' => $status === 401 ? 'unauthorized' : 'invalid_json_or_http_status',
+                'body' => null,
+            ];
+        }
+        return [
+            'ok' => true,
+            'status' => $status,
+            'error' => '',
+            'body' => self::canonicalize_json_value($decoded),
+        ];
+    }
+
+    private static function registry_health_response_summary($health_body) {
+        $summary = is_array($health_body['summary'] ?? null) ? $health_body['summary'] : [];
+        return [
+            'state' => sanitize_key((string) ($summary['state'] ?? 'unknown')),
+            'entry_count' => intval($summary['entry_count'] ?? 0),
+            'eligible_count' => intval($summary['eligible_count'] ?? 0),
+            'ineligible_count' => intval($summary['ineligible_count'] ?? 0),
+            'alert_count' => intval($summary['alert_count'] ?? 0),
+            'critical_count' => intval($summary['critical_count'] ?? 0),
+            'warning_count' => intval($summary['warning_count'] ?? 0),
+            'hosted_entry_count' => intval($summary['hosted_entry_count'] ?? 0),
+            'hosted_revocation_count' => intval($summary['hosted_revocation_count'] ?? 0),
+            'source_error_count' => intval($summary['source_error_count'] ?? 0),
+        ];
+    }
+
+    private static function registry_health_current_record_check($health_body, $record_hash, $merchant_id) {
+        $checks = is_array($health_body['checks'] ?? null) ? $health_body['checks'] : [];
+        $merchant_match = [];
+        foreach ($checks as $check) {
+            if (!is_array($check)) {
+                continue;
+            }
+            $candidate_hash = (string) ($check['registry_record_hash'] ?? $check['record_hash'] ?? '');
+            $candidate_merchant_id = (string) ($check['merchant_id'] ?? '');
+            $summary = self::registry_health_record_summary($check);
+            if ($candidate_hash !== '' && hash_equals((string) $record_hash, $candidate_hash)) {
+                return $summary;
+            }
+            if ($merchant_match === [] && $candidate_merchant_id !== '' && hash_equals((string) $merchant_id, $candidate_merchant_id)) {
+                $merchant_match = $summary;
+            }
+        }
+        return $merchant_match;
+    }
+
+    private static function registry_health_record_summary($check) {
+        $errors = is_array($check['errors'] ?? null) ? $check['errors'] : [];
+        return [
+            'merchant_id' => sanitize_text_field((string) ($check['merchant_id'] ?? '')),
+            'name' => sanitize_text_field((string) ($check['name'] ?? '')),
+            'domain' => sanitize_text_field((string) ($check['domain'] ?? '')),
+            'manifest_url' => esc_url_raw((string) ($check['manifest_url'] ?? '')),
+            'registry_record_hash' => sanitize_text_field((string) ($check['registry_record_hash'] ?? $check['record_hash'] ?? '')),
+            'state' => sanitize_key((string) ($check['state'] ?? 'unknown')),
+            'eligible' => !empty($check['eligible']),
+            'reason' => sanitize_text_field((string) ($check['reason'] ?? '')),
+            'errors' => array_values(array_map('sanitize_text_field', array_map('strval', $errors))),
+            'error_count' => intval($check['error_count'] ?? count($errors)),
+            'checked_at' => sanitize_text_field((string) ($check['checked_at'] ?? '')),
+            'updated_at' => sanitize_text_field((string) ($check['updated_at'] ?? '')),
+            'age_days' => isset($check['age_days']) && is_numeric($check['age_days']) ? intval($check['age_days']) : null,
+            'manifest_fetched' => !empty($check['manifest_fetched']),
+            'manifest_source' => sanitize_text_field((string) ($check['manifest_source'] ?? '')),
+            'payment_recipient_configured' => !empty($check['payment_recipient_configured']),
+        ];
+    }
+
+    private static function registry_monitor_response_summary($monitor_result) {
+        if (empty($monitor_result['ok'])) {
+            $error = sanitize_text_field((string) ($monitor_result['error'] ?? 'not_fetched'));
+            return [
+                'ok' => false,
+                'state' => $error === 'unauthorized' ? 'unauthorized' : 'failed',
+                'status' => intval($monitor_result['status'] ?? 0),
+                'error' => $error,
+            ];
+        }
+        $body = is_array($monitor_result['body'] ?? null) ? $monitor_result['body'] : [];
+        $configured = is_array($body['configured'] ?? null) ? $body['configured'] : [];
+        $last_snapshot = is_array($body['last_snapshot'] ?? null) ? $body['last_snapshot'] : [];
+        $last_snapshot_summary = is_array($last_snapshot['summary'] ?? null) ? $last_snapshot['summary'] : [];
+        $last_changes = is_array($body['last_changes'] ?? null) ? $body['last_changes'] : [];
+        $last_notifications = is_array($body['last_notifications'] ?? null) ? $body['last_notifications'] : [];
+        return [
+            'ok' => true,
+            'state' => 'fetched',
+            'status' => intval($monitor_result['status'] ?? 0),
+            'scheduled' => !empty($configured['scheduled']),
+            'last_run_at' => sanitize_text_field((string) ($body['last_run_at'] ?? '')),
+            'snapshot_count' => intval($body['snapshot_count'] ?? 0),
+            'last_snapshot_id' => sanitize_text_field((string) ($last_snapshot['id'] ?? '')),
+            'last_snapshot_state' => sanitize_key((string) ($last_snapshot_summary['state'] ?? 'unknown')),
+            'last_snapshot_alert_count' => intval($last_snapshot_summary['alert_count'] ?? 0),
+            'last_snapshot_eligible_count' => intval($last_snapshot_summary['eligible_count'] ?? 0),
+            'last_changes_new_alert_count' => intval($last_changes['new_alert_count'] ?? 0),
+            'last_changes_resolved_alert_count' => intval($last_changes['resolved_alert_count'] ?? 0),
+            'last_notifications_state' => sanitize_key((string) ($last_notifications['state'] ?? '')),
         ];
     }
 

@@ -129,7 +129,8 @@ verified, stale, or revoked without manual hash handling.
 Deliverables:
 
 - merchant admin status panel for registry claim hash, record hash, proof URL,
-  revocation URL, `updated_at`, and last public verification result;
+  revocation URL, `updated_at`, last public verification result, and
+  registry-side health/monitor state;
 - one-click refresh/rebuild of registry claim and proof metadata;
 - local verifier action that checks the public manifest, proof, revocation
   document, payment binding, endpoint domain scope, and stale timestamp;

@@ -83,9 +83,11 @@ currency, merchant id, quote hash, payment contract hash, and configured
 payment destination.
 
 ShopBridge can also call a merchant-configured registry connection URL when the
-merchant clicks "Submit registry bundle" or "Send revocation request" in
-`WooCommerce -> AgentCart`. That request lets a registry ingest or revoke the
-merchant-owned discovery record without copy/paste.
+merchant clicks "Submit registry bundle", "Send revocation request", or "Check
+registry health" in `WooCommerce -> AgentCart`. Those requests let a registry
+ingest or revoke the merchant-owned discovery record, and let the merchant view
+the registry-side health, manifest freshness, and monitor snapshot for the
+current record without copy/paste.
 
 No verifier or registry connection is contacted for public catalog or quote
 browsing. A verifier is called only after the merchant configures a Payment
@@ -93,7 +95,7 @@ verifier URL in `WooCommerce -> AgentCart` or defines
 `AGENTCART_PAYMENT_VERIFIER_URL`. A registry connection is called only after the
 merchant configures a Registry connection URL or defines
 `AGENTCART_REGISTRY_CONNECTION_URL` and presses one of the registry connection
-action buttons.
+or registry health action buttons.
 
 The verifier request can include the stored quote, selected order/refund fields,
 payment receipt fields supplied by the buyer agent, merchant id, payment rail,
@@ -105,8 +107,10 @@ configured by the merchant.
 The registry request can include the generated registry record, record hash,
 manifest URL, registry bundle URL, domain proof document, revocation document,
 public endpoint check result, merchant id, shop domain, and an idempotency key.
-The exact destination, terms, and privacy policy depend on the registry service
-configured by the merchant.
+The registry health check can fetch registry health and monitor JSON derived
+from that configured registry URL and can send the registry connection token as
+a bearer token for private monitor status. The exact destination, terms, and
+privacy policy depend on the registry service configured by the merchant.
 
 == Installation ==
 

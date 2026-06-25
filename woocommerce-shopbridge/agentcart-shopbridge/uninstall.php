@@ -42,6 +42,7 @@ $options = [
     'agentcart_shopbridge_registry_connection_url',
     'agentcart_shopbridge_registry_connection_token',
     'agentcart_shopbridge_registry_connection_status',
+    'agentcart_shopbridge_registry_health_check',
     'agentcart_shopbridge_registry_revoked_records',
     'agentcart_shopbridge_sandbox_quote_check',
     'agentcart_shopbridge_sandbox_checkout_test',

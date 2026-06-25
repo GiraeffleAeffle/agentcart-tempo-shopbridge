@@ -127,7 +127,8 @@ ShopBridge does not call external services for catalog or quote browsing. It
 can call a merchant-configured payment verifier URL during paid-order creation
 or verified refund recording. It can also call a merchant-configured hosted
 registry connection URL when an admin explicitly submits a registry bundle or
-revocation request from `WooCommerce -> AgentCart`.
+revocation request from `WooCommerce -> AgentCart`, and can fetch registry
+health/monitor JSON when an admin explicitly clicks the registry health action.
 
 The WordPress.org readme needs to disclose this because the verifier can receive
 quote, order/refund, payment receipt, merchant id, rail, destination, amount,
@@ -138,7 +139,9 @@ that URL, so the readme must make that responsibility explicit.
 The readme also needs to disclose the registry connection because it can receive
 the generated registry record, record hash, manifest URL, registry bundle URL,
 domain proof document, revocation document, public endpoint check result,
-merchant id, shop domain, and idempotency key.
+merchant id, shop domain, and idempotency key. The health check can receive the
+merchant's IP/server request metadata and registry bearer token if private
+monitor status is enabled.
 
 ## Submission Steps
 
