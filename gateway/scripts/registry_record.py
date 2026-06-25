@@ -432,6 +432,13 @@ def minimal_config(tmp: pathlib.Path, *, hmac_secret: str = "", max_age_days: in
         registry_alert_webhook_url="",
         registry_alert_webhook_token="",
         registry_alert_homeassistant_enabled=False,
+        registry_alert_email_to=(),
+        registry_alert_email_from="",
+        registry_alert_smtp_host="",
+        registry_alert_smtp_port=587,
+        registry_alert_smtp_username="",
+        registry_alert_smtp_password="",
+        registry_alert_smtp_starttls=True,
         registry_alert_min_severity="warning",
         registry_alert_include_resolved=True,
     )

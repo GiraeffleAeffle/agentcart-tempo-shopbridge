@@ -16,6 +16,7 @@ import re
 import secrets
 import shlex
 import shutil
+import smtplib
 import sys
 import threading
 import time
@@ -26,6 +27,7 @@ import urllib.request
 import uuid
 import subprocess
 from dataclasses import dataclass
+from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -164,6 +166,13 @@ class Config:
     registry_alert_webhook_url: str
     registry_alert_webhook_token: str
     registry_alert_homeassistant_enabled: bool
+    registry_alert_email_to: tuple[str, ...]
+    registry_alert_email_from: str
+    registry_alert_smtp_host: str
+    registry_alert_smtp_port: int
+    registry_alert_smtp_username: str
+    registry_alert_smtp_password: str
+    registry_alert_smtp_starttls: bool
     registry_alert_min_severity: str
     registry_alert_include_resolved: bool
 
@@ -271,6 +280,13 @@ class Config:
             registry_alert_webhook_url=os.getenv("AGENTCART_REGISTRY_ALERT_WEBHOOK_URL", "").strip(),
             registry_alert_webhook_token=os.getenv("AGENTCART_REGISTRY_ALERT_WEBHOOK_TOKEN", "").strip(),
             registry_alert_homeassistant_enabled=bool_env("AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED", False),
+            registry_alert_email_to=csv_env("AGENTCART_REGISTRY_ALERT_EMAIL_TO"),
+            registry_alert_email_from=os.getenv("AGENTCART_REGISTRY_ALERT_EMAIL_FROM", "").strip(),
+            registry_alert_smtp_host=os.getenv("AGENTCART_REGISTRY_ALERT_SMTP_HOST", "").strip(),
+            registry_alert_smtp_port=int(os.getenv("AGENTCART_REGISTRY_ALERT_SMTP_PORT", "587")),
+            registry_alert_smtp_username=os.getenv("AGENTCART_REGISTRY_ALERT_SMTP_USERNAME", "").strip(),
+            registry_alert_smtp_password=os.getenv("AGENTCART_REGISTRY_ALERT_SMTP_PASSWORD", ""),
+            registry_alert_smtp_starttls=bool_env("AGENTCART_REGISTRY_ALERT_SMTP_STARTTLS", True),
             registry_alert_min_severity=os.getenv("AGENTCART_REGISTRY_ALERT_MIN_SEVERITY", "warning").strip().lower(),
             registry_alert_include_resolved=bool_env("AGENTCART_REGISTRY_ALERT_INCLUDE_RESOLVED", True),
         )
@@ -3507,13 +3523,20 @@ class AgentCartService:
             and self.config.homeassistant_token
             and self.config.ha_notify_services
         )
+        email_configured = bool(
+            self.config.registry_alert_email_to
+            and self.config.registry_alert_email_from
+            and self.config.registry_alert_smtp_host
+        )
         return {
             "webhook_configured": webhook_configured,
             "homeassistant_configured": homeassistant_configured,
             "homeassistant_enabled": self.config.registry_alert_homeassistant_enabled,
+            "email_configured": email_configured,
+            "email_recipient_count": len(self.config.registry_alert_email_to),
             "min_severity": self.normalized_registry_alert_min_severity(),
             "include_resolved": self.config.registry_alert_include_resolved,
-            "sink_count": int(webhook_configured) + int(homeassistant_configured),
+            "sink_count": int(webhook_configured) + int(homeassistant_configured) + int(email_configured),
         }
 
     def normalized_registry_alert_min_severity(self) -> str:
@@ -3598,6 +3621,8 @@ class AgentCartService:
             results.append(self.send_registry_alert_webhook(payload))
         if configured["homeassistant_configured"]:
             results.append(self.send_registry_alert_homeassistant(payload))
+        if configured["email_configured"]:
+            results.append(self.send_registry_alert_email(payload))
 
         sent_count = sum(1 for result in results if result.get("ok"))
         state = "sent" if sent_count == len(results) else "partial" if sent_count else "failed"
@@ -3669,6 +3694,97 @@ class AgentCartService:
                 results.append({"service": service, "ok": False, "error": str(exc), "detail": exc.detail})
         ok = any(result.get("ok") for result in results)
         return {"sink": "homeassistant", "ok": ok, "results": results}
+
+    def registry_alert_email_subject(self, payload: dict[str, Any]) -> str:
+        changes = payload.get("changes") if isinstance(payload.get("changes"), dict) else {}
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        state = summary.get("state") or changes.get("current_state") or "unknown"
+        return (
+            "AgentCart registry alert: "
+            f"{int(changes.get('new_alert_count') or 0)} new, "
+            f"{int(changes.get('resolved_alert_count') or 0)} resolved "
+            f"({state})"
+        )
+
+    def registry_alert_email_body(self, payload: dict[str, Any]) -> str:
+        changes = payload.get("changes") if isinstance(payload.get("changes"), dict) else {}
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        new_alerts = changes.get("new_alerts") if isinstance(changes.get("new_alerts"), list) else []
+        resolved_alerts = changes.get("resolved_alerts") if isinstance(changes.get("resolved_alerts"), list) else []
+        lines = [
+            "AgentCart registry monitor found merchant registry alert changes.",
+            "",
+            f"State: {summary.get('state') or changes.get('current_state') or 'unknown'}",
+            f"New alerts: {len(new_alerts)}",
+            f"Resolved alerts: {len(resolved_alerts)}",
+            f"Registry: {payload.get('registry_url') or ''}",
+            f"Monitor: {payload.get('monitor_url') or ''}",
+            f"Health: {payload.get('health_url') or ''}",
+            f"Snapshot: {payload.get('snapshot_id') or ''}",
+            "",
+        ]
+        if new_alerts:
+            lines.append("New alerts:")
+            for alert in new_alerts[:10]:
+                if not isinstance(alert, dict):
+                    continue
+                lines.append(
+                    "- "
+                    f"[{alert.get('severity') or 'info'}] "
+                    f"{alert.get('merchant_id') or 'registry'} "
+                    f"{alert.get('code') or ''}: "
+                    f"{alert.get('message') or ''}"
+                )
+                if alert.get("suggested_action"):
+                    lines.append(f"  Action: {alert.get('suggested_action')}")
+            lines.append("")
+        if resolved_alerts:
+            lines.append("Resolved alerts:")
+            for alert in resolved_alerts[:10]:
+                if not isinstance(alert, dict):
+                    continue
+                lines.append(
+                    "- "
+                    f"[{alert.get('severity') or 'info'}] "
+                    f"{alert.get('merchant_id') or 'registry'} "
+                    f"{alert.get('code') or ''}: "
+                    f"{alert.get('message') or ''}"
+                )
+            lines.append("")
+        lines.append("Only public merchant registry metadata is included in this notification.")
+        return "\n".join(lines)
+
+    def send_registry_alert_email(self, payload: dict[str, Any]) -> dict[str, Any]:
+        recipients = list(self.config.registry_alert_email_to)
+        message = EmailMessage()
+        message["Subject"] = self.registry_alert_email_subject(payload)
+        message["From"] = self.config.registry_alert_email_from
+        message["To"] = ", ".join(recipients)
+        message["X-AgentCart-Event"] = "registry.alert"
+        message["X-AgentCart-Event-Id"] = str(payload.get("id") or "")
+        message.set_content(self.registry_alert_email_body(payload))
+        try:
+            with smtplib.SMTP(
+                self.config.registry_alert_smtp_host,
+                self.config.registry_alert_smtp_port,
+                timeout=8,
+            ) as smtp:
+                if self.config.registry_alert_smtp_starttls:
+                    smtp.starttls()
+                if self.config.registry_alert_smtp_username or self.config.registry_alert_smtp_password:
+                    smtp.login(
+                        self.config.registry_alert_smtp_username,
+                        self.config.registry_alert_smtp_password,
+                    )
+                smtp.send_message(message)
+            return {"sink": "email", "ok": True, "recipient_count": len(recipients)}
+        except Exception as exc:
+            return {
+                "sink": "email",
+                "ok": False,
+                "recipient_count": len(recipients),
+                "error": str(exc),
+            }
 
     def run_registry_monitor(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
         request = request or {}

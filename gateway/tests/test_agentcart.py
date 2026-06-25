@@ -87,6 +87,13 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         registry_alert_webhook_url="",
         registry_alert_webhook_token="",
         registry_alert_homeassistant_enabled=False,
+        registry_alert_email_to=(),
+        registry_alert_email_from="",
+        registry_alert_smtp_host="",
+        registry_alert_smtp_port=587,
+        registry_alert_smtp_username="",
+        registry_alert_smtp_password="",
+        registry_alert_smtp_starttls=True,
         registry_alert_min_severity="warning",
         registry_alert_include_resolved=True,
     )
@@ -708,6 +715,92 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(monitor_status["last_notifications"]["state"], "sent")
             self.assertEqual(monitor_status["notification_count"], 3)
             self.assertEqual(monitor_status["configured"]["alert_delivery"]["sink_count"], 1)
+
+    def test_registry_monitor_sends_email_for_alert_deltas(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            signed_registry_record(
+                                manifest,
+                                updated_at="2000-01-01T00:00:00Z",
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+                registry_alert_email_to=("merchant@example.test", "ops@example.test"),
+                registry_alert_email_from="agentcart@example.test",
+                registry_alert_smtp_host="smtp.example.test",
+                registry_alert_smtp_port=2525,
+                registry_alert_smtp_username="smtp-user",
+                registry_alert_smtp_password="smtp-pass",
+                registry_alert_smtp_starttls=True,
+            )
+            smtp_sessions: list[object] = []
+
+            class FakeSMTP:
+                def __init__(self, host: str, port: int, timeout: int) -> None:
+                    self.host = host
+                    self.port = port
+                    self.timeout = timeout
+                    self.started_tls = False
+                    self.login_args: tuple[str, str] | None = None
+                    self.messages: list[object] = []
+                    smtp_sessions.append(self)
+
+                def __enter__(self) -> "FakeSMTP":
+                    return self
+
+                def __exit__(self, *args: object) -> None:
+                    return None
+
+                def starttls(self) -> None:
+                    self.started_tls = True
+
+                def login(self, username: str, password: str) -> None:
+                    self.login_args = (username, password)
+
+                def send_message(self, message: object) -> None:
+                    self.messages.append(message)
+
+            original_smtp = agentcart.smtplib.SMTP
+            agentcart.smtplib.SMTP = FakeSMTP  # type: ignore[assignment]
+            try:
+                first = service.run_registry_monitor({"trigger": "test"})
+            finally:
+                agentcart.smtplib.SMTP = original_smtp  # type: ignore[assignment]
+
+            self.assertEqual(first["notifications"]["state"], "sent")
+            self.assertEqual(first["notifications"]["results"][0]["sink"], "email")
+            self.assertEqual(first["notifications"]["results"][0]["recipient_count"], 2)
+            self.assertEqual(first["monitor"]["configured"]["alert_delivery"]["email_configured"], True)
+            self.assertEqual(first["monitor"]["configured"]["alert_delivery"]["sink_count"], 1)
+            self.assertEqual(len(smtp_sessions), 1)
+            smtp = smtp_sessions[0]
+            self.assertEqual(smtp.host, "smtp.example.test")
+            self.assertEqual(smtp.port, 2525)
+            self.assertEqual(smtp.timeout, 8)
+            self.assertTrue(smtp.started_tls)
+            self.assertEqual(smtp.login_args, ("smtp-user", "smtp-pass"))
+            self.assertEqual(len(smtp.messages), 1)
+            message = smtp.messages[0]
+            self.assertEqual(message["From"], "agentcart@example.test")
+            self.assertEqual(message["To"], "merchant@example.test, ops@example.test")
+            self.assertEqual(message["X-AgentCart-Event"], "registry.alert")
+            self.assertIn("1 new, 0 resolved", message["Subject"])
+            body = message.get_content()
+            self.assertIn("registry_record_stale", body)
+            self.assertIn("Only public merchant registry metadata", body)
 
     def test_hosted_registry_submission_rejects_record_hash_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

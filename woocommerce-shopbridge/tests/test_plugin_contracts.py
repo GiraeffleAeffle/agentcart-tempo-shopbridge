@@ -658,6 +658,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("Registry entry health", panel_body)
         self.assertIn("Manifest freshness", panel_body)
         self.assertIn("Registry monitor snapshot", panel_body)
+        self.assertIn("Registry alert delivery", panel_body)
+        self.assertIn("Configured sinks", panel_body)
         self.assertIn("Check registry health", panel_body)
         self.assertIn("registry_connection_endpoint_url('health')", check_body)
         self.assertIn("registry_connection_endpoint_url('monitor')", check_body)
@@ -682,6 +684,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'manifest_fetched'", record_summary_body)
         self.assertIn("'last_snapshot_state'", monitor_summary_body)
         self.assertIn("'last_changes_new_alert_count'", monitor_summary_body)
+        self.assertIn("'last_notifications_reason'", monitor_summary_body)
+        self.assertIn("'alert_delivery_email_configured'", monitor_summary_body)
+        self.assertIn("'alert_delivery_sink_count'", monitor_summary_body)
         self.assertIn("fetch_registry_connection_json", review_guard)
 
     def test_manifest_protocol_profiles_are_configured_only_and_registry_bound(self) -> None:

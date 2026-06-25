@@ -1304,6 +1304,16 @@ final class AgentCart_ShopBridge {
         $health = is_array($registry_health_check['health'] ?? null) ? $registry_health_check['health'] : [];
         $current_record = is_array($health['current_record'] ?? null) ? $health['current_record'] : [];
         $monitor = is_array($registry_health_check['monitor'] ?? null) ? $registry_health_check['monitor'] : [];
+        $alert_delivery_sinks = [];
+        if (!empty($monitor['alert_delivery_webhook_configured'])) {
+            $alert_delivery_sinks[] = 'webhook';
+        }
+        if (!empty($monitor['alert_delivery_homeassistant_configured'])) {
+            $alert_delivery_sinks[] = 'Home Assistant';
+        }
+        if (!empty($monitor['alert_delivery_email_configured'])) {
+            $alert_delivery_sinks[] = 'email';
+        }
         $endpoint_rows = '';
         foreach (['manifest', 'proof', 'revocations', 'bundle'] as $key) {
             $endpoint = is_array($endpoints[$key] ?? null) ? $endpoints[$key] : [];
@@ -1421,6 +1431,27 @@ final class AgentCart_ShopBridge {
                         <?php endif; ?>
                     </td>
                     <td><?php self::render_admin_status_badge(($monitor['state'] ?? '') === 'fetched', 'Fetched', ($monitor['state'] ?? '') === 'unauthorized' ? 'Needs token' : 'Not available'); ?></td>
+                </tr>
+                <tr>
+                    <th scope="row">Registry alert delivery</th>
+                    <td>
+                        <?php if (($monitor['state'] ?? '') === 'fetched') : ?>
+                            state <code><?php echo esc_html((string) (($monitor['last_notifications_state'] ?? '') ?: 'not-run')); ?></code>
+                            &middot; sinks <?php echo esc_html((string) intval($monitor['alert_delivery_sink_count'] ?? 0)); ?>
+                            <?php if (!empty($alert_delivery_sinks)) : ?>
+                                <br><span class="description">Configured sinks: <?php echo esc_html(implode(', ', $alert_delivery_sinks)); ?>; minimum severity <?php echo esc_html((string) ($monitor['alert_delivery_min_severity'] ?? 'warning')); ?></span>
+                            <?php endif; ?>
+                            <?php if (!empty($monitor['last_notifications_reason'])) : ?>
+                                <br><span class="description"><?php echo esc_html((string) $monitor['last_notifications_reason']); ?></span>
+                            <?php endif; ?>
+                            <?php if (intval($monitor['last_notifications_failed_result_count'] ?? 0) > 0) : ?>
+                                <br><span class="description"><?php echo esc_html((string) intval($monitor['last_notifications_failed_result_count'])); ?> of <?php echo esc_html((string) intval($monitor['last_notifications_result_count'])); ?> delivery sinks failed.</span>
+                            <?php endif; ?>
+                        <?php else : ?>
+                            <span class="description">Run registry health after configuring the registry monitor token.</span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php self::render_admin_status_badge(in_array(($monitor['last_notifications_state'] ?? ''), ['sent', 'skipped'], true), 'OK', 'Needs attention'); ?></td>
                 </tr>
             </tbody>
         </table>
@@ -2506,10 +2537,18 @@ final class AgentCart_ShopBridge {
         }
         $body = is_array($monitor_result['body'] ?? null) ? $monitor_result['body'] : [];
         $configured = is_array($body['configured'] ?? null) ? $body['configured'] : [];
+        $alert_delivery = is_array($configured['alert_delivery'] ?? null) ? $configured['alert_delivery'] : [];
         $last_snapshot = is_array($body['last_snapshot'] ?? null) ? $body['last_snapshot'] : [];
         $last_snapshot_summary = is_array($last_snapshot['summary'] ?? null) ? $last_snapshot['summary'] : [];
         $last_changes = is_array($body['last_changes'] ?? null) ? $body['last_changes'] : [];
         $last_notifications = is_array($body['last_notifications'] ?? null) ? $body['last_notifications'] : [];
+        $last_notification_results = is_array($last_notifications['results'] ?? null) ? $last_notifications['results'] : [];
+        $failed_notification_results = 0;
+        foreach ($last_notification_results as $notification_result) {
+            if (is_array($notification_result) && empty($notification_result['ok'])) {
+                $failed_notification_results++;
+            }
+        }
         return [
             'ok' => true,
             'state' => 'fetched',
@@ -2524,6 +2563,15 @@ final class AgentCart_ShopBridge {
             'last_changes_new_alert_count' => intval($last_changes['new_alert_count'] ?? 0),
             'last_changes_resolved_alert_count' => intval($last_changes['resolved_alert_count'] ?? 0),
             'last_notifications_state' => sanitize_key((string) ($last_notifications['state'] ?? '')),
+            'last_notifications_reason' => sanitize_text_field((string) ($last_notifications['reason'] ?? '')),
+            'last_notifications_result_count' => count($last_notification_results),
+            'last_notifications_failed_result_count' => $failed_notification_results,
+            'alert_delivery_sink_count' => intval($alert_delivery['sink_count'] ?? 0),
+            'alert_delivery_min_severity' => sanitize_key((string) ($alert_delivery['min_severity'] ?? 'warning')),
+            'alert_delivery_webhook_configured' => !empty($alert_delivery['webhook_configured']),
+            'alert_delivery_homeassistant_configured' => !empty($alert_delivery['homeassistant_configured']),
+            'alert_delivery_email_configured' => !empty($alert_delivery['email_configured']),
+            'alert_delivery_email_recipient_count' => intval($alert_delivery['email_recipient_count'] ?? 0),
         ];
     }
 

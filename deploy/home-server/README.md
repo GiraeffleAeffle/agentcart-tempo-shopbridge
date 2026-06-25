@@ -75,7 +75,10 @@ AgentCart can run the hosted merchant registry monitor manually with
 `AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS`. To deliver new or resolved
 registry alert deltas, set `AGENTCART_REGISTRY_ALERT_WEBHOOK_URL`, or enable
 `AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED=true` with `HOMEASSISTANT_URL`,
-`HOMEASSISTANT_TOKEN`, and `HA_NOTIFY_SERVICES`.
+`HOMEASSISTANT_TOKEN`, and `HA_NOTIFY_SERVICES`. For email delivery, set
+`AGENTCART_REGISTRY_ALERT_EMAIL_TO`, `AGENTCART_REGISTRY_ALERT_EMAIL_FROM`, and
+`AGENTCART_REGISTRY_ALERT_SMTP_HOST`; optional SMTP username/password and
+STARTTLS settings support authenticated providers or a local relay.
 
 ## Files Expected In Repo Root
 

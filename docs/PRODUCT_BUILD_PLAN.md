@@ -190,7 +190,9 @@ health at `GET /v1/registry/health`. The registry page surfaces that health
 summary with stale/failed/revoked alerts and operator action items. Authenticated
 operators can persist snapshots and alert deltas with
 `POST /v1/registry/monitor/run`, inspect them at `GET /v1/registry/monitor`,
-or enable the same run path on an interval. Buyer-side registry
+deliver new/resolved alert changes through webhook, Home Assistant, or SMTP
+email, and inspect the same delivery status from the ShopBridge WordPress admin
+health panel. Buyer-side registry
 entries expose `registry_status` so agents and humans can distinguish verified,
 stale, revoked, local, and failed records without parsing raw verifier errors.
 The same setup guide is included in the public capability document for remote

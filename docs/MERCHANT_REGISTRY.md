@@ -128,6 +128,13 @@ AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT=50
 AGENTCART_REGISTRY_ALERT_WEBHOOK_URL=
 AGENTCART_REGISTRY_ALERT_WEBHOOK_TOKEN=
 AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED=false
+AGENTCART_REGISTRY_ALERT_EMAIL_TO=
+AGENTCART_REGISTRY_ALERT_EMAIL_FROM=
+AGENTCART_REGISTRY_ALERT_SMTP_HOST=
+AGENTCART_REGISTRY_ALERT_SMTP_PORT=587
+AGENTCART_REGISTRY_ALERT_SMTP_USERNAME=
+AGENTCART_REGISTRY_ALERT_SMTP_PASSWORD=
+AGENTCART_REGISTRY_ALERT_SMTP_STARTTLS=true
 AGENTCART_REGISTRY_ALERT_MIN_SEVERITY=warning
 AGENTCART_REGISTRY_ALERT_INCLUDE_RESOLVED=true
 ```
@@ -156,8 +163,18 @@ notify.
 
 If `AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED=true`, AgentCart also sends a
 compact Home Assistant notification through the configured `HOMEASSISTANT_URL`,
-`HOMEASSISTANT_TOKEN`, and `HA_NOTIFY_SERVICES`. The monitor JSON and registry
-page show whether alert delivery was skipped, sent, partial, or failed.
+`HOMEASSISTANT_TOKEN`, and `HA_NOTIFY_SERVICES`.
+
+If `AGENTCART_REGISTRY_ALERT_EMAIL_TO`,
+`AGENTCART_REGISTRY_ALERT_EMAIL_FROM`, and
+`AGENTCART_REGISTRY_ALERT_SMTP_HOST` are set, AgentCart sends the same new and
+resolved alert summary through SMTP. `AGENTCART_REGISTRY_ALERT_EMAIL_TO` accepts
+a comma-separated recipient list. SMTP username/password and STARTTLS are
+optional so pilots can use either an authenticated provider or a local relay.
+The email body contains public merchant registry metadata only.
+
+The monitor JSON, registry page, and ShopBridge WordPress admin registry health
+panel show whether alert delivery was skipped, sent, partial, or failed.
 
 `hmac-sha256` remains available for private/local feeds, but it is an
 implementation shortcut. Public trust should use a merchant-owned proof such as
