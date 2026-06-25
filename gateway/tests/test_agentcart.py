@@ -372,6 +372,7 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("x-service-info", openapi)
             self.assertIn("/v1/registry", openapi["paths"])
             self.assertIn("/v1/registry/records", openapi["paths"])
+            self.assertIn("/v1/registry/transparency", openapi["paths"])
             self.assertIn("/v1/registry/health", openapi["paths"])
             self.assertIn("/v1/quote-tournament", openapi["paths"])
             self.assertIn("/v1/audit/import", openapi["paths"])
@@ -383,6 +384,7 @@ class AgentCartTests(unittest.TestCase):
             self.assertNotIn("mpp-http-auth", capability["protocol_profile_ids"])
             self.assertEqual(capability["endpoints"]["registry_records"], "/v1/registry/records")
             self.assertEqual(capability["endpoints"]["registry_submit"], "/v1/registry/records")
+            self.assertEqual(capability["endpoints"]["registry_transparency"], "/v1/registry/transparency")
             self.assertEqual(capability["endpoints"]["registry_health"], "/v1/registry/health")
             self.assertEqual(service.capability_document()["endpoints"]["audit_import"], "/v1/audit/import")
             self.assertEqual(
@@ -857,6 +859,67 @@ class AgentCartTests(unittest.TestCase):
             self.assertNotIn("signed-tea-shop", entries)
             self.assertNotIn("signed-tea-shop", service.adapters)
 
+    def test_hosted_registry_transparency_log_hash_chains_submit_refresh_and_revoke(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            record_hash = agentcart.registry_record_hash(record)
+            service = make_service(tmp)
+
+            submitted = service.submit_hosted_registry_request(
+                {
+                    "schema": "agentcart.shopbridge.registry_connection_request.v1",
+                    "operation": "upsert",
+                    "registry_record": record,
+                    "record_hash": record_hash,
+                    "idempotency_key": "submit-signed-tea-shop",
+                }
+            )
+            refreshed = service.submit_hosted_registry_request(
+                {
+                    "schema": "agentcart.shopbridge.registry_connection_request.v1",
+                    "operation": "upsert",
+                    "registry_record": record,
+                    "record_hash": record_hash,
+                    "idempotency_key": "refresh-signed-tea-shop",
+                }
+            )
+            revoked = service.submit_hosted_registry_request(
+                {
+                    "operation": "revoke",
+                    "record_hash": record_hash,
+                    "merchant_id": "signed-tea-shop",
+                    "domain": "signed.example",
+                    "reason": "merchant_admin_revoke",
+                    "idempotency_key": "revoke-signed-tea-shop",
+                }
+            )
+
+            log = service.hosted_registry_transparency_log()
+            events = log["events"]
+            self.assertEqual(log["schema"], "agentcart.registry_transparency_log.v1")
+            self.assertEqual(log["event_count"], 3)
+            self.assertTrue(log["verification"]["chain_valid"])
+            self.assertEqual(log["verification"]["errors"], [])
+            self.assertEqual([event["sequence"] for event in events], [1, 2, 3])
+            self.assertEqual([event["operation"] for event in events], ["submit", "refresh", "revoke"])
+            self.assertEqual(events[0]["previous_event_hash"], "")
+            self.assertEqual(events[1]["previous_event_hash"], events[0]["event_hash"])
+            self.assertEqual(events[2]["previous_event_hash"], events[1]["event_hash"])
+            self.assertEqual(log["log_head_hash"], events[2]["event_hash"])
+            self.assertEqual(submitted["transparency_event_hash"], events[0]["event_hash"])
+            self.assertEqual(refreshed["transparency_event_hash"], events[1]["event_hash"])
+            self.assertEqual(revoked["transparency_event_hash"], events[2]["event_hash"])
+            self.assertEqual(events[0]["record_payload_hash"], agentcart.canonical_json_hash(record))
+            self.assertEqual(events[2]["publication_state"], "revoked")
+            self.assertEqual(events[2]["reason"], "merchant_admin_revoke")
+
+            feed = service.hosted_registry_feed()
+            self.assertEqual(feed["transparency"]["event_count"], 3)
+            self.assertEqual(feed["transparency"]["log_head_hash"], log["log_head_hash"])
+            self.assertEqual(feed["transparency"]["url"], "/v1/registry/transparency")
+
     def test_hosted_registry_submission_http_requires_registry_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = pathlib.Path(raw_tmp)
@@ -903,6 +966,14 @@ class AgentCartTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base_url}/v1/registry/records", timeout=5) as response:
                     feed = json.loads(response.read())
                 self.assertEqual(feed["entry_count"], 1)
+                self.assertEqual(feed["transparency"]["event_count"], 1)
+
+                with urllib.request.urlopen(f"{base_url}/v1/registry/transparency", timeout=5) as response:
+                    transparency = json.loads(response.read())
+                self.assertEqual(transparency["schema"], "agentcart.registry_transparency_log.v1")
+                self.assertEqual(transparency["event_count"], 1)
+                self.assertTrue(transparency["verification"]["chain_valid"])
+                self.assertEqual(transparency["log_head_hash"], feed["transparency"]["log_head_hash"])
             finally:
                 server.shutdown()
                 server.server_close()

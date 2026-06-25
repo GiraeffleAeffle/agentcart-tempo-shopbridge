@@ -143,6 +143,11 @@ AGENTCART_REGISTRY_ALERT_INCLUDE_RESOLVED=true
 `POST /v1/registry/records` accepts ShopBridge admin submit/revoke requests,
 stores the raw merchant record, verifies it with the same domain-proof and
 manifest checks, and refreshes the agent-facing `GET /v1/registry` view.
+Each accepted submit, refresh, or revoke appends a hash-chained transparency
+event. `GET /v1/registry/transparency` exports that log with sequence numbers,
+previous event hashes, event hashes, source request hashes, record hashes, and
+chain verification status so agents can audit registry continuity without
+trusting mutable feed state alone.
 `GET /v1/registry/health` summarizes verifier states, source errors, hosted
 record/revocation counts, stale records, endpoint failures, and suggested
 operator actions.
@@ -346,6 +351,8 @@ The gateway now:
   `/v1/registry/records`;
 - stores hosted records in an append-friendly JSON feed and removes revoked
   hashes from the active feed;
+- appends hosted submit, refresh, and revoke events to a public hash-chained
+  transparency export at `/v1/registry/transparency`;
 - fetches each manifest, or reads `manifest_snapshot` for reproducible local
   tests;
 - canonicalizes and hashes either the stable registry claim or legacy manifest;
@@ -370,7 +377,6 @@ or merchant adapters.
 
 - Should registry updates be wallet-signed, DNS-based, or both?
 - How should merchants rotate payment recipients?
-- Should revocation documents be mirrored into an append-only transparency log?
 - Should there be a neutral allowlist for consumer-protection-compliant shops?
 - How can small merchants stay discoverable without recreating ad-market
   dynamics?

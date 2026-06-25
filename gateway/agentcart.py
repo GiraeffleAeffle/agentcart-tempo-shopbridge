@@ -2255,6 +2255,7 @@ class AgentCartService:
             "entries": [],
             "revocations": [],
             "submissions": [],
+            "transparency_log": [],
         }
 
     def read_hosted_registry_store(self) -> dict[str, Any]:
@@ -2270,7 +2271,7 @@ class AgentCartService:
         if not isinstance(raw, dict):
             raise UpstreamError("hosted registry store must be a JSON object")
         store["updated_at"] = raw.get("updated_at")
-        for key in ("entries", "revocations", "submissions"):
+        for key in ("entries", "revocations", "submissions", "transparency_log"):
             value = raw.get(key)
             if isinstance(value, list):
                 store[key] = [item for item in value if isinstance(item, dict)]
@@ -2320,6 +2321,7 @@ class AgentCartService:
             and not record.get("revoked_at")
             and registry_record_hash(record) not in revoked_hashes
         ]
+        transparency = self.hosted_registry_transparency_summary(store)
         return {
             "schema": "agentcart.hosted_merchant_registry_feed.v1",
             "generated_at": isoformat(utcnow()),
@@ -2328,6 +2330,107 @@ class AgentCartService:
             "revocations": store.get("revocations", []),
             "entry_count": len(entries),
             "revocation_count": len(store.get("revocations", [])),
+            "transparency": transparency,
+        }
+
+    def hosted_registry_transparency_events(self, store: dict[str, Any]) -> list[dict[str, Any]]:
+        events = store.get("transparency_log")
+        if not isinstance(events, list):
+            return []
+        return [event for event in events if isinstance(event, dict)]
+
+    def hosted_registry_transparency_summary(self, store: dict[str, Any]) -> dict[str, Any]:
+        events = self.hosted_registry_transparency_events(store)
+        head_hash = str(events[-1].get("event_hash") or "") if events else ""
+        return {
+            "schema": "agentcart.registry_transparency_summary.v1",
+            "event_count": len(events),
+            "log_head_hash": head_hash,
+            "url": "/v1/registry/transparency",
+            "hash_alg": "sha-256",
+        }
+
+    def registry_transparency_event_hash(self, event: dict[str, Any]) -> str:
+        return hash_without(event, "event_hash")
+
+    def append_hosted_registry_transparency_event(
+        self,
+        store: dict[str, Any],
+        *,
+        operation: str,
+        payload: dict[str, Any],
+        record_hash: str,
+        merchant_id: str,
+        domain: str,
+        state: str,
+        created_at: str,
+        record: dict[str, Any] | None = None,
+        revocation: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        events = self.hosted_registry_transparency_events(store)
+        previous_event_hash = str(events[-1].get("event_hash") or "") if events else ""
+        event: dict[str, Any] = {
+            "schema": "agentcart.registry_transparency_event.v1",
+            "sequence": len(events) + 1,
+            "operation": operation,
+            "created_at": created_at,
+            "merchant_id": merchant_id,
+            "domain": domain,
+            "record_hash": record_hash,
+            "publication_state": state,
+            "request_hash": canonical_json_hash(payload),
+            "source_schema": str(payload.get("schema") or ""),
+            "idempotency_key": str(payload.get("idempotency_key") or ""),
+            "previous_event_hash": previous_event_hash,
+            "hash_alg": "sha-256",
+        }
+        if record is not None:
+            event["record_payload_hash"] = canonical_json_hash(record)
+            event["record_updated_at"] = str(record.get("updated_at") or "")
+        if revocation is not None:
+            event["revocation_hash"] = canonical_json_hash(revocation)
+            event["revoked_at"] = str(revocation.get("revoked_at") or "")
+            event["reason"] = str(revocation.get("reason") or "")
+        event["event_hash"] = self.registry_transparency_event_hash(event)
+        events.append(event)
+        store["transparency_log"] = events
+        return event
+
+    def verify_hosted_registry_transparency_events(self, events: list[dict[str, Any]]) -> dict[str, Any]:
+        errors: list[dict[str, Any]] = []
+        previous_hash = ""
+        for index, event in enumerate(events, start=1):
+            sequence = int(event.get("sequence") or 0)
+            if sequence != index:
+                errors.append({"sequence": index, "error": "sequence_mismatch", "actual": sequence})
+            supplied_previous = str(event.get("previous_event_hash") or "")
+            if supplied_previous != previous_hash:
+                errors.append({"sequence": index, "error": "previous_event_hash_mismatch"})
+            supplied_hash = str(event.get("event_hash") or "")
+            actual_hash = self.registry_transparency_event_hash(event)
+            if not supplied_hash or not hmac.compare_digest(supplied_hash, actual_hash):
+                errors.append({"sequence": index, "error": "event_hash_mismatch", "actual": actual_hash})
+            previous_hash = supplied_hash
+        return {
+            "chain_valid": not errors,
+            "errors": errors,
+            "event_count": len(events),
+            "log_head_hash": previous_hash if events else "",
+            "hash_alg": "sha-256",
+        }
+
+    def hosted_registry_transparency_log(self) -> dict[str, Any]:
+        store = self.read_hosted_registry_store()
+        events = self.hosted_registry_transparency_events(store)
+        verification = self.verify_hosted_registry_transparency_events(events)
+        return {
+            "schema": "agentcart.registry_transparency_log.v1",
+            "generated_at": isoformat(utcnow()),
+            "updated_at": store.get("updated_at"),
+            "event_count": len(events),
+            "log_head_hash": verification["log_head_hash"],
+            "verification": verification,
+            "events": events,
         }
 
     def submitted_registry_record(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -2436,12 +2539,14 @@ class AgentCartService:
         domain = str(record.get("domain") or "").lower()
 
         entries = []
+        replaced_existing_record = False
         for existing in store.get("entries", []):
             if not isinstance(existing, dict):
                 continue
             existing_merchant_id = str(existing.get("merchant_id") or "")
             existing_domain = str(existing.get("domain") or "").lower()
             if existing_merchant_id == merchant_id and (not domain or not existing_domain or existing_domain == domain):
+                replaced_existing_record = True
                 continue
             entries.append(existing)
         entries.append(record)
@@ -2460,6 +2565,17 @@ class AgentCartService:
                 )
             ]
         )
+        transparency_event = self.append_hosted_registry_transparency_event(
+            store,
+            operation="refresh" if replaced_existing_record else "submit",
+            payload=payload,
+            record_hash=record_hash,
+            merchant_id=merchant_id,
+            domain=str(record.get("domain") or ""),
+            state=publication_state,
+            created_at=now,
+            record=record,
+        )
         self.write_hosted_registry_store(store)
         self.refresh_registry_adapters()
         return {
@@ -2474,6 +2590,9 @@ class AgentCartService:
             "verification": verification,
             "registry_url": f"{self.config.public_url}/v1/registry",
             "registry_records_url": f"{self.config.public_url}/v1/registry/records",
+            "registry_transparency_url": f"{self.config.public_url}/v1/registry/transparency",
+            "transparency_event_hash": transparency_event["event_hash"],
+            "transparency_log_head_hash": transparency_event["event_hash"],
             "updated_at": now,
         }
 
@@ -2491,18 +2610,17 @@ class AgentCartService:
             for item in store.get("revocations", [])
             if isinstance(item, dict) and str(item.get("record_hash") or item.get("registry_record_hash") or "") != record_hash
         ]
-        revocations.append(
-            {
-                "schema": "agentcart.hosted_registry_revocation.v1",
-                "record_hash": record_hash,
-                "merchant_id": merchant_id,
-                "domain": domain,
-                "revoked_at": now,
-                "reason": str(payload.get("reason") or "merchant_admin_revoke"),
-                "source": "hosted_registry_submission",
-                "request_hash": canonical_json_hash(payload),
-            }
-        )
+        revocation = {
+            "schema": "agentcart.hosted_registry_revocation.v1",
+            "record_hash": record_hash,
+            "merchant_id": merchant_id,
+            "domain": domain,
+            "revoked_at": now,
+            "reason": str(payload.get("reason") or "merchant_admin_revoke"),
+            "source": "hosted_registry_submission",
+            "request_hash": canonical_json_hash(payload),
+        }
+        revocations.append(revocation)
         store["revocations"] = revocations
         store["entries"] = [
             item
@@ -2522,6 +2640,18 @@ class AgentCartService:
                 )
             ]
         )
+        transparency_event = self.append_hosted_registry_transparency_event(
+            store,
+            operation="revoke",
+            payload=payload,
+            record_hash=record_hash,
+            merchant_id=merchant_id,
+            domain=domain,
+            state="revoked",
+            created_at=now,
+            record=record,
+            revocation=revocation,
+        )
         self.write_hosted_registry_store(store)
         self.refresh_registry_adapters()
         return {
@@ -2534,6 +2664,9 @@ class AgentCartService:
             "domain": domain,
             "record_hash": record_hash,
             "registry_records_url": f"{self.config.public_url}/v1/registry/records",
+            "registry_transparency_url": f"{self.config.public_url}/v1/registry/transparency",
+            "transparency_event_hash": transparency_event["event_hash"],
+            "transparency_log_head_hash": transparency_event["event_hash"],
             "updated_at": now,
         }
 
@@ -3192,6 +3325,11 @@ class AgentCartService:
 
         try:
             hosted_feed = self.hosted_registry_feed()
+            transparency_summary = (
+                hosted_feed.get("transparency")
+                if isinstance(hosted_feed.get("transparency"), dict)
+                else {}
+            )
             hosted_store = {
                 "enabled": self.config.hosted_registry_enabled,
                 "entry_count": hosted_feed["entry_count"],
@@ -3199,6 +3337,9 @@ class AgentCartService:
                 "updated_at": hosted_feed.get("updated_at"),
                 "records_url": "/v1/registry/records",
                 "submit_url": "/v1/registry/records",
+                "transparency_url": "/v1/registry/transparency",
+                "transparency_event_count": int(transparency_summary.get("event_count") or 0),
+                "transparency_log_head_hash": str(transparency_summary.get("log_head_hash") or ""),
                 "submit_auth_required": bool(self.config.hosted_registry_submit_token),
             }
         except AgentCartError as exc:
@@ -3208,6 +3349,7 @@ class AgentCartService:
                 "revocation_count": 0,
                 "records_url": "/v1/registry/records",
                 "submit_url": "/v1/registry/records",
+                "transparency_url": "/v1/registry/transparency",
                 "error": {"message": str(exc), "detail": exc.detail},
             }
 
@@ -4255,6 +4397,7 @@ class AgentCartService:
                 "registry": "/v1/registry",
                 "registry_records": "/v1/registry/records",
                 "registry_submit": "/v1/registry/records",
+                "registry_transparency": "/v1/registry/transparency",
                 "registry_health": "/v1/registry/health",
                 "registry_monitor": "/v1/registry/monitor",
                 "registry_monitor_run": "/v1/registry/monitor/run",
@@ -4391,6 +4534,19 @@ class AgentCartService:
                             "401": {"description": "Registry submit token required"},
                         },
                     },
+                },
+                "/v1/registry/transparency": {
+                    "get": {
+                        "operationId": "getRegistryTransparencyLog",
+                        "summary": "Export hash-chained hosted registry submit, refresh, and revoke events",
+                        "security": [],
+                        "responses": {
+                            "200": {
+                                "description": "Hosted registry transparency log",
+                                "content": {"application/json": {"schema": {"type": "object"}}},
+                            }
+                        },
+                    }
                 },
                 "/v1/registry/health": {
                     "get": {
@@ -5132,7 +5288,7 @@ Safety rules:
 Discovery:
 - OpenAPI: /openapi.json
 - Capabilities: /.well-known/agentcart.json
-- Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records
+- Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records, transparency log: GET /v1/registry/transparency
 - Registry health: GET /v1/registry/health
 - Registry monitor: GET /v1/registry/monitor, POST /v1/registry/monitor/run
 
@@ -7677,6 +7833,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         if path == "/v1/registry/records":
             self.send_json(self.service.hosted_registry_feed())
             return
+        if path == "/v1/registry/transparency":
+            self.send_json(self.service.hosted_registry_transparency_log())
+            return
         if path == "/v1/registry/health":
             self.send_json(self.service.registry_health())
             return
@@ -8463,6 +8622,7 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>
       <a class="button secondary" href="/protocol-fields.html">Field Map</a>
       <a class="button secondary" href="/v1/registry">Registry JSON</a>
+      <a class="button secondary" href="/v1/registry/transparency">Transparency JSON</a>
       <a class="button secondary" href="/v1/registry/health">Health JSON</a>
       <a class="button secondary" href="/v1/registry/monitor">Monitor JSON</a>
       <a class="button" href="/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115">Hazel Comparison</a>
