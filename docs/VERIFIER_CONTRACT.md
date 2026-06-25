@@ -201,6 +201,11 @@ The sandbox verifier also exposes `/metrics` with process-local operation,
 rail, status, rejection, provider-error, latency, replay, settlement, and refund
 counters, and emits structured `agentcart.verifierEvent.v1` request logs with a
 correlation id.
+When `AGENTCART_VERIFIER_ALERT_WEBHOOK_URL` is configured, rejected or failed
+verifier requests also emit `agentcart.verifier_alert_notification.v1` webhook
+events with severity, code, operation, rail, status, quote hash, payment
+contract hash, retryability, and correlation id. Repeated alert fingerprints are
+throttled by `AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS`.
 
 For production, use a durable store with transactional uniqueness constraints
 for payment transaction references, refund requested references, and refund

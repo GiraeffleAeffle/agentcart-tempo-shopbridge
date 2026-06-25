@@ -30,6 +30,13 @@ const paymentMethodTypes = (process.env.STRIPE_MPP_PAYMENT_METHOD_TYPES || "card
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
+const verifierAlertWebhookUrl = (process.env.AGENTCART_VERIFIER_ALERT_WEBHOOK_URL || "").trim();
+const verifierAlertWebhookToken = (process.env.AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN || "").trim();
+const verifierAlertMinSeverity = normalizeSeverity(process.env.AGENTCART_VERIFIER_ALERT_MIN_SEVERITY || "warning");
+const verifierAlertThrottleSeconds = Math.max(
+  0,
+  Number(process.env.AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS || "300"),
+);
 
 const stripeClient = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: "2026-02-25.preview" })
@@ -37,9 +44,20 @@ const stripeClient = stripeSecretKey
 const memoryReplayStore = blankReplayStore();
 const verifierStartedAt = new Date().toISOString();
 const verifierMetrics = blankVerifierMetrics();
+const verifierAlertState = { lastSentByFingerprint: new Map() };
 
 function envFlag(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
+
+function normalizeSeverity(value) {
+  const severity = String(value || "warning").trim().toLowerCase();
+  return ["info", "warning", "critical"].includes(severity) ? severity : "warning";
+}
+
+function severityAllowed(severity, minimum) {
+  const rank = { info: 1, warning: 2, critical: 3 };
+  return rank[normalizeSeverity(severity)] >= rank[normalizeSeverity(minimum)];
 }
 
 function jsonResponse(body, status = 200, headers = {}) {
@@ -91,6 +109,16 @@ function blankVerifierMetrics() {
       demo_settlement_verified: 0,
       real_refund_verified: 0,
       idempotent_replay: 0,
+    },
+    alerts: {
+      webhook_configured: Boolean(verifierAlertWebhookUrl),
+      min_severity: verifierAlertMinSeverity,
+      throttle_seconds: verifierAlertThrottleSeconds,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+      throttled: 0,
+      last_delivery: null,
     },
     latency_ms: blankLatencyMetrics(),
     last_event: null,
@@ -247,6 +275,149 @@ function structuredLog(event) {
   );
 }
 
+function verifierAlertForEvent(event) {
+  if (event.outcome === "ok") return null;
+  const reason = sanitizeMetricKey(event.rejection_reason || `http_${event.status}`);
+  const severity = event.outcome === "error" || event.status >= 500 ? "critical" : "warning";
+  if (!severityAllowed(severity, verifierAlertMinSeverity)) {
+    return {
+      skipped: true,
+      reason: "below_configured_severity",
+      severity,
+      code: reason,
+    };
+  }
+  return {
+    schema: "agentcart.verifier_alert_notification.v1",
+    id: `verifier_alert_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`,
+    created_at: new Date().toISOString(),
+    service: "agentcart-stripe-mpp-verifier",
+    severity,
+    code: reason,
+    message: `Verifier ${event.operation} ${event.outcome}: ${reason}`,
+    suggested_action:
+      severity === "critical"
+        ? "Check verifier configuration, provider availability, and replay store health."
+        : "Inspect the payment receipt, quote binding, and provider rejection details.",
+    alert: {
+      operation: event.operation,
+      rail: event.rail,
+      status: event.status,
+      outcome: event.outcome,
+      rejection_reason: event.rejection_reason || null,
+      provider_error_class: event.provider_error_class || null,
+      retryable: event.retryable === undefined ? null : Boolean(event.retryable),
+      quote_hash: event.quote_hash || null,
+      payment_contract_hash: event.payment_contract_hash || null,
+      correlation_id: event.correlation_id,
+    },
+    metrics_url: `http://${host}:${port}/metrics`,
+    health_url: `http://${host}:${port}/health`,
+  };
+}
+
+function verifierAlertFingerprint(alert) {
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        severity: alert.severity,
+        code: alert.code,
+        operation: alert.alert?.operation || "",
+        rail: alert.alert?.rail || "",
+        status: alert.alert?.status || "",
+      }),
+    )
+    .digest("hex");
+}
+
+function verifierAlertDeliverySkipped(reason, detail = {}) {
+  const delivery = {
+    schema: "agentcart.verifier_alert_delivery.v1",
+    state: "skipped",
+    reason,
+    created_at: new Date().toISOString(),
+    configured: {
+      webhook_configured: Boolean(verifierAlertWebhookUrl),
+      min_severity: verifierAlertMinSeverity,
+      throttle_seconds: verifierAlertThrottleSeconds,
+    },
+    ...detail,
+  };
+  verifierMetrics.alerts.skipped += 1;
+  verifierMetrics.alerts.last_delivery = delivery;
+  return delivery;
+}
+
+async function deliverVerifierAlert(alert) {
+  if (!alert) return verifierAlertDeliverySkipped("no_alert");
+  if (alert.skipped) return verifierAlertDeliverySkipped(alert.reason, { alert });
+  if (!verifierAlertWebhookUrl) return verifierAlertDeliverySkipped("no_verifier_alert_webhook_configured", { alert });
+
+  const fingerprint = verifierAlertFingerprint(alert);
+  const now = Date.now();
+  const lastSent = verifierAlertState.lastSentByFingerprint.get(fingerprint) || 0;
+  if (verifierAlertThrottleSeconds > 0 && now - lastSent < verifierAlertThrottleSeconds * 1000) {
+    verifierMetrics.alerts.throttled += 1;
+    const delivery = {
+      schema: "agentcart.verifier_alert_delivery.v1",
+      state: "skipped",
+      reason: "alert_throttled",
+      created_at: new Date().toISOString(),
+      fingerprint,
+      alert,
+    };
+    verifierMetrics.alerts.last_delivery = delivery;
+    return delivery;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetch(verifierAlertWebhookUrl, {
+      body: JSON.stringify(alert),
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "x-agentcart-event": "verifier.alert",
+        "x-agentcart-event-id": alert.id,
+        ...(verifierAlertWebhookToken ? { authorization: `Bearer ${verifierAlertWebhookToken}` } : {}),
+      },
+      method: "POST",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`webhook returned HTTP ${response.status}`);
+    verifierAlertState.lastSentByFingerprint.set(fingerprint, now);
+    verifierMetrics.alerts.sent += 1;
+    const delivery = {
+      schema: "agentcart.verifier_alert_delivery.v1",
+      state: "sent",
+      created_at: new Date().toISOString(),
+      fingerprint,
+      sink: "webhook",
+      url: verifierAlertWebhookUrl,
+      alert,
+    };
+    verifierMetrics.alerts.last_delivery = delivery;
+    return delivery;
+  } catch (error) {
+    verifierMetrics.alerts.failed += 1;
+    const delivery = {
+      schema: "agentcart.verifier_alert_delivery.v1",
+      state: "failed",
+      created_at: new Date().toISOString(),
+      fingerprint,
+      sink: "webhook",
+      url: verifierAlertWebhookUrl,
+      error: error instanceof Error ? error.message : String(error),
+      alert,
+    };
+    verifierMetrics.alerts.last_delivery = delivery;
+    return delivery;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function recordVerifierResponse(request, url, payload, response, startedNs, correlationId) {
   if (url.pathname === "/metrics" || url.pathname === "/metrics.json") return;
   const body = await responseJsonOrNull(response);
@@ -295,6 +466,18 @@ async function recordVerifierResponse(request, url, payload, response, startedNs
   };
   verifierMetrics.last_event = event;
   structuredLog(event);
+  if (outcome !== "ok") {
+    const delivery = await deliverVerifierAlert(verifierAlertForEvent(event));
+    structuredLog({
+      event: "verifier_alert_delivery",
+      correlation_id: correlationId,
+      state: delivery.state,
+      reason: delivery.reason || undefined,
+      sink: delivery.sink || undefined,
+      alert_code: delivery.alert?.code || undefined,
+      alert_severity: delivery.alert?.severity || undefined,
+    });
+  }
 }
 
 function missingConfig() {
@@ -336,6 +519,11 @@ function readiness() {
     replay_store_writable: replay.writable,
     replay_store_counts: replay.counts,
     replay_store_error: replay.error,
+    alerts: {
+      webhook_configured: Boolean(verifierAlertWebhookUrl),
+      min_severity: verifierAlertMinSeverity,
+      throttle_seconds: verifierAlertThrottleSeconds,
+    },
     missing,
   };
 }

@@ -13,10 +13,15 @@ fi
 
 tmpdir="$(mktemp -d)"
 pid=""
+webhook_pid=""
 cleanup() {
   if [ -n "$pid" ]; then
     kill "$pid" >/dev/null 2>&1 || true
     wait "$pid" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$webhook_pid" ]; then
+    kill "$webhook_pid" >/dev/null 2>&1 || true
+    wait "$webhook_pid" >/dev/null 2>&1 || true
   fi
   rm -rf "$tmpdir"
 }
@@ -33,12 +38,59 @@ sock.close()
 PY
 )"
 
+alert_port="$(
+  python3 - <<'PY'
+import socket
+
+sock = socket.socket()
+sock.bind(("127.0.0.1", 0))
+print(sock.getsockname()[1])
+sock.close()
+PY
+)"
+
+python3 - "$tmpdir/alerts.jsonl" "$alert_port" >"$tmpdir/webhook.log" 2>&1 <<'PY' &
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+path = sys.argv[1]
+port = int(sys.argv[2])
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, _format, *_args):
+        return
+
+    def do_POST(self):
+        length = int(self.headers.get("content-length") or "0")
+        body = self.rfile.read(length)
+        event = {
+            "path": self.path,
+            "authorization": self.headers.get("authorization"),
+            "event": self.headers.get("x-agentcart-event"),
+            "event_id": self.headers.get("x-agentcart-event-id"),
+            "body": json.loads(body.decode("utf-8")),
+        }
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
+        self.send_response(204)
+        self.end_headers()
+
+
+HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+PY
+webhook_pid=$!
+
 AGENTCART_VERIFIER_REPLAY_STORE_PATH="$tmpdir/replay/store.json" \
 STRIPE_SANDBOX_SECRET_KEY=sk_test_dummy \
 STRIPE_PROFILE_ID=profile_test_dummy \
 MPP_SECRET_KEY=mpp_dummy_secret \
 AGENTCART_PAYMENT_VERIFIER_TOKEN=verifier_dummy \
 AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true \
+AGENTCART_VERIFIER_ALERT_WEBHOOK_URL="http://127.0.0.1:$alert_port/agentcart-verifier-alerts" \
+AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN=alert_dummy \
+AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS=0 \
 STRIPE_MPP_VERIFIER_PORT="$port" \
   node "$ROOT_DIR/gateway/scripts/stripe-mpp-verifier.mjs" >"$tmpdir/verifier.log" 2>&1 &
 pid=$!
@@ -146,6 +198,20 @@ assert metrics["rejections"]["replay_conflict"] == 1, metrics["rejections"]
 assert metrics["settlement"]["demo_settlement_verified"] == 2, metrics["settlement"]
 assert metrics["settlement"]["idempotent_replay"] == 1, metrics["settlement"]
 assert metrics["latency_ms"]["count"] >= 4, metrics["latency_ms"]
+assert metrics["alerts"]["sent"] == 1, metrics["alerts"]
+assert metrics["alerts"]["last_delivery"]["state"] == "sent", metrics["alerts"]
+
+alerts_path = work / "alerts.jsonl"
+alerts = [json.loads(line) for line in alerts_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+assert len(alerts) == 1, alerts
+assert alerts[0]["authorization"] == "Bearer alert_dummy", alerts
+assert alerts[0]["event"] == "verifier.alert", alerts
+alert = alerts[0]["body"]
+assert alert["schema"] == "agentcart.verifier_alert_notification.v1", alert
+assert alert["severity"] == "warning", alert
+assert alert["code"] == "replay_conflict", alert
+assert alert["alert"]["operation"] == "payment", alert
+assert alert["alert"]["rail"] == "tempo-mpp", alert
 
 print("verifier replay smoke ok")
 PY

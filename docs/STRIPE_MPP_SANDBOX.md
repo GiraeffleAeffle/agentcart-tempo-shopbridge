@@ -17,6 +17,10 @@ AGENTCART_PAYMENT_VERIFIER_TOKEN=replace-with-random-hex-token
 AGENTCART_VERIFIER_REPLAY_STORE_PATH=/tmp/agentcart-stripe-mpp-replay.json
 AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true
 AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS=5000
+AGENTCART_VERIFIER_ALERT_WEBHOOK_URL=
+AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN=
+AGENTCART_VERIFIER_ALERT_MIN_SEVERITY=warning
+AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS=300
 EOF
 ```
 
@@ -95,6 +99,14 @@ verification counters. Each handled request also emits one structured
 `agentcart.verifierEvent.v1` JSON log line with an
 `x-agentcart-correlation-id` response header. The metrics endpoint intentionally
 does not include payment credentials or bearer tokens.
+
+Verifier failure alert delivery is opt-in. Set
+`AGENTCART_VERIFIER_ALERT_WEBHOOK_URL` to receive
+`agentcart.verifier_alert_notification.v1` events when verifier requests are
+rejected or fail. `AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN` is sent as a Bearer
+token, `AGENTCART_VERIFIER_ALERT_MIN_SEVERITY` controls noise, and
+`AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS` suppresses repeated alerts for the
+same operation, rail, status, and rejection code.
 
 ## Link CLI Smoke Test
 
