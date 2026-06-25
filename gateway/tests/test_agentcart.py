@@ -2197,8 +2197,11 @@ class AgentCartTests(unittest.TestCase):
             self.assertFalse(refund["real_refund_verified"])
             self.assertEqual(result["order"]["refund_state"], "demo_refund_recorded")
             self.assertEqual(result["order"]["refunds"][0]["id"], refund["id"])
-            self.assertEqual(result["order"]["aftercare_state"]["refund_state"], "no_refund_remaining")
+            self.assertEqual(result["order"]["aftercare_state"]["refund_state"], "refunded")
+            self.assertEqual(result["order"]["aftercare_state"]["order_lifecycle_state"], "refunded")
             self.assertEqual(result["order"]["aftercare_state"]["remaining_refundable_cents"], 0)
+            self.assertTrue(result["order"]["aftercare_state"]["refund_progress"]["fully_refunded"])
+            self.assertEqual(result["order"]["aftercare_state"]["refund_progress"]["refunded_cents"], 1339)
 
             replay = service.refund_order(order_id, refund_request)
             self.assertTrue(replay["idempotent_replay"])
@@ -2209,6 +2212,46 @@ class AgentCartTests(unittest.TestCase):
                 service.refund_order(order_id, {"idempotency_key": "refund-order-1", "reason": "different reason"})
             with self.assertRaises(agentcart.Conflict):
                 service.refund_order(order_id, {"idempotency_key": "refund-order-2", "reason": "another refund"})
+
+    def test_aftercare_state_normalizes_cancelled_partial_and_refunded_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+            base_order = {
+                "id": "order_aftercare_lifecycle",
+                "merchant_id": "demo-tea-shop",
+                "merchant_order_id": "merchant-aftercare-1",
+                "quote_id": "quote-aftercare-1",
+                "state": "cancelled",
+                "merchant_order": {"status": "cancelled"},
+                "items": [{"quantity": 1, "title": "Sencha Daily Green Tea"}],
+                "total_cents": 1480,
+                "currency": "EUR",
+                "payment_receipt": {"id": "pay-aftercare-1", "method": "tempo_mpp", "status": "succeeded"},
+                "shipment": {"status": "not_shipped"},
+                "refunds": [],
+            }
+
+            refund_required = service.aftercare_state(dict(base_order))
+            self.assertEqual(refund_required["order_lifecycle_state"], "cancelled_refund_required")
+            self.assertEqual(refund_required["cancellation_state"], "cancelled_refund_required")
+            self.assertEqual(refund_required["refund_state"], "refund_required_after_cancellation")
+            self.assertTrue(refund_required["refund_required_after_cancellation"])
+            self.assertIn("complete_verified_refund", refund_required["next_actions"])
+
+            partial_order = {**base_order, "refunds": [{"amount_cents": 500}]}
+            partial = service.aftercare_state(partial_order)
+            self.assertEqual(partial["order_lifecycle_state"], "cancelled_refund_required")
+            self.assertEqual(partial["refund_state"], "refund_required_after_cancellation")
+            self.assertTrue(partial["refund_progress"]["partially_refunded"])
+            self.assertEqual(partial["refund_progress"]["remaining_refundable_cents"], 980)
+
+            refunded_order = {**base_order, "refunds": [{"amount_cents": 1480}]}
+            refunded = service.aftercare_state(refunded_order)
+            self.assertEqual(refunded["order_lifecycle_state"], "cancelled_refunded")
+            self.assertEqual(refunded["cancellation_state"], "cancelled_refunded")
+            self.assertEqual(refunded["refund_state"], "refunded")
+            self.assertTrue(refunded["refund_progress"]["fully_refunded"])
+            self.assertNotIn("complete_verified_refund", refunded["next_actions"])
 
     def test_skill_audit_packet_import_is_hash_checked_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

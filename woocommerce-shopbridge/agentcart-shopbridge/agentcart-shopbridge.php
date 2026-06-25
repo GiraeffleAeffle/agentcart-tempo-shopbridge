@@ -5744,10 +5744,22 @@ final class AgentCart_ShopBridge {
             ? $eligibility['blocking_reasons']
             : [];
         $remaining_refundable_cents = self::cents((float) $order->get_remaining_refund_amount());
+        $refunded_cents = self::cents((float) $order->get_total_refunded());
+        $total_order_cents = self::cents((float) $order->get_total());
         $paid = $order->is_paid();
+        $is_cancelled = $order->has_status('cancelled');
+        $fully_refunded = ($order->has_status('refunded') || $refunded_cents > 0) && $remaining_refundable_cents <= 0;
+        $partially_refunded = $refunded_cents > 0 && $remaining_refundable_cents > 0;
+        $refund_required_after_cancellation = $paid && $is_cancelled && $remaining_refundable_cents > 0;
         $cancellation_state = 'not_available';
         if (!empty($eligibility['eligible'])) {
             $cancellation_state = 'cancellable_before_fulfillment';
+        } elseif ($is_cancelled && $refund_required_after_cancellation) {
+            $cancellation_state = 'cancelled_refund_required';
+        } elseif ($is_cancelled && $fully_refunded) {
+            $cancellation_state = 'cancelled_refunded';
+        } elseif ($is_cancelled) {
+            $cancellation_state = 'cancelled_no_refund_due';
         } elseif (in_array('already_cancelled', $blocking_reasons, true)) {
             $cancellation_state = 'already_cancelled';
         } elseif (in_array('fulfillment_tracking_attached', $blocking_reasons, true)) {
@@ -5756,12 +5768,34 @@ final class AgentCart_ShopBridge {
             $cancellation_state = 'terminal';
         }
 
-        if (!$paid) {
+        if ($fully_refunded) {
+            $refund_state = 'refunded';
+        } elseif ($refund_required_after_cancellation) {
+            $refund_state = 'refund_required_after_cancellation';
+        } elseif ($partially_refunded) {
+            $refund_state = 'partially_refunded';
+        } elseif (!$paid) {
             $refund_state = 'unpaid_no_refund_due';
         } elseif ($remaining_refundable_cents > 0) {
             $refund_state = 'refund_available';
         } else {
             $refund_state = 'no_refund_remaining';
+        }
+
+        if ($is_cancelled) {
+            $order_lifecycle_state = $refund_required_after_cancellation
+                ? 'cancelled_refund_required'
+                : ($fully_refunded ? 'cancelled_refunded' : 'cancelled_no_refund_due');
+        } elseif ($fully_refunded) {
+            $order_lifecycle_state = 'refunded';
+        } elseif ($partially_refunded) {
+            $order_lifecycle_state = 'partially_refunded';
+        } elseif ($cancellation_state === 'cancellable_before_fulfillment') {
+            $order_lifecycle_state = 'cancellable';
+        } elseif ($cancellation_state === 'fulfillment_locked') {
+            $order_lifecycle_state = 'fulfillment_locked';
+        } else {
+            $order_lifecycle_state = 'active';
         }
 
         $next_actions = [];
@@ -5779,23 +5813,33 @@ final class AgentCart_ShopBridge {
         if ($cancellation_state === 'cancellable_before_fulfillment') {
             $next_actions[] = 'request_cancellation';
         }
-        if ($refund_state === 'refund_available') {
+        if (in_array($refund_state, ['refund_available', 'partially_refunded', 'refund_required_after_cancellation'], true)) {
             $next_actions[] = 'request_refund';
         }
-        if ($paid && $order->has_status('cancelled') && $remaining_refundable_cents > 0) {
+        if ($refund_required_after_cancellation) {
             $next_actions[] = 'complete_verified_refund';
         }
 
         return [
             'order_status' => $order->get_status(),
+            'order_lifecycle_state' => $order_lifecycle_state,
             'fulfillment_phase' => self::fulfillment_phase($order, $fulfillment),
             'cancellation_state' => $cancellation_state,
             'refund_state' => $refund_state,
             'remaining_refundable_cents' => $remaining_refundable_cents,
             'currency' => $order->get_currency(),
+            'refund_progress' => [
+                'total_order_cents' => $total_order_cents,
+                'refunded_cents' => $refunded_cents,
+                'remaining_refundable_cents' => $remaining_refundable_cents,
+                'partially_refunded' => $partially_refunded,
+                'fully_refunded' => $fully_refunded,
+                'refund_required_after_cancellation' => $refund_required_after_cancellation,
+            ],
             'blocking_reasons' => $blocking_reasons,
             'fulfillment_locked' => !empty($eligibility['fulfillment_locked']),
             'refund_required_if_cancelled' => !empty($eligibility['refund_required_if_cancelled']),
+            'refund_required_after_cancellation' => $refund_required_after_cancellation,
             'cancellation_does_not_execute_refund' => true,
             'rail_refund_requires_verifier' => true,
             'delivery_exception_state' => $delivery_exception ? (string) ($delivery_exception['state'] ?? 'exception') : 'none',

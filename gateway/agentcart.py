@@ -5652,12 +5652,15 @@ class AgentCartService:
                     "source": {"type": "string"},
                     "order_state": {"type": "string"},
                     "merchant_status": {"type": "string"},
+                    "order_lifecycle_state": {"type": "string"},
                     "fulfillment_phase": {"type": "string"},
                     "cancellation_state": {"type": "string"},
                     "refund_state": {"type": "string"},
                     "remaining_refundable_cents": {"type": "integer"},
                     "currency": {"type": "string"},
+                    "refund_progress": {"type": "object"},
                     "fulfillment_locked": {"type": "boolean"},
+                    "refund_required_after_cancellation": {"type": "boolean"},
                     "cancellation_does_not_execute_refund": {"type": "boolean"},
                     "rail_refund_requires_verifier": {"type": "boolean"},
                     "next_actions": {"type": "array", "items": {"type": "string"}},
@@ -7869,8 +7872,14 @@ separate human confirmation.
         else:
             fulfillment_phase = "pre_fulfillment"
 
+        refunded_cents = self.refunded_cents(order)
         remaining_refundable_cents = self.remaining_refundable_cents(order)
         has_payment = isinstance(order.get("payment_receipt"), dict)
+        is_cancelled = order_state == "cancelled" or merchant_status == "cancelled"
+        fully_refunded = (order_state == "refunded" or merchant_status == "refunded" or refunded_cents > 0) and remaining_refundable_cents <= 0
+        partially_refunded = refunded_cents > 0 and remaining_refundable_cents > 0
+        refund_required_after_cancellation = has_payment and is_cancelled and remaining_refundable_cents > 0
+
         if merchant_aftercare.get("refund_state"):
             refund_state = str(merchant_aftercare["refund_state"])
             merchant_remaining = merchant_aftercare.get("remaining_refundable_cents")
@@ -7878,6 +7887,26 @@ separate human confirmation.
                 remaining_refundable_cents = min(remaining_refundable_cents, max(0, int(merchant_remaining)))
             except (TypeError, ValueError):
                 pass
+            merchant_progress = merchant_aftercare.get("refund_progress")
+            if isinstance(merchant_progress, dict):
+                try:
+                    refunded_cents = max(0, int(merchant_progress.get("refunded_cents", refunded_cents)))
+                    remaining_refundable_cents = max(0, int(merchant_progress.get("remaining_refundable_cents", remaining_refundable_cents)))
+                except (TypeError, ValueError):
+                    pass
+            fully_refunded = bool(merchant_aftercare.get("refund_progress", {}).get("fully_refunded")) if isinstance(merchant_aftercare.get("refund_progress"), dict) else fully_refunded
+            partially_refunded = bool(merchant_aftercare.get("refund_progress", {}).get("partially_refunded")) if isinstance(merchant_aftercare.get("refund_progress"), dict) else partially_refunded
+            refund_required_after_cancellation = bool(merchant_aftercare.get("refund_required_after_cancellation")) or (
+                bool(merchant_aftercare.get("refund_progress", {}).get("refund_required_after_cancellation"))
+                if isinstance(merchant_aftercare.get("refund_progress"), dict)
+                else refund_required_after_cancellation
+            )
+        elif fully_refunded:
+            refund_state = "refunded"
+        elif refund_required_after_cancellation:
+            refund_state = "refund_required_after_cancellation"
+        elif partially_refunded:
+            refund_state = "partially_refunded"
         elif not has_payment:
             refund_state = "unpaid_no_refund_due"
         elif remaining_refundable_cents > 0:
@@ -7887,12 +7916,35 @@ separate human confirmation.
 
         if merchant_aftercare.get("cancellation_state"):
             cancellation_state = str(merchant_aftercare["cancellation_state"])
-        elif order_state in {"cancelled"} or merchant_status == "cancelled":
-            cancellation_state = "already_cancelled"
+        elif is_cancelled and refund_required_after_cancellation:
+            cancellation_state = "cancelled_refund_required"
+        elif is_cancelled and fully_refunded:
+            cancellation_state = "cancelled_refunded"
+        elif is_cancelled:
+            cancellation_state = "cancelled_no_refund_due"
         elif fulfillment_phase in {"shipped", "fulfilled", "closed"}:
             cancellation_state = "fulfillment_locked" if fulfillment_phase == "shipped" else "terminal"
         else:
             cancellation_state = "not_available"
+
+        if merchant_aftercare.get("order_lifecycle_state"):
+            order_lifecycle_state = str(merchant_aftercare["order_lifecycle_state"])
+        elif is_cancelled:
+            order_lifecycle_state = (
+                "cancelled_refund_required"
+                if refund_required_after_cancellation
+                else ("cancelled_refunded" if fully_refunded else "cancelled_no_refund_due")
+            )
+        elif fully_refunded:
+            order_lifecycle_state = "refunded"
+        elif partially_refunded:
+            order_lifecycle_state = "partially_refunded"
+        elif cancellation_state == "cancellable_before_fulfillment":
+            order_lifecycle_state = "cancellable"
+        elif cancellation_state == "fulfillment_locked":
+            order_lifecycle_state = "fulfillment_locked"
+        else:
+            order_lifecycle_state = "active"
 
         next_actions = []
         if shipment.get("tracking_url"):
@@ -7906,9 +7958,9 @@ separate human confirmation.
             next_actions.append("contact_merchant")
         if cancellation_state == "cancellable_before_fulfillment":
             next_actions.append("request_cancellation")
-        if refund_state == "refund_available":
+        if refund_state in {"refund_available", "partially_refunded", "refund_required_after_cancellation"}:
             next_actions.append("request_refund")
-        if order_state == "cancelled" and remaining_refundable_cents > 0:
+        if refund_required_after_cancellation:
             next_actions.append("complete_verified_refund")
         next_actions.append("export_audit")
 
@@ -7922,12 +7974,22 @@ separate human confirmation.
             "source": "merchant_status" if merchant_aftercare else "agentcart_service",
             "order_state": order_state,
             "merchant_status": merchant_status,
+            "order_lifecycle_state": order_lifecycle_state,
             "fulfillment_phase": fulfillment_phase,
             "cancellation_state": cancellation_state,
             "refund_state": refund_state,
             "remaining_refundable_cents": remaining_refundable_cents,
             "currency": str(order.get("currency") or "EUR"),
+            "refund_progress": {
+                "total_order_cents": max(0, int(order.get("total_cents") or 0)),
+                "refunded_cents": refunded_cents,
+                "remaining_refundable_cents": remaining_refundable_cents,
+                "partially_refunded": partially_refunded,
+                "fully_refunded": fully_refunded,
+                "refund_required_after_cancellation": refund_required_after_cancellation,
+            },
             "fulfillment_locked": fulfillment_phase in {"shipped", "fulfilled", "closed"},
+            "refund_required_after_cancellation": refund_required_after_cancellation,
             "cancellation_does_not_execute_refund": True,
             "rail_refund_requires_verifier": True,
             "delivery_exception_state": delivery_exception_state,

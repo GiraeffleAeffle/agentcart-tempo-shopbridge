@@ -111,15 +111,32 @@ WooCommerce order status to `cancelled`, but it does not move card, Tempo,
 stablecoin, or EUR funds. Paid orders still need a separate verified refund
 flow before the agent can say money was returned.
 
+Aftercare normalizes cancellation and refund progress into explicit lifecycle
+states:
+
+```text
+cancellable -> fulfillment_locked
+            -> cancelled_refund_required -> cancelled_refunded
+            -> cancelled_no_refund_due
+            -> partially_refunded -> refunded
+```
+
 Order, status, refund, and cancellation responses expose `aftercare_state` so
 buyer agents do not infer lifecycle state from prose. The current contract
 includes:
 
+- `order_lifecycle_state`: `active`, `cancellable`, `fulfillment_locked`,
+  `cancelled_refund_required`, `cancelled_refunded`,
+  `cancelled_no_refund_due`, `partially_refunded`, or `refunded`;
 - `fulfillment_phase`: `pre_fulfillment`, `shipped`, `fulfilled`, or `closed`;
 - `cancellation_state`: `cancellable_before_fulfillment`,
-  `fulfillment_locked`, `already_cancelled`, `terminal`, or `not_available`;
-- `refund_state`: `refund_available`, `no_refund_remaining`, or
+  `fulfillment_locked`, `cancelled_refund_required`, `cancelled_refunded`,
+  `cancelled_no_refund_due`, `terminal`, or `not_available`;
+- `refund_state`: `refund_available`, `refund_required_after_cancellation`,
+  `partially_refunded`, `refunded`, `no_refund_remaining`, or
   `unpaid_no_refund_due`;
+- `refund_progress`: total order amount, refunded amount, remaining refundable
+  amount, and booleans for partial, full, and post-cancellation refund state;
 - `next_actions`: stable action ids such as `request_cancellation`,
   `request_refund`, `open_tracking`, `review_delivery_exception`, or
   `complete_verified_refund`.

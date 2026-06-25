@@ -960,13 +960,24 @@ def compact_aftercare_state(aftercare_state: dict[str, Any]) -> dict[str, Any]:
     state = aftercare_state if isinstance(aftercare_state, dict) else {}
     next_actions = state.get("next_actions") if isinstance(state.get("next_actions"), list) else []
     blocking_reasons = state.get("blocking_reasons") if isinstance(state.get("blocking_reasons"), list) else []
+    refund_progress = state.get("refund_progress") if isinstance(state.get("refund_progress"), dict) else {}
     return {
+        "order_lifecycle_state": str(state.get("order_lifecycle_state") or ""),
         "fulfillment_phase": str(state.get("fulfillment_phase") or ""),
         "cancellation_state": str(state.get("cancellation_state") or ""),
         "refund_state": str(state.get("refund_state") or ""),
         "remaining_refundable_cents": bounded_int(state.get("remaining_refundable_cents"), default=0, minimum=0, maximum=999999999),
+        "refund_progress": {
+            "total_order_cents": bounded_int(refund_progress.get("total_order_cents"), default=0, minimum=0, maximum=999999999),
+            "refunded_cents": bounded_int(refund_progress.get("refunded_cents"), default=0, minimum=0, maximum=999999999),
+            "remaining_refundable_cents": bounded_int(refund_progress.get("remaining_refundable_cents"), default=0, minimum=0, maximum=999999999),
+            "partially_refunded": bool(refund_progress.get("partially_refunded")),
+            "fully_refunded": bool(refund_progress.get("fully_refunded")),
+            "refund_required_after_cancellation": bool(refund_progress.get("refund_required_after_cancellation") or state.get("refund_required_after_cancellation")),
+        },
         "fulfillment_locked": bool(state.get("fulfillment_locked")),
         "refund_required_if_cancelled": bool(state.get("refund_required_if_cancelled")),
+        "refund_required_after_cancellation": bool(state.get("refund_required_after_cancellation")),
         "cancellation_does_not_execute_refund": bool(state.get("cancellation_does_not_execute_refund", True)),
         "rail_refund_requires_verifier": bool(state.get("rail_refund_requires_verifier", True)),
         "delivery_exception_state": str(state.get("delivery_exception_state") or "none"),

@@ -1026,10 +1026,21 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         for state in [
             "cancellable_before_fulfillment",
             "fulfillment_locked",
+            "cancelled_refund_required",
+            "cancelled_refunded",
+            "cancelled_no_refund_due",
             "refund_available",
+            "refund_required_after_cancellation",
+            "partially_refunded",
+            "refunded",
             "complete_verified_refund",
         ]:
             self.assertIn(state, aftercare_body)
+        self.assertIn("'order_lifecycle_state'", aftercare_body)
+        self.assertIn("'refund_progress'", aftercare_body)
+        self.assertIn("'refunded_cents'", aftercare_body)
+        self.assertIn("'fully_refunded'", aftercare_body)
+        self.assertIn("'refund_required_after_cancellation'", aftercare_body)
         self.assertIn("'state' => $aftercare_state['cancellation_state']", policy_body)
         self.assertIn("serialize_fulfillment", aftercare_body)
         self.assertIn("cancellation_eligibility", aftercare_body)
