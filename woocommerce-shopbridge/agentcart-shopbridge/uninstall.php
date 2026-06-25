@@ -50,6 +50,7 @@ $options = [
     'agentcart_shopbridge_product_exposure_tag',
     'agentcart_shopbridge_product_exposure_categories',
     'agentcart_shopbridge_product_blocked_categories',
+    'agentcart_shopbridge_product_exposure_preview',
     'agentcart_shopbridge_stock_hold_mode',
     'agentcart_shopbridge_stock_hold_minutes',
     'agentcart_shopbridge_stock_holds',

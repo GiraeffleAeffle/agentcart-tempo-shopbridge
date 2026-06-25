@@ -542,7 +542,7 @@
 
   <script>
     const areas = [
-      { name: "Core Commerce", value: 82, note: "catalog, quote, approval, order, stock, tax, shipping, and stale-quote recovery shape" },
+      { name: "Core Commerce", value: 84, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 72, note: "manifest profiles, domain proof, hosted record feed, persisted health snapshots, alert delivery, revocations, signed request gate" },
       { name: "Payments", value: 66, note: "quote-bound verifier contract hash, receipt validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
@@ -570,9 +570,9 @@
         code: "CAT",
         title: "Product exposure safety",
         status: "alpha",
-        value: 72,
-        scope: "Merchant-controlled enablement, stock visibility, categories, shipping countries, and safer catalog surface.",
-        remaining: "Add bulk policies/tags and clearer defaults for stores with many products.",
+        value: 78,
+        scope: "Merchant-controlled enablement, exposure preview, stock visibility, categories, shipping countries, and safer catalog surface.",
+        remaining: "Add restricted-goods default warnings, catalog diff history, and clearer defaults for stores with many products.",
         items: [
           { id: "CAT-001", priority: "P0", title: "Bulk exposure policy", description: "Add category, tag, and product-level enablement with a preview of exactly which products will enter the agent catalog." },
           { id: "CAT-002", priority: "P1", title: "Restricted-goods guardrails", description: "Warn or block high-risk product classes such as alcohol, tobacco, medicine, gift cards, and age-restricted goods by default." },

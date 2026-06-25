@@ -40,6 +40,8 @@ actions.
 
 * Merchant-controlled product exposure: manual checkbox, WooCommerce tag,
   WooCommerce categories, or all published simple products.
+* Non-mutating product exposure preview showing included, blocked, and
+  out-of-policy products before catalog publication.
 * Blocked categories, product-level checkout exclusion, max quantity limits,
   and product-specific shipping country overrides.
 * WooCommerce cart, tax, shipping, stock, and order creation integration.

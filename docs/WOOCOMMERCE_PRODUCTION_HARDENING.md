@@ -6,9 +6,10 @@
 The ShopBridge plugin is demo-capable and now includes merchant-controlled
 product exposure modes: manual per-product opt-in, WooCommerce product tag, or
 WooCommerce product categories, or all published simple products. It also
-supports blocked category slugs, per-product AgentCart max quantities, a
-product-level checkout exclusion override, per-product shipping-country
-overrides, soft AgentCart quote holds for managed stock, structured
+supports a non-mutating product exposure preview, blocked category slugs,
+per-product AgentCart max quantities, a product-level checkout exclusion
+override, per-product shipping-country overrides, soft AgentCart quote holds
+for managed stock, structured
 restricted-goods metadata, and structured commerce-policy metadata for
 perishable, deposit-bearing, final-sale, and substitution-sensitive products in
 catalog, quote, order status, and refund policy payloads. Store-level
@@ -45,7 +46,9 @@ Store-level returns, substitution, and cancellation-request defaults are also
 preserved onto paid AgentCart orders. A merchant-token-protected cancellation
 endpoint can cancel eligible AgentCart-created Woo orders before fulfillment
 tracking or terminal order states, records an idempotent cancellation event, and
-does not execute refunds.
+does not execute refunds. The admin exposure preview shows which products are
+included, blocked by product/category policy, or outside the selected exposure
+mode before merchants rely on the catalog.
 Production should add richer product controls:
 
 - product-specific return/refund/substitution policy overrides beyond inferred

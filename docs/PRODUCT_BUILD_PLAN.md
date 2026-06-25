@@ -160,7 +160,8 @@ Definition of done:
 - merchant admin can understand why the shop is or is not agent-ready.
 
 Current alpha status: ShopBridge quotes through WooCommerce cart, tax, shipping,
-stock, and order APIs; exposes merchant-controlled product exposure modes;
+stock, and order APIs; exposes merchant-controlled product exposure modes with
+a non-mutating preview of included, blocked, and out-of-policy products;
 publishes automatic and explicit item-level aftercare policy metadata; and
 renders a guided setup checklist and Quick Start panel in
 `WooCommerce -> AgentCart` for merchant id, agent-safe products, tax/shipping,

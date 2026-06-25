@@ -73,6 +73,8 @@ final class AgentCart_ShopBridge {
     const PRODUCT_EXPOSURE_TAG_OPTION = 'agentcart_shopbridge_product_exposure_tag';
     const PRODUCT_EXPOSURE_CATEGORIES_OPTION = 'agentcart_shopbridge_product_exposure_categories';
     const PRODUCT_BLOCKED_CATEGORIES_OPTION = 'agentcart_shopbridge_product_blocked_categories';
+    const PRODUCT_EXPOSURE_PREVIEW_OPTION = 'agentcart_shopbridge_product_exposure_preview';
+    const PRODUCT_EXPOSURE_PREVIEW_LIMIT = 200;
     const PRODUCT_ENABLED_META = '_agentcart_enabled';
     const PRODUCT_BLOCKED_META = '_agentcart_checkout_blocked';
     const PRODUCT_MAX_QUANTITY_META = '_agentcart_max_quantity';
@@ -432,6 +434,7 @@ final class AgentCart_ShopBridge {
         $product_exposure_tag = self::product_exposure_tag();
         $product_exposure_categories = self::product_exposure_categories();
         $product_blocked_categories = self::product_blocked_categories();
+        $product_exposure_preview = self::product_exposure_preview_result();
         $stock_hold_mode = self::stock_hold_mode();
         $stock_hold_minutes = self::stock_hold_minutes();
         $readiness = self::readiness();
@@ -659,6 +662,12 @@ final class AgentCart_ShopBridge {
                     using categories <code><?php echo esc_html(implode(', ', $product_exposure_categories) ?: 'none'); ?></code>.
                 <?php endif; ?>
             </p>
+            <?php self::render_product_exposure_preview_panel($product_exposure_preview); ?>
+            <form method="post" style="display: inline-block; margin-right: 8px;">
+                <?php wp_nonce_field('agentcart_shopbridge_product_action'); ?>
+                <input type="hidden" name="agentcart_product_action" value="preview_catalog_exposure" />
+                <?php submit_button('Preview catalog exposure', 'secondary', 'submit', false); ?>
+            </form>
             <form method="post" style="display: inline-block; margin-right: 8px;">
                 <?php wp_nonce_field('agentcart_shopbridge_product_action'); ?>
                 <input type="hidden" name="agentcart_product_action" value="enable_all_published_simple" />
@@ -1103,12 +1112,28 @@ final class AgentCart_ShopBridge {
         }
         check_admin_referer('agentcart_shopbridge_product_action');
         $action = sanitize_key((string) wp_unslash($_POST['agentcart_product_action']));
+        if ($action === 'preview_catalog_exposure') {
+            $preview = self::build_product_exposure_preview();
+            update_option(self::PRODUCT_EXPOSURE_PREVIEW_OPTION, $preview, false);
+            if (($preview['state'] ?? '') === 'passed') {
+                return sprintf(
+                    'Product exposure preview generated: %d products would enter the AgentCart catalog.',
+                    intval($preview['included_count'] ?? 0)
+                );
+            }
+            return [
+                'type' => 'error',
+                'message' => 'Product exposure preview failed: ' . ($preview['message'] ?? 'review product exposure settings.'),
+            ];
+        }
         if ($action === 'enable_all_published_simple') {
             $count = self::set_agentcart_exposure_for_published_simple_products('yes');
+            delete_option(self::PRODUCT_EXPOSURE_PREVIEW_OPTION);
             return sprintf('%d published simple products are now AgentCart-enabled.', $count);
         }
         if ($action === 'disable_all') {
             $count = self::set_agentcart_exposure_for_published_simple_products('no');
+            delete_option(self::PRODUCT_EXPOSURE_PREVIEW_OPTION);
             return sprintf('%d published simple products are no longer exposed through AgentCart.', $count);
         }
         return null;
@@ -3722,6 +3747,121 @@ final class AgentCart_ShopBridge {
                 </p>
             </td>
         </tr>
+        <?php
+    }
+
+    private static function render_product_exposure_preview_panel($preview) {
+        $preview = is_array($preview) ? $preview : [];
+        if (empty($preview)) {
+            ?>
+            <p class="description" style="max-width: 760px;">
+                Run a preview to see which currently published simple products would enter the AgentCart catalog under this exposure policy.
+            </p>
+            <?php
+            return;
+        }
+        $state = (string) ($preview['state'] ?? 'not_run');
+        $checked_at = (string) ($preview['checked_at'] ?? '');
+        $is_current = !empty($preview['settings_fingerprint'])
+            && hash_equals((string) $preview['settings_fingerprint'], self::product_exposure_settings_fingerprint());
+        $included_products = is_array($preview['included_products'] ?? null) ? $preview['included_products'] : [];
+        $blocked_products = is_array($preview['blocked_products'] ?? null) ? $preview['blocked_products'] : [];
+        $visible_included = array_slice($included_products, 0, self::PRODUCT_EXPOSURE_PREVIEW_LIMIT);
+        $visible_blocked = array_slice($blocked_products, 0, min(50, self::PRODUCT_EXPOSURE_PREVIEW_LIMIT));
+        ?>
+        <h3>Product Exposure Preview</h3>
+        <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
+            <tbody>
+                <tr>
+                    <th scope="row">Last preview</th>
+                    <td>
+                        <?php echo self::admin_status_badge($state === 'passed', $state === 'passed' ? 'Generated' : 'Failed', 'Failed'); ?>
+                        <?php echo self::admin_status_badge($is_current, 'Current settings', 'Settings changed'); ?>
+                        <?php if ($checked_at !== '') : ?>
+                            <br><span class="description"><?php echo esc_html($checked_at); ?></span>
+                        <?php endif; ?>
+                        <?php if (!empty($preview['message'])) : ?>
+                            <br><span class="description"><?php echo esc_html((string) $preview['message']); ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        Mode: <code><?php echo esc_html((string) ($preview['mode_label'] ?? self::product_exposure_mode_label())); ?></code>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Catalog result</th>
+                    <td>
+                        Included: <strong><?php echo esc_html((string) intval($preview['included_count'] ?? 0)); ?></strong>
+                        &middot; blocked: <strong><?php echo esc_html((string) intval($preview['blocked_count'] ?? 0)); ?></strong>
+                        &middot; outside policy: <strong><?php echo esc_html((string) intval($preview['not_matching_count'] ?? 0)); ?></strong>
+                    </td>
+                    <td>
+                        Published simple products scanned: <strong><?php echo esc_html((string) intval($preview['published_simple_count'] ?? 0)); ?></strong>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <?php if (!empty($visible_included)) : ?>
+            <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
+                <thead>
+                    <tr>
+                        <th scope="col">Included products</th>
+                        <th scope="col">Exposure source</th>
+                        <th scope="col">Stock</th>
+                        <th scope="col">Shipping</th>
+                        <th scope="col">Max qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($visible_included as $product): ?>
+                        <tr>
+                            <th scope="row">
+                                <?php if (!empty($product['edit_url'])) : ?>
+                                    <a href="<?php echo esc_url((string) $product['edit_url']); ?>"><?php echo esc_html((string) ($product['title'] ?? $product['product_id'] ?? 'Product')); ?></a>
+                                <?php else : ?>
+                                    <?php echo esc_html((string) ($product['title'] ?? $product['product_id'] ?? 'Product')); ?>
+                                <?php endif; ?>
+                                <br><code><?php echo esc_html((string) ($product['product_id'] ?? '')); ?></code>
+                            </th>
+                            <td><?php echo esc_html((string) ($product['exposure_source'] ?? '')); ?></td>
+                            <td>
+                                <?php echo esc_html((string) ($product['stock_status'] ?? 'unknown')); ?>
+                                <?php if (isset($product['stock_quantity'])) : ?>
+                                    <br><span class="description"><?php echo esc_html((string) intval($product['stock_quantity'])); ?> available</span>
+                                <?php endif; ?>
+                            </td>
+                            <td><?php echo esc_html(implode(', ', is_array($product['shipping_countries'] ?? null) ? $product['shipping_countries'] : [])); ?></td>
+                            <td><?php echo esc_html((string) intval($product['max_quantity'] ?? 1)); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php if (intval($preview['included_count'] ?? 0) > count($visible_included)) : ?>
+                <p class="description" style="max-width: 760px;">
+                    Showing the first <?php echo esc_html((string) count($visible_included)); ?> included products. The full catalog endpoint still returns every included product.
+                </p>
+            <?php endif; ?>
+        <?php endif; ?>
+        <?php if (!empty($visible_blocked)) : ?>
+            <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
+                <thead>
+                    <tr>
+                        <th scope="col">Blocked matching products</th>
+                        <th scope="col">Why blocked</th>
+                        <th scope="col">Exposure source</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($visible_blocked as $product): ?>
+                        <tr>
+                            <th scope="row"><?php echo esc_html((string) ($product['title'] ?? $product['product_id'] ?? 'Product')); ?></th>
+                            <td><code><?php echo esc_html(implode(', ', is_array($product['blocked_reasons'] ?? null) ? $product['blocked_reasons'] : [])); ?></code></td>
+                            <td><?php echo esc_html((string) ($product['exposure_source'] ?? '')); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
         <?php
     }
 
@@ -6650,10 +6790,11 @@ final class AgentCart_ShopBridge {
     }
 
     private static function is_product_agentcart_enabled(WC_Product $product) {
+        return self::product_matches_exposure_mode($product) && !self::is_product_agentcart_blocked($product);
+    }
+
+    private static function product_matches_exposure_mode(WC_Product $product) {
         if ($product->get_status() !== 'publish' || $product->get_type() !== 'simple') {
-            return false;
-        }
-        if (self::is_product_agentcart_blocked($product)) {
             return false;
         }
         $mode = self::product_exposure_mode();
@@ -6670,8 +6811,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function is_product_agentcart_blocked(WC_Product $product) {
-        return $product->get_meta(self::PRODUCT_BLOCKED_META, true) === 'yes'
-            || !empty(self::product_blocked_category_matches($product));
+        return !empty(self::product_agentcart_block_reasons($product));
     }
 
     private static function product_category_slugs(WC_Product $product) {
@@ -6699,6 +6839,126 @@ final class AgentCart_ShopBridge {
 
     private static function product_blocked_category_matches(WC_Product $product) {
         return array_values(array_intersect(self::product_category_slugs($product), self::product_blocked_categories()));
+    }
+
+    private static function product_agentcart_block_reasons(WC_Product $product) {
+        $reasons = [];
+        if ($product->get_meta(self::PRODUCT_BLOCKED_META, true) === 'yes') {
+            $reasons[] = 'product_checkout_blocked';
+        }
+        foreach (self::product_blocked_category_matches($product) as $slug) {
+            $reasons[] = 'blocked_category:' . $slug;
+        }
+        return array_values(array_unique($reasons));
+    }
+
+    private static function product_exposure_preview_result() {
+        $stored = get_option(self::PRODUCT_EXPOSURE_PREVIEW_OPTION, []);
+        return is_array($stored) ? $stored : [];
+    }
+
+    private static function product_exposure_settings_fingerprint() {
+        return self::canonical_json_hash([
+            'mode' => self::product_exposure_mode(),
+            'tag' => self::product_exposure_tag(),
+            'categories' => self::product_exposure_categories(),
+            'blocked_categories' => self::product_blocked_categories(),
+        ]);
+    }
+
+    private static function build_product_exposure_preview() {
+        $checked_at = self::current_registry_timestamp();
+        if (!function_exists('wc_get_products')) {
+            return [
+                'schema' => 'agentcart.shopbridge.product_exposure_preview.v1',
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'message' => 'WooCommerce product APIs are not available.',
+            ];
+        }
+        $products = wc_get_products([
+            'status' => 'publish',
+            'type' => ['simple'],
+            'limit' => -1,
+            'return' => 'objects',
+            'orderby' => 'title',
+            'order' => 'ASC',
+        ]);
+        $included_products = [];
+        $blocked_products = [];
+        $not_matching_count = 0;
+        foreach ($products as $product) {
+            if (!$product instanceof WC_Product) {
+                continue;
+            }
+            $matches = self::product_matches_exposure_mode($product);
+            if (!$matches) {
+                $not_matching_count++;
+                continue;
+            }
+            $blocked_reasons = self::product_agentcart_block_reasons($product);
+            $row = self::product_exposure_preview_row($product, $blocked_reasons);
+            if ($blocked_reasons) {
+                $blocked_products[] = $row;
+            } else {
+                $included_products[] = $row;
+            }
+        }
+        return [
+            'schema' => 'agentcart.shopbridge.product_exposure_preview.v1',
+            'state' => 'passed',
+            'checked_at' => $checked_at,
+            'settings_fingerprint' => self::product_exposure_settings_fingerprint(),
+            'mode' => self::product_exposure_mode(),
+            'mode_label' => self::product_exposure_mode_label(),
+            'tag' => self::product_exposure_tag(),
+            'categories' => self::product_exposure_categories(),
+            'blocked_categories' => self::product_blocked_categories(),
+            'published_simple_count' => count($products),
+            'included_count' => count($included_products),
+            'blocked_count' => count($blocked_products),
+            'not_matching_count' => $not_matching_count,
+            'included_products' => $included_products,
+            'blocked_products' => $blocked_products,
+            'preview_limit' => self::PRODUCT_EXPOSURE_PREVIEW_LIMIT,
+        ];
+    }
+
+    private static function product_exposure_preview_row(WC_Product $product, $blocked_reasons) {
+        $stock_quantity = $product->managing_stock() && $product->get_stock_quantity() !== null
+            ? intval($product->get_stock_quantity())
+            : null;
+        return [
+            'product_id' => 'woo_' . $product->get_id(),
+            'source_product_id' => $product->get_id(),
+            'title' => wp_strip_all_tags($product->get_name()),
+            'sku' => $product->get_sku() ?: 'WOO-' . $product->get_id(),
+            'edit_url' => admin_url('post.php?post=' . $product->get_id() . '&action=edit'),
+            'exposure_source' => self::product_exposure_match_source($product),
+            'category_slugs' => self::product_category_slugs($product),
+            'shipping_countries' => self::product_shipping_countries($product),
+            'stock_status' => $product->get_stock_status(),
+            'stock_quantity' => $stock_quantity,
+            'price_cents' => self::cents((float) wc_get_price_including_tax($product, ['qty' => 1])),
+            'currency' => get_woocommerce_currency(),
+            'max_quantity' => self::product_max_quantity($product),
+            'blocked_reasons' => array_values(array_map('strval', $blocked_reasons)),
+        ];
+    }
+
+    private static function product_exposure_match_source(WC_Product $product) {
+        $mode = self::product_exposure_mode();
+        if ($mode === 'tag') {
+            return 'tag:' . self::product_exposure_tag();
+        }
+        if ($mode === 'category') {
+            $matches = array_values(array_intersect(self::product_category_slugs($product), self::product_exposure_categories()));
+            return 'category:' . implode(',', $matches);
+        }
+        if ($mode === 'all') {
+            return 'all_published_simple_products';
+        }
+        return 'manual_checkbox:' . self::PRODUCT_ENABLED_META;
     }
 
     private static function product_shipping_countries(WC_Product $product) {
