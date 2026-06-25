@@ -67,6 +67,7 @@ final class AgentCart_ShopBridge {
     const REGISTRY_CONNECTION_STATUS_OPTION = 'agentcart_shopbridge_registry_connection_status';
     const REGISTRY_REVOKED_RECORDS_OPTION = 'agentcart_shopbridge_registry_revoked_records';
     const SANDBOX_QUOTE_CHECK_OPTION = 'agentcart_shopbridge_sandbox_quote_check';
+    const SANDBOX_CHECKOUT_TEST_OPTION = 'agentcart_shopbridge_sandbox_checkout_test';
     const PRODUCT_EXPOSURE_MODE_OPTION = 'agentcart_shopbridge_product_exposure_mode';
     const PRODUCT_EXPOSURE_TAG_OPTION = 'agentcart_shopbridge_product_exposure_tag';
     const PRODUCT_EXPOSURE_CATEGORIES_OPTION = 'agentcart_shopbridge_product_exposure_categories';
@@ -705,6 +706,17 @@ final class AgentCart_ShopBridge {
                 'message' => 'Sandbox quote check failed: ' . ($result['message'] ?? 'review the Quick Start panel for details.'),
             ];
         }
+        if ($action === 'run_sandbox_checkout_test') {
+            $result = self::run_sandbox_checkout_test();
+            update_option(self::SANDBOX_CHECKOUT_TEST_OPTION, $result, false);
+            if (($result['state'] ?? '') === 'passed') {
+                return 'Sandbox checkout test passed: test order #' . ($result['order_number'] ?? $result['order_id'] ?? '') . ' was created and cancelled.';
+            }
+            return [
+                'type' => 'error',
+                'message' => 'Sandbox checkout test failed: ' . ($result['message'] ?? 'review the Quick Start panel for details.'),
+            ];
+        }
 
         return null;
     }
@@ -812,6 +824,202 @@ final class AgentCart_ShopBridge {
                 ? array_values(array_map('strval', $payment_requirements['payment_protocol_profile_ids']))
                 : [],
             'cleanup' => 'quote transient deleted and soft stock hold released',
+        ];
+    }
+
+    private static function run_sandbox_checkout_test() {
+        $checked_at = gmdate('c');
+        $ship_to = self::sandbox_quote_ship_to();
+        $product = self::sandbox_quote_test_product($ship_to['country']);
+        if (!$product instanceof WC_Product) {
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'message' => 'No published, in-stock, AgentCart-enabled simple product can ship to ' . $ship_to['country'] . '.',
+                'ship_to' => $ship_to,
+            ];
+        }
+
+        if (self::merchant_token_value() === '' && self::payment_verifier_url() === '') {
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'product_id' => 'woo_' . $product->get_id(),
+                'product_title' => $product->get_name(),
+                'ship_to' => $ship_to,
+                'message' => 'Merchant token or external verifier is required before the checkout test can create a test order.',
+            ];
+        }
+
+        $quote_request = new WP_REST_Request('POST', '/' . self::API_NAMESPACE . '/quote');
+        $quote_request->set_header('Content-Type', 'application/json');
+        $quote_request->set_body(wp_json_encode([
+            'items' => [
+                [
+                    'product_id' => 'woo_' . $product->get_id(),
+                    'quantity' => 1,
+                ],
+            ],
+            'ship_to' => $ship_to,
+        ]));
+
+        $quote = self::quote($quote_request);
+        if (is_wp_error($quote)) {
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'product_id' => 'woo_' . $product->get_id(),
+                'product_title' => $product->get_name(),
+                'ship_to' => $ship_to,
+                'error_code' => $quote->get_error_code(),
+                'message' => $quote->get_error_message(),
+                'error_data' => $quote->get_error_data(),
+            ];
+        }
+        if (!is_array($quote)) {
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'product_id' => 'woo_' . $product->get_id(),
+                'product_title' => $product->get_name(),
+                'ship_to' => $ship_to,
+                'message' => 'Quote endpoint returned an unexpected response.',
+            ];
+        }
+
+        $quote_id = (string) ($quote['id'] ?? '');
+        $order_idempotency_key = 'agentcart-sandbox-checkout-' . substr(hash('sha256', $quote_id . '|' . wp_generate_uuid4()), 0, 24);
+        $receipt = self::sandbox_checkout_payment_receipt($quote, $order_idempotency_key);
+        $order_request = new WP_REST_Request('POST', '/' . self::API_NAMESPACE . '/orders');
+        $order_request->set_header('Content-Type', 'application/json');
+        $order_request->set_header('Idempotency-Key', $order_idempotency_key);
+        if (self::merchant_token_value() !== '') {
+            $order_request->set_header('X-AgentCart-Merchant-Token', self::merchant_token_value());
+        }
+        $order_request->set_body(wp_json_encode([
+            'agentcart_order_id' => $order_idempotency_key,
+            'idempotency_key' => $order_idempotency_key,
+            'agentcart_quote_id' => $quote_id,
+            'merchant_quote_id' => $quote_id,
+            'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'rail' => 'tempo-mpp',
+            'reason' => 'AgentCart sandbox checkout test from WooCommerce admin',
+            'ship_to' => $ship_to,
+            'payment_receipt' => $receipt,
+        ]));
+
+        $order_response = self::create_order($order_request);
+        if (is_wp_error($order_response)) {
+            if ($quote_id !== '') {
+                delete_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id);
+                self::release_stock_hold($quote_id);
+            }
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'product_id' => 'woo_' . $product->get_id(),
+                'product_title' => $product->get_name(),
+                'ship_to' => $ship_to,
+                'quote_id' => $quote_id,
+                'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+                'error_code' => $order_response->get_error_code(),
+                'message' => $order_response->get_error_message(),
+                'error_data' => $order_response->get_error_data(),
+                'cleanup' => 'quote transient deleted and soft stock hold released after failed checkout test',
+            ];
+        }
+        if (!is_array($order_response)) {
+            if ($quote_id !== '') {
+                delete_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id);
+                self::release_stock_hold($quote_id);
+            }
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'product_id' => 'woo_' . $product->get_id(),
+                'product_title' => $product->get_name(),
+                'ship_to' => $ship_to,
+                'quote_id' => $quote_id,
+                'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+                'message' => 'Order endpoint returned an unexpected response.',
+                'cleanup' => 'quote transient deleted and soft stock hold released after unexpected checkout response',
+            ];
+        }
+
+        $order_id = intval($order_response['id'] ?? 0);
+        $order = $order_id > 0 ? wc_get_order($order_id) : null;
+        $cleanup = 'test order created';
+        if ($order instanceof WC_Order) {
+            $order->update_meta_data('_agentcart_sandbox_checkout_test', 'yes');
+            $order->add_order_note('AgentCart sandbox checkout test created this order. Cancelling it immediately; no rail refund is executed by the setup test.');
+            try {
+                $order->update_status('cancelled', 'AgentCart sandbox checkout test cleanup cancelled this test order.', true);
+                $cleanup = 'test order created and cancelled; no external refund executed';
+            } catch (Exception $exception) {
+                $cleanup = 'test order created; automatic cancellation failed: ' . $exception->getMessage();
+            }
+            $order->save();
+        }
+
+        $payment_verification = is_array($order_response['payment_verification'] ?? null) ? $order_response['payment_verification'] : [];
+        $shipping = isset($quote['shipping']) && is_array($quote['shipping']) ? $quote['shipping'] : [];
+        $vat_lines = isset($quote['vat_lines']) && is_array($quote['vat_lines']) ? $quote['vat_lines'] : [];
+        return [
+            'state' => 'passed',
+            'checked_at' => $checked_at,
+            'product_id' => 'woo_' . $product->get_id(),
+            'product_title' => $product->get_name(),
+            'ship_to' => $ship_to,
+            'quote_id' => $quote_id,
+            'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'order_id' => (string) $order_id,
+            'order_number' => (string) ($order_response['number'] ?? ($order instanceof WC_Order ? $order->get_order_number() : '')),
+            'order_status' => $order instanceof WC_Order ? $order->get_status() : (string) ($order_response['status'] ?? ''),
+            'order_url' => $order instanceof WC_Order ? admin_url('post.php?post=' . $order->get_id() . '&action=edit') : (string) ($order_response['url'] ?? ''),
+            'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+            'total_cents' => intval($quote['total_cents'] ?? 0),
+            'shipping_cents' => intval($shipping['amount_cents'] ?? 0),
+            'vat_line_count' => count($vat_lines),
+            'payment_mode' => (string) ($payment_verification['mode'] ?? ''),
+            'payment_contract_hash' => (string) ($payment_verification['payment_contract_hash'] ?? $receipt['payment_contract_hash'] ?? ''),
+            'real_settlement_verified' => !empty($payment_verification['real_settlement_verified']),
+            'cleanup' => $cleanup,
+        ];
+    }
+
+    private static function sandbox_checkout_payment_receipt($quote, $order_idempotency_key) {
+        $quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
+        $contract = self::payment_verification_contract($quote, 'tempo-mpp');
+        $contract_hash = self::payment_contract_hash($contract);
+        $amount_cents = intval($quote['total_cents'] ?? 0);
+        $currency = (string) ($quote['currency'] ?? get_woocommerce_currency());
+        $transaction_reference = 'agentcart_sandbox_' . substr(hash('sha256', $order_idempotency_key . '|' . $quote_hash), 0, 24);
+        return [
+            'id' => 'payrcpt_' . substr(hash('sha256', $transaction_reference), 0, 24),
+            'method' => 'tempo-mpp',
+            'rail' => 'tempo-mpp',
+            'provider' => 'agentcart_sandbox',
+            'status' => 'succeeded',
+            'amount_cents' => $amount_cents,
+            'currency' => $currency,
+            'quote_hash' => $quote_hash,
+            'payment_contract_hash' => $contract_hash,
+            'external_value_proof' => [
+                'provider' => 'tempo_mpp',
+                'state' => 'succeeded',
+                'network' => self::tempo_network(),
+                'recipient' => self::tempo_recipient(),
+                'body' => [
+                    'amount' => number_format($amount_cents / 100, 2, '.', ''),
+                    'recipient' => self::tempo_recipient(),
+                    'transaction_reference' => $transaction_reference,
+                ],
+                'payment_receipt' => [
+                    'reference' => $transaction_reference,
+                    'network' => self::tempo_network(),
+                ],
+            ],
+            'sandbox' => true,
         ];
     }
 
@@ -2500,6 +2708,7 @@ final class AgentCart_ShopBridge {
         $registry_bundle_url = self::registry_bundle_url();
         $signed_request_ready = self::signed_request_profile_configured();
         $sandbox_quote_check = self::sandbox_quote_check_result();
+        $sandbox_checkout_test = self::sandbox_checkout_test_result();
         ?>
         <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
             <tbody>
@@ -2565,6 +2774,22 @@ final class AgentCart_ShopBridge {
                         </form>
                     </td>
                 </tr>
+                <tr>
+                    <th scope="row">Guided checkout test</th>
+                    <td>
+                        Runs quote, payment verification, WooCommerce paid-order creation, and
+                        immediate test-order cancellation. If a payment verifier URL is configured,
+                        the sandbox receipt is sent through that verifier; otherwise the trusted
+                        merchant-token demo path is used.
+                    </td>
+                    <td>
+                        <form method="post">
+                            <?php wp_nonce_field('agentcart_shopbridge_setup_action'); ?>
+                            <input type="hidden" name="agentcart_setup_action" value="run_sandbox_checkout_test" />
+                            <?php submit_button('Run checkout test', 'secondary', 'submit', false); ?>
+                        </form>
+                    </td>
+                </tr>
                 <?php if (!empty($sandbox_quote_check)) : ?>
                     <tr>
                         <th scope="row">Last quote check</th>
@@ -2596,6 +2821,46 @@ final class AgentCart_ShopBridge {
                         </td>
                     </tr>
                 <?php endif; ?>
+                <?php if (!empty($sandbox_checkout_test)) : ?>
+                    <tr>
+                        <th scope="row">Last checkout test</th>
+                        <td colspan="2">
+                            <?php echo self::admin_status_badge(($sandbox_checkout_test['state'] ?? '') === 'passed', 'Passed', 'Failed'); ?>
+                            <p class="description">
+                                <?php echo esc_html((string) ($sandbox_checkout_test['checked_at'] ?? '')); ?>
+                                <?php if (($sandbox_checkout_test['state'] ?? '') === 'passed') : ?>
+                                    &middot;
+                                    order <?php echo esc_html((string) ($sandbox_checkout_test['order_number'] ?? $sandbox_checkout_test['order_id'] ?? '')); ?>
+                                    &middot;
+                                    status <?php echo esc_html((string) ($sandbox_checkout_test['order_status'] ?? '')); ?>
+                                    &middot;
+                                    <?php echo esc_html((string) ($sandbox_checkout_test['product_title'] ?? 'AgentCart product')); ?>
+                                    &middot;
+                                    total <?php echo esc_html(self::admin_money_from_cents(intval($sandbox_checkout_test['total_cents'] ?? 0), (string) ($sandbox_checkout_test['currency'] ?? get_woocommerce_currency()))); ?>
+                                    &middot;
+                                    payment <?php echo esc_html((string) ($sandbox_checkout_test['payment_mode'] ?? 'unknown')); ?>
+                                    &middot;
+                                    settlement <?php echo !empty($sandbox_checkout_test['real_settlement_verified']) ? esc_html('real verified') : esc_html('sandbox/demo'); ?>
+                                <?php else : ?>
+                                    &middot;
+                                    <?php echo esc_html((string) ($sandbox_checkout_test['message'] ?? 'Checkout test failed.')); ?>
+                                <?php endif; ?>
+                            </p>
+                            <?php if (!empty($sandbox_checkout_test['order_url'])) : ?>
+                                <p class="description">Order: <a href="<?php echo esc_url((string) $sandbox_checkout_test['order_url']); ?>"><?php echo esc_html((string) ($sandbox_checkout_test['order_url'])); ?></a></p>
+                            <?php endif; ?>
+                            <?php if (!empty($sandbox_checkout_test['quote_hash'])) : ?>
+                                <p class="description">Quote hash: <code><?php echo esc_html((string) $sandbox_checkout_test['quote_hash']); ?></code></p>
+                            <?php endif; ?>
+                            <?php if (!empty($sandbox_checkout_test['payment_contract_hash'])) : ?>
+                                <p class="description">Payment contract hash: <code><?php echo esc_html((string) $sandbox_checkout_test['payment_contract_hash']); ?></code></p>
+                            <?php endif; ?>
+                            <?php if (!empty($sandbox_checkout_test['cleanup'])) : ?>
+                                <p class="description"><?php echo esc_html((string) $sandbox_checkout_test['cleanup']); ?></p>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endif; ?>
             </tbody>
         </table>
         <?php
@@ -2603,6 +2868,11 @@ final class AgentCart_ShopBridge {
 
     private static function sandbox_quote_check_result() {
         $result = get_option(self::SANDBOX_QUOTE_CHECK_OPTION, []);
+        return is_array($result) ? $result : [];
+    }
+
+    private static function sandbox_checkout_test_result() {
+        $result = get_option(self::SANDBOX_CHECKOUT_TEST_OPTION, []);
         return is_array($result) ? $result : [];
     }
 

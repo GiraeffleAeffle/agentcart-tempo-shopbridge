@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">54</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 54%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">55</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 55%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -513,7 +513,7 @@
           <tr>
             <td>Merchant setup</td>
             <td>A Woo merchant installs the ZIP or WordPress.org plugin, enables AgentCart, picks payment rails, and publishes a valid manifest without touching code.</td>
-            <td>Quick Start, readiness UX, sandbox quote checks, and hosted registry submit/revoke UX exist. Checkout test automation and Plugin Check hardening remain.</td>
+            <td>Quick Start, readiness UX, sandbox quote and checkout tests, and hosted registry submit/revoke UX exist. Plugin Check hardening and deeper WP admin walkthroughs remain.</td>
           </tr>
           <tr>
             <td>Buyer setup</td>
@@ -545,7 +545,7 @@
       { name: "Core Commerce", value: 82, note: "catalog, quote, approval, order, stock, tax, shipping, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 72, note: "manifest profiles, domain proof, hosted record feed, persisted health snapshots, alert delivery, revocations, signed request gate" },
       { name: "Payments", value: 66, note: "quote-bound verifier contract hash, receipt validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
-      { name: "Merchant UX", value: 42, note: "settings done; setup wizard and low-friction refresh remain" },
+      { name: "Merchant UX", value: 52, note: "settings, setup wizard, readiness, registry actions, and sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
       { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
       { name: "Woo Release", value: 42, note: "ZIP, package checks, review-risk checks, PHPCS/WPCS config, and official-tool gate exist; strict clean Plugin Check remains" },
@@ -687,9 +687,9 @@
         code: "ONB",
         title: "Merchant onboarding UX",
         status: "partial",
-        value: 64,
-        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote checks, and registry connection actions.",
-        remaining: "Add checkout test automation, deeper WP admin walkthrough tests, and Plugin Check/PHPCS polish.",
+        value: 72,
+        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote/checkout tests, and registry connection actions.",
+        remaining: "Add deeper WP admin walkthrough tests, Plugin Check/PHPCS polish, and merchant-facing copy cleanup.",
         items: [
           { id: "ONB-001", priority: "P0", title: "Guided checkout test", description: "Add one-click test quote, approval, payment verification, order creation, and cleanup from the ShopBridge admin page." },
           { id: "ONB-002", priority: "P1", title: "Registry health in WordPress", description: "Surface hosted registry connection, monitor snapshot, domain proof, and manifest freshness in the merchant admin UI." },

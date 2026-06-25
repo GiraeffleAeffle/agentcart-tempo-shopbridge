@@ -116,8 +116,9 @@ configured by the merchant.
 4. Use the Quick Start panel to prepare sandbox access defaults when secrets are
    not managed through `wp-config.php`. This generates local signed-request
    compatibility and registry metadata, but does not expose products or configure
-   payment recipients. The same panel can run a sandbox quote check through the
-   WooCommerce-backed quote path and then clean up the test quote/stock hold.
+   payment recipients. The same panel can run a sandbox quote check and a
+   guided checkout test through the WooCommerce-backed quote/order path, then
+   clean up the test quote, stock hold, and test order.
 5. Configure stable merchant id, support email, payment recipient or Stripe
    profile, optional x402 exact-payment settings, Payment verifier URL,
    checkout mode, optional signed-request mode, and product exposure mode.
@@ -130,8 +131,8 @@ configured by the merchant.
 8. Share the registry bundle URL with a registry or local buyer-agent test, or
    configure the optional Registry connection URL and submit the bundle from the
    Registry Proof section.
-9. Test the manifest, catalog, quote, and a non-production checkout path before
-   public use.
+9. Test the manifest, catalog, quote, and guided non-production checkout path
+   before public use.
 
 == Frequently Asked Questions ==
 

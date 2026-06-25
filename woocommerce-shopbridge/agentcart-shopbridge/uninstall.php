@@ -44,6 +44,7 @@ $options = [
     'agentcart_shopbridge_registry_connection_status',
     'agentcart_shopbridge_registry_revoked_records',
     'agentcart_shopbridge_sandbox_quote_check',
+    'agentcart_shopbridge_sandbox_checkout_test',
     'agentcart_shopbridge_product_exposure_mode',
     'agentcart_shopbridge_product_exposure_tag',
     'agentcart_shopbridge_product_exposure_categories',
