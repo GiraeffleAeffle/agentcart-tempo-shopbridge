@@ -21,6 +21,7 @@ $options = [
     'agentcart_shopbridge_checkout_mode',
     'agentcart_shopbridge_signed_request_mode',
     'agentcart_shopbridge_signed_request_secret',
+    'agentcart_shopbridge_signed_request_keys',
     'agentcart_shopbridge_tempo_recipient',
     'agentcart_shopbridge_tempo_network',
     'agentcart_shopbridge_stripe_profile_id',

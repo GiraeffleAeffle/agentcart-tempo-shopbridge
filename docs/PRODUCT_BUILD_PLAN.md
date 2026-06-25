@@ -42,13 +42,15 @@ local integrations.
 | 1 | Registry transparency and refresh UX | Alpha implemented: safe multi-merchant discovery now exposes refresh/check status and machine-readable registry reasons |
 | 2 | Manifest protocol profiles | Alpha implemented: manifests now publish configured-only `protocol_profiles[]` for ShopBridge commerce, MPP payment, Stripe/card MPP, and registry mapping |
 | 3 | x402 compatibility shim | Alpha implemented: quote payment requirements now expose x402 exact-payment headers and checkout can answer unpaid quote-bound requests with `PAYMENT-REQUIRED` |
-| 4 | Signed HTTP request verification | Alpha implemented: ShopBridge can require HMAC signed requests with method/path/digest/nonce/expiry binding for sensitive endpoints, and buyer skill/service paths can sign them |
+| 4 | Signed HTTP request verification | Alpha implemented: ShopBridge can require HMAC signed requests with method/path/digest/nonce/expiry binding for sensitive endpoints, support multiple active signing keys, rotate active signing keys with a retirement window, and buyer skill/service paths can sign them |
 | 5 | Protocol translators | Next: let AP2/ACP/UCP/MCP/A2A clients use the same AgentCart quote/order model |
 | 6 | Escrow/custom-order flow | Adds ERC-8183-style jobs only where normal retail checkout is the wrong model |
 
 The immediate next implementation slice is **protocol translators**.
-ShopBridge advertises `signed-http-ready` only when signed request mode and a
-request-signing secret are configured.
+ShopBridge advertises `signed-http-ready` only when signed request mode and at
+least one accepted request-signing key are configured. The profile publishes the
+active signer id and non-secret accepted-key metadata so buyer agents can bind
+checkout calls without scraping WordPress admin pages.
 
 ## Visual Architecture
 

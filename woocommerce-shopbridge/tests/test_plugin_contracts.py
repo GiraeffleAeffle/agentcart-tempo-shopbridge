@@ -88,6 +88,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_shopbridge_registry_public_check", uninstall)
         self.assertIn("agentcart_shopbridge_signed_request_mode", uninstall)
         self.assertIn("agentcart_shopbridge_signed_request_secret", uninstall)
+        self.assertIn("agentcart_shopbridge_signed_request_keys", uninstall)
         self.assertIn("agentcart_shopbridge_signed_nonce_", uninstall)
         self.assertIn("agentcart_shopbridge_x402_network", uninstall)
         self.assertIn("agentcart_shopbridge_x402_pay_to", uninstall)
@@ -258,6 +259,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_shopbridge_credential_action", action_body + forms_body)
         self.assertIn("rotate_merchant_token", action_body + forms_body)
         self.assertIn("rotate_payment_verifier_token", action_body + forms_body)
+        self.assertIn("add_signed_request_key", action_body + forms_body)
+        self.assertIn("rotate_signed_request_key", action_body + forms_body)
+        self.assertIn("revoke_retiring_signed_request_keys", action_body + forms_body)
         self.assertIn("AGENTCART_SHOPBRIDGE_TOKEN", action_body + forms_body)
         self.assertIn("AGENTCART_PAYMENT_VERIFIER_TOKEN", action_body + forms_body)
         self.assertIn("update_option(self::TOKEN_OPTION, wp_generate_password(48, false, false), false)", action_body)
@@ -284,7 +288,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("prepare_sandbox_secrets", action_body + panel_body)
         self.assertIn("prepare_sandbox_defaults", action_body)
         self.assertIn("update_option(self::TOKEN_OPTION, wp_generate_password(48, false, false), false)", defaults_body)
-        self.assertIn("update_option(self::SIGNED_REQUEST_SECRET_OPTION, wp_generate_password(64, false, false), false)", defaults_body)
+        self.assertIn("create_initial_signed_request_key", defaults_body)
+        self.assertIn("update_option(self::SIGNED_REQUEST_SECRET_OPTION, (string) ($key['secret'] ?? ''), false)", defaults_body)
         self.assertIn("update_option(self::SIGNED_REQUEST_MODE_OPTION, 'allow', false)", defaults_body)
         self.assertIn("update_option(self::REGISTRY_CLAIM_FINGERPRINT_OPTION", defaults_body)
         self.assertIn("update_option(self::REGISTRY_UPDATED_AT_OPTION", defaults_body)
@@ -764,31 +769,40 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         for symbol in [
             "SIGNED_REQUEST_MODE_OPTION",
             "SIGNED_REQUEST_SECRET_OPTION",
+            "SIGNED_REQUEST_KEYS_OPTION",
             "SIGNED_REQUEST_NONCE_PREFIX",
+            "SIGNED_REQUEST_KEY_RETIREMENT_SECONDS",
             "AGENTCART_SIGNED_REQUEST_MODE",
             "AGENTCART_SIGNED_REQUEST_SECRET",
         ]:
             self.assertIn(symbol, SOURCE)
         self.assertIn("sanitize_signed_request_mode_setting", settings_body)
+        self.assertIn("sanitize_signed_request_secret_setting", settings_body)
         self.assertIn("render_signed_request_mode_setting_row", render_body)
-        self.assertIn("Signed request secret", render_body)
+        self.assertIn("Active signed request secret", render_body)
         self.assertIn("'id' => 'signed-http-ready'", profiles_body)
         self.assertIn("if (self::signed_request_profile_configured())", profiles_body)
         self.assertIn("'signature_scheme' => 'agentcart-hmac-sha256-v1'", profiles_body + requirements_body)
+        self.assertIn("'active_signer' => self::signed_request_active_key_id()", profiles_body + requirements_body)
+        self.assertIn("'accepted_signers' => self::signed_request_public_key_summaries()", profiles_body + requirements_body)
+        self.assertIn("'key_rotation' =>", profiles_body + requirements_body)
         for error in [
             "agentcart_signed_request_missing_method",
             "agentcart_signed_request_missing_path",
             "agentcart_signed_request_missing_digest",
             "agentcart_signed_request_missing_nonce",
             "agentcart_signed_request_missing_expiry",
+            "agentcart_signed_request_unknown_signer",
             "agentcart_signed_request_signature_mismatch",
             "agentcart_signed_request_replay",
         ]:
             self.assertIn(error, verifier_body)
         self.assertIn("hash_hmac('sha256'", verifier_body)
+        self.assertIn("signed_request_key_candidates_for_signer", verifier_body)
         self.assertIn("get_transient($nonce_key)", verifier_body)
         self.assertIn("set_transient($nonce_key", verifier_body)
         self.assertIn("signed_request_required_for_bucket", auth_body + readiness_body)
+        self.assertIn("signed_request_active_key", readiness_body)
         self.assertIn("signed_request_required_for", quote_hash_body + requirements_body)
         self.assertIn("enforce_signed_request_policy($request, 'checkout')", checkout_body)
         self.assertIn("enforce_signed_request_policy($request, 'order_status')", status_body)

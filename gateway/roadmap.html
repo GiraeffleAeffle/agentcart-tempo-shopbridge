@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">55</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 55%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">56</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 56%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -609,11 +609,11 @@
         code: "SIG",
         title: "Signed requests",
         status: "alpha",
-        value: 58,
-        scope: "Sensitive endpoints can require canonical HMAC signatures with nonce, expiry, and body digest.",
-        remaining: "Add key rotation UX, multiple signers, and production-grade audit trails.",
+        value: 70,
+        scope: "Sensitive endpoints can require canonical HMAC signatures with nonce, expiry, body digest, active signer metadata, multiple active keys, key rotation, and retiring-key revocation.",
+        remaining: "Add production-grade signed request audit trails and asymmetric/JWK signature verification.",
         items: [
-          { id: "SIG-001", priority: "P0", title: "Key rotation UX", description: "Support multiple active signing keys, retirement windows, and clear WordPress controls for rotating compromised keys." },
+          { id: "SIG-001", priority: "P0", title: "Key rotation UX", description: "Implemented: ShopBridge stores signed-request key records, supports multiple active keys, rotates active keys with a retirement window, publishes active signer metadata, accepts retiring keys, and lets merchants revoke retiring keys." },
           { id: "SIG-002", priority: "P1", title: "Request audit trail", description: "Store signed request verification outcomes, nonces, expiry failures, and body-digest mismatches for support and disputes." },
           { id: "SIG-003", priority: "P2", title: "Asymmetric signatures", description: "Add public-key or JWK verification alongside HMAC so buyer agents can avoid sharing symmetric secrets." }
         ]

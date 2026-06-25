@@ -53,7 +53,7 @@ standards/adapters -> AgentCart commerce core -> WooCommerce + verifier rails
 | MPP | Machine payment proof rail | Tempo demo proof and MPP-shaped flow exist | Keep as one payment protocol under `payment_requirements.protocols[]` |
 | Stripe machine payments / stablecoin acceptance | Production-friendly merchant settlement path for eligible merchants | Verifier fixtures and sandbox helper exist; US-region limitation documented | Treat as one rail behind the verifier seam, not as the whole checkout model |
 | ERC-8004 | Public identity, registration file, reputation, and validation for agents/service providers | Off-chain merchant registry with domain proof, revocation, hash binding | Add an ERC-8004 mapping/export for merchant/ShopBridge service records |
-| ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC signed requests over method/path/body digest/nonce/expiry | Add wallet-signature adapter while preserving the same canonical request fields |
+| ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC signed requests over method/path/body digest/nonce/expiry plus key rotation metadata | Add wallet-signature adapter while preserving the same canonical request fields |
 | ERC-8183 | Escrowed jobs with evaluator attestation | Not implemented | Use later for custom orders, services, pre-orders, disputes, and escrow flows; not required for normal grocery checkout |
 | AP2 / ACP / UCP | Agentic commerce/cart/authorization protocols | Not implemented as protocol adapters | Build translators into AgentCart Quote, Approval, Payment Requirements, and Order models |
 | MCP / A2A / agent skills | How agents discover and call capabilities | Direct skill exists; service exposes OpenAPI/llms/capability docs | Keep skill-first buyer path and add MCP/A2A wrappers only when they improve distribution |
@@ -209,9 +209,10 @@ Deliverables:
 - optional ERC-8128-style HMAC verification for quote, checkout, status,
   cancellation, and refund requests;
 - nonce/expiry replay protection via transient-backed single-use nonces;
-- merchant settings for accepted signer modes and transition period;
+- merchant settings for accepted signer modes, active signer id, key rotation,
+  and retiring-key transition period;
 - configured-only `signed-http-ready` profile with canonical field and header
-  metadata;
+  metadata plus non-secret accepted-key summaries;
 - direct skill and AgentCart service signers using the same canonical request;
 - clear errors when signatures omit method, path, digest, nonce, or expiry.
 

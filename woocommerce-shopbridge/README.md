@@ -265,10 +265,13 @@ There are also two checkout authorization modes:
   verifier; the merchant token cannot create a paid order through demo fallback.
 
 Signed request mode is an additional request-authentication gate. When
-configured with `AGENTCART_SIGNED_REQUEST_SECRET`, ShopBridge can require
-HMAC-SHA256 signatures for checkout only, checkout/refund/cancellation, or all
-sensitive quote/checkout/status/refund/cancellation endpoints. The signature
-binds:
+configured with `AGENTCART_SIGNED_REQUEST_SECRET`, or with signing keys managed
+from the AgentCart settings page, ShopBridge can require HMAC-SHA256 signatures
+for checkout only, checkout/refund/cancellation, or all sensitive
+quote/checkout/status/refund/cancellation endpoints. Admin-managed keys support
+multiple active signers and rotation with a retirement window; the
+`signed-http-ready` profile publishes the active signer id and accepted
+non-secret key metadata. The signature binds:
 
 ```text
 agentcart-signed-request-v1

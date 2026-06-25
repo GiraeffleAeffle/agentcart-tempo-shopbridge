@@ -67,12 +67,13 @@ more than 10 minutes in the future, and records older than
 local fixtures where you intentionally want to disable the freshness window.
 
 If a merchant advertises the `signed-http-ready` profile and requires signed
-requests, configure the shared HMAC secret provided by that merchant or your
-trusted registry/onboarding channel:
+requests, configure the HMAC secret provided by that merchant or your trusted
+registry/onboarding channel. Use the profile's `active_signer` value when it is
+present; older private demos can keep using any agreed signer label.
 
 ```sh
 export SHOPBRIDGE_SIGNED_REQUEST_SECRET=replace-with-shopbridge-signing-secret
-export SHOPBRIDGE_SIGNED_REQUEST_SIGNER=household-agent
+export SHOPBRIDGE_SIGNED_REQUEST_SIGNER=sig_active_signer_from_profile
 ```
 
 Check the skill install and configuration first. This is read-only and does not
