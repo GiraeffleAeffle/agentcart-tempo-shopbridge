@@ -305,8 +305,10 @@ refunds above the remaining refundable amount, forwards refund idempotency to
 ShopBridge, validates provider refund references before marking real rail
 refunds, normalizes cancelled/refund-required/partially-refunded/refunded
 lifecycle states, and carries delivery exceptions into aftercare/calendar
-state. Production still needs managed provider refund operations, buyer-facing
-aftercare message generation, carrier API polling/webhooks, and delivery
+state. Woo, AgentCart service, and the direct buyer skill now generate
+buyer-facing aftercare messages only from structured state and only claim money
+returned when verified rail refund evidence exists. Production still needs
+managed provider refund operations, carrier API polling/webhooks, and delivery
 reschedule adapters.
 
 Current grocery alpha status: ShopBridge exposes structured package-size

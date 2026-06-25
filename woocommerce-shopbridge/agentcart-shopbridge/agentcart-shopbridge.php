@@ -5820,7 +5820,7 @@ final class AgentCart_ShopBridge {
             $next_actions[] = 'complete_verified_refund';
         }
 
-        return [
+        $state = [
             'order_status' => $order->get_status(),
             'order_lifecycle_state' => $order_lifecycle_state,
             'fulfillment_phase' => self::fulfillment_phase($order, $fulfillment),
@@ -5847,6 +5847,108 @@ final class AgentCart_ShopBridge {
             'delivery_exception' => $delivery_exception,
             'next_actions' => array_values(array_unique($next_actions)),
         ];
+        $state['buyer_aftercare_messages'] = self::buyer_aftercare_messages($order, $state);
+        return $state;
+    }
+
+    private static function buyer_aftercare_messages(WC_Order $order, $aftercare) {
+        $aftercare = is_array($aftercare) ? $aftercare : [];
+        $refund_progress = isset($aftercare['refund_progress']) && is_array($aftercare['refund_progress']) ? $aftercare['refund_progress'] : [];
+        $refunded_cents = max(0, intval($refund_progress['refunded_cents'] ?? 0));
+        $remaining_cents = max(0, intval($aftercare['remaining_refundable_cents'] ?? 0));
+        $currency = (string) ($aftercare['currency'] ?? $order->get_currency());
+        $refunds = self::serialize_refunds($order);
+        $latest_refund = !empty($refunds) ? $refunds[count($refunds) - 1] : [];
+        $latest_refund = is_array($latest_refund) ? $latest_refund : [];
+        $latest_verification = isset($latest_refund['verification']) && is_array($latest_refund['verification'])
+            ? $latest_refund['verification']
+            : [];
+        $latest_refund_verified = !empty($latest_refund['real_refund_verified']);
+        $any_real_refund_verified = false;
+        foreach ($refunds as $refund) {
+            if (is_array($refund) && !empty($refund['real_refund_verified'])) {
+                $any_real_refund_verified = true;
+                break;
+            }
+        }
+        $refund_reference = sanitize_text_field((string) ($latest_refund['refund_reference'] ?? $latest_refund['id'] ?? ''));
+        $provider = sanitize_text_field((string) ($latest_verification['provider'] ?? $latest_refund['rail'] ?? ''));
+        $refund_state = (string) ($aftercare['refund_state'] ?? '');
+        $cancellation_state = (string) ($aftercare['cancellation_state'] ?? '');
+        $lifecycle_state = (string) ($aftercare['order_lifecycle_state'] ?? '');
+        $delivery_exception = isset($aftercare['delivery_exception']) && is_array($aftercare['delivery_exception'])
+            ? $aftercare['delivery_exception']
+            : [];
+        $messages = [
+            'summary' => 'Order aftercare is active.',
+            'refund' => 'No refund has been recorded.',
+            'cancellation' => 'Order cancellation is not currently available.',
+            'delivery' => 'Check merchant status for delivery updates.',
+            'allowed_claims' => [
+                'order_cancelled' => strpos($lifecycle_state, 'cancelled') === 0,
+                'refund_recorded' => $refunded_cents > 0,
+                'refund_executed' => $any_real_refund_verified,
+                'money_returned' => $any_real_refund_verified,
+                'refund_still_required' => !empty($aftercare['refund_required_after_cancellation']),
+                'carrier_exception' => !empty($aftercare['delivery_exception_requires_attention']),
+            ],
+        ];
+
+        if ($lifecycle_state === 'cancelled_refund_required') {
+            $messages['summary'] = 'Order is cancelled, but a verified refund is still required.';
+            $messages['cancellation'] = 'Order is cancelled. Cancellation does not prove money was returned.';
+        } elseif ($lifecycle_state === 'cancelled_refunded') {
+            $messages['summary'] = 'Order is cancelled and the refundable amount is closed.';
+            $messages['cancellation'] = 'Order is cancelled and no refundable amount remains.';
+        } elseif ($lifecycle_state === 'cancelled_no_refund_due') {
+            $messages['summary'] = 'Order is cancelled and no refund is due.';
+            $messages['cancellation'] = 'Order is cancelled. No paid refundable amount remains.';
+        } elseif ($cancellation_state === 'cancellable_before_fulfillment') {
+            $messages['summary'] = 'Order can still be sent for merchant cancellation review.';
+            $messages['cancellation'] = 'A trusted gateway or merchant can review cancellation before fulfillment locks.';
+        } elseif ($cancellation_state === 'fulfillment_locked') {
+            $messages['cancellation'] = 'Cancellation is locked because fulfillment or tracking has started.';
+        }
+
+        if ($refund_state === 'refund_required_after_cancellation') {
+            $messages['refund'] = 'A verified refund is still required for ' . self::aftercare_money($remaining_cents, $currency) . '.';
+        } elseif ($refund_state === 'partially_refunded') {
+            $messages['refund'] = 'A partial refund of ' . self::aftercare_money($refunded_cents, $currency)
+                . ' is recorded; ' . self::aftercare_money($remaining_cents, $currency) . ' remains refundable.';
+        } elseif ($refund_state === 'refunded') {
+            if ($any_real_refund_verified) {
+                $via = $provider !== '' ? ' via ' . $provider : '';
+                $reference = $refund_reference !== '' ? ' Reference: ' . $refund_reference . '.' : '';
+                $messages['refund'] = 'Refund executed and verified' . $via . '.' . $reference;
+            } else {
+                $messages['refund'] = 'Refund recorded by the merchant system. No real rail refund verification is attached.';
+            }
+        } elseif ($refund_state === 'refund_available') {
+            $messages['refund'] = self::aftercare_money($remaining_cents, $currency) . ' remains refundable pending merchant or verifier review.';
+        } elseif ($refund_state === 'unpaid_no_refund_due') {
+            $messages['refund'] = 'Order is unpaid, so no refund is due.';
+        } elseif ($refund_state === 'no_refund_remaining') {
+            $messages['refund'] = 'No refundable amount remains.';
+        }
+
+        if (!empty($aftercare['delivery_exception_requires_attention'])) {
+            $summary = sanitize_text_field((string) ($delivery_exception['summary'] ?? $delivery_exception['state'] ?? 'Carrier reported a delivery exception.'));
+            $messages['delivery'] = 'Carrier delivery exception requires attention: ' . $summary;
+        }
+
+        if (!empty($latest_refund) && $latest_refund_verified) {
+            $messages['allowed_claims']['latest_refund_verified'] = true;
+            $messages['allowed_claims']['latest_refund_reference'] = $refund_reference;
+        }
+        return $messages;
+    }
+
+    private static function aftercare_money($cents, $currency) {
+        $currency = strtoupper(sanitize_text_field((string) $currency));
+        if ($currency === '') {
+            $currency = 'EUR';
+        }
+        return number_format(max(0, intval($cents)) / 100, 2, '.', '') . ' ' . $currency;
     }
 
     private static function fulfillment_phase(WC_Order $order, $fulfillment) {

@@ -1488,6 +1488,9 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertTrue(result["aftercare_state"]["refund_required_if_cancelled"])
         self.assertFalse(result["aftercare_state"]["refund_progress"]["fully_refunded"])
         self.assertEqual(result["aftercare_state"]["refund_progress"]["remaining_refundable_cents"], 1480)
+        self.assertEqual(result["buyer_aftercare_messages"]["summary"], "Order can still be sent for merchant cancellation review.")
+        self.assertIn("14.80 EUR remains refundable", result["buyer_aftercare_messages"]["refund"])
+        self.assertFalse(result["buyer_aftercare_messages"]["allowed_claims"]["refund_executed"])
         self.assertTrue(result["merchant_policy"]["cancellation_request_allowed"])
         self.assertEqual(result["payment_proof"]["transaction_reference"], "pi_test_123")
         self.assertEqual(result["refund_request_draft"]["amount"], "5.00 EUR")
@@ -1501,6 +1504,82 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(
             result["refund_request_draft"]["trusted_gateway_payload_hint"]["merchant_policy"]["returns_url"],
             "https://merchant.example/returns",
+        )
+
+    def test_aftercare_summary_messages_do_not_claim_demo_refund_executed(self) -> None:
+        order = sample_order_status()
+        order["aftercare_state"] = {
+            **order["aftercare_state"],
+            "order_lifecycle_state": "refunded",
+            "cancellation_state": "not_available",
+            "refund_state": "refunded",
+            "remaining_refundable_cents": 0,
+            "refund_progress": {
+                "total_order_cents": 1480,
+                "refunded_cents": 1480,
+                "remaining_refundable_cents": 0,
+                "partially_refunded": False,
+                "fully_refunded": True,
+                "refund_required_after_cancellation": False,
+            },
+            "next_actions": ["check_status_later"],
+        }
+        order["refund_policy"]["remaining_refundable_cents"] = 0
+        order["refunds"] = [
+            {
+                "id": "refund_1",
+                "amount_cents": 1480,
+                "currency": "EUR",
+                "real_refund_verified": False,
+                "refund_reference": "",
+            }
+        ]
+
+        result = shopbridge_direct.command_aftercare_summary({"order": order})
+
+        self.assertIn("Refund recorded by the merchant system", result["buyer_aftercare_messages"]["refund"])
+        self.assertTrue(result["buyer_aftercare_messages"]["allowed_claims"]["refund_recorded"])
+        self.assertFalse(result["buyer_aftercare_messages"]["allowed_claims"]["refund_executed"])
+        self.assertFalse(result["buyer_aftercare_messages"]["allowed_claims"]["money_returned"])
+
+    def test_aftercare_summary_messages_can_claim_verified_refund(self) -> None:
+        order = sample_order_status()
+        order["aftercare_state"] = {
+            **order["aftercare_state"],
+            "order_lifecycle_state": "refunded",
+            "cancellation_state": "not_available",
+            "refund_state": "refunded",
+            "remaining_refundable_cents": 0,
+            "refund_progress": {
+                "total_order_cents": 1480,
+                "refunded_cents": 1480,
+                "remaining_refundable_cents": 0,
+                "partially_refunded": False,
+                "fully_refunded": True,
+                "refund_required_after_cancellation": False,
+            },
+            "next_actions": ["check_status_later"],
+        }
+        order["refund_policy"]["remaining_refundable_cents"] = 0
+        order["refunds"] = [
+            {
+                "id": "refund_1",
+                "amount_cents": 1480,
+                "currency": "EUR",
+                "rail": "tempo_mpp",
+                "real_refund_verified": True,
+                "refund_reference": "tempo-refund-abc",
+            }
+        ]
+
+        result = shopbridge_direct.command_aftercare_summary({"order": order})
+
+        self.assertIn("Refund executed and verified", result["buyer_aftercare_messages"]["refund"])
+        self.assertTrue(result["buyer_aftercare_messages"]["allowed_claims"]["refund_executed"])
+        self.assertTrue(result["buyer_aftercare_messages"]["allowed_claims"]["money_returned"])
+        self.assertEqual(
+            result["buyer_aftercare_messages"]["allowed_claims"]["latest_refund_reference"],
+            "tempo-refund-abc",
         )
 
     def test_aftercare_summary_surfaces_normalized_carrier_tracking(self) -> None:

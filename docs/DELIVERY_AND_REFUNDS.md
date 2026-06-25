@@ -137,6 +137,10 @@ includes:
   `unpaid_no_refund_due`;
 - `refund_progress`: total order amount, refunded amount, remaining refundable
   amount, and booleans for partial, full, and post-cancellation refund state;
+- `buyer_aftercare_messages`: state-derived `summary`, `refund`,
+  `cancellation`, `delivery`, and `allowed_claims` fields so buyer agents can
+  explain aftercare without claiming money returned unless a verified rail
+  refund exists;
 - `next_actions`: stable action ids such as `request_cancellation`,
   `request_refund`, `open_tracking`, `review_delivery_exception`, or
   `complete_verified_refund`.

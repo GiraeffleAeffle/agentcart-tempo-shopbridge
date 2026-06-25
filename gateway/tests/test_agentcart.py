@@ -2202,6 +2202,10 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(result["order"]["aftercare_state"]["remaining_refundable_cents"], 0)
             self.assertTrue(result["order"]["aftercare_state"]["refund_progress"]["fully_refunded"])
             self.assertEqual(result["order"]["aftercare_state"]["refund_progress"]["refunded_cents"], 1339)
+            messages = result["order"]["aftercare_state"]["buyer_aftercare_messages"]
+            self.assertIn("Refund recorded by the merchant system", messages["refund"])
+            self.assertFalse(messages["allowed_claims"]["refund_executed"])
+            self.assertFalse(messages["allowed_claims"]["money_returned"])
 
             replay = service.refund_order(order_id, refund_request)
             self.assertTrue(replay["idempotent_replay"])
@@ -2237,6 +2241,11 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(refund_required["refund_state"], "refund_required_after_cancellation")
             self.assertTrue(refund_required["refund_required_after_cancellation"])
             self.assertIn("complete_verified_refund", refund_required["next_actions"])
+            self.assertEqual(
+                refund_required["buyer_aftercare_messages"]["summary"],
+                "Order is cancelled, but a verified refund is still required.",
+            )
+            self.assertTrue(refund_required["buyer_aftercare_messages"]["allowed_claims"]["refund_still_required"])
 
             partial_order = {**base_order, "refunds": [{"amount_cents": 500}]}
             partial = service.aftercare_state(partial_order)
@@ -2252,6 +2261,8 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(refunded["refund_state"], "refunded")
             self.assertTrue(refunded["refund_progress"]["fully_refunded"])
             self.assertNotIn("complete_verified_refund", refunded["next_actions"])
+            self.assertIn("Refund recorded by the merchant system", refunded["buyer_aftercare_messages"]["refund"])
+            self.assertFalse(refunded["buyer_aftercare_messages"]["allowed_claims"]["refund_executed"])
 
     def test_skill_audit_packet_import_is_hash_checked_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -2966,6 +2977,11 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(refund_result["refund"]["provider"], "tempo")
             self.assertEqual(refund_result["refund"]["replay_request_hash"], "refund-replay-hash")
             self.assertEqual(refund_result["order"]["refund_state"], "rail_refund_verified")
+            messages = refund_result["order"]["aftercare_state"]["buyer_aftercare_messages"]
+            self.assertIn("Refund executed and verified", messages["refund"])
+            self.assertTrue(messages["allowed_claims"]["refund_executed"])
+            self.assertTrue(messages["allowed_claims"]["money_returned"])
+            self.assertEqual(messages["allowed_claims"]["latest_refund_reference"], "tempo-refund-abc")
             self.assertTrue(any(urllib.parse.parse_qs(urllib.parse.urlparse(call["url"]).query).get("rest_route") == ["/agentcart/v1/orders/9001/refunds"] for call in calls))
 
     def test_verified_refund_requires_provider_reference_and_matching_amount(self) -> None:

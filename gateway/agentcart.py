@@ -5663,6 +5663,7 @@ class AgentCartService:
                     "refund_required_after_cancellation": {"type": "boolean"},
                     "cancellation_does_not_execute_refund": {"type": "boolean"},
                     "rail_refund_requires_verifier": {"type": "boolean"},
+                    "buyer_aftercare_messages": {"type": "object"},
                     "next_actions": {"type": "array", "items": {"type": "string"}},
                     "merchant_aftercare_state": {"type": ["object", "null"]},
                 },
@@ -7970,7 +7971,7 @@ separate human confirmation.
                 if isinstance(action, str) and action not in next_actions:
                     next_actions.append(action)
 
-        return {
+        aftercare = {
             "source": "merchant_status" if merchant_aftercare else "agentcart_service",
             "order_state": order_state,
             "merchant_status": merchant_status,
@@ -7998,6 +7999,90 @@ separate human confirmation.
             "next_actions": next_actions,
             "merchant_aftercare_state": merchant_aftercare or None,
         }
+        aftercare["buyer_aftercare_messages"] = self.buyer_aftercare_messages(order, aftercare)
+        return aftercare
+
+    def latest_refund(self, order: dict[str, Any]) -> dict[str, Any] | None:
+        refunds = [refund for refund in order.get("refunds", []) if isinstance(refund, dict)]
+        return refunds[-1] if refunds else None
+
+    def buyer_aftercare_messages(self, order: dict[str, Any], aftercare: dict[str, Any]) -> dict[str, Any]:
+        currency = str(aftercare.get("currency") or order.get("currency") or "EUR")
+        refund_progress = aftercare.get("refund_progress") if isinstance(aftercare.get("refund_progress"), dict) else {}
+        refunded_cents = max(0, int(refund_progress.get("refunded_cents") or self.refunded_cents(order)))
+        remaining_cents = max(0, int(aftercare.get("remaining_refundable_cents") or 0))
+        latest_refund = self.latest_refund(order) or {}
+        latest_refund_verified = bool(latest_refund.get("real_refund_verified"))
+        any_real_refund_verified = any(
+            bool(refund.get("real_refund_verified"))
+            for refund in order.get("refunds", [])
+            if isinstance(refund, dict)
+        )
+        refund_reference = str(latest_refund.get("refund_reference") or latest_refund.get("merchant_refund_id") or "")
+        provider = str(latest_refund.get("provider") or latest_refund.get("rail") or "")
+        refund_state = str(aftercare.get("refund_state") or "")
+        cancellation_state = str(aftercare.get("cancellation_state") or "")
+        lifecycle_state = str(aftercare.get("order_lifecycle_state") or "")
+        delivery_exception = aftercare.get("delivery_exception") if isinstance(aftercare.get("delivery_exception"), dict) else {}
+        messages: dict[str, Any] = {
+            "summary": "Order aftercare is active.",
+            "refund": "No refund has been recorded.",
+            "cancellation": "Order cancellation is not currently available.",
+            "delivery": "Check merchant status for delivery updates.",
+            "allowed_claims": {
+                "order_cancelled": lifecycle_state.startswith("cancelled"),
+                "refund_recorded": refunded_cents > 0,
+                "refund_executed": any_real_refund_verified,
+                "money_returned": any_real_refund_verified,
+                "refund_still_required": bool(aftercare.get("refund_required_after_cancellation")),
+                "carrier_exception": bool(aftercare.get("delivery_exception_requires_attention")),
+            },
+        }
+
+        if lifecycle_state == "cancelled_refund_required":
+            messages["summary"] = "Order is cancelled, but a verified refund is still required."
+            messages["cancellation"] = "Order is cancelled. Cancellation does not prove money was returned."
+        elif lifecycle_state == "cancelled_refunded":
+            messages["summary"] = "Order is cancelled and the refundable amount is closed."
+            messages["cancellation"] = "Order is cancelled and no refundable amount remains."
+        elif lifecycle_state == "cancelled_no_refund_due":
+            messages["summary"] = "Order is cancelled and no refund is due."
+            messages["cancellation"] = "Order is cancelled. No paid refundable amount remains."
+        elif cancellation_state == "cancellable_before_fulfillment":
+            messages["summary"] = "Order can still be sent for merchant cancellation review."
+            messages["cancellation"] = "A trusted gateway or merchant can review cancellation before fulfillment locks."
+        elif cancellation_state == "fulfillment_locked":
+            messages["cancellation"] = "Cancellation is locked because fulfillment or tracking has started."
+
+        if refund_state == "refund_required_after_cancellation":
+            messages["refund"] = f"A verified refund is still required for {money(remaining_cents, currency)}."
+        elif refund_state == "partially_refunded":
+            messages["refund"] = (
+                f"A partial refund of {money(refunded_cents, currency)} is recorded; "
+                f"{money(remaining_cents, currency)} remains refundable."
+            )
+        elif refund_state == "refunded":
+            if any_real_refund_verified:
+                reference = f" Reference: {refund_reference}." if refund_reference else ""
+                via = f" via {provider}" if provider else ""
+                messages["refund"] = f"Refund executed and verified{via}.{reference}"
+            else:
+                messages["refund"] = "Refund recorded by the merchant system. No real rail refund verification is attached."
+        elif refund_state == "refund_available":
+            messages["refund"] = f"{money(remaining_cents, currency)} remains refundable pending merchant or verifier review."
+        elif refund_state == "unpaid_no_refund_due":
+            messages["refund"] = "Order is unpaid, so no refund is due."
+        elif refund_state == "no_refund_remaining":
+            messages["refund"] = "No refundable amount remains."
+
+        if aftercare.get("delivery_exception_requires_attention"):
+            summary = str(delivery_exception.get("summary") or delivery_exception.get("state") or "Carrier reported a delivery exception.")
+            messages["delivery"] = f"Carrier delivery exception requires attention: {summary}"
+
+        if latest_refund and latest_refund_verified:
+            messages["allowed_claims"]["latest_refund_verified"] = True
+            messages["allowed_claims"]["latest_refund_reference"] = refund_reference
+        return messages
 
     def refund_idempotency_key(self, request: dict[str, Any]) -> str:
         return str(
