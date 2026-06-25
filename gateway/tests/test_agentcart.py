@@ -370,6 +370,7 @@ class AgentCartTests(unittest.TestCase):
             self.assertIsNone(offer["amount"])
             self.assertEqual(offer["currency"], "EUR")
             self.assertIn("x-service-info", openapi)
+            self.assertEqual(openapi["x-service-info"]["docs"]["mcpTools"], "/v1/mcp/tools")
             self.assertIn("/v1/registry", openapi["paths"])
             self.assertIn("/v1/registry/records", openapi["paths"])
             self.assertIn("/v1/registry/transparency", openapi["paths"])
@@ -378,10 +379,15 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("/v1/audit/import", openapi["paths"])
             self.assertIn("/v1/audit/{purchase_id}/export", openapi["paths"])
             self.assertIn("/v1/orders/{order_id}/refunds", openapi["paths"])
+            self.assertIn("/v1/mcp/tools", openapi["paths"])
+            self.assertIn("/mcp/tools.json", openapi["paths"])
+            self.assertIn("McpToolsDocument", openapi["components"]["schemas"])
             self.assertIn("AftercareState", openapi["components"]["schemas"])
             capability = service.capability_document()
             self.assertIn("agentcart-service", capability["protocol_profile_ids"])
             self.assertNotIn("mpp-http-auth", capability["protocol_profile_ids"])
+            self.assertEqual(capability["endpoints"]["mcp_tools"], "/v1/mcp/tools")
+            self.assertEqual(capability["endpoints"]["mcp_tools_alias"], "/mcp/tools.json")
             self.assertEqual(capability["endpoints"]["registry_records"], "/v1/registry/records")
             self.assertEqual(capability["endpoints"]["registry_submit"], "/v1/registry/records")
             self.assertEqual(capability["endpoints"]["registry_transparency"], "/v1/registry/transparency")
@@ -391,7 +397,51 @@ class AgentCartTests(unittest.TestCase):
                 service.capability_document()["endpoints"]["audit_export"],
                 "/v1/audit/{purchase_id}/export",
             )
+            mcp_tools = service.mcp_tools_document()
+            self.assertEqual(mcp_tools["schema"], "agentcart.mcp_tools.v1")
+            self.assertTrue(mcp_tools["safety_contract"]["human_approval_required_before_checkout"])
+            tool_names = {tool["name"] for tool in mcp_tools["tools"]}
+            for tool_name in [
+                "agentcart.discover_merchants",
+                "agentcart.search_catalog",
+                "agentcart.create_quote",
+                "agentcart.create_approval",
+                "agentcart.record_approval_decision",
+                "agentcart.checkout",
+                "agentcart.get_order",
+                "agentcart.request_refund",
+                "agentcart.export_audit",
+                "agentcart.import_skill_audit",
+            ]:
+                self.assertIn(tool_name, tool_names)
+            checkout_tool = next(tool for tool in mcp_tools["tools"] if tool["name"] == "agentcart.checkout")
+            self.assertEqual(checkout_tool["annotations"]["endpoint"], "/v1/checkout")
+            self.assertEqual(checkout_tool["annotations"]["method"], "POST")
+            self.assertFalse(checkout_tool["annotations"]["readOnlyHint"])
+            self.assertIn("quote_id", checkout_tool["inputSchema"]["required"])
+            for tool in mcp_tools["tools"]:
+                self.assertIn("inputSchema", tool)
+                self.assertIn("endpoint", tool["annotations"])
+                self.assertIn("auth", tool["annotations"])
             self.assertIn("/openapi.json", service.llms_text())
+            self.assertIn("/v1/mcp/tools", service.llms_text())
+
+    def test_mcp_tool_catalog_is_publicly_served(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+            server = agentcart.AgentCartServer(("127.0.0.1", 0), service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                for path in ["/v1/mcp/tools", "/mcp/tools.json"]:
+                    with urllib.request.urlopen(f"{base_url}{path}", timeout=5) as response:
+                        document = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(document["schema"], "agentcart.mcp_tools.v1")
+                    self.assertIn("agentcart.checkout", {tool["name"] for tool in document["tools"]})
+            finally:
+                server.shutdown()
+                server.server_close()
 
     def test_registry_document_is_identity_anchor_not_ad_marketplace(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

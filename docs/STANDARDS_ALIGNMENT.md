@@ -56,7 +56,7 @@ standards/adapters -> AgentCart commerce core -> WooCommerce + verifier rails
 | ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC signed requests over method/path/body digest/nonce/expiry plus key rotation metadata | Add wallet-signature adapter while preserving the same canonical request fields |
 | ERC-8183 | Escrowed jobs with evaluator attestation | Not implemented | Use later for custom orders, services, pre-orders, disputes, and escrow flows; not required for normal grocery checkout |
 | AP2 / ACP / UCP | Agentic commerce/cart/authorization protocols | Not implemented as protocol adapters | Build translators into AgentCart Quote, Approval, Payment Requirements, and Order models |
-| MCP / A2A / agent skills | How agents discover and call capabilities | Direct skill exists; service exposes OpenAPI/llms/capability docs | Keep skill-first buyer path and add MCP/A2A wrappers only when they improve distribution |
+| MCP / A2A / agent skills | How agents discover and call capabilities | Direct skill exists; service exposes OpenAPI, llms, capability docs, and MCP-style tool schemas at `/v1/mcp/tools` and `/mcp/tools.json` | Keep skill-first buyer path and add A2A wrappers only when they improve distribution |
 
 ## Canonical Core Model
 
@@ -235,7 +235,8 @@ Deliverables:
 
 - translator interfaces for AP2/ACP/UCP-style cart, authorization, and order
   concepts;
-- MCP/A2A wrappers only when they improve agent distribution;
+- MCP-style tool catalog at `/v1/mcp/tools` and `/mcp/tools.json`;
+- A2A wrappers only when they improve agent distribution;
 - conformance fixtures showing the same purchase maps to the same AgentCart
   Quote, Approval, Payment Requirements, and Order.
 
@@ -266,8 +267,9 @@ Definition of done:
 2. Manifest protocol profiles. Alpha implemented.
 3. x402 compatibility shim. Alpha implemented.
 4. Signed HTTP request verification. Alpha implemented.
-5. AP2/ACP/UCP/MCP/A2A translators. Next.
-6. ERC-8183-style escrow/custom-order flow.
+5. MCP-style tool catalog. Alpha implemented.
+6. AP2/ACP/UCP/A2A translators. Next.
+7. ERC-8183-style escrow/custom-order flow.
 
 This order keeps the merchant onboarding friction low while making the project
 more legible to the broader agentic commerce ecosystem.

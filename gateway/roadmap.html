@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">62</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 62%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">65</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 65%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -546,8 +546,8 @@
       { name: "Trust And Registry", value: 81, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate" },
       { name: "Payments", value: 66, note: "quote-bound verifier contract hash, receipt validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
-      { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
-      { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
+      { name: "Buyer Skill Path", value: 68, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, aftercare summary, and audit packets; more runtime adapters remain" },
+      { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
       { name: "Operations", value: 46, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, verifier logs/metrics/alerts, and alert delta delivery exist; beta ops remain" }
     ];
@@ -661,11 +661,11 @@
         code: "BUY",
         title: "Buyer skill-only path",
         status: "partial",
-        value: 48,
-        scope: "Agent can perform discovery and checkout through a direct skill/tool path without relying on the demo UI.",
-        remaining: "Package a first-class skill, document agent setup, and add adapters for common local agents.",
+        value: 72,
+        scope: "Agent can perform verified discovery, quote comparison, approval packet creation, checkout handoff, aftercare summary, and audit packet export through a packaged direct skill without relying on the demo UI.",
+        remaining: "Add more runtime-specific examples and smoother audit import UX.",
         items: [
-          { id: "BUY-001", priority: "P0", title: "Packaged buyer skill", description: "Publish an installable skill for manifest discovery, quote comparison, approval, checkout, and audit import." },
+          { id: "BUY-001", priority: "P0", title: "Packaged buyer skill", description: "Implemented: the direct ShopBridge skill ZIP supports manifest/registry discovery, quote comparison, portable approval records, checkout handoff, aftercare summary, and hash-linked audit packets for later import." },
           { id: "BUY-002", priority: "P1", title: "Local agent adapters", description: "Add working examples for OpenClaw, Codex skill use, and generic MCP clients." },
           { id: "BUY-003", priority: "P2", title: "Skill audit import UX", description: "Make skill-only checkout audit packets easy to import into the AgentCart dashboard after the fact." }
         ]
@@ -673,12 +673,12 @@
       {
         code: "STD",
         title: "Protocol translators",
-        status: "planned",
-        value: 28,
-        scope: "x402 payment requirement shim and protocol profiles are present.",
-        remaining: "Add AP2 mandate mapping, UCP-style checkout mapping, MCP tool schemas, and A2A handoff profile.",
+        status: "alpha",
+        value: 42,
+        scope: "x402 payment requirement shim, protocol profiles, and MCP-style tool catalog are present.",
+        remaining: "Add AP2 mandate mapping, UCP-style checkout mapping, and A2A handoff profile.",
         items: [
-          { id: "STD-001", priority: "P0", title: "MCP tool schema", description: "Publish stable MCP tool definitions for merchant discovery, catalog fetch, quote, approval, checkout, and aftercare." },
+          { id: "STD-001", priority: "P0", title: "MCP tool schema", description: "Implemented: /v1/mcp/tools and /mcp/tools.json publish MCP-style tool definitions for merchant discovery, catalog fetch, quote, approval, checkout, aftercare, refunds, and audit import/export." },
           { id: "STD-002", priority: "P1", title: "AP2 mandate mapping", description: "Map AgentCart approval records to AP2-style mandate fields so approvals are portable across agent runtimes." },
           { id: "STD-003", priority: "P2", title: "UCP and A2A profiles", description: "Document UCP checkout and A2A handoff mappings for future interoperability tests." }
         ]
@@ -759,7 +759,7 @@
       open: "Open"
     };
 
-    const overallValue = 62;
+    const overallValue = 65;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 
