@@ -823,6 +823,7 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
     tracking_url = tracking["tracking_url"]
     tracking_number = tracking["tracking_number"]
     delivery = fulfillment.get("estimated_delivery_window") if isinstance(fulfillment.get("estimated_delivery_window"), dict) else {}
+    delivery_exception = compact_delivery_exception(fulfillment, aftercare_state)
     next_actions = []
     if tracking_url:
         next_actions.append({"id": "open_tracking", "label": "Open carrier tracking", "url": tracking_url})
@@ -830,6 +831,15 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         next_actions.append({"id": "track_with_carrier", "label": f"Track shipment {tracking_number}"})
     else:
         next_actions.append({"id": "check_status_later", "label": "Check order status again later"})
+    if delivery_exception["requires_attention"]:
+        next_actions.append(
+            {
+                "id": "review_delivery_exception",
+                "label": "Review carrier delivery exception",
+                "state": delivery_exception["state"],
+                "summary": delivery_exception["summary"],
+            }
+        )
     if cancellation.get("eligible"):
         next_actions.append(
             {
@@ -874,6 +884,8 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
             "tracking_source": tracking["source"],
             "tracking_confidence": tracking["confidence"],
             "tracking": tracking,
+            "has_delivery_exception": delivery_exception["requires_attention"],
+            "delivery_exception": delivery_exception if delivery_exception["requires_attention"] else None,
             "estimated_delivery": delivery.get("label") or delivery.get("latest_date") or "",
             "note": str(fulfillment.get("note") or ""),
         },
@@ -920,6 +932,30 @@ def compact_tracking(fulfillment: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def compact_delivery_exception(fulfillment: dict[str, Any], aftercare_state: dict[str, Any]) -> dict[str, Any]:
+    raw = fulfillment.get("delivery_exception") if isinstance(fulfillment.get("delivery_exception"), dict) else {}
+    if not raw and isinstance(aftercare_state.get("delivery_exception"), dict):
+        raw = aftercare_state["delivery_exception"]
+    state = str(raw.get("state") or aftercare_state.get("delivery_exception_state") or "")
+    requires_attention = bool(
+        raw.get("requires_attention")
+        or aftercare_state.get("delivery_exception_requires_attention")
+        or (state and state != "none")
+    )
+    return {
+        "state": state or ("exception" if requires_attention else "none"),
+        "summary": str(raw.get("summary") or raw.get("tracking_status_label") or ""),
+        "tracking_status": str(raw.get("tracking_status") or ""),
+        "tracking_status_label": str(raw.get("tracking_status_label") or ""),
+        "carrier": str(raw.get("carrier") or fulfillment.get("carrier") or ""),
+        "tracking_number": str(raw.get("tracking_number") or fulfillment.get("tracking_number") or ""),
+        "tracking_url": str(raw.get("tracking_url") or fulfillment.get("tracking_url") or ""),
+        "source": str(raw.get("source") or fulfillment.get("source") or ""),
+        "last_event_at": str(raw.get("last_event_at") or ""),
+        "requires_attention": requires_attention,
+    }
+
+
 def compact_aftercare_state(aftercare_state: dict[str, Any]) -> dict[str, Any]:
     state = aftercare_state if isinstance(aftercare_state, dict) else {}
     next_actions = state.get("next_actions") if isinstance(state.get("next_actions"), list) else []
@@ -933,6 +969,9 @@ def compact_aftercare_state(aftercare_state: dict[str, Any]) -> dict[str, Any]:
         "refund_required_if_cancelled": bool(state.get("refund_required_if_cancelled")),
         "cancellation_does_not_execute_refund": bool(state.get("cancellation_does_not_execute_refund", True)),
         "rail_refund_requires_verifier": bool(state.get("rail_refund_requires_verifier", True)),
+        "delivery_exception_state": str(state.get("delivery_exception_state") or "none"),
+        "delivery_exception_requires_attention": bool(state.get("delivery_exception_requires_attention")),
+        "delivery_exception": state.get("delivery_exception") if isinstance(state.get("delivery_exception"), dict) else None,
         "blocking_reasons": [str(reason) for reason in blocking_reasons],
         "next_actions": [str(action) for action in next_actions],
     }

@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">65</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 65%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">66</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 66%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -549,7 +549,7 @@
       { name: "Buyer Skill Path", value: 68, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, aftercare summary, and audit packets; more runtime adapters remain" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 46, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, verifier logs/metrics/alerts, and alert delta delivery exist; beta ops remain" }
+      { name: "Operations", value: 48, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, verifier logs/metrics/alerts, alert delta delivery, and delivery exception surfaces exist; beta ops remain" }
     ];
 
     const gates = [
@@ -648,12 +648,12 @@
         code: "FUL",
         title: "Delivery and calendar",
         status: "partial",
-        value: 46,
-        scope: "Delivery estimates and calendar endpoint exist for demo and household planning.",
-        remaining: "Connect carrier tracking, status webhooks, reschedule events, and exception handling.",
+        value: 63,
+        scope: "Delivery estimates, normalized tracking adapters, delivery exception events, buyer aftercare actions, and calendar endpoint exist for household planning.",
+        remaining: "Connect carrier status webhooks/polling and reschedule events.",
         items: [
-          { id: "FUL-001", priority: "P0", title: "Carrier tracking adapter", description: "Normalize tracking data from common WooCommerce shipment plugins and generic order metadata." },
-          { id: "FUL-002", priority: "P1", title: "Delivery exception events", description: "Detect delayed, failed, returned, or partially delivered shipments and update aftercare plus calendar state." },
+          { id: "FUL-001", priority: "P0", title: "Carrier tracking adapter", description: "Implemented: ShopBridge normalizes tracking data from Woo Shipment Tracking, AfterShip-style metadata, ParcelPanel-style metadata, and generic WooCommerce order meta." },
+          { id: "FUL-002", priority: "P1", title: "Delivery exception events", description: "Implemented: delayed, failed, returned, held, damaged, and partial-delivery statuses now update aftercare and calendar state with stable buyer actions." },
           { id: "FUL-003", priority: "P2", title: "Reschedule hooks", description: "Expose structured reschedule options to buyer agents when the carrier or merchant workflow supports them." }
         ]
       },
@@ -759,7 +759,7 @@
       open: "Open"
     };
 
-    const overallValue = 65;
+    const overallValue = 66;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

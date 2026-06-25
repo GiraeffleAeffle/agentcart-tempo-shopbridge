@@ -2469,6 +2469,89 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("AgentCart Demo Parcel", calendar)
             self.assertIn("Tracking number: AC-DEMO-9001", calendar)
 
+    def test_refresh_order_status_surfaces_delivery_exception_for_aftercare_and_calendar(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                delivery_calendar_enabled=True,
+                delivery_calendar_token="calendar-token",
+            )
+            order_id = "order_exception_1"
+            service.state["orders"] = {
+                order_id: {
+                    "id": order_id,
+                    "merchant_order_id": "9002",
+                    "quote_id": "quote_exception_1",
+                    "state": "accepted",
+                    "items": [{"quantity": 1, "title": "Household tea"}],
+                    "total_cents": 1480,
+                    "currency": "EUR",
+                    "delivery_estimate": {"label": "2-4 business days"},
+                    "delivery_window": {
+                        "earliest_date": "2026-06-23",
+                        "latest_date": "2026-06-25",
+                        "label": "2-4 business days",
+                    },
+                    "shipment": {"status": "not_shipped"},
+                    "payment_receipt": {"id": "pay_2", "method": "demo", "protocol": "demo", "status": "succeeded"},
+                    "merchant_order": {
+                        "status_url": "http://woo.test/wp-json/agentcart/v1/orders/9002/status",
+                        "status_token": "status-token",
+                    },
+                }
+            }
+
+            def fake_http_json(url: str, **kwargs: object) -> object:
+                self.assertEqual(url, "http://woo.test/wp-json/agentcart/v1/orders/9002/status")
+                self.assertEqual(kwargs["headers_extra"], {"X-AgentCart-Order-Token": "status-token"})
+                return {
+                    "status": "processing",
+                    "payment_status": "paid",
+                    "fulfillment": {
+                        "state": "shipped",
+                        "carrier": "DHL",
+                        "tracking_number": "DHL-EX-1",
+                        "tracking_url": "http://carrier.test/DHL-EX-1",
+                        "tracking_status": "exception",
+                        "source": "woocommerce_shipment_tracking",
+                        "has_delivery_exception": True,
+                        "delivery_exception": {
+                            "state": "delayed",
+                            "summary": "Carrier reported a delivery delay.",
+                            "tracking_status": "exception",
+                            "tracking_status_label": "Delayed in transit",
+                            "carrier": "DHL",
+                            "tracking_number": "DHL-EX-1",
+                            "tracking_url": "http://carrier.test/DHL-EX-1",
+                            "source": "woocommerce_shipment_tracking",
+                            "requires_attention": True,
+                        },
+                    },
+                    "aftercare_state": {
+                        "fulfillment_phase": "shipped",
+                        "cancellation_state": "fulfillment_locked",
+                        "refund_state": "refund_available",
+                        "remaining_refundable_cents": 1480,
+                        "delivery_exception_state": "delayed",
+                        "delivery_exception_requires_attention": True,
+                        "next_actions": ["open_tracking", "review_delivery_exception", "request_refund"],
+                    },
+                }
+
+            service.http_json = fake_http_json  # type: ignore[method-assign]
+
+            result = service.refresh_order_status(order_id)
+
+            shipment = result["order"]["shipment"]
+            self.assertTrue(shipment["has_delivery_exception"])
+            self.assertEqual(shipment["delivery_exception"]["state"], "delayed")
+            self.assertEqual(result["order"]["aftercare_state"]["delivery_exception_state"], "delayed")
+            self.assertIn("review_delivery_exception", result["order"]["aftercare_state"]["next_actions"])
+            calendar = service.render_delivery_calendar()
+            unfolded_calendar = calendar.replace("\r\n ", "")
+            self.assertIn("Delivery exception: delayed", calendar)
+            self.assertIn("Exception summary: Carrier reported a delivery delay.", unfolded_calendar)
+
     def test_list_open_vikunja_tasks_filters_done_and_adds_links(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(

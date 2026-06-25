@@ -1042,6 +1042,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         tracking_body = function_body("tracking_from_order_meta")
         candidate_body = function_body("tracking_candidate")
         status_body = function_body("normalize_tracking_status")
+        exception_body = function_body("delivery_exception_from_tracking")
+        aftercare_body = function_body("aftercare_state")
         phase_body = function_body("fulfillment_phase")
         eligibility_body = function_body("cancellation_eligibility")
 
@@ -1062,18 +1064,26 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             "'last_event_at'",
             "'confidence'",
             "'is_real_carrier_tracking'",
+            "'has_delivery_exception'",
+            "'delivery_exception'",
         ]:
-            self.assertIn(field, fulfillment_body + candidate_body)
+            self.assertIn(field, fulfillment_body + candidate_body + exception_body)
         self.assertIn("_wc_shipment_tracking_items", tracking_body)
         self.assertIn("first_order_meta_value", tracking_body)
         self.assertIn("normalize_tracking_datetime", candidate_body)
         self.assertIn("normalize_tracking_status", candidate_body)
+        self.assertIn("delivery_exception_from_tracking", fulfillment_body)
         self.assertIn("out_for_delivery", status_body)
         self.assertIn("in_transit", status_body)
+        self.assertIn("delayed", status_body)
+        self.assertIn("partial_delivery", exception_body)
+        self.assertIn("review_delivery_exception", aftercare_body + exception_body)
+        self.assertIn("delivery_exception_requires_attention", aftercare_body)
         self.assertIn("tracking_status", phase_body)
         self.assertIn("fulfillment_tracking_attached", eligibility_body)
         self.assertIn("'in_transit'", eligibility_body)
         self.assertIn("'delivered'", eligibility_body)
+        self.assertIn("'exception'", eligibility_body)
 
     def test_product_shipping_country_overrides_are_exposed_and_rechecked(self) -> None:
         product_body = function_body("serialize_product")

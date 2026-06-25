@@ -7762,14 +7762,23 @@ separate human confirmation.
                 current_merchant_order["last_status_refresh_at"] = isoformat(utcnow())
             fulfillment = status.get("fulfillment") if isinstance(status.get("fulfillment"), dict) else {}
             if fulfillment:
+                delivery_exception = (
+                    fulfillment.get("delivery_exception")
+                    if isinstance(fulfillment.get("delivery_exception"), dict)
+                    else None
+                )
                 current.setdefault("shipment", {}).update(
                     {
                         "carrier": fulfillment.get("carrier"),
                         "tracking_number": fulfillment.get("tracking_number"),
                         "tracking_url": fulfillment.get("tracking_url"),
+                        "tracking_status": fulfillment.get("tracking_status"),
+                        "tracking": fulfillment.get("tracking") if isinstance(fulfillment.get("tracking"), dict) else None,
                         "status": fulfillment.get("state") or current.get("shipment", {}).get("status", "not_shipped"),
                         "source": fulfillment.get("source") or current.get("shipment", {}).get("source", "merchant_status"),
                         "note": fulfillment.get("note") or current.get("shipment", {}).get("note", ""),
+                        "has_delivery_exception": bool(fulfillment.get("has_delivery_exception") or delivery_exception),
+                        "delivery_exception": delivery_exception,
                         "last_checked_at": isoformat(utcnow()),
                     }
                 )
@@ -7821,6 +7830,25 @@ separate human confirmation.
         merchant_status = str(merchant_order.get("status") or merchant_order.get("state") or "")
         shipment_status = str(shipment.get("status") or "").lower()
         has_tracking = bool(shipment.get("tracking_number") or shipment.get("tracking_url"))
+        delivery_exception = (
+            shipment.get("delivery_exception")
+            if isinstance(shipment.get("delivery_exception"), dict)
+            else (
+                merchant_aftercare.get("delivery_exception")
+                if isinstance(merchant_aftercare.get("delivery_exception"), dict)
+                else {}
+            )
+        )
+        delivery_exception_requires_attention = bool(
+            delivery_exception.get("requires_attention")
+            or shipment.get("has_delivery_exception")
+            or merchant_aftercare.get("delivery_exception_requires_attention")
+        )
+        delivery_exception_state = str(
+            delivery_exception.get("state")
+            or merchant_aftercare.get("delivery_exception_state")
+            or ("exception" if delivery_exception_requires_attention else "none")
+        )
 
         if merchant_aftercare.get("fulfillment_phase"):
             fulfillment_phase = str(merchant_aftercare["fulfillment_phase"])
@@ -7828,7 +7856,7 @@ separate human confirmation.
             fulfillment_phase = "closed"
         elif shipment_status in {"delivered", "fulfilled"}:
             fulfillment_phase = "fulfilled"
-        elif has_tracking or shipment_status in {"shipped", "in_transit", "out_for_delivery"}:
+        elif has_tracking or shipment_status in {"shipped", "in_transit", "out_for_delivery", "exception"}:
             fulfillment_phase = "shipped"
         else:
             fulfillment_phase = "pre_fulfillment"
@@ -7865,6 +7893,9 @@ separate human confirmation.
             next_actions.append("track_with_carrier")
         else:
             next_actions.append("check_status_later")
+        if delivery_exception_requires_attention:
+            next_actions.append("review_delivery_exception")
+            next_actions.append("contact_merchant")
         if cancellation_state == "cancellable_before_fulfillment":
             next_actions.append("request_cancellation")
         if refund_state == "refund_available":
@@ -7891,6 +7922,9 @@ separate human confirmation.
             "fulfillment_locked": fulfillment_phase in {"shipped", "fulfilled", "closed"},
             "cancellation_does_not_execute_refund": True,
             "rail_refund_requires_verifier": True,
+            "delivery_exception_state": delivery_exception_state,
+            "delivery_exception_requires_attention": delivery_exception_requires_attention,
+            "delivery_exception": delivery_exception or None,
             "next_actions": next_actions,
             "merchant_aftercare_state": merchant_aftercare or None,
         }
@@ -8048,6 +8082,13 @@ separate human confirmation.
                     f"\nTracking number: {shipment.get('tracking_number')}"
                     f"\nTracking URL: {shipment.get('tracking_url') or ''}"
                 )
+            delivery_exception = shipment.get("delivery_exception") if isinstance(shipment.get("delivery_exception"), dict) else {}
+            exception_description = ""
+            if delivery_exception:
+                exception_description = (
+                    f"\nDelivery exception: {delivery_exception.get('state') or 'exception'}"
+                    f"\nException summary: {delivery_exception.get('summary') or delivery_exception.get('tracking_status_label') or ''}"
+                )
             description = (
                 f"Order: {order.get('id')}\n"
                 f"Merchant order: {order.get('merchant_order_id')}\n"
@@ -8055,6 +8096,7 @@ separate human confirmation.
                 f"Delivery estimate: {window.get('label', order.get('delivery_estimate', {}).get('label', 'estimated'))}\n"
                 f"Shipment status: {shipment.get('status', 'not_shipped')}"
                 f"{tracking}"
+                f"{exception_description}"
             )
             lines.extend(
                 [

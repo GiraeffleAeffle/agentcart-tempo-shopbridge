@@ -3,9 +3,10 @@
 > Status: alpha implemented for the contract shape. ShopBridge exposes
 > fulfillment, cancellation, refund, and aftercare state; the AgentCart service
 > now stores aftercare state, enforces idempotent refund requests, tracks
-> remaining refundable amount, and forwards refund idempotency to ShopBridge.
-> Production still needs real carrier polling/webhooks and provider-backed rail
-> refunds.
+> remaining refundable amount, forwards refund idempotency to ShopBridge, and
+> surfaces carrier exception states for buyer aftercare and calendars.
+> Production still needs real carrier polling/webhooks, reschedule adapters, and
+> provider-backed rail refunds.
 
 
 The hackathon demo exposes a merchant-estimated delivery window. Production
@@ -51,7 +52,9 @@ ShopBridge order status returns top-level compatibility fields
       "delivered_at": null,
       "last_event_at": "2026-06-19T09:30:00+00:00",
       "is_real_carrier_tracking": true
-    }
+    },
+    "has_delivery_exception": false,
+    "delivery_exception": null
   }
 }
 ```
@@ -71,8 +74,12 @@ The plugin can read common metadata:
 - `_tracking_status`
 
 `tracking_status` normalizes to `not_shipped`, `shipped`, `in_transit`,
-`out_for_delivery`, `delivered`, or `exception`. Merchant-estimated delivery
-windows remain separate from real carrier tracking.
+`out_for_delivery`, `delivered`, or `exception`. When a carrier plugin reports
+delayed, failed, returned, held, damaged, or partially delivered status,
+ShopBridge also returns a structured `delivery_exception` with `state`,
+`summary`, source tracking metadata, `requires_attention`, and stable
+`next_actions`. Merchant-estimated delivery windows remain separate from real
+carrier tracking.
 
 Real carrier status requires either:
 
@@ -113,7 +120,8 @@ includes:
 - `refund_state`: `refund_available`, `no_refund_remaining`, or
   `unpaid_no_refund_due`;
 - `next_actions`: stable action ids such as `request_cancellation`,
-  `request_refund`, `open_tracking`, or `complete_verified_refund`.
+  `request_refund`, `open_tracking`, `review_delivery_exception`, or
+  `complete_verified_refund`.
 
 The AgentCart service also returns `aftercare_state` from `/v1/orders/{id}` and
 after `/v1/orders/{id}/refresh` or `/v1/orders/{id}/refunds`. This gives buyer

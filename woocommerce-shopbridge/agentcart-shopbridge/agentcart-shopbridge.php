@@ -5717,6 +5717,9 @@ final class AgentCart_ShopBridge {
 
     private static function aftercare_state(WC_Order $order, $eligibility = null) {
         $fulfillment = self::serialize_fulfillment($order);
+        $delivery_exception = isset($fulfillment['delivery_exception']) && is_array($fulfillment['delivery_exception'])
+            ? $fulfillment['delivery_exception']
+            : null;
         $eligibility = is_array($eligibility) ? $eligibility : self::cancellation_eligibility($order);
         $blocking_reasons = isset($eligibility['blocking_reasons']) && is_array($eligibility['blocking_reasons'])
             ? $eligibility['blocking_reasons']
@@ -5750,6 +5753,10 @@ final class AgentCart_ShopBridge {
         } else {
             $next_actions[] = 'check_status_later';
         }
+        if ($delivery_exception && !empty($delivery_exception['requires_attention'])) {
+            $next_actions[] = 'review_delivery_exception';
+            $next_actions[] = 'contact_merchant';
+        }
         if ($cancellation_state === 'cancellable_before_fulfillment') {
             $next_actions[] = 'request_cancellation';
         }
@@ -5772,6 +5779,9 @@ final class AgentCart_ShopBridge {
             'refund_required_if_cancelled' => !empty($eligibility['refund_required_if_cancelled']),
             'cancellation_does_not_execute_refund' => true,
             'rail_refund_requires_verifier' => true,
+            'delivery_exception_state' => $delivery_exception ? (string) ($delivery_exception['state'] ?? 'exception') : 'none',
+            'delivery_exception_requires_attention' => $delivery_exception ? !empty($delivery_exception['requires_attention']) : false,
+            'delivery_exception' => $delivery_exception,
             'next_actions' => array_values(array_unique($next_actions)),
         ];
     }
@@ -5813,7 +5823,7 @@ final class AgentCart_ShopBridge {
         if (
             !empty($tracking['tracking_number'])
             || !empty($tracking['tracking_url'])
-            || in_array((string) ($tracking['tracking_status'] ?? ''), ['shipped', 'in_transit', 'out_for_delivery', 'delivered'], true)
+            || in_array((string) ($tracking['tracking_status'] ?? ''), ['shipped', 'in_transit', 'out_for_delivery', 'delivered', 'exception'], true)
         ) {
             $reasons[] = 'fulfillment_tracking_attached';
         }
@@ -5985,6 +5995,7 @@ final class AgentCart_ShopBridge {
         $tracking = self::tracking_from_order_meta($order);
         $delivery_window = self::stored_delivery_window($order);
         $state = self::fulfillment_state_from_tracking($order, $tracking);
+        $delivery_exception = self::delivery_exception_from_tracking($tracking);
         return [
             'state' => $state,
             'order_status' => $order->get_status(),
@@ -5993,6 +6004,8 @@ final class AgentCart_ShopBridge {
             'tracking_url' => $tracking['tracking_url'],
             'tracking_status' => $tracking['tracking_status'],
             'tracking' => $tracking,
+            'has_delivery_exception' => $delivery_exception !== null,
+            'delivery_exception' => $delivery_exception,
             'estimated_delivery_window' => $delivery_window,
             'source' => $tracking['source'],
             'note' => $tracking['tracking_number'] || $tracking['tracking_url']
@@ -6137,14 +6150,28 @@ final class AgentCart_ShopBridge {
 
     private static function normalize_tracking_status($status_label, $has_tracking, $delivered_at = null) {
         $status = strtolower(trim((string) $status_label));
+        if (strpos($status, 'partial') !== false && strpos($status, 'deliver') !== false) {
+            return 'exception';
+        }
+        if (
+            strpos($status, 'exception') !== false
+            || strpos($status, 'failed') !== false
+            || strpos($status, 'return') !== false
+            || strpos($status, 'delayed') !== false
+            || strpos($status, 'delay') !== false
+            || strpos($status, 'attempt') !== false
+            || strpos($status, 'refused') !== false
+            || strpos($status, 'held') !== false
+            || strpos($status, 'lost') !== false
+            || strpos($status, 'damaged') !== false
+        ) {
+            return 'exception';
+        }
         if ($delivered_at || strpos($status, 'delivered') !== false) {
             return 'delivered';
         }
         if (strpos($status, 'out_for_delivery') !== false || strpos($status, 'out for delivery') !== false) {
             return 'out_for_delivery';
-        }
-        if (strpos($status, 'exception') !== false || strpos($status, 'failed') !== false || strpos($status, 'returned') !== false) {
-            return 'exception';
         }
         if (strpos($status, 'transit') !== false || strpos($status, 'in_transit') !== false) {
             return 'in_transit';
@@ -6153,6 +6180,63 @@ final class AgentCart_ShopBridge {
             return 'shipped';
         }
         return $has_tracking ? 'shipped' : 'not_shipped';
+    }
+
+    private static function delivery_exception_from_tracking($tracking) {
+        if (!is_array($tracking)) {
+            return null;
+        }
+        $status_label = strtolower(trim((string) ($tracking['tracking_status_label'] ?? '')));
+        $normalized_status = strtolower(trim((string) ($tracking['tracking_status'] ?? '')));
+        $search = trim($normalized_status . ' ' . $status_label);
+        if ($search === '' || $normalized_status === 'not_shipped') {
+            return null;
+        }
+        $state = '';
+        $summary = '';
+        if (strpos($search, 'partial') !== false && strpos($search, 'deliver') !== false) {
+            $state = 'partial_delivery';
+            $summary = 'Shipment was only partially delivered.';
+        } elseif (strpos($search, 'return') !== false) {
+            $state = 'returned';
+            $summary = 'Shipment appears to be returning or returned.';
+        } elseif (strpos($search, 'delay') !== false || strpos($search, 'delayed') !== false) {
+            $state = 'delayed';
+            $summary = 'Carrier reported a delivery delay.';
+        } elseif (strpos($search, 'failed') !== false || strpos($search, 'attempt') !== false || strpos($search, 'refused') !== false) {
+            $state = 'failed';
+            $summary = 'Carrier reported a failed delivery attempt.';
+        } elseif (strpos($search, 'lost') !== false || strpos($search, 'damaged') !== false) {
+            $state = 'exception';
+            $summary = 'Carrier reported a lost or damaged shipment.';
+        } elseif (strpos($search, 'held') !== false || strpos($search, 'exception') !== false || $normalized_status === 'exception') {
+            $state = 'exception';
+            $summary = 'Carrier reported a delivery exception.';
+        }
+        if ($state === '') {
+            return null;
+        }
+        $next_actions = [];
+        if (!empty($tracking['tracking_url'])) {
+            $next_actions[] = 'open_tracking';
+        } elseif (!empty($tracking['tracking_number'])) {
+            $next_actions[] = 'track_with_carrier';
+        }
+        $next_actions[] = 'review_delivery_exception';
+        $next_actions[] = 'contact_merchant';
+        return [
+            'state' => $state,
+            'summary' => $summary,
+            'tracking_status' => $normalized_status ?: 'exception',
+            'tracking_status_label' => (string) ($tracking['tracking_status_label'] ?? ''),
+            'carrier' => (string) ($tracking['carrier'] ?? ''),
+            'tracking_number' => (string) ($tracking['tracking_number'] ?? ''),
+            'tracking_url' => (string) ($tracking['tracking_url'] ?? ''),
+            'source' => (string) ($tracking['source'] ?? ''),
+            'last_event_at' => $tracking['last_event_at'] ?? null,
+            'requires_attention' => true,
+            'next_actions' => array_values(array_unique($next_actions)),
+        ];
     }
 
     private static function fulfillment_state_from_tracking(WC_Order $order, $tracking) {

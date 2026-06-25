@@ -1514,6 +1514,18 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 "confidence": "carrier_reference",
                 "is_real_carrier_tracking": True,
             },
+            "has_delivery_exception": True,
+            "delivery_exception": {
+                "state": "partial_delivery",
+                "summary": "Shipment was only partially delivered.",
+                "tracking_status": "exception",
+                "tracking_status_label": "Partially delivered",
+                "carrier": "DHL",
+                "tracking_number": "00340434161094000001",
+                "tracking_url": "https://example.test/track/00340434161094000001",
+                "source": "woocommerce_shipment_tracking",
+                "requires_attention": True,
+            },
         }
 
         result = shopbridge_direct.command_aftercare_summary({"order": order})
@@ -1523,7 +1535,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["fulfillment"]["tracking_source"], "woocommerce_shipment_tracking")
         self.assertEqual(result["fulfillment"]["tracking_confidence"], "carrier_reference")
         self.assertTrue(result["fulfillment"]["tracking"]["is_real_carrier_tracking"])
+        self.assertTrue(result["fulfillment"]["has_delivery_exception"])
+        self.assertEqual(result["fulfillment"]["delivery_exception"]["state"], "partial_delivery")
         self.assertIn("open_tracking", {action["id"] for action in result["next_actions"]})
+        self.assertIn("review_delivery_exception", {action["id"] for action in result["next_actions"]})
 
     def test_aftercare_summary_surfaces_item_policy_review(self) -> None:
         order = sample_order_status()
