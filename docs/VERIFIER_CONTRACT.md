@@ -197,6 +197,10 @@ bucket, provider reference, and quote/payment/refund fields. Exact repeats are
 marked as idempotent; changed repeats are rejected as replay conflicts.
 Provider failures are classified in JSON with `provider_error_class`,
 `provider_status`, `provider_code`, `request_id`, and `retryable` fields.
+The sandbox verifier also exposes `/metrics` with process-local operation,
+rail, status, rejection, provider-error, latency, replay, settlement, and refund
+counters, and emits structured `agentcart.verifierEvent.v1` request logs with a
+correlation id.
 
 For production, use a durable store with transactional uniqueness constraints
 for payment transaction references, refund requested references, and refund

@@ -381,6 +381,18 @@ def verify_stripe_verifier_replay_fields() -> None:
         "provider_status",
         "request_id",
         "retryable",
+        "agentcart.verifierMetrics.v1",
+        "agentcart.verifierEvent.v1",
+        "verifierMetricsSnapshot",
+        "recordVerifierResponse",
+        "structuredLog",
+        "x-agentcart-correlation-id",
+        "provider_errors",
+        "success_rate",
+        "latency_ms",
+        "real_settlement_verified",
+        "real_refund_verified",
+        "url.pathname === \"/metrics\"",
     ]:
         require(literal in source, f"stripe verifier missing replay guard: {literal}")
     require(

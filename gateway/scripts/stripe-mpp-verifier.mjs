@@ -35,6 +35,8 @@ const stripeClient = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: "2026-02-25.preview" })
   : null;
 const memoryReplayStore = blankReplayStore();
+const verifierStartedAt = new Date().toISOString();
+const verifierMetrics = blankVerifierMetrics();
 
 function envFlag(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
@@ -49,6 +51,250 @@ function jsonResponse(body, status = 200, headers = {}) {
       ...headers,
     },
   });
+}
+
+function blankLatencyMetrics() {
+  return {
+    count: 0,
+    total_ms: 0,
+    max_ms: 0,
+    last_ms: 0,
+  };
+}
+
+function blankOutcomeBucket() {
+  return {
+    total: 0,
+    ok: 0,
+    rejected: 0,
+    error: 0,
+    latency_ms: blankLatencyMetrics(),
+  };
+}
+
+function blankVerifierMetrics() {
+  return {
+    schema: "agentcart.verifierMetrics.v1",
+    service: "agentcart-stripe-mpp-verifier",
+    mode: "sandbox",
+    started_at: verifierStartedAt,
+    requests_total: 0,
+    responses_total: 0,
+    outcomes: { ok: 0, rejected: 0, error: 0 },
+    by_operation: {},
+    by_rail: {},
+    by_status: {},
+    rejections: {},
+    provider_errors: {},
+    settlement: {
+      real_settlement_verified: 0,
+      demo_settlement_verified: 0,
+      real_refund_verified: 0,
+      idempotent_replay: 0,
+    },
+    latency_ms: blankLatencyMetrics(),
+    last_event: null,
+  };
+}
+
+function incrementCounter(bucket, key, amount = 1) {
+  const safeKey = String(key || "unknown");
+  bucket[safeKey] = Number(bucket[safeKey] || 0) + amount;
+}
+
+function latencyMsSince(startedNs) {
+  return Number((process.hrtime.bigint() - startedNs) / 1000000n);
+}
+
+function recordLatency(target, latencyMs) {
+  target.count += 1;
+  target.total_ms += latencyMs;
+  target.max_ms = Math.max(target.max_ms, latencyMs);
+  target.last_ms = latencyMs;
+}
+
+function latencySnapshot(metrics) {
+  return {
+    ...metrics,
+    avg_ms: metrics.count ? Number((metrics.total_ms / metrics.count).toFixed(2)) : 0,
+  };
+}
+
+function bucketSnapshot(bucket) {
+  const snapshot = {};
+  for (const [key, value] of Object.entries(bucket)) {
+    snapshot[key] = {
+      ...value,
+      success_rate: value.total ? Number((value.ok / value.total).toFixed(4)) : 0,
+      latency_ms: latencySnapshot(value.latency_ms),
+    };
+  }
+  return snapshot;
+}
+
+function verifierMetricsSnapshot() {
+  return {
+    ...verifierMetrics,
+    success_rate: verifierMetrics.responses_total
+      ? Number((verifierMetrics.outcomes.ok / verifierMetrics.responses_total).toFixed(4))
+      : 0,
+    latency_ms: latencySnapshot(verifierMetrics.latency_ms),
+    by_operation: bucketSnapshot(verifierMetrics.by_operation),
+    by_rail: bucketSnapshot(verifierMetrics.by_rail),
+    replay_store: replayStoreDiagnostics(),
+  };
+}
+
+function sanitizeMetricKey(value) {
+  const normalized = String(value || "unknown")
+    .toLowerCase()
+    .replace(/[^a-z0-9_.:-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 120);
+  return normalized || "unknown";
+}
+
+function responseJsonOrNull(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) return Promise.resolve(null);
+  return response
+    .clone()
+    .json()
+    .catch(() => null);
+}
+
+function requestCorrelationId(request) {
+  const supplied =
+    request.headers.get("x-agentcart-correlation-id") ||
+    request.headers.get("x-request-id") ||
+    request.headers.get("traceparent") ||
+    "";
+  return String(supplied || crypto.randomUUID()).trim().slice(0, 160);
+}
+
+function applyCorrelationHeader(response, correlationId) {
+  try {
+    response.headers.set("x-agentcart-correlation-id", correlationId);
+  } catch {
+    // Some third-party Response objects can have immutable headers.
+  }
+  return response;
+}
+
+function operationFromRequest(url, payload) {
+  if (url.pathname === "/" || url.pathname === "/health") return "health";
+  if (url.pathname === "/metrics" || url.pathname === "/metrics.json") return "metrics";
+  if (url.pathname === "/stripe-mpp/challenge") return "challenge";
+  if (url.pathname === "/stripe-mpp/paid") return "paid";
+  if (url.pathname === "/agentcart/verify") return String(payload.operation || "payment").toLowerCase();
+  return "unknown";
+}
+
+function railFromPayloadOrBody(payload, body) {
+  const expected = payload.expected && typeof payload.expected === "object" ? payload.expected : {};
+  const receipt =
+    payload.payment_receipt && typeof payload.payment_receipt === "object" ? payload.payment_receipt : {};
+  const refund = payload.refund && typeof payload.refund === "object" ? payload.refund : {};
+  const raw = body?.rail || expected.rail || receipt.rail || receipt.method || receipt.provider || refund.rail || payload.rail || "";
+  return raw ? normalizeRail(raw) : "none";
+}
+
+function quoteHashFromPayloadOrBody(payload, body) {
+  const expected = payload.expected && typeof payload.expected === "object" ? payload.expected : {};
+  const receipt =
+    payload.payment_receipt && typeof payload.payment_receipt === "object" ? payload.payment_receipt : {};
+  const quote = payload.quote && typeof payload.quote === "object" ? payload.quote : {};
+  return String(body?.quote_hash || payload.quote_hash || expected.quote_hash || quote.quote_hash || receipt.quote_hash || "");
+}
+
+function paymentContractHashFromPayloadOrBody(payload, body) {
+  const expected = payload.expected && typeof payload.expected === "object" ? payload.expected : {};
+  const receipt =
+    payload.payment_receipt && typeof payload.payment_receipt === "object" ? payload.payment_receipt : {};
+  return String(body?.payment_contract_hash || payload.payment_contract_hash || expected.payment_contract_hash || receipt.payment_contract_hash || "");
+}
+
+function outcomeFromResponse(response, body) {
+  if (response.status >= 500) return "error";
+  if (body?.ok === true && response.status < 400) return "ok";
+  if (response.status >= 400) return "rejected";
+  return "ok";
+}
+
+function rejectionReason(response, body) {
+  if (body?.replay_conflict) return "replay_conflict";
+  if (body?.provider_error_class) return `provider_${body.provider_error_class}`;
+  if (body?.error) return sanitizeMetricKey(body.error);
+  if (response.status >= 400) return `http_${response.status}`;
+  return "";
+}
+
+function updateBucket(bucket, key, outcome, latencyMs) {
+  if (!bucket[key]) bucket[key] = blankOutcomeBucket();
+  bucket[key].total += 1;
+  bucket[key][outcome] += 1;
+  recordLatency(bucket[key].latency_ms, latencyMs);
+}
+
+function structuredLog(event) {
+  console.log(
+    JSON.stringify({
+      schema: "agentcart.verifierEvent.v1",
+      at: new Date().toISOString(),
+      service: "agentcart-stripe-mpp-verifier",
+      ...event,
+    }),
+  );
+}
+
+async function recordVerifierResponse(request, url, payload, response, startedNs, correlationId) {
+  if (url.pathname === "/metrics" || url.pathname === "/metrics.json") return;
+  const body = await responseJsonOrNull(response);
+  const latencyMs = latencyMsSince(startedNs);
+  const operation = operationFromRequest(url, payload);
+  const rail = railFromPayloadOrBody(payload, body);
+  const outcome = outcomeFromResponse(response, body);
+  const reason = outcome === "ok" ? "" : rejectionReason(response, body);
+
+  verifierMetrics.requests_total += 1;
+  verifierMetrics.responses_total += 1;
+  verifierMetrics.outcomes[outcome] += 1;
+  recordLatency(verifierMetrics.latency_ms, latencyMs);
+  updateBucket(verifierMetrics.by_operation, operation, outcome, latencyMs);
+  if (rail !== "none") updateBucket(verifierMetrics.by_rail, rail, outcome, latencyMs);
+  incrementCounter(verifierMetrics.by_status, String(response.status));
+  if (reason) incrementCounter(verifierMetrics.rejections, reason);
+  if (body?.provider_error_class) incrementCounter(verifierMetrics.provider_errors, body.provider_error_class);
+  if (body?.real_settlement_verified === true) verifierMetrics.settlement.real_settlement_verified += 1;
+  if (body?.real_settlement_verified === false && operation === "payment") {
+    verifierMetrics.settlement.demo_settlement_verified += 1;
+  }
+  if (body?.real_refund_verified === true) verifierMetrics.settlement.real_refund_verified += 1;
+  if (body?.idempotent_replay === true) verifierMetrics.settlement.idempotent_replay += 1;
+
+  const event = {
+    event: "verifier_request",
+    correlation_id: correlationId,
+    method: request.method,
+    path: url.pathname,
+    operation,
+    rail,
+    status: response.status,
+    outcome,
+    ok: body?.ok === true,
+    latency_ms: latencyMs,
+    rejection_reason: reason || undefined,
+    provider_error_class: body?.provider_error_class || undefined,
+    retryable: body?.retryable === undefined ? undefined : Boolean(body.retryable),
+    quote_hash: quoteHashFromPayloadOrBody(payload, body) || undefined,
+    payment_contract_hash: paymentContractHashFromPayloadOrBody(payload, body) || undefined,
+    idempotent_replay: body?.idempotent_replay === true || undefined,
+    real_settlement_verified:
+      body?.real_settlement_verified === undefined ? undefined : Boolean(body.real_settlement_verified),
+    real_refund_verified: body?.real_refund_verified === undefined ? undefined : Boolean(body.real_refund_verified),
+  };
+  verifierMetrics.last_event = event;
+  structuredLog(event);
 }
 
 function missingConfig() {
@@ -73,6 +319,7 @@ function readiness() {
     mode: "sandbox",
     endpoints: {
       health: `http://${host}:${port}/health`,
+      metrics: `http://${host}:${port}/metrics`,
       challenge: `http://${host}:${port}/stripe-mpp/challenge`,
       paid: `http://${host}:${port}/stripe-mpp/paid`,
       verify: `http://${host}:${port}/agentcart/verify`,
@@ -854,25 +1101,54 @@ async function paid(request, payload) {
 
 async function handler(request) {
   const url = new URL(request.url);
-  if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
-    const status = readiness();
-    return jsonResponse(status, status.ok ? 200 : 503);
+  const startedNs = process.hrtime.bigint();
+  const correlationId = requestCorrelationId(request);
+  let payload = {};
+  let response;
+  try {
+    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
+      const status = readiness();
+      response = jsonResponse(status, status.ok ? 200 : 503);
+    } else if (request.method === "GET" && (url.pathname === "/metrics" || url.pathname === "/metrics.json")) {
+      response = jsonResponse(verifierMetricsSnapshot());
+    } else if (request.method !== "POST") {
+      response = jsonResponse({ ok: false, error: "not found" }, 404);
+    } else {
+      payload = await parseJsonRequest(request);
+      if (url.pathname === "/stripe-mpp/challenge") {
+        response = await challenge(payload);
+      } else if (url.pathname === "/stripe-mpp/paid") {
+        response = await paid(request, payload);
+      } else if (url.pathname === "/agentcart/verify") {
+        const unauthorized = requireVerifierToken(request);
+        if (unauthorized) {
+          response = unauthorized;
+        } else {
+          const operation = String(payload.operation || "payment").toLowerCase();
+          if (operation === "payment" || operation === "charge") {
+            response = await verifyPayment(payload);
+          } else if (operation === "refund") {
+            response = await verifyRefund(payload);
+          } else {
+            response = jsonResponse({ ok: false, error: `Unsupported operation: ${operation}` }, 400);
+          }
+        }
+      } else {
+        response = jsonResponse({ ok: false, error: "not found" }, 404);
+      }
+    }
+  } catch (error) {
+    response = jsonResponse(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      Number.isInteger(error?.status) ? error.status : 500,
+    );
   }
-  if (request.method !== "POST") {
-    return jsonResponse({ ok: false, error: "not found" }, 404);
-  }
-  const payload = await parseJsonRequest(request);
-  if (url.pathname === "/stripe-mpp/challenge") return challenge(payload);
-  if (url.pathname === "/stripe-mpp/paid") return paid(request, payload);
-  if (url.pathname === "/agentcart/verify") {
-    const unauthorized = requireVerifierToken(request);
-    if (unauthorized) return unauthorized;
-    const operation = String(payload.operation || "payment").toLowerCase();
-    if (operation === "payment" || operation === "charge") return verifyPayment(payload);
-    if (operation === "refund") return verifyRefund(payload);
-    return jsonResponse({ ok: false, error: `Unsupported operation: ${operation}` }, 400);
-  }
-  return jsonResponse({ ok: false, error: "not found" }, 404);
+  applyCorrelationHeader(response, correlationId);
+  await recordVerifierResponse(request, url, payload, response, startedNs, correlationId);
+  return response;
 }
 
 async function sendResponse(response, nodeResponse) {

@@ -130,5 +130,22 @@ assert status2 == 200 and body2["ok"] is True and body2.get("idempotent_replay")
 status3, body3 = post("conflict", payload(contract_b))
 assert status3 == 409 and body3.get("replay_conflict") is True, (status3, body3)
 
+metrics_result = subprocess.run(
+    ["curl", "-fsS", f"http://127.0.0.1:{port}/metrics"],
+    check=True,
+    text=True,
+    stdout=subprocess.PIPE,
+)
+metrics = json.loads(metrics_result.stdout)
+assert metrics["schema"] == "agentcart.verifierMetrics.v1", metrics
+assert metrics["by_operation"]["payment"]["total"] == 3, metrics["by_operation"]
+assert metrics["by_operation"]["payment"]["ok"] == 2, metrics["by_operation"]
+assert metrics["by_operation"]["payment"]["rejected"] == 1, metrics["by_operation"]
+assert metrics["by_rail"]["tempo-mpp"]["total"] == 3, metrics["by_rail"]
+assert metrics["rejections"]["replay_conflict"] == 1, metrics["rejections"]
+assert metrics["settlement"]["demo_settlement_verified"] == 2, metrics["settlement"]
+assert metrics["settlement"]["idempotent_replay"] == 1, metrics["settlement"]
+assert metrics["latency_ms"]["count"] >= 4, metrics["latency_ms"]
+
 print("verifier replay smoke ok")
 PY

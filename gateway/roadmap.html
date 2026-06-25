@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">53</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 53%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">54</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 54%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -439,7 +439,7 @@
         <h3>Next Slice</h3>
         <ul>
           <li>Merchant registry transparency and refresh UX: scheduled snapshots, alert delivery, verified domain proof, catalog hash freshness, revoke state, and safer automatic refresh.</li>
-          <li>Payment verifier hardening: managed replay backend, provider metrics, and clearer failure states.</li>
+          <li>Payment verifier hardening: managed replay backend, durable metrics store, provider alerts, and clearer failure states.</li>
           <li>WooCommerce production gate: Plugin Check, PHPCS, packaging, uninstall behavior, and integration smoke coverage.</li>
         </ul>
       </article>
@@ -528,7 +528,7 @@
           <tr>
             <td>Payments</td>
             <td>Payment proof is quote-bound, amount-correct, replay-safe, provider-verifiable, refundable, and auditable across settlement rails.</td>
-            <td>Demo rails and verifier contracts are implemented. Real provider operations and production replay/metrics remain.</td>
+            <td>Demo rails, verifier contracts, replay checks, and verifier metrics are implemented. Real provider operations and managed production metrics remain.</td>
           </tr>
           <tr>
             <td>Operations</td>
@@ -544,12 +544,12 @@
     const areas = [
       { name: "Core Commerce", value: 82, note: "catalog, quote, approval, order, stock, tax, shipping, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 72, note: "manifest profiles, domain proof, hosted record feed, persisted health snapshots, alert delivery, revocations, signed request gate" },
-      { name: "Payments", value: 57, note: "quote-bound verifier contract hash, receipt validation, replay conflict checks, fixtures, and demo proofs exist; managed rail ops still open" },
+      { name: "Payments", value: 63, note: "quote-bound verifier contract hash, receipt validation, replay conflict checks, metrics, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 42, note: "settings done; setup wizard and low-friction refresh remain" },
       { name: "Buyer Skill Path", value: 50, note: "service path works with aftercare state; skill-only path needs packaging and adapters" },
       { name: "Standards Adapters", value: 28, note: "x402 shim exists; AP2/UCP/MCP/A2A translators remain" },
       { name: "Woo Release", value: 42, note: "ZIP, package checks, review-risk checks, PHPCS/WPCS config, and official-tool gate exist; strict clean Plugin Check remains" },
-      { name: "Operations", value: 38, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, and alert delta delivery exist; beta ops remain" }
+      { name: "Operations", value: 42, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, verifier logs/metrics, and alert delta delivery exist; beta ops remain" }
     ];
 
     const gates = [
@@ -622,13 +622,13 @@
         code: "PAY",
         title: "Payment verifier",
         status: "partial",
-        value: 56,
-        scope: "Verifier contract, payment contract hash, fixture validation, replay request hashes, conflict checks, receipt checks, and testnet proof handling exist.",
-        remaining: "Move the sandbox file store to managed durable storage, add deeper refund execution, and expose provider metrics.",
+        value: 64,
+        scope: "Verifier contract, payment contract hash, fixture validation, replay request hashes, conflict checks, receipt checks, JSON metrics, structured logs, and testnet proof handling exist.",
+        remaining: "Move the sandbox file store and metrics to managed durable storage, add deeper refund execution, and wire provider alerts/dashboards.",
         items: [
           { id: "PAY-001", priority: "P0", title: "Amount-bound verifier", description: "Plugin and Stripe verifier now bind quote total, currency/FX policy, recipient/profile, quote hash, rail, and receipt via a payment_contract_hash." },
           { id: "PAY-002", priority: "P1", title: "Durable replay store", description: "Sandbox verifier now stores request hashes, exact idempotent replays, conflict rejection, lock checks, and writeability health; replace the file store with managed durable storage for production." },
-          { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Expose verifier success rate, rejection reasons, latency, settlement status, and refund state for operations." }
+          { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Sandbox verifier now exposes success rate, rejection reasons, provider errors, latency, settlement/refund counters, replay counters, and structured request logs; add managed dashboards and alerting next." }
         ]
       },
       {
@@ -726,12 +726,12 @@
         code: "OBS",
         title: "Observability",
         status: "open",
-        value: 40,
-        scope: "Health endpoints, registry monitor snapshots, alert delivery results, notification history, and verify pipeline exist.",
-        remaining: "Add metrics, structured logs, payment failure dashboards, channel retry/backoff policy, and merchant support diagnostics.",
+        value: 45,
+        scope: "Health endpoints, registry monitor snapshots, verifier JSON metrics/logs, alert delivery results, notification history, and verify pipeline exist.",
+        remaining: "Add cross-service metrics, payment failure dashboards, channel retry/backoff policy, and merchant support diagnostics.",
         items: [
           { id: "OBS-001", priority: "P0", title: "Alert delivery pipeline", description: "Registry alert deltas route to webhook and Home Assistant; extend the same delivery contract to verifier, payment, quote, checkout, and refund failures." },
-          { id: "OBS-002", priority: "P1", title: "Structured logs and metrics", description: "Emit consistent request, quote, registry, verifier, checkout, refund, and delivery metrics with correlation IDs." },
+          { id: "OBS-002", priority: "P1", title: "Structured logs and metrics", description: "Verifier requests now emit correlation IDs, JSON metrics, and structured event logs; extend the same contract to quote, checkout, refund, delivery, and registry paths." },
           { id: "OBS-003", priority: "P2", title: "Support diagnostics bundle", description: "Export a redacted diagnostic packet that merchants can share when AgentCart setup or checkout fails." }
         ]
       },

@@ -36,6 +36,7 @@ npm run stripe:mpp:verifier
 Default endpoints:
 
 - health: `http://127.0.0.1:4260/health`
+- metrics: `http://127.0.0.1:4260/metrics`
 - challenge helper: `http://127.0.0.1:4260/stripe-mpp/challenge`
 - paid test endpoint: `http://127.0.0.1:4260/stripe-mpp/paid`
 - ShopBridge verifier: `http://127.0.0.1:4260/agentcart/verify`
@@ -86,6 +87,14 @@ so concurrent verifier processes do not accept the same payment or refund
 reference. Stripe provider failures return structured `provider_error_class`,
 `provider_status`, `provider_code`, `request_id`, and `retryable` fields for
 operator triage.
+
+`/metrics` returns in-memory JSON metrics for the running verifier process:
+success rate, status counts, operation and rail buckets, rejection reasons,
+provider error classes, latency, replay counts, and settlement/refund
+verification counters. Each handled request also emits one structured
+`agentcart.verifierEvent.v1` JSON log line with an
+`x-agentcart-correlation-id` response header. The metrics endpoint intentionally
+does not include payment credentials or bearer tokens.
 
 ## Link CLI Smoke Test
 
