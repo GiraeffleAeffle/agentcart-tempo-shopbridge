@@ -9,7 +9,7 @@ WooCommerce product categories, or all published simple products. It also
 supports a non-mutating product exposure preview, blocked category slugs,
 per-product AgentCart max quantities, a product-level checkout exclusion
 override, per-product shipping-country overrides, soft AgentCart quote holds
-for managed stock, structured
+for managed stock, a fail-closed hard reservation adapter contract, structured
 restricted-goods metadata, and structured commerce-policy metadata for
 perishable, deposit-bearing, final-sale, and substitution-sensitive products in
 catalog, quote, order status, and refund policy payloads. Store-level
@@ -38,8 +38,10 @@ merchant's exposure mode, excludes product-level checkout blocks, and rejects
 quote or checkout quantities above each product's AgentCart limit. Blocked
 category slugs are excluded across every exposure mode, and restricted-goods
 metadata tells buyer agents when human review is required. Product-specific
-shipping countries and soft quote holds are rechecked before paid order
-creation. Perishable, deposit-bearing, final-sale, and
+shipping countries and quote-bound stock holds are rechecked before paid order
+creation. Hard stock-hold mode requires merchant inventory hooks to reserve,
+confirm, and release provider-backed reservations, and fails closed when those
+hooks are missing. Perishable, deposit-bearing, final-sale, and
 substitution-sensitive labels are surfaced as item policy metadata and
 preserved onto order status/refund policy responses for buyer-agent aftercare.
 Store-level returns, substitution, and cancellation-request defaults are also
@@ -55,11 +57,11 @@ Production should add richer product controls:
   labels and store defaults;
 - cancellation state-machine support that coordinates with shipment providers,
   picker/packer workflows, and rail refund execution;
-- merchant-side hard stock reservation integration for shops that need actual
-  WooCommerce inventory holds before payment. The current plugin uses soft
-  stock holds, includes hold metadata in the quote hash, revalidates before
-  order creation, and returns recovery hints when the quote can no longer be
-  used.
+- provider-specific hard reservation adapters for shops that need actual
+  inventory holds before payment. The current plugin includes the adapter
+  contract, binds hold metadata into the quote hash, confirms hard reservations
+  before paid order creation, and returns recovery hints when the quote can no
+  longer be used.
 
 ## Security
 

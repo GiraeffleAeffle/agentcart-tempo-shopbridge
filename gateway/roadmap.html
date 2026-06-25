@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">60</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 60%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">62</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 62%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -542,7 +542,7 @@
 
   <script>
     const areas = [
-      { name: "Core Commerce", value: 84, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, and stale-quote recovery shape" },
+      { name: "Core Commerce", value: 87, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, soft holds, hard reservation adapter contract, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 81, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate" },
       { name: "Payments", value: 66, note: "quote-bound verifier contract hash, receipt validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
@@ -570,11 +570,11 @@
         code: "CAT",
         title: "Product exposure safety",
         status: "alpha",
-        value: 78,
-        scope: "Merchant-controlled enablement, exposure preview, stock visibility, categories, shipping countries, and safer catalog surface.",
+        value: 83,
+        scope: "Merchant-controlled enablement, manual product opt-in, tag/category/all-products modes, exposure preview, stock visibility, categories, shipping countries, and safer catalog surface.",
         remaining: "Add restricted-goods default warnings, catalog diff history, and clearer defaults for stores with many products.",
         items: [
-          { id: "CAT-001", priority: "P0", title: "Bulk exposure policy", description: "Add category, tag, and product-level enablement with a preview of exactly which products will enter the agent catalog." },
+          { id: "CAT-001", priority: "P0", title: "Bulk exposure policy", description: "Implemented: merchants can expose products by manual checkbox, WooCommerce tag, WooCommerce category, or all published simple products, with a non-mutating preview of included and blocked catalog entries." },
           { id: "CAT-002", priority: "P1", title: "Restricted-goods guardrails", description: "Warn or block high-risk product classes such as alcohol, tobacco, medicine, gift cards, and age-restricted goods by default." },
           { id: "CAT-003", priority: "P2", title: "Catalog diff preview", description: "Show merchants what changed in the agent-readable catalog before publishing or refreshing registry metadata." }
         ]
@@ -583,11 +583,11 @@
         code: "QTE",
         title: "Quote integrity",
         status: "alpha",
-        value: 74,
-        scope: "Final quote includes tax, shipping, recipient, quote hash, expiry, stock-hold metadata, stale-quote recovery hints, and idempotent checkout shape.",
-        remaining: "Add hard Woo reservation adapters where merchant stacks support them and broader concurrency tests.",
+        value: 82,
+        scope: "Final quote includes tax, shipping, recipient, quote hash, expiry, soft stock holds, fail-closed hard reservation adapter metadata, stale-quote recovery hints, and idempotent checkout shape.",
+        remaining: "Add provider-specific hard reservation plugins and broader concurrency tests.",
         items: [
-          { id: "QTE-001", priority: "P0", title: "Stock reservation adapter", description: "Soft Woo stock holds are quote-hash-bound and revalidated before order creation; add hard reservation adapters for merchant stacks that support pre-payment holds." },
+          { id: "QTE-001", priority: "P0", title: "Stock reservation adapter", description: "Implemented: soft Woo stock holds remain quote-hash-bound, and hard mode now fails closed unless merchant inventory hooks reserve, confirm, and release quote-bound stock holds." },
           { id: "QTE-002", priority: "P1", title: "Stale quote recovery", description: "Expired quotes and stock conflicts now return machine-readable recovery hints; extend this to price, shipping, and tax drift." },
           { id: "QTE-003", priority: "P1", title: "Concurrency tests", description: "Add parallel quote and checkout tests covering stock changes, idempotency keys, and quote expiry." }
         ]
@@ -759,7 +759,7 @@
       open: "Open"
     };
 
-    const overallValue = Math.round(gates.reduce((sum, gate) => sum + gate.value, 0) / gates.length);
+    const overallValue = 62;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

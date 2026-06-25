@@ -45,6 +45,8 @@ actions.
 * Blocked categories, product-level checkout exclusion, max quantity limits,
   and product-specific shipping country overrides.
 * WooCommerce cart, tax, shipping, stock, and order creation integration.
+* Soft quote stock holds plus optional fail-closed hard reservation adapter
+  hooks for merchant inventory systems.
 * Quote hash binding, payment contract hash binding, and single-use quote
   consumption.
 * Baseline REST and `.well-known` endpoint rate limits with retry metadata,

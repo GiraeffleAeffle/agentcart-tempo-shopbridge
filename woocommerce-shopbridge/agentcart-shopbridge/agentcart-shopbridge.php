@@ -343,7 +343,7 @@ final class AgentCart_ShopBridge {
 
     public static function sanitize_stock_hold_mode_setting($value) {
         $mode = sanitize_key((string) $value);
-        return in_array($mode, ['soft', 'none'], true) ? $mode : 'soft';
+        return in_array($mode, ['soft', 'hard', 'none'], true) ? $mode : 'soft';
     }
 
     public static function sanitize_stock_hold_minutes_setting($value) {
@@ -4014,6 +4014,7 @@ final class AgentCart_ShopBridge {
         $minutes_constant_defined = defined('AGENTCART_STOCK_HOLD_MINUTES');
         $modes = [
             'soft' => 'Soft quote holds',
+            'hard' => 'Hard reservation adapter',
             'none' => 'No quote holds',
         ];
         ?>
@@ -4030,7 +4031,7 @@ final class AgentCart_ShopBridge {
                     <?php endforeach; ?>
                 </select>
                 <p class="description">
-                    Soft holds do not reduce WooCommerce stock. They make AgentCart quote and checkout checks account for active AgentCart quotes until expiry.
+                    Soft holds do not reduce WooCommerce stock. Hard mode requires an inventory adapter for <code>agentcart_shopbridge_reserve_stock</code>, <code>agentcart_shopbridge_confirm_stock_reservation</code>, and <code>agentcart_shopbridge_release_stock_reservation</code>; quotes fail closed if the adapter is missing.
                     <?php if ($mode_constant_defined): ?>
                         <br><strong>Configured in wp-config.php via <code>AGENTCART_STOCK_HOLD_MODE</code>.</strong>
                     <?php endif; ?>
@@ -4097,7 +4098,8 @@ final class AgentCart_ShopBridge {
                 'per_product_agentcart_block_override' => true,
                 'per_product_shipping_country_overrides' => true,
                 'per_product_aftercare_policy_overrides' => true,
-                'soft_quote_stock_holds' => self::stock_hold_enabled(),
+                'soft_quote_stock_holds' => self::soft_stock_hold_enabled(),
+                'hard_quote_stock_reservation_adapter' => self::hard_stock_reservation_enabled(),
                 'structured_restricted_goods_metadata' => true,
                 'structured_commerce_policy_metadata' => true,
                 'merchant_aftercare_policy_defaults' => true,
@@ -4152,8 +4154,10 @@ final class AgentCart_ShopBridge {
                 'shipping_country_overrides_rechecked_on_order' => true,
                 'stock_hold_mode' => self::stock_hold_mode(),
                 'stock_hold_minutes' => self::stock_hold_minutes(),
-                'soft_stock_holds_accounted_in_quotes' => self::stock_hold_enabled(),
-                'soft_stock_holds_accounted_in_checkout' => self::stock_hold_enabled(),
+                'soft_stock_holds_accounted_in_quotes' => self::soft_stock_hold_enabled(),
+                'soft_stock_holds_accounted_in_checkout' => self::soft_stock_hold_enabled(),
+                'hard_stock_reservation_adapter_required' => self::hard_stock_reservation_enabled(),
+                'hard_stock_reservation_adapter_available' => self::hard_stock_reservation_adapter_available(),
             ],
             'merchant_policy' => self::merchant_policy(),
             'delivery' => [
@@ -4394,7 +4398,7 @@ final class AgentCart_ShopBridge {
                 'label' => '2-4 business days',
             ],
             'delivery_window' => self::delivery_window(2, 4),
-            'stock_reserved_until' => ($stock_reservation['state'] ?? '') === 'soft_reserved' ? $expires_at : null,
+            'stock_reserved_until' => in_array(($stock_reservation['state'] ?? ''), ['soft_reserved', 'hard_reserved'], true) ? $expires_at : null,
             'stock_reservation' => $stock_reservation,
             'expires_at' => $expires_at,
             'terms_url' => self::terms_url(),
@@ -4541,11 +4545,17 @@ final class AgentCart_ShopBridge {
             $validated_items[] = [$product, $item, $quantity];
         }
 
+        $stock_reservation_confirmation = self::confirm_stock_reservation_for_order($merchant_quote_id, $quote, $receipt, $body);
+        if (is_wp_error($stock_reservation_confirmation)) {
+            return $stock_reservation_confirmation;
+        }
+
         $order = wc_create_order([
             'created_via' => 'agentcart-shopbridge',
             'status' => 'processing',
         ]);
         if (is_wp_error($order)) {
+            self::release_stock_hold($merchant_quote_id, 'order_creation_failed');
             return $order;
         }
         foreach ($validated_items as $validated_item) {
@@ -4592,6 +4602,8 @@ final class AgentCart_ShopBridge {
         $order->update_meta_data(self::ORDER_ITEMS_META, wp_json_encode($quote['items'] ?? []));
         $order->update_meta_data(self::ORDER_MERCHANT_POLICY_META, wp_json_encode($quote['merchant_policy'] ?? self::merchant_policy()));
         $order->update_meta_data('_agentcart_payment_verification', wp_json_encode($payment_verification));
+        $order->update_meta_data('_agentcart_stock_reservation', wp_json_encode($quote['stock_reservation'] ?? null));
+        $order->update_meta_data('_agentcart_stock_reservation_confirmation', wp_json_encode($stock_reservation_confirmation));
         if (!empty($payment_verification['transaction_reference'])) {
             $order->update_meta_data('_agentcart_payment_transaction_reference', sanitize_text_field((string) $payment_verification['transaction_reference']));
         }
@@ -4603,7 +4615,7 @@ final class AgentCart_ShopBridge {
         $order->add_order_note('AgentCart created this order after quote-bound payment verification: ' . sanitize_text_field((string) ($payment_verification['mode'] ?? 'unknown')) . '.');
         $order->save();
         delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
-        self::release_stock_hold($merchant_quote_id);
+        self::release_stock_hold($merchant_quote_id, 'confirmed');
         return self::serialize_order_response($order, 'created', $payment_verification);
         } finally {
             self::release_quote_lock($merchant_quote_id);
@@ -7390,7 +7402,21 @@ final class AgentCart_ShopBridge {
     }
 
     private static function stock_hold_enabled() {
+        return in_array(self::stock_hold_mode(), ['soft', 'hard'], true);
+    }
+
+    private static function soft_stock_hold_enabled() {
         return self::stock_hold_mode() === 'soft';
+    }
+
+    private static function hard_stock_reservation_enabled() {
+        return self::stock_hold_mode() === 'hard';
+    }
+
+    private static function hard_stock_reservation_adapter_available() {
+        return has_filter('agentcart_shopbridge_reserve_stock')
+            && has_filter('agentcart_shopbridge_confirm_stock_reservation')
+            && has_filter('agentcart_shopbridge_release_stock_reservation');
     }
 
     private static function stock_hold_minutes() {
@@ -7412,6 +7438,9 @@ final class AgentCart_ShopBridge {
         foreach ($holds as $quote_id => $hold) {
             $expires_at = strtotime((string) ($hold['expires_at'] ?? ''));
             if (!$expires_at || $expires_at <= $now) {
+                if (is_array($hold) && ($hold['mode'] ?? '') === 'hard') {
+                    self::release_hard_stock_reservation((string) $quote_id, $hold, 'expired');
+                }
                 unset($holds[$quote_id]);
                 $changed = true;
             }
@@ -7467,6 +7496,9 @@ final class AgentCart_ShopBridge {
 
     private static function reserve_stock_for_quote($quote_id, $quote_items, $expires_at) {
         $checked_at = gmdate('c');
+        if (self::hard_stock_reservation_enabled()) {
+            return self::reserve_hard_stock_for_quote($quote_id, $quote_items, $expires_at, $checked_at);
+        }
         if (!self::stock_hold_enabled()) {
             return [
                 'state' => 'not_reserved',
@@ -7522,15 +7554,194 @@ final class AgentCart_ShopBridge {
         ];
     }
 
-    private static function release_stock_hold($quote_id) {
+    private static function reserve_hard_stock_for_quote($quote_id, $quote_items, $expires_at, $checked_at) {
+        if (!self::hard_stock_reservation_adapter_available()) {
+            return new WP_Error(
+                'agentcart_stock_reservation_adapter_missing',
+                'Hard stock reservation mode requires a merchant inventory adapter.',
+                [
+                    'status' => 503,
+                    'stock_hold_mode' => 'hard',
+                    'required_hooks' => [
+                        'agentcart_shopbridge_reserve_stock',
+                        'agentcart_shopbridge_confirm_stock_reservation',
+                        'agentcart_shopbridge_release_stock_reservation',
+                    ],
+                ]
+            );
+        }
+        $items = [];
+        foreach ($quote_items as $item) {
+            $product = wc_get_product(intval($item['product_id'] ?? 0));
+            if (!$product instanceof WC_Product) {
+                continue;
+            }
+            $quantity = max(1, intval($item['quantity'] ?? 1));
+            $stock_check = self::validate_product_stock_for_agentcart($product, $quantity);
+            if (is_wp_error($stock_check)) {
+                return $stock_check;
+            }
+            $items[] = [
+                'product_id' => intval($item['product_id']),
+                'sku' => $product->get_sku() ?: 'WOO-' . $product->get_id(),
+                'quantity' => $quantity,
+                'managing_stock' => $product->managing_stock(),
+                'stock_quantity' => $product->managing_stock() && $product->get_stock_quantity() !== null
+                    ? intval($product->get_stock_quantity())
+                    : null,
+            ];
+        }
+        if (!$items) {
+            return [
+                'state' => 'not_applicable',
+                'mode' => 'hard',
+                'checked_at' => $checked_at,
+                'rechecked_before_order_creation' => true,
+                'reason' => 'no_reservable_items',
+            ];
+        }
+
+        $reservation = apply_filters(
+            'agentcart_shopbridge_reserve_stock',
+            null,
+            [
+                'quote_id' => $quote_id,
+                'merchant_id' => self::merchant_id(),
+                'expires_at' => $expires_at,
+                'items' => $items,
+                'currency' => get_woocommerce_currency(),
+            ]
+        );
+        if (is_wp_error($reservation)) {
+            return $reservation;
+        }
+        if (!is_array($reservation) || empty($reservation['hold_id'])) {
+            return new WP_Error(
+                'agentcart_stock_reservation_rejected',
+                'Hard stock reservation adapter did not return a hold_id.',
+                ['status' => 409]
+            );
+        }
+
+        $hold = [
+            'quote_id' => $quote_id,
+            'mode' => 'hard',
+            'hold_id' => sanitize_text_field((string) $reservation['hold_id']),
+            'provider' => sanitize_text_field((string) ($reservation['provider'] ?? 'external')),
+            'adapter_reference' => sanitize_text_field((string) ($reservation['reference'] ?? '')),
+            'created_at' => $checked_at,
+            'expires_at' => sanitize_text_field((string) ($reservation['expires_at'] ?? $expires_at)),
+            'items' => $items,
+        ];
+        $holds = self::stock_holds();
+        $holds[$quote_id] = $hold;
+        update_option(self::STOCK_HOLDS_OPTION, $holds, false);
+
+        return [
+            'state' => 'hard_reserved',
+            'mode' => 'hard',
+            'hold_id' => $hold['hold_id'],
+            'provider' => $hold['provider'],
+            'adapter_reference' => $hold['adapter_reference'],
+            'expires_at' => $hold['expires_at'],
+            'checked_at' => $checked_at,
+            'rechecked_before_order_creation' => true,
+            'requires_confirmation_before_order' => true,
+            'items' => $items,
+            'note' => 'Hard reservation supplied by merchant inventory adapter.',
+        ];
+    }
+
+    private static function confirm_stock_reservation_for_order($quote_id, $quote, $receipt, $body) {
+        $reservation = isset($quote['stock_reservation']) && is_array($quote['stock_reservation'])
+            ? $quote['stock_reservation']
+            : [];
+        if (($reservation['mode'] ?? '') !== 'hard' || ($reservation['state'] ?? '') !== 'hard_reserved') {
+            return [
+                'state' => 'not_required',
+                'mode' => (string) ($reservation['mode'] ?? self::stock_hold_mode()),
+                'checked_at' => gmdate('c'),
+            ];
+        }
+        if (!has_filter('agentcart_shopbridge_confirm_stock_reservation')) {
+            return new WP_Error(
+                'agentcart_stock_reservation_confirm_adapter_missing',
+                'Hard stock reservation confirmation adapter is not available.',
+                ['status' => 503]
+            );
+        }
+        $confirmation = apply_filters(
+            'agentcart_shopbridge_confirm_stock_reservation',
+            null,
+            [
+                'quote_id' => $quote_id,
+                'hold_id' => sanitize_text_field((string) ($reservation['hold_id'] ?? '')),
+                'reservation' => $reservation,
+                'quote_hash' => sanitize_text_field((string) ($quote['quote_hash'] ?? '')),
+                'payment_receipt_id' => sanitize_text_field((string) ($receipt['id'] ?? '')),
+                'agentcart_order_id' => sanitize_text_field((string) ($body['agentcart_order_id'] ?? '')),
+            ]
+        );
+        if (is_wp_error($confirmation)) {
+            return $confirmation;
+        }
+        if (!is_array($confirmation)) {
+            return new WP_Error(
+                'agentcart_stock_reservation_confirm_failed',
+                'Hard stock reservation confirmation adapter did not return a confirmation packet.',
+                ['status' => 409]
+            );
+        }
+        $state = sanitize_key((string) ($confirmation['state'] ?? 'confirmed'));
+        if (!in_array($state, ['confirmed', 'already_confirmed'], true)) {
+            return new WP_Error(
+                'agentcart_stock_reservation_confirm_failed',
+                'Hard stock reservation could not be confirmed.',
+                [
+                    'status' => 409,
+                    'adapter_state' => $state,
+                ]
+            );
+        }
+        return [
+            'state' => $state,
+            'mode' => 'hard',
+            'hold_id' => sanitize_text_field((string) ($confirmation['hold_id'] ?? ($reservation['hold_id'] ?? ''))),
+            'provider' => sanitize_text_field((string) ($confirmation['provider'] ?? ($reservation['provider'] ?? 'external'))),
+            'adapter_reference' => sanitize_text_field((string) ($confirmation['reference'] ?? ($reservation['adapter_reference'] ?? ''))),
+            'checked_at' => gmdate('c'),
+        ];
+    }
+
+    private static function release_stock_hold($quote_id, $reason = 'released') {
         if ($quote_id === '') {
             return;
         }
         $holds = self::stock_holds();
         if (isset($holds[$quote_id])) {
+            $hold = is_array($holds[$quote_id]) ? $holds[$quote_id] : [];
             unset($holds[$quote_id]);
             update_option(self::STOCK_HOLDS_OPTION, $holds, false);
+            if (($hold['mode'] ?? '') === 'hard' && $reason !== 'confirmed') {
+                self::release_hard_stock_reservation((string) $quote_id, $hold, $reason);
+            }
         }
+    }
+
+    private static function release_hard_stock_reservation($quote_id, $hold, $reason) {
+        if (!has_filter('agentcart_shopbridge_release_stock_reservation')) {
+            return;
+        }
+        apply_filters(
+            'agentcart_shopbridge_release_stock_reservation',
+            null,
+            [
+                'quote_id' => $quote_id,
+                'hold_id' => sanitize_text_field((string) ($hold['hold_id'] ?? '')),
+                'hold' => $hold,
+                'reason' => sanitize_key((string) $reason),
+            ]
+        );
     }
 
     private static function agentcart_enabled_product_count() {

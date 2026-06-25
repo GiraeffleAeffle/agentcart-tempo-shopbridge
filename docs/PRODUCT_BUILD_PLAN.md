@@ -147,8 +147,9 @@ Deliverables:
   merchant id, tax/shipping setup, verifier configuration, and demo-mode status;
 - support low-friction merchant-controlled product exposure modes;
 - enforce per-product quantity limits, checkout exclusion overrides, category
-  blocklists, product shipping-country overrides, soft quote stock holds, and
-  structured restricted-goods metadata;
+  blocklists, product shipping-country overrides, soft quote stock holds, a
+  fail-closed hard reservation adapter contract, and structured
+  restricted-goods metadata;
 - expose perishable, deposit-bearing, final-sale, and substitution-sensitive
   handling metadata from normal WooCommerce tags, attributes, categories, and
   optional product-level AgentCart override switches;
@@ -172,8 +173,11 @@ can prepare local sandbox access defaults, show setup progress, and surface
 buyer-agent endpoint URLs without silently exposing products. It can also run a
 sandbox quote check and guided checkout test through the same WooCommerce-backed
 quote/order code paths used by buyer agents, then clean up the test quote,
-stock hold, and test order so merchant tests do not consume availability. The plugin
-publishes a registry onboarding bundle with the suggested record, proof,
+stock hold, and test order so merchant tests do not consume availability. Hard
+stock-hold mode now requires merchant inventory hooks to reserve, confirm, and
+release quote-bound reservations; if those hooks are missing, quotes fail
+closed instead of pretending stock was reserved. The plugin publishes a registry
+onboarding bundle with the suggested record, proof,
 revocation document, and one-entry feed so registries can ingest the shop
 without merchant-side hash copy/paste. The admin registry proof panel can
 refresh generated registry metadata, store a public endpoint check result for
