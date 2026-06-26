@@ -83,11 +83,13 @@ PY
 webhook_pid=$!
 
 AGENTCART_VERIFIER_REPLAY_STORE_PATH="$tmpdir/replay/store.json" \
+AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH="$tmpdir/replay/journal.jsonl" \
 STRIPE_SANDBOX_SECRET_KEY=sk_test_dummy \
 STRIPE_PROFILE_ID=profile_test_dummy \
 MPP_SECRET_KEY=mpp_dummy_secret \
 AGENTCART_PAYMENT_VERIFIER_TOKEN=verifier_dummy \
 AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true \
+AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL=true \
 AGENTCART_VERIFIER_ALERT_WEBHOOK_URL="http://127.0.0.1:$alert_port/agentcart-verifier-alerts" \
 AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN=alert_dummy \
 AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS=0 \
@@ -198,8 +200,22 @@ assert metrics["rejections"]["replay_conflict"] == 1, metrics["rejections"]
 assert metrics["settlement"]["demo_settlement_verified"] == 2, metrics["settlement"]
 assert metrics["settlement"]["idempotent_replay"] == 1, metrics["settlement"]
 assert metrics["latency_ms"]["count"] >= 4, metrics["latency_ms"]
+assert metrics["replay_journal"]["configured"] is True, metrics["replay_journal"]
+assert metrics["replay_journal"]["required"] is True, metrics["replay_journal"]
+assert metrics["replay_journal"]["appended"] == 3, metrics["replay_journal"]
+assert metrics["replay_journal"]["failed"] == 0, metrics["replay_journal"]
+assert metrics["replay_journal"]["entry_count"] == 3, metrics["replay_journal"]
 assert metrics["alerts"]["sent"] == 1, metrics["alerts"]
 assert metrics["alerts"]["last_delivery"]["state"] == "sent", metrics["alerts"]
+
+journal_path = work / "replay" / "journal.jsonl"
+journal_raw = journal_path.read_text(encoding="utf-8")
+assert "tempo_tx_replay_001" not in journal_raw, journal_raw
+journal = [json.loads(line) for line in journal_raw.splitlines() if line.strip()]
+assert [entry["event"] for entry in journal] == ["claim_accepted", "idempotent_replay", "replay_conflict"], journal
+assert {entry["bucket"] for entry in journal} == {"payments"}, journal
+assert all(len(entry["reference_hash"]) == 64 for entry in journal), journal
+assert all(entry["metadata"]["quote_hash"] == quote_hash for entry in journal), journal
 
 alerts_path = work / "alerts.jsonl"
 alerts = [json.loads(line) for line in alerts_path.read_text(encoding="utf-8").splitlines() if line.strip()]

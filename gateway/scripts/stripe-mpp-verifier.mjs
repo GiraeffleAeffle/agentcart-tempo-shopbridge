@@ -25,6 +25,12 @@ const replayStorePath = (
 ).trim();
 const replayStoreLockTimeoutMs = Number(process.env.AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS || "5000");
 const requireDurableReplayStore = envFlag(process.env.AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY);
+const replayJournalPath = (
+  process.env.AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH ||
+  process.env.STRIPE_MPP_REPLAY_JOURNAL_PATH ||
+  ""
+).trim();
+const requireReplayJournal = envFlag(process.env.AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL);
 const defaultCurrency = (process.env.STRIPE_MPP_CURRENCY || "eur").trim().toLowerCase();
 const paymentMethodTypes = (process.env.STRIPE_MPP_PAYMENT_METHOD_TYPES || "card,link")
   .split(",")
@@ -110,6 +116,14 @@ function blankVerifierMetrics() {
       real_refund_verified: 0,
       idempotent_replay: 0,
     },
+    replay_journal: {
+      configured: Boolean(replayJournalPath),
+      required: requireReplayJournal,
+      appended: 0,
+      failed: 0,
+      last_event: null,
+      last_error: null,
+    },
     alerts: {
       webhook_configured: Boolean(verifierAlertWebhookUrl),
       min_severity: verifierAlertMinSeverity,
@@ -170,6 +184,10 @@ function verifierMetricsSnapshot() {
     by_operation: bucketSnapshot(verifierMetrics.by_operation),
     by_rail: bucketSnapshot(verifierMetrics.by_rail),
     replay_store: replayStoreDiagnostics(),
+    replay_journal: {
+      ...verifierMetrics.replay_journal,
+      ...replayJournalDiagnostics(),
+    },
   };
 }
 
@@ -489,13 +507,17 @@ function missingConfig() {
   if (requireDurableReplayStore && !replayStorePath) {
     missing.push("AGENTCART_VERIFIER_REPLAY_STORE_PATH");
   }
+  if (requireReplayJournal && !replayJournalPath) {
+    missing.push("AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH");
+  }
   return missing;
 }
 
 function readiness() {
   const missing = missingConfig();
   const replay = replayStoreDiagnostics();
-  const ok = missing.length === 0 && !replay.error;
+  const journal = replayJournalDiagnostics();
+  const ok = missing.length === 0 && !replay.error && !journal.error;
   return {
     ok,
     service: "agentcart-stripe-mpp-verifier",
@@ -519,6 +541,12 @@ function readiness() {
     replay_store_writable: replay.writable,
     replay_store_counts: replay.counts,
     replay_store_error: replay.error,
+    replay_journal: journal.label,
+    replay_journal_configured: journal.configured,
+    replay_journal_required: journal.required,
+    replay_journal_writable: journal.writable,
+    replay_journal_entry_count: journal.entry_count,
+    replay_journal_error: journal.error,
     alerts: {
       webhook_configured: Boolean(verifierAlertWebhookUrl),
       min_severity: verifierAlertMinSeverity,
@@ -540,6 +568,9 @@ function requireReady() {
         replay_store_durable: status.replay_store_durable,
         replay_store_writable: status.replay_store_writable,
         replay_store_error: status.replay_store_error,
+        replay_journal_required: status.replay_journal_required,
+        replay_journal_writable: status.replay_journal_writable,
+        replay_journal_error: status.replay_journal_error,
       },
       503,
     );
@@ -687,6 +718,126 @@ function replayStoreWriteProbe() {
   }
 }
 
+function replayJournalWriteProbe() {
+  if (!replayJournalPath) return { ok: true, configured: false };
+  const directory = path.dirname(replayJournalPath);
+  try {
+    fs.mkdirSync(directory, { recursive: true });
+    if (fs.existsSync(replayJournalPath)) {
+      fs.accessSync(replayJournalPath, fs.constants.R_OK | fs.constants.W_OK);
+    }
+    const probePath = path.join(directory, `.agentcart-replay-journal-probe-${process.pid}-${Date.now()}`);
+    fs.writeFileSync(probePath, "ok\n", { mode: 0o600 });
+    fs.unlinkSync(probePath);
+    return { ok: true, configured: true };
+  } catch (error) {
+    return {
+      ok: false,
+      configured: true,
+      error: `Could not write verifier replay journal: ${error.message}`,
+    };
+  }
+}
+
+function replayJournalEntryCount() {
+  if (!replayJournalPath || !fs.existsSync(replayJournalPath)) return 0;
+  const raw = fs.readFileSync(replayJournalPath, "utf8");
+  if (!raw.trim()) return 0;
+  return raw.split("\n").filter((line) => line.trim()).length;
+}
+
+function replayJournalDiagnostics() {
+  const diagnostics = {
+    label: replayJournalPath || "disabled",
+    configured: Boolean(replayJournalPath),
+    required: requireReplayJournal,
+    writable: !replayJournalPath ? !requireReplayJournal : false,
+    entry_count: null,
+    error: null,
+  };
+  try {
+    const writeProbe = replayJournalWriteProbe();
+    diagnostics.writable = Boolean(writeProbe.ok);
+    if (!writeProbe.ok) diagnostics.error = writeProbe.error;
+    diagnostics.entry_count = replayJournalEntryCount();
+  } catch (error) {
+    diagnostics.error = error.message;
+  }
+  return diagnostics;
+}
+
+function replayReferenceHash(reference) {
+  return crypto.createHash("sha256").update(String(reference || "").trim()).digest("hex");
+}
+
+function replayJournalMetadata(metadata) {
+  const safe = {};
+  for (const key of [
+    "provider",
+    "rail",
+    "amount_cents",
+    "currency",
+    "quote_hash",
+    "payment_contract_hash",
+    "stripe_profile_id",
+    "network",
+    "recipient",
+  ]) {
+    if (metadata?.[key] !== undefined) safe[key] = metadata[key];
+  }
+  const referenceHashes = {
+    original_transaction_reference: "original_transaction_reference_hash",
+    requested_reference: "requested_reference_hash",
+    refund_reference: "refund_reference_hash",
+  };
+  for (const [key, hashKey] of Object.entries(referenceHashes)) {
+    if (metadata?.[key] !== undefined) safe[hashKey] = replayReferenceHash(metadata[key]);
+  }
+  return normalizeReplayMetadata(safe);
+}
+
+function appendReplayJournalEvent(event) {
+  if (!replayJournalPath) return { ok: true, configured: false };
+  const entry = {
+    schema: "agentcart.verifierReplayJournal.v1",
+    at: new Date().toISOString(),
+    service: "agentcart-stripe-mpp-verifier",
+    ...event,
+  };
+  try {
+    fs.mkdirSync(path.dirname(replayJournalPath), { recursive: true });
+    fs.appendFileSync(replayJournalPath, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+    verifierMetrics.replay_journal.appended += 1;
+    verifierMetrics.replay_journal.last_event = entry;
+    verifierMetrics.replay_journal.last_error = null;
+    return { ok: true, configured: true, entry };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    verifierMetrics.replay_journal.failed += 1;
+    verifierMetrics.replay_journal.last_error = message;
+    return { ok: false, configured: true, error: message, entry };
+  }
+}
+
+function recordReplayJournalClaim({ bucket, reference, metadata, requestHash, result }) {
+  const existing = result?.existing && typeof result.existing === "object" ? result.existing : {};
+  const event = {
+    event: result?.ok
+      ? result.idempotentReplay
+        ? "idempotent_replay"
+        : "claim_accepted"
+      : "replay_conflict",
+    bucket,
+    reference_hash: replayReferenceHash(reference),
+    request_hash: requestHash,
+    existing_request_hash: result?.existingRequestHash || existing.request_hash || undefined,
+    first_seen_at: existing.first_seen_at || undefined,
+    replay_count: existing.replay_count === undefined ? undefined : Number(existing.replay_count),
+    metadata: replayJournalMetadata(metadata),
+  };
+  return appendReplayJournalEvent(event);
+}
+
 async function acquireReplayStoreLock() {
   if (!replayStorePath) {
     return () => {};
@@ -778,7 +929,7 @@ async function claimReplayReference(bucket, reference, metadata = {}) {
   }
   const normalizedMetadata = normalizeReplayMetadata(metadata);
   const requestHash = replayRequestHash(bucket, key, normalizedMetadata);
-  return withReplayStoreMutation((store) => {
+  const result = await withReplayStoreMutation((store) => {
     if (!store[bucket] || typeof store[bucket] !== "object") store[bucket] = {};
     const existing = store[bucket][key];
     if (existing) {
@@ -800,6 +951,7 @@ async function claimReplayReference(bucket, reference, metadata = {}) {
       return {
         ok: false,
         save: false,
+        existingRequestHash: existingHash,
         response: jsonResponse(
           {
             ok: false,
@@ -823,6 +975,21 @@ async function claimReplayReference(bucket, reference, metadata = {}) {
     };
     return { ok: true, requestHash };
   });
+  const journal = recordReplayJournalClaim({ bucket, reference: key, metadata: normalizedMetadata, requestHash, result });
+  if (!journal.ok && requireReplayJournal) {
+    return {
+      ok: false,
+      response: jsonResponse(
+        {
+          ok: false,
+          error: "Verifier replay journal write failed.",
+          replay_journal_error: journal.error,
+        },
+        503,
+      ),
+    };
+  }
+  return result;
 }
 
 function expectedFromPayload(payload) {

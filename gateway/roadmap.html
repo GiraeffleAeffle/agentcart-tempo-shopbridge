@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">83</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 83%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">84</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 84%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -544,7 +544,7 @@
     const areas = [
       { name: "Core Commerce", value: 91, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
       { name: "Trust And Registry", value: 85, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, HMAC/RSA signed request gate, and audit trail" },
-      { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
+      { name: "Payments", value: 70, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, append-only replay journal, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 66, note: "settings, setup wizard, readiness, registry actions, registry health summary, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 76, note: "service path, packaged direct skill, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
@@ -623,13 +623,13 @@
         code: "PAY",
         title: "Payment verifier",
         status: "partial",
-        value: 67,
-        scope: "Verifier contract, payment contract hash, fixture validation, replay request hashes, conflict checks, receipt checks, JSON metrics, structured logs, failure alert webhooks, and testnet proof handling exist.",
-        remaining: "Move the sandbox file store and metrics to managed durable storage, add deeper refund execution, and wire provider dashboards.",
+        value: 70,
+        scope: "Verifier contract, payment contract hash, fixture validation, replay request hashes, conflict checks, receipt checks, append-only replay journal, JSON metrics, structured logs, failure alert webhooks, and testnet proof handling exist.",
+        remaining: "Move the sandbox file store, replay journal, and metrics to managed transactional storage, add deeper refund execution, and wire provider dashboards.",
         items: [
           { id: "PAY-001", priority: "P0", title: "Amount-bound verifier", description: "Plugin and Stripe verifier now bind quote total, currency/FX policy, recipient/profile, quote hash, rail, and receipt via a payment_contract_hash." },
-          { id: "PAY-002", priority: "P1", title: "Durable replay store", description: "Sandbox verifier now stores request hashes, exact idempotent replays, conflict rejection, lock checks, and writeability health; replace the file store with managed durable storage for production." },
-          { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Sandbox verifier now exposes success rate, rejection reasons, provider errors, latency, settlement/refund counters, replay counters, structured request logs, and throttled failure webhooks; add managed dashboards next." }
+          { id: "PAY-002", priority: "P1", title: "Durable replay store", description: "Sandbox verifier now stores request hashes, exact idempotent replays, conflict rejection, lock checks, writeability health, and an optional sanitized append-only replay journal; replace the file store with managed transactional storage for production." },
+          { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Sandbox verifier now exposes success rate, rejection reasons, provider errors, latency, settlement/refund counters, replay counters, replay journal health, structured request logs, and throttled failure webhooks; add managed dashboards next." }
         ]
       },
       {
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 83;
+    const overallValue = 84;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

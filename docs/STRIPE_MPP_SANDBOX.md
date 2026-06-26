@@ -17,6 +17,8 @@ AGENTCART_PAYMENT_VERIFIER_TOKEN=replace-with-random-hex-token
 AGENTCART_VERIFIER_REPLAY_STORE_PATH=/tmp/agentcart-stripe-mpp-replay.json
 AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true
 AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS=5000
+AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH=/tmp/agentcart-stripe-mpp-replay-journal.jsonl
+AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL=false
 AGENTCART_VERIFIER_ALERT_WEBHOOK_URL=
 AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN=
 AGENTCART_VERIFIER_ALERT_MIN_SEVERITY=warning
@@ -83,19 +85,29 @@ stored in the replay store after a successful refund response.
 
 `/health` reports the replay store kind, whether durable replay is required,
 whether a durable replay store is configured, lock mode, bucket counts, and any
-replay-store read error. Set `AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true`
-for production-shaped runs so health fails closed unless
-`AGENTCART_VERIFIER_REPLAY_STORE_PATH` or `STRIPE_MPP_REPLAY_STORE_PATH` is set.
+replay-store read error. It also reports the optional replay journal path,
+writeability, required flag, entry count, and last journal error. Set
+`AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true` for production-shaped runs so
+health fails closed unless `AGENTCART_VERIFIER_REPLAY_STORE_PATH` or
+`STRIPE_MPP_REPLAY_STORE_PATH` is set. Set
+`AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL=true` when support/audit operations
+must fail closed unless `AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH` or
+`STRIPE_MPP_REPLAY_JOURNAL_PATH` is writable.
 File-backed replay storage uses a sibling `.lock` file around replay mutations
 so concurrent verifier processes do not accept the same payment or refund
-reference. Stripe provider failures return structured `provider_error_class`,
-`provider_status`, `provider_code`, `request_id`, and `retryable` fields for
-operator triage.
+reference. The replay journal appends sanitized
+`agentcart.verifierReplayJournal.v1` events for accepted claims, exact
+idempotent retries, and replay conflicts. It hashes the rail reference instead
+of writing the raw transaction or refund reference. Stripe provider failures
+return structured `provider_error_class`, `provider_status`, `provider_code`,
+`request_id`, and `retryable` fields for operator triage.
 
 `/metrics` returns in-memory JSON metrics for the running verifier process:
 success rate, status counts, operation and rail buckets, rejection reasons,
 provider error classes, latency, replay counts, and settlement/refund
-verification counters. Each handled request also emits one structured
+verification counters. Metrics also include replay journal configured/required
+state, entry count, appended/failed write counters, and the last journal error.
+Each handled request also emits one structured
 `agentcart.verifierEvent.v1` JSON log line with an
 `x-agentcart-correlation-id` response header. The metrics endpoint intentionally
 does not include payment credentials or bearer tokens.

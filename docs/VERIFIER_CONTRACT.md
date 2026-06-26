@@ -194,17 +194,25 @@ replay store for the running process. Set
 `AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true` for production-shaped verifier
 runs; `/health` then fails closed unless a replay store path is configured.
 `AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS` controls the local lock timeout.
+Optionally set `AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH` or
+`STRIPE_MPP_REPLAY_JOURNAL_PATH` to append sanitized
+`agentcart.verifierReplayJournal.v1` events for accepted claims, exact
+idempotent retries, and replay conflicts. Set
+`AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL=true` when support/audit operations
+must fail closed unless that journal is writable.
 `/health` exposes replay-store kind, whether durable replay is required and
-configured, lock mode, writeability, bucket counts, and replay-store read/write
-errors. Each accepted replay entry stores a `request_hash` over the replay
-bucket, provider reference, and quote/payment/refund fields. Exact repeats are
-marked as idempotent; changed repeats are rejected as replay conflicts.
+configured, lock mode, writeability, bucket counts, replay-store read/write
+errors, replay-journal writeability, entry count, and journal errors. Each
+accepted replay entry stores a `request_hash` over the replay bucket, provider
+reference, and quote/payment/refund fields. Exact repeats are marked as
+idempotent; changed repeats are rejected as replay conflicts. The journal hashes
+the rail reference instead of writing raw payment or refund references.
 Provider failures are classified in JSON with `provider_error_class`,
 `provider_status`, `provider_code`, `request_id`, and `retryable` fields.
 The sandbox verifier also exposes `/metrics` with process-local operation,
 rail, status, rejection, provider-error, latency, replay, settlement, and refund
-counters, and emits structured `agentcart.verifierEvent.v1` request logs with a
-correlation id.
+counters plus replay-journal appended/failed counters, and emits structured
+`agentcart.verifierEvent.v1` request logs with a correlation id.
 When `AGENTCART_VERIFIER_ALERT_WEBHOOK_URL` is configured, rejected or failed
 verifier requests also emit `agentcart.verifier_alert_notification.v1` webhook
 events with severity, code, operation, rail, status, quote hash, payment
@@ -213,5 +221,6 @@ throttled by `AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS`.
 
 For production, use a durable store with transactional uniqueness constraints
 for payment transaction references, refund requested references, and refund
-references. The checked-in lockfile store is suitable for sandbox and local
-self-hosted testing; it is not a managed payment-provider ledger.
+references. The checked-in lockfile store plus append-only journal is suitable
+for sandbox, local self-hosted testing, and support diagnostics; it is not a
+managed payment-provider ledger.
