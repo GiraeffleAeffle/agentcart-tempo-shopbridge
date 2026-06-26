@@ -30,6 +30,7 @@ fulfillment, refunds, and support. The plugin exposes:
 * `/wp-json/agentcart/v1/orders/{id}/status`
 * `/wp-json/agentcart/v1/orders/{id}/refunds`
 * `/wp-json/agentcart/v1/orders/{id}/cancellations`
+* `/wp-json/agentcart/v1/support-diagnostics` for WooCommerce managers
 
 Agents can discover opt-in products, request final WooCommerce-backed quotes,
 bind approval/payment to the quote hash, create paid WooCommerce orders after
@@ -63,6 +64,9 @@ actions.
   checkout, status, refund, and cancellation calls.
 * Bounded signed-request audit trail that stores verification outcomes and
   sanitized hashes instead of raw request bodies, signatures, or nonces.
+* Admin support diagnostics download with readiness, registry, signed-request,
+  sandbox-check, verifier, catalog, and WooCommerce setup summaries redacted for
+  merchant support.
 * Merchant-token-protected refund and cancellation endpoints.
 * Admin actions to generate or rotate local merchant and verifier tokens while
   respecting secrets managed in wp-config.php.
@@ -145,6 +149,8 @@ privacy policy depend on the registry service configured by the merchant.
    Registry Proof section.
 9. Test the manifest, catalog, quote, and guided non-production checkout path
    before public use.
+10. Use Support Diagnostics on `WooCommerce -> AgentCart` when setup, registry,
+    signed request, verifier, or checkout support needs a redacted JSON bundle.
 
 == Frequently Asked Questions ==
 

@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">84</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 84%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">85</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 85%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -533,7 +533,7 @@
           <tr>
             <td>Operations</td>
             <td>Release, monitoring, logs, failure modes, support docs, and plugin review gates are boring and repeatable.</td>
-            <td>Verify pipeline, strict WordPress official gates, registry monitor snapshots, alert delivery, validated pilot checklist, buyer-agent matrix, and prompt-injection corpus exist. WordPress.org assets and support runbooks still need work.</td>
+            <td>Verify pipeline, strict WordPress official gates, registry monitor snapshots, alert delivery, merchant diagnostics bundle, validated pilot checklist, buyer-agent matrix, and prompt-injection corpus exist. WordPress.org assets and support runbooks still need work.</td>
           </tr>
         </tbody>
       </table>
@@ -545,11 +545,11 @@
       { name: "Core Commerce", value: 91, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
       { name: "Trust And Registry", value: 85, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, HMAC/RSA signed request gate, and audit trail" },
       { name: "Payments", value: 70, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, append-only replay journal, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
-      { name: "Merchant UX", value: 66, note: "settings, setup wizard, readiness, registry actions, registry health summary, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
+      { name: "Merchant UX", value: 67, note: "settings, setup wizard, readiness, registry actions, registry health summary, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 76, note: "service path, packaged direct skill, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
       { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 61, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
+      { name: "Operations", value: 64, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, merchant support diagnostics, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
       { name: "Pilot Launch", value: 36, note: "P0 external beta checklist and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
 
@@ -727,13 +727,13 @@
         code: "OBS",
         title: "Observability",
         status: "partial",
-        value: 60,
-        scope: "Health endpoints, registry monitor snapshots, verifier JSON metrics/logs, verifier failure webhooks, redacted commerce ops event delivery for quote/checkout/refund/delivery exceptions, alert delivery results, notification history, and verify pipeline exist.",
-        remaining: "Add cross-service metrics, payment failure dashboards, channel retry/backoff policy, merchant support diagnostics, and managed retention.",
+        value: 66,
+        scope: "Health endpoints, registry monitor snapshots, verifier JSON metrics/logs, verifier failure webhooks, redacted merchant support diagnostics, redacted commerce ops event delivery for quote/checkout/refund/delivery exceptions, alert delivery results, notification history, and verify pipeline exist.",
+        remaining: "Add cross-service metrics, payment failure dashboards, channel retry/backoff policy, support runbooks, and managed retention.",
         items: [
           { id: "OBS-001", priority: "P0", title: "Alert delivery pipeline", description: "Implemented: registry alert deltas route to webhook/Home Assistant/SMTP, verifier failures emit throttled webhooks, and quote/checkout/refund/delivery-exception audit events can emit independently configured redacted ops notifications to webhook, Home Assistant, or SMTP." },
           { id: "OBS-002", priority: "P1", title: "Structured logs and metrics", description: "Verifier requests now emit correlation IDs, JSON metrics, and structured event logs; extend the same contract to quote, checkout, refund, delivery, and registry paths." },
-          { id: "OBS-003", priority: "P2", title: "Support diagnostics bundle", description: "Export a redacted diagnostic packet that merchants can share when AgentCart setup or checkout fails." }
+          { id: "OBS-003", priority: "P2", title: "Support diagnostics bundle", description: "Implemented: ShopBridge exports a WooCommerce-manager redacted diagnostic packet covering readiness, setup guide, registry state, signed-request audit summary, verifier configuration, product exposure, sandbox checks, and WooCommerce setup." }
         ]
       },
       {
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 84;
+    const overallValue = 85;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

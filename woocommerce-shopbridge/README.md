@@ -12,6 +12,7 @@ AgentCart ShopBridge exposes an opt-in WooCommerce store to household or agentic
 - order status and tracking: `/wp-json/agentcart/v1/orders/{id}/status`
 - merchant-approved refund recording: `/wp-json/agentcart/v1/orders/{id}/refunds`
 - merchant-approved cancellation recording: `/wp-json/agentcart/v1/orders/{id}/cancellations`
+- WooCommerce-manager support diagnostics: `/wp-json/agentcart/v1/support-diagnostics`
 
 The merchant remains merchant of record. WooCommerce remains the source of truth for products, stock, tax setup, shipping, fulfillment, refunds, and customer support.
 
@@ -115,6 +116,9 @@ sandbox quote/order testing. The checkout test creates a sandbox approval
 record, carries its hashes into the payment verifier payload and WooCommerce
 order metadata, then cancels the test order. The same public-safe setup state is
 also exposed in the capability document for remote onboarding tools.
+The same admin page can download a redacted support diagnostics JSON bundle for
+setup, registry, signed-request, verifier, product exposure, sandbox-check, and
+WooCommerce configuration support.
 
 For a live endpoint smoke test against a seeded or staging shop:
 

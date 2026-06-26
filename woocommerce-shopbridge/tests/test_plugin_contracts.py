@@ -76,6 +76,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             "/wp-json/agentcart/v1/orders/{id}/status",
             "/wp-json/agentcart/v1/orders/{id}/refunds",
             "/wp-json/agentcart/v1/orders/{id}/cancellations",
+            "/wp-json/agentcart/v1/support-diagnostics",
         ]:
             self.assertIn(endpoint, readme)
 
@@ -917,6 +918,77 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("enforce_signed_request_policy($request, 'refund')", refund_body)
         self.assertIn("enforce_signed_request_policy($request, 'cancellation')", cancellation_body)
         self.assertIn("signed_request_verified($request)", status_body + refund_body + cancellation_body)
+
+    def test_support_diagnostics_bundle_is_admin_only_and_redacted(self) -> None:
+        routes_body = function_body("register_routes")
+        auth_body = function_body("authorize_support_diagnostics")
+        settings_body = function_body("render_settings_page")
+        panel_body = function_body("render_support_diagnostics_panel")
+        download_body = function_body("maybe_handle_support_diagnostics_download")
+        capability_body = function_body("capability_document")
+        bundle_body = function_body("support_diagnostics_bundle")
+        sanitizer_body = function_body("support_diagnostics_sanitize")
+        sensitive_key_body = function_body("support_diagnostics_key_sensitive")
+        check_summary_body = function_body("support_diagnostics_check_summary")
+        exposure_summary_body = function_body("support_diagnostics_exposure_preview_summary")
+
+        self.assertIn("'/support-diagnostics'", routes_body)
+        self.assertIn("authorize_support_diagnostics", routes_body)
+        self.assertIn("current_user_can('manage_woocommerce')", auth_body)
+        self.assertIn("agentcart_forbidden", auth_body)
+        self.assertIn("maybe_handle_support_diagnostics_download", settings_body)
+        self.assertIn("render_support_diagnostics_panel", settings_body)
+        self.assertIn("agentcart_shopbridge_support_action", panel_body + download_body)
+        self.assertIn("download_support_diagnostics", panel_body + download_body)
+        self.assertIn("wp_json_encode(self::support_diagnostics_bundle()", download_body)
+        self.assertIn("'support_diagnostics_bundle' => true", capability_body)
+        self.assertIn("'diagnostics_requires_manage_woocommerce' => true", capability_body)
+        self.assertIn("agentcart.shopbridge.support_diagnostics.v1", bundle_body)
+
+        for redaction_field in [
+            "'secrets_included' => false",
+            "'request_bodies_included' => false",
+            "'payment_bodies_included' => false",
+            "'raw_signatures_included' => false",
+            "'raw_nonces_included' => false",
+            "'token_fields' => 'presence_and_hash_only'",
+        ]:
+            self.assertIn(redaction_field, bundle_body)
+        for safe_field in [
+            "'merchant_token_configured' => $merchant_token !== ''",
+            "'merchant_token_hash' => self::support_diagnostics_hash($merchant_token)",
+            "'payment_verifier_token_configured' => $payment_verifier_token !== ''",
+            "'payment_verifier_token_hash' => self::support_diagnostics_hash($payment_verifier_token)",
+            "'registry_connection_token_configured' => $registry_connection_token !== ''",
+            "'registry_connection_token_hash' => self::support_diagnostics_hash($registry_connection_token)",
+            "'payment_verifier_host_hash' => self::support_diagnostics_url_host_hash",
+            "'tempo_recipient_hash' => self::support_diagnostics_hash($tempo_recipient)",
+            "'stripe_profile_hash' => self::support_diagnostics_hash($stripe_profile_id)",
+        ]:
+            self.assertIn(safe_field, bundle_body)
+        for raw_field in [
+            "'payment_verifier_token' =>",
+            "'merchant_token' =>",
+            "'registry_connection_token' =>",
+            "'tempo_recipient' => $tempo_recipient",
+            "'stripe_profile_id' => $stripe_profile_id",
+        ]:
+            self.assertNotIn(raw_field, bundle_body)
+        self.assertIn("signed_request_audit_summary", bundle_body)
+        self.assertIn("signed_request_audit_events", bundle_body)
+        self.assertIn("support_diagnostics_exposure_preview_summary", bundle_body)
+        self.assertIn("support_diagnostics_check_summary", bundle_body)
+        self.assertIn("support_diagnostics_key_sensitive", sanitizer_body)
+        self.assertIn("authorization|body|credential|nonce|password|private_key|public_key|receipt|secret|signature|token", sensitive_key_body)
+        self.assertIn("'public_key_fingerprint'", sensitive_key_body)
+        self.assertIn("'nonce_hash'", sensitive_key_body)
+        self.assertIn("'signature_hash'", sensitive_key_body)
+        self.assertIn("product_id_hash", check_summary_body)
+        self.assertIn("order_id_hash", check_summary_body)
+        self.assertIn("ship_to_country", check_summary_body)
+        self.assertNotIn("product_title", check_summary_body)
+        self.assertNotIn("order_url", check_summary_body)
+        self.assertNotIn("included_products", exposure_summary_body)
 
     def test_product_safety_controls_are_exposed_and_enforced(self) -> None:
         self.assertIn("PRODUCT_BLOCKED_META", SOURCE)

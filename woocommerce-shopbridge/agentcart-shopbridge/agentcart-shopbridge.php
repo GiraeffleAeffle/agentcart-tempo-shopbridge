@@ -115,6 +115,11 @@ final class AgentCart_ShopBridge {
             'callback' => [__CLASS__, 'capability'],
             'permission_callback' => [__CLASS__, 'authorize_public_read'],
         ]);
+        register_rest_route(self::API_NAMESPACE, '/support-diagnostics', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [__CLASS__, 'support_diagnostics'],
+            'permission_callback' => [__CLASS__, 'authorize_support_diagnostics'],
+        ]);
         register_rest_route(self::API_NAMESPACE, '/catalog', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [__CLASS__, 'catalog'],
@@ -427,6 +432,7 @@ final class AgentCart_ShopBridge {
             wp_die(esc_html__('You do not have permission to manage AgentCart ShopBridge.', 'agentcart-shopbridge'));
         }
         self::ensure_token();
+        self::maybe_handle_support_diagnostics_download();
         $setup_action_notice = self::maybe_handle_setup_action();
         $product_action_notice = self::maybe_handle_product_exposure_action();
         $credential_action_notice = self::maybe_handle_credential_action();
@@ -435,6 +441,7 @@ final class AgentCart_ShopBridge {
         $registry_proof_url = self::registry_proof_url();
         $registry_revocation_url = self::registry_revocation_url();
         $registry_bundle_url = self::registry_bundle_url();
+        $support_diagnostics_url = rest_url(self::API_NAMESPACE . '/support-diagnostics');
         $registry_record_hash = self::registry_record_hash_value();
         $registry_updated_at = self::registry_updated_at();
         $registry_claim_hash = self::registry_claim_hash();
@@ -614,6 +621,7 @@ final class AgentCart_ShopBridge {
                     <tr><th scope="row">Catalog</th><td><code><?php echo esc_html($catalog_url); ?></code></td></tr>
                     <tr><th scope="row">Quote</th><td><code><?php echo esc_html($quote_url); ?></code></td></tr>
                     <tr><th scope="row">Paid order</th><td><code><?php echo esc_html($orders_url); ?></code></td></tr>
+                    <tr><th scope="row">Support diagnostics</th><td><code><?php echo esc_html($support_diagnostics_url); ?></code></td></tr>
                 </tbody>
             </table>
 
@@ -680,6 +688,7 @@ final class AgentCart_ShopBridge {
             </p>
             <?php self::render_credential_action_forms(); ?>
             <?php self::render_signed_request_audit_panel(); ?>
+            <?php self::render_support_diagnostics_panel(); ?>
 
             <h2 id="agentcart-product-exposure">Product Exposure</h2>
             <p style="max-width: 760px;">
@@ -1372,6 +1381,46 @@ final class AgentCart_ShopBridge {
         return null;
     }
 
+    private static function maybe_handle_support_diagnostics_download() {
+        if (strtoupper((string) sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? ''))) !== 'POST') {
+            return;
+        }
+        if (empty($_POST['agentcart_support_action'])) {
+            return;
+        }
+        check_admin_referer('agentcart_shopbridge_support_action');
+        $action = sanitize_key((string) wp_unslash($_POST['agentcart_support_action']));
+        if ($action !== 'download_support_diagnostics') {
+            return;
+        }
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('You do not have permission to download AgentCart diagnostics.', 'agentcart-shopbridge'));
+        }
+
+        $filename = 'agentcart-shopbridge-diagnostics-' . gmdate('Ymd-His') . '.json';
+        nocache_headers();
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        echo wp_json_encode(self::support_diagnostics_bundle(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wp_json_encode serializes a redacted diagnostics download.
+        exit;
+    }
+
+    private static function render_support_diagnostics_panel() {
+        ?>
+        <h3 id="agentcart-support-diagnostics">Support Diagnostics</h3>
+        <p style="max-width: 760px;">
+            Download a redacted JSON packet for AgentCart setup, registry, signed-request,
+            quote, checkout, verifier, and WooCommerce configuration support. Raw secrets,
+            request bodies, payment bodies, nonces, and signatures are excluded.
+        </p>
+        <form method="post" style="display: inline-block; margin-bottom: 12px;">
+            <?php wp_nonce_field('agentcart_shopbridge_support_action'); ?>
+            <input type="hidden" name="agentcart_support_action" value="download_support_diagnostics" />
+            <?php submit_button('Download diagnostics JSON', 'secondary', 'submit', false); ?>
+        </form>
+        <?php
+    }
+
     private static function render_registry_transparency_panel($registry_public_check, $registry_connection_status = null) {
         $registry_public_check = is_array($registry_public_check) ? $registry_public_check : [];
         $registry_connection_status = is_array($registry_connection_status) ? $registry_connection_status : self::registry_connection_status();
@@ -1966,6 +2015,17 @@ final class AgentCart_ShopBridge {
         $signed_request = self::enforce_signed_request_policy($request, self::rate_limit_bucket_for_request($request));
         if (is_wp_error($signed_request)) {
             return $signed_request;
+        }
+        return true;
+    }
+
+    public static function authorize_support_diagnostics(WP_REST_Request $request) {
+        unset($request);
+        if (!class_exists('WooCommerce')) {
+            return new WP_Error('agentcart_woocommerce_missing', 'WooCommerce is required.', ['status' => 503]);
+        }
+        if (!current_user_can('manage_woocommerce')) {
+            return new WP_Error('agentcart_forbidden', 'Support diagnostics require WooCommerce manager access.', ['status' => 403]);
         }
         return true;
     }
@@ -4081,6 +4141,323 @@ final class AgentCart_ShopBridge {
         return false;
     }
 
+    private static function support_diagnostics_bundle() {
+        $readiness = self::readiness();
+        $payment_verifier_token = self::payment_verifier_token();
+        $merchant_token = self::merchant_token_value();
+        $registry_connection_token = self::registry_connection_token();
+        $support_email = self::support_email();
+        $tempo_recipient = self::tempo_recipient();
+        $stripe_profile_id = self::stripe_profile_id();
+
+        return [
+            'schema' => 'agentcart.shopbridge.support_diagnostics.v1',
+            'generated_at' => self::current_registry_timestamp(),
+            'redaction' => [
+                'secrets_included' => false,
+                'request_bodies_included' => false,
+                'payment_bodies_included' => false,
+                'raw_signatures_included' => false,
+                'raw_nonces_included' => false,
+                'token_fields' => 'presence_and_hash_only',
+            ],
+            'plugin' => [
+                'name' => 'AgentCart ShopBridge',
+                'version' => '0.1.0',
+                'wordpress_version' => get_bloginfo('version'),
+                'woocommerce_version' => defined('WC_VERSION') ? WC_VERSION : '',
+                'php_version' => PHP_VERSION,
+                'environment_type' => function_exists('wp_get_environment_type') ? wp_get_environment_type() : '',
+                'site_url_hash' => self::support_diagnostics_hash(home_url('/')),
+                'public_origin_is_https' => self::public_origin_is_https(),
+            ],
+            'merchant' => [
+                'merchant_id' => self::merchant_id(),
+                'stable_merchant_id_configured' => self::stable_merchant_id_configured(),
+                'support_email_configured' => $support_email !== '',
+                'support_email_hash' => self::support_diagnostics_hash($support_email),
+                'terms_url_configured' => self::terms_url() !== '',
+                'returns_url_configured' => self::returns_url() !== '',
+            ],
+            'readiness' => $readiness,
+            'setup_guide' => self::support_diagnostics_setup_summary(self::setup_guide($readiness)),
+            'endpoints' => [
+                'manifest' => home_url('/.well-known/agentcart.json'),
+                'registry_proof' => self::registry_proof_url(),
+                'registry_revocations' => self::registry_revocation_url(),
+                'registry_bundle' => self::registry_bundle_url(),
+                'capability' => rest_url(self::API_NAMESPACE . '/capability'),
+                'catalog' => rest_url(self::API_NAMESPACE . '/catalog'),
+                'quote' => rest_url(self::API_NAMESPACE . '/quote'),
+                'orders' => rest_url(self::API_NAMESPACE . '/orders'),
+                'support_diagnostics' => rest_url(self::API_NAMESPACE . '/support-diagnostics'),
+            ],
+            'tokens' => [
+                'merchant_token_configured' => $merchant_token !== '',
+                'merchant_token_hash' => self::support_diagnostics_hash($merchant_token),
+                'payment_verifier_token_configured' => $payment_verifier_token !== '',
+                'payment_verifier_token_hash' => self::support_diagnostics_hash($payment_verifier_token),
+                'registry_connection_token_configured' => $registry_connection_token !== '',
+                'registry_connection_token_hash' => self::support_diagnostics_hash($registry_connection_token),
+            ],
+            'payment' => [
+                'checkout_mode' => self::checkout_mode(),
+                'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
+                'payment_verifier_configured' => self::payment_verifier_url() !== '',
+                'payment_verifier_host_hash' => self::support_diagnostics_url_host_hash(self::payment_verifier_url()),
+                'tempo_network' => self::tempo_network(),
+                'tempo_recipient_configured' => $tempo_recipient !== '',
+                'tempo_recipient_hash' => self::support_diagnostics_hash($tempo_recipient),
+                'stripe_profile_configured' => $stripe_profile_id !== '',
+                'stripe_profile_hash' => self::support_diagnostics_hash($stripe_profile_id),
+                'x402_configured' => self::x402_profile_configured(),
+                'x402_network' => self::x402_network(),
+                'x402_asset_symbol' => self::x402_asset_symbol(),
+                'x402_asset_currency' => self::x402_asset_currency(),
+            ],
+            'signed_requests' => [
+                'mode' => self::signed_request_mode(),
+                'configured' => self::signed_request_profile_configured(),
+                'required_for' => self::signed_request_required_buckets(),
+                'active_signer' => self::signed_request_active_key_id(),
+                'active_key_count' => self::signed_request_active_key_count(),
+                'retiring_key_count' => self::signed_request_retiring_key_count(),
+                'signature_schemes' => self::signed_request_supported_signature_schemes(),
+                'accepted_signers' => self::signed_request_public_key_summaries(),
+                'audit_summary' => self::signed_request_audit_summary(),
+                'recent_audit_events' => array_slice(array_reverse(self::signed_request_audit_events()), 0, 20),
+            ],
+            'registry' => [
+                'claim_hash' => self::registry_claim_hash(),
+                'claim_fingerprint' => self::registry_claim_fingerprint(),
+                'record_hash' => self::registry_record_hash_value(),
+                'updated_at' => self::registry_updated_at(),
+                'domain_proof_configured' => self::registry_domain_proof_configured(),
+                'connection_configured' => self::registry_connection_url() !== '',
+                'connection_host_hash' => self::support_diagnostics_url_host_hash(self::registry_connection_url()),
+                'public_check' => self::support_diagnostics_sanitize(self::registry_public_check_result()),
+                'connection_status' => self::support_diagnostics_sanitize(self::registry_connection_status()),
+                'health_check' => self::support_diagnostics_sanitize(self::registry_health_check_result()),
+            ],
+            'catalog' => [
+                'product_exposure_mode' => self::product_exposure_mode(),
+                'product_exposure_label' => self::product_exposure_mode_label(),
+                'product_exposure_tag_hash' => self::support_diagnostics_hash(self::product_exposure_tag()),
+                'product_exposure_category_count' => count(self::product_exposure_categories()),
+                'blocked_category_count' => count(self::product_blocked_categories()),
+                'agentcart_enabled_product_count' => self::agentcart_enabled_product_count(),
+                'stock_hold_mode' => self::stock_hold_mode(),
+                'stock_hold_minutes' => self::stock_hold_minutes(),
+                'exposure_preview' => self::support_diagnostics_exposure_preview_summary(self::product_exposure_preview_result()),
+            ],
+            'sandbox_checks' => [
+                'quote' => self::support_diagnostics_check_summary(get_option(self::SANDBOX_QUOTE_CHECK_OPTION, [])),
+                'checkout' => self::support_diagnostics_check_summary(get_option(self::SANDBOX_CHECKOUT_TEST_OPTION, [])),
+            ],
+            'woocommerce' => [
+                'currency' => function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : '',
+                'base_country' => class_exists('WooCommerce') && WC() && WC()->countries ? WC()->countries->get_base_country() : '',
+                'tax_enabled' => function_exists('wc_tax_enabled') ? wc_tax_enabled() : false,
+                'tax_rates_configured' => self::tax_rates_configured(),
+                'shipping_country_count' => count(self::shipping_countries()),
+                'shipping_methods_configured' => self::shipping_methods_configured(),
+                'legal_pages_configured' => self::legal_pages_configured(),
+            ],
+            'recommendations' => self::support_diagnostics_recommendations($readiness),
+        ];
+    }
+
+    private static function support_diagnostics_setup_summary($guide) {
+        $guide = is_array($guide) ? $guide : [];
+        $steps = [];
+        foreach (($guide['steps'] ?? []) as $step) {
+            if (!is_array($step)) {
+                continue;
+            }
+            $steps[] = [
+                'id' => (string) ($step['id'] ?? ''),
+                'label' => (string) ($step['label'] ?? ''),
+                'state' => (string) ($step['state'] ?? ''),
+                'required_for' => is_array($step['required_for'] ?? null) ? array_values(array_map('strval', $step['required_for'])) : [],
+            ];
+        }
+        $next_step = is_array($guide['next_step'] ?? null) ? $guide['next_step'] : [];
+        return [
+            'demo_complete' => !empty($guide['demo_complete']),
+            'production_complete' => !empty($guide['production_complete']),
+            'next_step' => [
+                'id' => (string) ($next_step['id'] ?? ''),
+                'label' => (string) ($next_step['label'] ?? ''),
+                'settings_anchor' => (string) ($next_step['settings_anchor'] ?? ''),
+            ],
+            'steps' => $steps,
+        ];
+    }
+
+    private static function support_diagnostics_exposure_preview_summary($preview) {
+        $preview = is_array($preview) ? $preview : [];
+        if (!$preview) {
+            return [];
+        }
+        $blocked_reason_counts = [];
+        $blocked_products = is_array($preview['blocked_products'] ?? null) ? $preview['blocked_products'] : [];
+        foreach ($blocked_products as $product) {
+            if (!is_array($product)) {
+                continue;
+            }
+            $reasons = is_array($product['blocked_reasons'] ?? null) ? $product['blocked_reasons'] : [];
+            foreach ($reasons as $reason) {
+                $reason = sanitize_key((string) $reason);
+                if ($reason === '') {
+                    continue;
+                }
+                $blocked_reason_counts[$reason] = intval($blocked_reason_counts[$reason] ?? 0) + 1;
+            }
+        }
+        ksort($blocked_reason_counts);
+        return [
+            'schema' => (string) ($preview['schema'] ?? ''),
+            'state' => (string) ($preview['state'] ?? ''),
+            'checked_at' => (string) ($preview['checked_at'] ?? ''),
+            'settings_fingerprint' => (string) ($preview['settings_fingerprint'] ?? ''),
+            'mode' => (string) ($preview['mode'] ?? ''),
+            'published_simple_count' => intval($preview['published_simple_count'] ?? 0),
+            'included_count' => intval($preview['included_count'] ?? 0),
+            'blocked_count' => intval($preview['blocked_count'] ?? 0),
+            'not_matching_count' => intval($preview['not_matching_count'] ?? 0),
+            'preview_limit' => intval($preview['preview_limit'] ?? 0),
+            'blocked_reason_counts' => $blocked_reason_counts,
+        ];
+    }
+
+    private static function support_diagnostics_check_summary($check) {
+        $check = is_array($check) ? $check : [];
+        if (!$check) {
+            return [];
+        }
+        $summary = [
+            'state' => (string) ($check['state'] ?? ''),
+            'checked_at' => (string) ($check['checked_at'] ?? ''),
+            'message' => self::support_diagnostics_trim_string((string) ($check['message'] ?? '')),
+            'error_code' => (string) ($check['error_code'] ?? ''),
+            'currency' => (string) ($check['currency'] ?? ''),
+            'quote_hash' => (string) ($check['quote_hash'] ?? ''),
+            'payment_contract_hash' => (string) ($check['payment_contract_hash'] ?? ''),
+            'payment_mode' => (string) ($check['payment_mode'] ?? ''),
+            'real_settlement_verified' => !empty($check['real_settlement_verified']),
+            'cleanup' => self::support_diagnostics_trim_string((string) ($check['cleanup'] ?? '')),
+        ];
+        foreach (['subtotal_cents', 'shipping_cents', 'total_cents', 'vat_line_count'] as $key) {
+            if (array_key_exists($key, $check)) {
+                $summary[$key] = intval($check[$key]);
+            }
+        }
+        if (!empty($check['product_id'])) {
+            $summary['product_id_hash'] = self::support_diagnostics_hash((string) $check['product_id']);
+        }
+        if (!empty($check['order_id'])) {
+            $summary['order_id_hash'] = self::support_diagnostics_hash((string) $check['order_id']);
+        }
+        if (is_array($check['ship_to'] ?? null)) {
+            $summary['ship_to_country'] = strtoupper(sanitize_text_field((string) ($check['ship_to']['country'] ?? '')));
+        }
+        if (is_array($check['error_data'] ?? null)) {
+            $summary['error_data'] = self::support_diagnostics_sanitize($check['error_data']);
+        }
+        return $summary;
+    }
+
+    private static function support_diagnostics_recommendations($readiness) {
+        $readiness = is_array($readiness) ? $readiness : [];
+        $recommendations = [];
+        foreach (($readiness['missing_for_demo'] ?? []) as $missing) {
+            $recommendations[] = 'Demo setup: configure ' . (string) $missing . '.';
+        }
+        foreach (($readiness['missing_for_production'] ?? []) as $missing) {
+            $recommendations[] = 'Production setup: configure ' . (string) $missing . '.';
+        }
+        if (self::payment_verifier_url() !== '' && self::payment_verifier_token() === '') {
+            $recommendations[] = 'Generate and configure a matching payment verifier token.';
+        }
+        if (self::registry_connection_url() !== '' && !self::registry_connection_status()) {
+            $recommendations[] = 'Submit the registry bundle and run the registry health check.';
+        }
+        if (!self::product_exposure_preview_result()) {
+            $recommendations[] = 'Run Product Exposure preview after changing product exposure settings.';
+        }
+        return array_values(array_unique($recommendations));
+    }
+
+    private static function support_diagnostics_sanitize($value) {
+        if (is_array($value)) {
+            $sanitized = [];
+            foreach ($value as $key => $item) {
+                $sanitized_key = is_int($key) ? $key : sanitize_key((string) $key);
+                if (!is_int($key) && self::support_diagnostics_key_sensitive((string) $key)) {
+                    $sanitized[$sanitized_key] = '[redacted]';
+                    continue;
+                }
+                $sanitized[$sanitized_key] = self::support_diagnostics_sanitize($item);
+            }
+            return $sanitized;
+        }
+        if (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
+            return $value;
+        }
+        return self::support_diagnostics_trim_string((string) $value);
+    }
+
+    private static function support_diagnostics_key_sensitive($key) {
+        $key = strtolower((string) $key);
+        if ($key === '') {
+            return false;
+        }
+        $safe_keys = [
+            'approval_decision_hash',
+            'approval_hash',
+            'approval_record_hash',
+            'claim_hash',
+            'expected_digest_hash',
+            'nonce_hash',
+            'path_hash',
+            'payment_contract_hash',
+            'public_key_fingerprint',
+            'quote_hash',
+            'record_hash',
+            'settings_fingerprint',
+            'signature_alg',
+            'signature_hash',
+            'signature_schemes',
+            'supplied_digest_hash',
+        ];
+        if (in_array($key, $safe_keys, true)) {
+            return false;
+        }
+        if (substr($key, -5) === '_hash' || substr($key, -12) === '_fingerprint') {
+            return false;
+        }
+        return (bool) preg_match('/(authorization|body|credential|nonce|password|private_key|public_key|receipt|secret|signature|token)/', $key);
+    }
+
+    private static function support_diagnostics_trim_string($value) {
+        $value = sanitize_text_field((string) $value);
+        if (strlen($value) <= 300) {
+            return $value;
+        }
+        return substr($value, 0, 300) . '...';
+    }
+
+    private static function support_diagnostics_hash($value) {
+        $value = trim((string) $value);
+        return $value === '' ? '' : hash('sha256', $value);
+    }
+
+    private static function support_diagnostics_url_host_hash($url) {
+        $host = wp_parse_url((string) $url, PHP_URL_HOST);
+        $host = strtolower(trim((string) $host));
+        return $host === '' ? '' : self::support_diagnostics_hash($host);
+    }
+
     private static function render_text_setting_row($label, $option, $value, $constant, $description) {
         self::render_setting_row('text', $label, $option, $value, $constant, $description);
     }
@@ -4528,6 +4905,11 @@ final class AgentCart_ShopBridge {
         return self::capability_document();
     }
 
+    public static function support_diagnostics($request = null) {
+        unset($request);
+        return self::support_diagnostics_bundle();
+    }
+
     private static function capability_document() {
         return [
             'name' => 'AgentCart ShopBridge for WooCommerce',
@@ -4573,6 +4955,7 @@ final class AgentCart_ShopBridge {
                 'signed_request_nonce_replay_protection' => self::signed_request_profile_configured(),
                 'signed_request_key_rotation' => self::signed_request_profile_configured(),
                 'signed_request_audit_trail' => true,
+                'support_diagnostics_bundle' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'carrier_tracking_adapter_contract' => true,
@@ -4583,6 +4966,11 @@ final class AgentCart_ShopBridge {
                 'refunds_remain_in_woocommerce_with_external_rail_verification' => true,
                 'cancellation_endpoint' => true,
                 'cancellations_do_not_execute_refunds' => true,
+            ],
+            'support' => [
+                'diagnostics_endpoint' => rest_url(self::API_NAMESPACE . '/support-diagnostics'),
+                'diagnostics_requires_manage_woocommerce' => true,
+                'diagnostics_redacted' => true,
             ],
             'rate_limits' => self::public_rate_limits_document(),
             'product_exposure' => [
