@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">80</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 80%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">81</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 81%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -547,7 +547,7 @@
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 66, note: "settings, setup wizard, readiness, registry actions, registry health summary, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 76, note: "service path, packaged direct skill, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
-      { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
+      { name: "Standards Adapters", value: 50, note: "x402 shim, MCP-style tool catalog, and AP2-style mandate mapping exist; UCP/A2A translators remain" },
       { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
       { name: "Operations", value: 61, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
       { name: "Pilot Launch", value: 36, note: "P0 external beta checklist and P1 buyer-agent matrix validators exist; live evidence collection remains" }
@@ -675,12 +675,12 @@
         code: "STD",
         title: "Protocol translators",
         status: "alpha",
-        value: 42,
-        scope: "x402 payment requirement shim, protocol profiles, and MCP-style tool catalog are present.",
-        remaining: "Add AP2 mandate mapping, UCP-style checkout mapping, and A2A handoff profile.",
+        value: 50,
+        scope: "x402 payment requirement shim, protocol profiles, MCP-style tool catalog, and AP2-style mandate mapping are present.",
+        remaining: "Add UCP-style checkout mapping, A2A handoff profile, and signed AP2 runtime integration when a concrete conformance target is selected.",
         items: [
           { id: "STD-001", priority: "P0", title: "MCP tool schema", description: "Implemented: /v1/mcp/tools and /mcp/tools.json publish MCP-style tool definitions for merchant discovery, catalog fetch, quote, approval, checkout, aftercare, refunds, and audit import/export." },
-          { id: "STD-002", priority: "P1", title: "AP2 mandate mapping", description: "Map AgentCart approval records to AP2-style mandate fields so approvals are portable across agent runtimes." },
+          { id: "STD-002", priority: "P1", title: "AP2 mandate mapping", description: "Implemented alpha: AgentCart service approvals, direct skill approval packets, and direct skill payment handoffs expose AP2-style checkout/payment mandate mappings with an explicit unsigned-adapter compliance boundary." },
           { id: "STD-003", priority: "P2", title: "UCP and A2A profiles", description: "Document UCP checkout and A2A handoff mappings for future interoperability tests." }
         ]
       },
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 80;
+    const overallValue = 81;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

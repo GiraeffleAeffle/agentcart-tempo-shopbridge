@@ -374,6 +374,98 @@ def hash_without(value: dict[str, Any], *excluded: str) -> str:
     return canonical_json_hash({key: child for key, child in value.items() if key not in excluded_set})
 
 
+def service_quote_hash_payload(quote: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "merchant_id": quote.get("merchant_id"),
+        "merchant_of_record": quote.get("merchant_of_record"),
+        "items": [
+            {
+                "product_id": item.get("product_id"),
+                "sku": item.get("sku"),
+                "quantity": item.get("quantity"),
+                "unit_price_cents": item.get("unit_price_cents"),
+                "line_total_cents": item.get("line_total_cents"),
+                "currency": item.get("currency"),
+                "vat_rate_bps": item.get("vat_rate_bps"),
+            }
+            for item in quote.get("items", [])
+            if isinstance(item, dict)
+        ],
+        "ship_to": quote.get("ship_to"),
+        "subtotal_cents": quote.get("subtotal_cents"),
+        "shipping": quote.get("shipping"),
+        "vat_lines": quote.get("vat_lines"),
+        "total_cents": quote.get("total_cents"),
+        "currency": quote.get("currency"),
+        "delivery_window": quote.get("delivery_window"),
+        "stock_reserved_until": quote.get("stock_reserved_until"),
+        "expires_at": quote.get("expires_at"),
+        "terms_url": quote.get("terms_url"),
+        "returns_url": quote.get("returns_url"),
+    }
+
+
+def service_quote_hash(quote: dict[str, Any]) -> str:
+    return canonical_json_hash(service_quote_hash_payload(quote))
+
+
+def ap2_style_mandate_mapping(material: dict[str, Any], approval_hash: str, *, mode: str) -> dict[str, Any]:
+    destination = material.get("payment_destination") if isinstance(material.get("payment_destination"), dict) else {}
+    merchant = material.get("merchant") if isinstance(material.get("merchant"), dict) else {}
+    total_cents = int(material.get("total_cents") or 0)
+    currency = str(material.get("currency") or "").upper()
+    payment_contract_hash = str(destination.get("payment_contract_hash") or "")
+    mapping = {
+        "schema": "agentcart.ap2_style_mandate_mapping.v1",
+        "mode": mode,
+        "mapping_status": "unsigned_adapter_mapping",
+        "compatibility_note": "AP2-style field mapping only; not an AP2 signed VDC or network assertion.",
+        "requires_trusted_surface_signature": True,
+        "checkout_mandate": {
+            "vct": "mandate.checkout.1",
+            "source": "agentcart.approval_material",
+            "checkout_reference_hash": approval_hash,
+            "merchant": merchant,
+            "items": material.get("items") if isinstance(material.get("items"), list) else [],
+            "subtotal_cents": int(material.get("subtotal_cents") or 0),
+            "shipping_cents": int(material.get("shipping_cents") or 0),
+            "total": {"amount_cents": total_cents, "currency": currency},
+            "delivery": material.get("delivery") if isinstance(material.get("delivery"), dict) else {},
+            "ship_to": material.get("ship_to") if isinstance(material.get("ship_to"), dict) else {},
+            "quote_id": str(material.get("quote_id") or ""),
+            "quote_hash": str(material.get("quote_hash") or ""),
+            "expires_at": str(material.get("expires_at") or ""),
+        },
+        "payment_mandate": {
+            "vct": "mandate.payment.1",
+            "source": "agentcart.payment_handoff",
+            "transaction_id": approval_hash,
+            "checkout_reference_hash": approval_hash,
+            "merchant": merchant,
+            "amount": {"amount_cents": total_cents, "currency": currency},
+            "payment_rail": str(destination.get("rail") or destination.get("method") or ""),
+            "payment_destination": destination,
+            "payment_contract_hash": payment_contract_hash,
+            "quote_hash": str(material.get("quote_hash") or ""),
+            "quote_id": str(material.get("quote_id") or ""),
+            "expires_at": str(material.get("expires_at") or ""),
+        },
+        "audit_bindings": {
+            "approval_hash": approval_hash,
+            "quote_hash": str(material.get("quote_hash") or ""),
+            "payment_contract_hash": payment_contract_hash,
+        },
+        "safety": {
+            "human_approval_required": True,
+            "merchant_text_untrusted": True,
+            "no_real_settlement_without_external_verifier": True,
+            "approval_required_before_payment": True,
+        },
+    }
+    mapping["mapping_hash"] = hash_without(mapping, "mapping_hash")
+    return mapping
+
+
 def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
@@ -6557,6 +6649,7 @@ separate human confirmation.
                 "merchant_of_record": self.adapter_for_merchant(merchant_id or self.adapter.merchant["id"]).merchant["merchant_of_record"],
                 "created_at": isoformat(now),
             }
+            quote["quote_hash"] = service_quote_hash(quote)
             policy_result = self.evaluate_policy_for_quote(quote)
             quote["policy_result"] = policy_result
             self.state["quotes"][quote_id] = quote
@@ -6882,8 +6975,10 @@ separate human confirmation.
                 "expires_at",
                 "payment_destination",
                 "policy_result",
+                "ap2_style_mandate_mapping",
             ],
         }
+        record["ap2_style_mandate_mapping"] = ap2_style_mandate_mapping(material, approval_hash, mode="agentcart_service")
         record["approval_record_hash"] = hash_without(record, "approval_record_hash")
         return record
 

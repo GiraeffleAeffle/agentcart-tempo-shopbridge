@@ -34,6 +34,7 @@ py311_files=(
   scripts/check-wordpress-official-gates.py
   scripts/check-woocommerce-compatibility-matrix.py
   scripts/check-buyer-agent-matrix.py
+  scripts/check-ap2-mandate-mapping.py
   scripts/check-pilot-readiness.py
   scripts/check-prompt-injection-corpus.py
   scripts/check-quote-reliability-matrix.py
@@ -134,6 +135,11 @@ section "Buyer-agent adapter examples"
 python3 "$ROOT_DIR/scripts/check-buyer-agent-adapter-examples.py" \
   --config "$ROOT_DIR/gateway/config/buyer_agent_adapter_examples.json" \
   --matrix "$ROOT_DIR/gateway/config/buyer_agent_test_matrix.json" >/dev/null
+
+section "AP2-style mandate mapping"
+python3 "$ROOT_DIR/scripts/check-ap2-mandate-mapping.py" \
+  --mapping "$ROOT_DIR/gateway/config/ap2_mandate_mapping.json" \
+  --verify-test-refs >/dev/null
 
 section "Prompt-injection corpus"
 python3 "$ROOT_DIR/scripts/check-prompt-injection-corpus.py" \

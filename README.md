@@ -30,6 +30,8 @@ For final quote expiry, stock, price, shipping, and tax drift handling, see
 `docs/QUOTE_RELIABILITY.md`.
 For standards alignment across x402/MPP, ERC-8004, ERC-8128, ERC-8183, AP2,
 ACP, UCP, MCP, and A2A, see `docs/STANDARDS_ALIGNMENT.md`.
+For the checked AP2-style approval/payment mandate adapter boundary, see
+`docs/AP2_MANDATE_MAPPING.md`.
 
 ## Demo Flow
 

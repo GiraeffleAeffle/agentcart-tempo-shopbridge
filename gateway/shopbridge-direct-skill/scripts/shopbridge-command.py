@@ -185,6 +185,63 @@ def hash_without(value: dict[str, Any], *excluded: str) -> str:
     return sha256_hex({key: child for key, child in value.items() if key not in excluded_set})
 
 
+def ap2_style_mandate_mapping(material: dict[str, Any], approval_hash: str, *, mode: str) -> dict[str, Any]:
+    destination = material.get("payment_destination") if isinstance(material.get("payment_destination"), dict) else {}
+    merchant = material.get("merchant") if isinstance(material.get("merchant"), dict) else {}
+    total_cents = int(material.get("total_cents") or 0)
+    currency = str(material.get("currency") or "").upper()
+    payment_contract_hash = str(destination.get("payment_contract_hash") or "")
+    mapping = {
+        "schema": "agentcart.ap2_style_mandate_mapping.v1",
+        "mode": mode,
+        "mapping_status": "unsigned_adapter_mapping",
+        "compatibility_note": "AP2-style field mapping only; not an AP2 signed VDC or network assertion.",
+        "requires_trusted_surface_signature": True,
+        "checkout_mandate": {
+            "vct": "mandate.checkout.1",
+            "source": "agentcart.approval_material",
+            "checkout_reference_hash": approval_hash,
+            "merchant": merchant,
+            "items": material.get("items") if isinstance(material.get("items"), list) else [],
+            "subtotal_cents": int(material.get("subtotal_cents") or 0),
+            "shipping_cents": int(material.get("shipping_cents") or 0),
+            "total": {"amount_cents": total_cents, "currency": currency},
+            "delivery": material.get("delivery") if isinstance(material.get("delivery"), dict) else {},
+            "quote_id": str(material.get("quote_id") or ""),
+            "quote_hash": str(material.get("quote_hash") or ""),
+            "expires_at": str(material.get("expires_at") or ""),
+            "data_trust": material.get("data_trust") if isinstance(material.get("data_trust"), dict) else {},
+        },
+        "payment_mandate": {
+            "vct": "mandate.payment.1",
+            "source": "agentcart.payment_handoff",
+            "transaction_id": approval_hash,
+            "checkout_reference_hash": approval_hash,
+            "merchant": merchant,
+            "amount": {"amount_cents": total_cents, "currency": currency},
+            "payment_rail": str(material.get("payment_rail") or destination.get("rail") or ""),
+            "payment_destination": destination,
+            "payment_contract_hash": payment_contract_hash,
+            "quote_hash": str(material.get("quote_hash") or ""),
+            "quote_id": str(material.get("quote_id") or ""),
+            "expires_at": str(material.get("expires_at") or ""),
+        },
+        "audit_bindings": {
+            "approval_hash": approval_hash,
+            "quote_hash": str(material.get("quote_hash") or ""),
+            "payment_contract_hash": payment_contract_hash,
+        },
+        "safety": {
+            "human_approval_required": True,
+            "merchant_text_untrusted": True,
+            "no_real_settlement_without_external_verifier": True,
+            "approval_required_before_payment": True,
+        },
+    }
+    mapping["mapping_hash"] = hash_without(mapping, "mapping_hash")
+    return mapping
+
+
 def iso_now() -> str:
     return utcnow().replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -1408,6 +1465,7 @@ def approval_material(quote: dict[str, Any], *, payment_rail: str | None = None)
     destination = payment_destination(quote, payment_rail)
     selected_rail = destination.get("rail") or payment_rail
     return {
+        "quote_id": quote.get("id"),
         "merchant": {
             "id": merchant.get("id"),
             "name": merchant.get("name"),
@@ -1463,6 +1521,7 @@ def approval_record_from_material(
             "payment_destination",
         ],
     }
+    record["ap2_style_mandate_mapping"] = ap2_style_mandate_mapping(material, approval_hash, mode=mode)
     record["approval_record_hash"] = hash_without(record, "approval_record_hash")
     return record
 
@@ -1486,6 +1545,7 @@ def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -
         "summary": summary,
         "quote": compact,
         "approval_record": record,
+        "ap2_style_mandate_mapping": record["ap2_style_mandate_mapping"],
         "approval_in_skill_only_mode": "Human approval happens in the agent chat; this portable approval_record can be stored by the agent or exported into an AgentCart service audit trail.",
     }
 
@@ -2929,6 +2989,7 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
         "merchant_quote_id": str(quote["id"]),
         "approval_hash": approval["approval_hash"],
         "approval_record_hash": approval["approval_record_hash"],
+        "ap2_style_payment_mandate": approval["ap2_style_mandate_mapping"]["payment_mandate"],
         "merchant": {
             "id": str(merchant.get("id") or ""),
             "name": str(merchant.get("name") or ""),
@@ -2942,6 +3003,7 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
         "approval_hash": approval["approval_hash"],
         "approval_record_hash": approval["approval_record_hash"],
         "approval_record": approval["approval_record"],
+        "ap2_style_mandate_mapping": approval["ap2_style_mandate_mapping"],
         "approval_summary": approval["summary"],
         "payment_request": payment_request,
         "payment_handoff_hash": sha256_hex(payment_request),

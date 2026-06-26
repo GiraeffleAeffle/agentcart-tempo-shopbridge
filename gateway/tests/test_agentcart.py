@@ -2023,10 +2023,24 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(approval["approval_record"]["approval_hash"], approval["approval_hash"])
             self.assertEqual(approval["approval_record"]["approval_record_hash"], approval["approval_record_hash"])
             self.assertEqual(approval["approval_record"]["approval_material"]["total_cents"], 1480)
+            self.assertRegex(approval["approval_record"]["approval_material"]["quote_hash"], r"^[0-9a-f]{64}$")
             self.assertEqual(
                 approval["approval_record"]["approval_material"]["payment_destination"]["method"],
                 "demo",
             )
+            mapping = approval["approval_record"]["ap2_style_mandate_mapping"]
+            self.assertEqual(mapping["schema"], "agentcart.ap2_style_mandate_mapping.v1")
+            self.assertEqual(mapping["mapping_status"], "unsigned_adapter_mapping")
+            self.assertTrue(mapping["requires_trusted_surface_signature"])
+            self.assertEqual(mapping["checkout_mandate"]["vct"], "mandate.checkout.1")
+            self.assertEqual(
+                mapping["checkout_mandate"]["quote_hash"],
+                approval["approval_record"]["approval_material"]["quote_hash"],
+            )
+            self.assertEqual(mapping["payment_mandate"]["vct"], "mandate.payment.1")
+            self.assertEqual(mapping["payment_mandate"]["transaction_id"], approval["approval_hash"])
+            self.assertEqual(mapping["payment_mandate"]["amount"]["amount_cents"], 1480)
+            self.assertEqual(mapping["audit_bindings"]["approval_hash"], approval["approval_hash"])
 
     def test_mppx_include_output_extracts_payment_receipt_reference(self) -> None:
         receipt = agentcart.b64url_json(

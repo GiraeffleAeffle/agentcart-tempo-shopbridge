@@ -8,10 +8,10 @@
       "version": "0.1.0"
     },
     {
-      "bytes": 33104,
+      "bytes": 33828,
       "component": "shopbridge_direct_skill",
       "file": "dist/shopbridge-direct-skill.zip",
-      "sha256": "c3f1e676a169d81ba2df3d0cc3b83c41674937e6490d83955bae45557df885df",
+      "sha256": "54bce826daac4abc7760c53d1adfaf2c88b1ed727d65e28563024e96a5da2d39",
       "version": "0.1.0-alpha"
     }
   ],

@@ -44,9 +44,11 @@ local integrations.
 | 3 | x402 compatibility shim | Alpha implemented: quote payment requirements now expose x402 exact-payment headers and checkout can answer unpaid quote-bound requests with `PAYMENT-REQUIRED` |
 | 4 | Signed HTTP request verification | Alpha implemented: ShopBridge can require HMAC signed requests with method/path/digest/nonce/expiry binding for sensitive endpoints, support multiple active signing keys, rotate active signing keys with a retirement window, retain sanitized signed-request audit records, and buyer skill/service paths can sign them |
 | 5 | MCP tool catalog | Alpha implemented: `/v1/mcp/tools` and `/mcp/tools.json` publish stable tool definitions for discovery, catalog, quote, approval, checkout, aftercare, refund, and audit flows |
-| 6 | Escrow/custom-order flow | Adds ERC-8183-style jobs only where normal retail checkout is the wrong model |
+| 6 | AP2-style mandate mapping | Alpha implemented: approval records and payment handoffs now expose checked checkout/payment mandate-shaped fields without claiming signed AP2 VDC compliance |
+| 7 | UCP and A2A translators | Add the next protocol adapters around the same AgentCart commerce core |
+| 8 | Escrow/custom-order flow | Adds ERC-8183-style jobs only where normal retail checkout is the wrong model |
 
-The immediate next implementation slice is **AP2/UCP/A2A translators**.
+The immediate next implementation slice is **UCP/A2A translators**.
 ShopBridge advertises `signed-http-ready` only when signed request mode and at
 least one accepted request-signing key are configured. The profile publishes the
 active signer id and non-secret accepted-key metadata so buyer agents can bind

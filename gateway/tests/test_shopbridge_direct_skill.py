@@ -507,6 +507,15 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(packet["approval_record"]["approval_hash"], packet["approval_hash"])
         self.assertEqual(packet["approval_record"]["approval_record_hash"], packet["approval_record_hash"])
         self.assertEqual(packet["approval_record"]["approval_material"]["total_cents"], 1480)
+        mapping = packet["ap2_style_mandate_mapping"]
+        self.assertEqual(mapping["schema"], "agentcart.ap2_style_mandate_mapping.v1")
+        self.assertEqual(mapping["mapping_status"], "unsigned_adapter_mapping")
+        self.assertTrue(mapping["requires_trusted_surface_signature"])
+        self.assertEqual(mapping["checkout_mandate"]["vct"], "mandate.checkout.1")
+        self.assertEqual(mapping["checkout_mandate"]["quote_id"], "woo_quote_123")
+        self.assertEqual(mapping["payment_mandate"]["vct"], "mandate.payment.1")
+        self.assertEqual(mapping["payment_mandate"]["transaction_id"], packet["approval_hash"])
+        self.assertEqual(mapping["payment_mandate"]["payment_contract_hash"], "payment-contract-hash-123")
 
     def test_approval_packet_marks_merchant_text_untrusted(self) -> None:
         quote = sample_quote(
@@ -681,6 +690,9 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["payment_request"]["currency"], "EUR")
         self.assertEqual(result["payment_request"]["quote_hash"], "quote-hash-123")
         self.assertEqual(result["payment_request"]["payment_contract_hash"], "payment-contract-hash-123")
+        self.assertEqual(result["payment_request"]["ap2_style_payment_mandate"]["vct"], "mandate.payment.1")
+        self.assertEqual(result["payment_request"]["ap2_style_payment_mandate"]["transaction_id"], approval_hash)
+        self.assertEqual(result["ap2_style_mandate_mapping"]["payment_mandate"]["amount"]["amount_cents"], 1480)
         self.assertEqual(
             result["payment_request"]["payment_destination"]["stripe_profile_id"],
             "acct_shop_123",

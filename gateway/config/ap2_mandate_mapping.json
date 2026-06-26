@@ -1,0 +1,118 @@
+{
+  "schema": "agentcart.ap2_mandate_mapping.v1",
+  "stage": "external_beta",
+  "gate_id": "STD-002",
+  "title": "AP2-style mandate mapping",
+  "compliance_claim": "ap2_style_field_mapping_not_signed_ap2_vdc",
+  "status": "implemented_alpha",
+  "summary": "AgentCart approval records expose checkout- and payment-mandate-shaped fields so buyer agents can carry portable approval context across runtimes without claiming full AP2 network compliance.",
+  "required_mapping_fields": [
+    "checkout_mandate",
+    "payment_mandate",
+    "audit_bindings",
+    "safety",
+    "mapping_hash"
+  ],
+  "required_invariants": [
+    "human_approval_required",
+    "quote_hash_preserved",
+    "payment_contract_hash_preserved",
+    "amount_currency_bound",
+    "merchant_bound",
+    "not_signed_vdc_claim",
+    "trusted_surface_signature_required"
+  ],
+  "runtime_paths": [
+    {
+      "id": "agentcart-service-approval",
+      "mode": "agentcart_service",
+      "source": "gateway/agentcart.py",
+      "output": "approval_record.ap2_style_mandate_mapping",
+      "covers": [
+        "checkout_mandate",
+        "payment_mandate",
+        "audit_bindings",
+        "safety"
+      ]
+    },
+    {
+      "id": "direct-skill-approval",
+      "mode": "shopbridge_direct_skill",
+      "source": "gateway/shopbridge-direct-skill/scripts/shopbridge-command.py",
+      "output": "approval_packet.ap2_style_mandate_mapping",
+      "covers": [
+        "checkout_mandate",
+        "payment_mandate",
+        "audit_bindings",
+        "safety"
+      ]
+    },
+    {
+      "id": "direct-skill-payment-handoff",
+      "mode": "shopbridge_direct_skill",
+      "source": "gateway/shopbridge-direct-skill/scripts/shopbridge-command.py",
+      "output": "payment_request.ap2_style_payment_mandate",
+      "covers": [
+        "payment_mandate",
+        "audit_bindings"
+      ]
+    }
+  ],
+  "field_map": {
+    "checkout_mandate": {
+      "vct": "mandate.checkout.1",
+      "source": "agentcart.approval_material",
+      "fields": [
+        "merchant",
+        "items",
+        "subtotal_cents",
+        "shipping_cents",
+        "total.amount_cents",
+        "total.currency",
+        "delivery",
+        "quote_id",
+        "quote_hash",
+        "expires_at"
+      ]
+    },
+    "payment_mandate": {
+      "vct": "mandate.payment.1",
+      "source": "agentcart.payment_handoff",
+      "fields": [
+        "transaction_id",
+        "checkout_reference_hash",
+        "merchant",
+        "amount.amount_cents",
+        "amount.currency",
+        "payment_rail",
+        "payment_destination",
+        "payment_contract_hash",
+        "quote_hash",
+        "quote_id",
+        "expires_at"
+      ]
+    }
+  },
+  "runtime_checks": [
+    {
+      "id": "service-approval-record-mapping",
+      "target": "agentcart_service",
+      "test": "gateway/tests/test_agentcart.py::AgentCartTests.test_approval_is_portable_and_home_assistant_is_optional"
+    },
+    {
+      "id": "direct-skill-approval-packet-mapping",
+      "target": "shopbridge_direct_skill",
+      "test": "gateway/tests/test_shopbridge_direct_skill.py::ShopBridgeDirectSkillTests.test_approval_packet_binds_stripe_payment_destination"
+    },
+    {
+      "id": "direct-skill-payment-handoff-mapping",
+      "target": "shopbridge_direct_skill",
+      "test": "gateway/tests/test_shopbridge_direct_skill.py::ShopBridgeDirectSkillTests.test_payment_handoff_builds_quote_bound_stripe_payment_request"
+    }
+  ],
+  "future_work": [
+    "Replace unsigned adapter mapping with signed AP2 VDCs when a concrete AP2 runtime integration is selected.",
+    "Add an AP2 verifier/client fixture once a stable SDK or conformance target is available.",
+    "Map UCP checkout/order fields and A2A handoff envelopes to the same AgentCart commerce core."
+  ]
+}
