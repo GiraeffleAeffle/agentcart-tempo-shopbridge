@@ -89,6 +89,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_shopbridge_signed_request_mode", uninstall)
         self.assertIn("agentcart_shopbridge_signed_request_secret", uninstall)
         self.assertIn("agentcart_shopbridge_signed_request_keys", uninstall)
+        self.assertIn("agentcart_shopbridge_signed_request_audit", uninstall)
         self.assertIn("agentcart_shopbridge_signed_nonce_", uninstall)
         self.assertIn("agentcart_shopbridge_x402_network", uninstall)
         self.assertIn("agentcart_shopbridge_x402_pay_to", uninstall)
@@ -774,6 +775,10 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         profiles_body = function_body("protocol_profiles")
         auth_body = function_body("enforce_signed_request_policy")
         verifier_body = function_body("verify_signed_request")
+        audit_body = function_body("record_signed_request_audit_event")
+        event_body = function_body("signed_request_audit_event")
+        panel_body = function_body("render_signed_request_audit_panel")
+        capability_body = function_body("capability_document")
         quote_hash_body = function_body("quote_hash_payload")
         requirements_body = function_body("payment_requirements")
         readiness_body = function_body("readiness")
@@ -786,6 +791,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             "SIGNED_REQUEST_MODE_OPTION",
             "SIGNED_REQUEST_SECRET_OPTION",
             "SIGNED_REQUEST_KEYS_OPTION",
+            "SIGNED_REQUEST_AUDIT_OPTION",
+            "SIGNED_REQUEST_AUDIT_LIMIT",
             "SIGNED_REQUEST_NONCE_PREFIX",
             "SIGNED_REQUEST_KEY_RETIREMENT_SECONDS",
             "AGENTCART_SIGNED_REQUEST_MODE",
@@ -795,6 +802,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("sanitize_signed_request_mode_setting", settings_body)
         self.assertIn("sanitize_signed_request_secret_setting", settings_body)
         self.assertIn("render_signed_request_mode_setting_row", render_body)
+        self.assertIn("render_signed_request_audit_panel", render_body)
         self.assertIn("Active signed request secret", render_body)
         self.assertIn("'id' => 'signed-http-ready'", profiles_body)
         self.assertIn("if (self::signed_request_profile_configured())", profiles_body)
@@ -817,6 +825,27 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("signed_request_key_candidates_for_signer", verifier_body)
         self.assertIn("get_transient($nonce_key)", verifier_body)
         self.assertIn("set_transient($nonce_key", verifier_body)
+        self.assertIn("record_signed_request_audit_event", auth_body)
+        self.assertIn("SIGNED_REQUEST_AUDIT_OPTION", audit_body)
+        self.assertIn("SIGNED_REQUEST_AUDIT_LIMIT", audit_body + panel_body)
+        self.assertIn("array_slice($events, -1 * self::SIGNED_REQUEST_AUDIT_LIMIT)", audit_body)
+        for field in [
+            "'path_hash'",
+            "'supplied_digest_hash'",
+            "'expected_digest_hash'",
+            "'nonce_hash'",
+            "'signature_hash'",
+            "'error_code'",
+        ]:
+            self.assertIn(field, event_body)
+        self.assertIn("signed_request_audit_hash", event_body)
+        self.assertNotIn("get_body()", panel_body)
+        for phrase in [
+            "Raw request bodies",
+            "signatures, and nonces are not stored",
+        ]:
+            self.assertIn(phrase, panel_body)
+        self.assertIn("'signed_request_audit_trail'", capability_body)
         self.assertIn("signed_request_required_for_bucket", auth_body + readiness_body)
         self.assertIn("signed_request_active_key", readiness_body)
         self.assertIn("signed_request_required_for", quote_hash_body + requirements_body)

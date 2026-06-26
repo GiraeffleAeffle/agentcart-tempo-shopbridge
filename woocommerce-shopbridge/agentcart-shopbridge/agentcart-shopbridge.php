@@ -53,7 +53,9 @@ final class AgentCart_ShopBridge {
     const SIGNED_REQUEST_MODE_OPTION = 'agentcart_shopbridge_signed_request_mode';
     const SIGNED_REQUEST_SECRET_OPTION = 'agentcart_shopbridge_signed_request_secret';
     const SIGNED_REQUEST_KEYS_OPTION = 'agentcart_shopbridge_signed_request_keys';
+    const SIGNED_REQUEST_AUDIT_OPTION = 'agentcart_shopbridge_signed_request_audit';
     const SIGNED_REQUEST_NONCE_PREFIX = 'agentcart_shopbridge_signed_nonce_';
+    const SIGNED_REQUEST_AUDIT_LIMIT = 100;
     const SIGNED_REQUEST_MAX_TTL_SECONDS = 900;
     const SIGNED_REQUEST_CLOCK_SKEW_SECONDS = 60;
     const SIGNED_REQUEST_KEY_RETIREMENT_SECONDS = 604800;
@@ -663,6 +665,7 @@ final class AgentCart_ShopBridge {
                 using infrastructure-managed secrets.
             </p>
             <?php self::render_credential_action_forms(); ?>
+            <?php self::render_signed_request_audit_panel(); ?>
 
             <h2 id="agentcart-product-exposure">Product Exposure</h2>
             <p style="max-width: 760px;">
@@ -1584,6 +1587,64 @@ final class AgentCart_ShopBridge {
         <?php
     }
 
+    private static function render_signed_request_audit_panel() {
+        $events = array_reverse(self::signed_request_audit_events());
+        $visible_events = array_slice($events, 0, 10);
+        $summary = self::signed_request_audit_summary();
+        ?>
+        <h2 id="agentcart-signed-request-audit">Signed Request Audit</h2>
+        <p class="description" style="max-width: 760px;">
+            Recent signed request verification outcomes. Raw request bodies,
+            signatures, and nonces are not stored; this panel keeps hashes and
+            normalized error codes for support and dispute review.
+        </p>
+        <table class="widefat striped" style="max-width: 980px;">
+            <tbody>
+                <tr>
+                    <th scope="row">Stored events</th>
+                    <td><?php echo esc_html((string) intval($summary['event_count'] ?? 0)); ?> / <?php echo esc_html((string) self::SIGNED_REQUEST_AUDIT_LIMIT); ?></td>
+                    <td><?php self::render_admin_status_badge(!empty($summary['event_count']), 'Audit active', 'No signed requests recorded'); ?></td>
+                </tr>
+            </tbody>
+        </table>
+        <?php if (empty($visible_events)) : ?>
+            <p class="description" style="max-width: 760px;">No signed request events have been recorded yet.</p>
+            <?php return; ?>
+        <?php endif; ?>
+        <table class="widefat striped" style="max-width: 980px;">
+            <thead>
+                <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Bucket</th>
+                    <th scope="col">Signer</th>
+                    <th scope="col">Error</th>
+                    <th scope="col">Nonce hash</th>
+                    <th scope="col">Digest hash</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($visible_events as $event) : ?>
+                    <tr>
+                        <td><?php echo esc_html((string) ($event['checked_at'] ?? '')); ?></td>
+                        <td><?php echo esc_html((string) ($event['state'] ?? '')); ?></td>
+                        <td><?php echo esc_html((string) ($event['bucket'] ?? '')); ?></td>
+                        <td>
+                            <?php echo esc_html((string) ($event['signer'] ?? '')); ?>
+                            <?php if (!empty($event['key_id'])) : ?>
+                                <br><span class="description"><?php echo esc_html((string) $event['key_id']); ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo esc_html((string) ($event['error_code'] ?? '')); ?></td>
+                        <td><code><?php echo esc_html(substr((string) ($event['nonce_hash'] ?? ''), 0, 16)); ?></code></td>
+                        <td><code><?php echo esc_html(substr((string) ($event['supplied_digest_hash'] ?? ''), 0, 16)); ?></code></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php
+    }
+
     public static function render_product_agentcart_options() {
         if (!function_exists('woocommerce_wp_checkbox')) {
             return;
@@ -1861,24 +1922,30 @@ final class AgentCart_ShopBridge {
         }
 
         if (empty(self::signed_request_keys())) {
-            return new WP_Error(
+            $error = new WP_Error(
                 'agentcart_signed_request_not_configured',
                 'Signed request mode requires at least one active or retiring signing key.',
                 ['status' => 401, 'bucket' => $bucket]
             );
+            self::record_signed_request_audit_event($request, $bucket, 'rejected', ['error' => $error]);
+            return $error;
         }
         if ($required && !$has_signature) {
-            return new WP_Error(
+            $error = new WP_Error(
                 'agentcart_signed_request_required',
                 'This AgentCart endpoint requires a signed HTTP request.',
                 ['status' => 401, 'bucket' => $bucket]
             );
+            self::record_signed_request_audit_event($request, $bucket, 'rejected', ['error' => $error]);
+            return $error;
         }
 
         $verification = self::verify_signed_request($request, $bucket);
         if (is_wp_error($verification)) {
+            self::record_signed_request_audit_event($request, $bucket, 'rejected', ['error' => $verification]);
             return $verification;
         }
+        self::record_signed_request_audit_event($request, $bucket, 'verified', $verification);
         $request->set_param('_agentcart_signed_request_verified', true);
         $request->set_param('_agentcart_signed_request_signer', (string) ($verification['signer'] ?? ''));
         $request->set_param('_agentcart_signed_request_key_id', (string) ($verification['key_id'] ?? ''));
@@ -2038,6 +2105,86 @@ final class AgentCart_ShopBridge {
 
     private static function signed_request_nonce_transient_name($signer, $nonce) {
         return self::SIGNED_REQUEST_NONCE_PREFIX . hash('sha256', (string) $signer . '|' . (string) $nonce);
+    }
+
+    private static function signed_request_audit_events() {
+        $stored = get_option(self::SIGNED_REQUEST_AUDIT_OPTION, []);
+        if (!is_array($stored)) {
+            return [];
+        }
+        return array_values(array_filter($stored, 'is_array'));
+    }
+
+    private static function record_signed_request_audit_event(WP_REST_Request $request, $bucket, $state, $detail = []) {
+        $detail = is_array($detail) ? $detail : [];
+        $event = self::signed_request_audit_event($request, $bucket, $state, $detail);
+        $events = self::signed_request_audit_events();
+        $events[] = $event;
+        if (count($events) > self::SIGNED_REQUEST_AUDIT_LIMIT) {
+            $events = array_slice($events, -1 * self::SIGNED_REQUEST_AUDIT_LIMIT);
+        }
+        update_option(self::SIGNED_REQUEST_AUDIT_OPTION, $events, false);
+    }
+
+    private static function signed_request_audit_event(WP_REST_Request $request, $bucket, $state, $detail) {
+        $error = isset($detail['error']) && is_wp_error($detail['error']) ? $detail['error'] : null;
+        $error_data = $error ? $error->get_error_data() : null;
+        $error_data = is_array($error_data) ? $error_data : [];
+        $method_header = strtoupper(trim((string) $request->get_header('x-agentcart-signed-method')));
+        $path_header = trim((string) $request->get_header('x-agentcart-signed-path'));
+        $digest_header = strtolower(trim((string) $request->get_header('x-agentcart-content-digest')));
+        $nonce = trim((string) $request->get_header('x-agentcart-nonce'));
+        $expires_raw = trim((string) $request->get_header('x-agentcart-expires-at'));
+        $signer = sanitize_text_field((string) ($request->get_header('x-agentcart-signer') ?: 'agentcart'));
+        $signature = strtolower(trim((string) $request->get_header('x-agentcart-signature')));
+        if (strpos($signature, 'sha256=') === 0) {
+            $signature = substr($signature, 7);
+        }
+        $expected_digest = self::signed_request_content_digest($request);
+        return [
+            'id' => 'sigreq_' . substr(hash('sha256', wp_generate_uuid4() . '|' . microtime(true)), 0, 16),
+            'checked_at' => gmdate('c'),
+            'bucket' => sanitize_key((string) $bucket),
+            'state' => sanitize_key((string) $state),
+            'error_code' => $error ? $error->get_error_code() : '',
+            'error_status' => intval($error_data['status'] ?? 0),
+            'method' => $method_header ?: strtoupper((string) $request->get_method()),
+            'request_method' => strtoupper((string) $request->get_method()),
+            'path_hash' => self::signed_request_audit_hash($path_header ?: self::current_request_path_with_query()),
+            'supplied_digest_hash' => self::signed_request_audit_hash($digest_header),
+            'expected_digest_hash' => self::signed_request_audit_hash($expected_digest),
+            'nonce_hash' => $nonce === '' ? '' : self::signed_request_audit_hash($signer . '|' . $nonce),
+            'signature_hash' => $signature === '' ? '' : self::signed_request_audit_hash($signature),
+            'expires_at' => ctype_digit($expires_raw) ? intval($expires_raw) : null,
+            'signer' => $signer,
+            'key_id' => sanitize_text_field((string) ($detail['key_id'] ?? '')),
+            'key_state' => sanitize_key((string) ($detail['key_state'] ?? '')),
+            'required' => self::signed_request_required_for_bucket($bucket),
+            'mode' => self::signed_request_mode(),
+        ];
+    }
+
+    private static function signed_request_audit_hash($value) {
+        $value = (string) $value;
+        return $value === '' ? '' : hash('sha256', $value);
+    }
+
+    private static function signed_request_audit_summary() {
+        $events = self::signed_request_audit_events();
+        $latest = $events ? end($events) : null;
+        return [
+            'enabled' => true,
+            'retention_limit' => self::SIGNED_REQUEST_AUDIT_LIMIT,
+            'event_count' => count($events),
+            'latest' => is_array($latest) ? [
+                'checked_at' => (string) ($latest['checked_at'] ?? ''),
+                'bucket' => (string) ($latest['bucket'] ?? ''),
+                'state' => (string) ($latest['state'] ?? ''),
+                'error_code' => (string) ($latest['error_code'] ?? ''),
+                'signer' => (string) ($latest['signer'] ?? ''),
+                'key_id' => (string) ($latest['key_id'] ?? ''),
+            ] : null,
+        ];
     }
 
     private static function current_request_path_with_query() {
@@ -4119,6 +4266,7 @@ final class AgentCart_ShopBridge {
                 'signed_request_required_for_checkout' => self::signed_request_required_for_bucket('checkout'),
                 'signed_request_nonce_replay_protection' => self::signed_request_profile_configured(),
                 'signed_request_key_rotation' => self::signed_request_profile_configured(),
+                'signed_request_audit_trail' => true,
                 'order_status_token' => true,
                 'tracking_metadata_read' => true,
                 'carrier_tracking_adapter_contract' => true,

@@ -67,3 +67,7 @@ AgentCart is production-ready only when:
    Household OS, Vikunja, and Home Assistant integration from documented env.
 7. **Production beta**: refunds, tracking, idempotency, replay protection, and
    admin readiness checks are tested against real WooCommerce installs.
+
+Current alpha hardening also includes signed-request key rotation and a bounded
+signed-request audit trail that stores verification outcomes and sanitized
+hashes instead of raw request bodies, signatures, or nonces.

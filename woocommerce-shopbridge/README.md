@@ -294,6 +294,11 @@ The required headers are `X-AgentCart-Signed-Method`,
 `X-AgentCart-Nonce`, `X-AgentCart-Expires-At`, `X-AgentCart-Signer`, and
 `X-AgentCart-Signature`. Nonces are single-use until expiry.
 
+The settings page keeps a bounded signed-request audit trail for support and
+disputes. It stores verification state, normalized error codes, signer/key
+metadata, and hashes for path, digest, nonce, and signature; it does not store
+raw request bodies, signatures, or nonces.
+
 The verifier response must bind the payment to the exact quote and transaction.
 See `../docs/VERIFIER_CONTRACT.md` for the production verifier contract. Minimal
 success response:

@@ -422,10 +422,10 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">70</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 70%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">71</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 71%"><span></span></div>
         </div>
-        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
+        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
 
       <div class="panel">
@@ -523,7 +523,7 @@
           <tr>
             <td>Trust</td>
             <td>Agents can verify merchant identity, endpoint freshness, signed sensitive calls, and quote/order integrity without trusting arbitrary page text.</td>
-            <td>Registry, hosted submit/revoke persistence, hash-chained transparency export, optional onchain identity mapping, health summaries, persisted monitor snapshots, signed request gates, webhook/Home Assistant/SMTP alerts, and Woo admin delivery status are present. Onchain backing and stronger governance remain.</td>
+            <td>Registry, hosted submit/revoke persistence, hash-chained transparency export, optional onchain identity mapping, health summaries, persisted monitor snapshots, signed request gates and audit trail, webhook/Home Assistant/SMTP alerts, and Woo admin delivery status are present. Onchain backing and stronger governance remain.</td>
           </tr>
           <tr>
             <td>Payments</td>
@@ -543,7 +543,7 @@
   <script>
     const areas = [
       { name: "Core Commerce", value: 88, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, and stale-quote recovery shape" },
-      { name: "Trust And Registry", value: 81, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate" },
+      { name: "Trust And Registry", value: 83, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 70, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; more runtime adapters remain" },
@@ -609,12 +609,12 @@
         code: "SIG",
         title: "Signed requests",
         status: "alpha",
-        value: 70,
-        scope: "Sensitive endpoints can require canonical HMAC signatures with nonce, expiry, body digest, active signer metadata, multiple active keys, key rotation, and retiring-key revocation.",
-        remaining: "Add production-grade signed request audit trails and asymmetric/JWK signature verification.",
+        value: 78,
+        scope: "Sensitive endpoints can require canonical HMAC signatures with nonce, expiry, body digest, active signer metadata, multiple active keys, key rotation, retiring-key revocation, and sanitized verification audit records.",
+        remaining: "Add asymmetric/JWK signature verification and external retention/export for production support teams.",
         items: [
           { id: "SIG-001", priority: "P0", title: "Key rotation UX", description: "Implemented: ShopBridge stores signed-request key records, supports multiple active keys, rotates active keys with a retirement window, publishes active signer metadata, accepts retiring keys, and lets merchants revoke retiring keys." },
-          { id: "SIG-002", priority: "P1", title: "Request audit trail", description: "Store signed request verification outcomes, nonces, expiry failures, and body-digest mismatches for support and disputes." },
+          { id: "SIG-002", priority: "P1", title: "Request audit trail", description: "Implemented: signed request verification outcomes are stored in a bounded sanitized audit trail with hashes for path, digest, nonce, and signature plus normalized error codes for support and disputes." },
           { id: "SIG-003", priority: "P2", title: "Asymmetric signatures", description: "Add public-key or JWK verification alongside HMAC so buyer agents can avoid sharing symmetric secrets." }
         ]
       },
@@ -759,7 +759,7 @@
       open: "Open"
     };
 
-    const overallValue = 70;
+    const overallValue = 71;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

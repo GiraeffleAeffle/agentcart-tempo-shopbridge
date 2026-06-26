@@ -61,6 +61,8 @@ actions.
 * Optional signed-request mode that binds method, path, body digest, nonce,
   expiry, and signer for quote, checkout, status, refund, and cancellation
   calls.
+* Bounded signed-request audit trail that stores verification outcomes and
+  sanitized hashes instead of raw request bodies, signatures, or nonces.
 * Merchant-token-protected refund and cancellation endpoints.
 * Admin actions to generate or rotate local merchant and verifier tokens while
   respecting secrets managed in wp-config.php.

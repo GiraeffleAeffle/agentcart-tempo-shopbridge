@@ -42,7 +42,7 @@ local integrations.
 | 1 | Registry transparency and refresh UX | Alpha implemented: safe multi-merchant discovery now exposes refresh/check status and machine-readable registry reasons |
 | 2 | Manifest protocol profiles | Alpha implemented: manifests now publish configured-only `protocol_profiles[]` for ShopBridge commerce, MPP payment, Stripe/card MPP, and registry mapping |
 | 3 | x402 compatibility shim | Alpha implemented: quote payment requirements now expose x402 exact-payment headers and checkout can answer unpaid quote-bound requests with `PAYMENT-REQUIRED` |
-| 4 | Signed HTTP request verification | Alpha implemented: ShopBridge can require HMAC signed requests with method/path/digest/nonce/expiry binding for sensitive endpoints, support multiple active signing keys, rotate active signing keys with a retirement window, and buyer skill/service paths can sign them |
+| 4 | Signed HTTP request verification | Alpha implemented: ShopBridge can require HMAC signed requests with method/path/digest/nonce/expiry binding for sensitive endpoints, support multiple active signing keys, rotate active signing keys with a retirement window, retain sanitized signed-request audit records, and buyer skill/service paths can sign them |
 | 5 | MCP tool catalog | Alpha implemented: `/v1/mcp/tools` and `/mcp/tools.json` publish stable tool definitions for discovery, catalog, quote, approval, checkout, aftercare, refund, and audit flows |
 | 6 | Escrow/custom-order flow | Adds ERC-8183-style jobs only where normal retail checkout is the wrong model |
 

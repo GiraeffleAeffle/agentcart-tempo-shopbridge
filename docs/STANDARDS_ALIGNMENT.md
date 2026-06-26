@@ -53,7 +53,7 @@ standards/adapters -> AgentCart commerce core -> WooCommerce + verifier rails
 | MPP | Machine payment proof rail | Tempo demo proof and MPP-shaped flow exist | Keep as one payment protocol under `payment_requirements.protocols[]` |
 | Stripe machine payments / stablecoin acceptance | Production-friendly merchant settlement path for eligible merchants | Verifier fixtures and sandbox helper exist; US-region limitation documented | Treat as one rail behind the verifier seam, not as the whole checkout model |
 | ERC-8004 | Public identity, registration file, reputation, and validation for agents/service providers | Off-chain merchant registry with domain proof, revocation, hash binding, transparency export, and optional ERC-8004-style identity mapping metadata | Add real onchain registry adapter and reputation/validation mapping when pilots need it |
-| ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC signed requests over method/path/body digest/nonce/expiry plus key rotation metadata | Add wallet-signature adapter while preserving the same canonical request fields |
+| ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC signed requests over method/path/body digest/nonce/expiry, key rotation metadata, and sanitized signed-request audit records | Add wallet-signature adapter while preserving the same canonical request fields |
 | ERC-8183 | Escrowed jobs with evaluator attestation | Not implemented | Use later for custom orders, services, pre-orders, disputes, and escrow flows; not required for normal grocery checkout |
 | AP2 / ACP / UCP | Agentic commerce/cart/authorization protocols | Not implemented as protocol adapters | Build translators into AgentCart Quote, Approval, Payment Requirements, and Order models |
 | MCP / A2A / agent skills | How agents discover and call capabilities | Direct skill exists; service exposes OpenAPI, llms, capability docs, and MCP-style tool schemas at `/v1/mcp/tools` and `/mcp/tools.json` | Keep skill-first buyer path and add A2A wrappers only when they improve distribution |
@@ -266,7 +266,8 @@ Definition of done:
 1. Registry transparency and refresh UX. Alpha implemented.
 2. Manifest protocol profiles. Alpha implemented.
 3. x402 compatibility shim. Alpha implemented.
-4. Signed HTTP request verification. Alpha implemented.
+4. Signed HTTP request verification and sanitized audit trail. Alpha
+   implemented.
 5. MCP-style tool catalog. Alpha implemented.
 6. AP2/ACP/UCP/A2A translators. Next.
 7. ERC-8183-style escrow/custom-order flow.
