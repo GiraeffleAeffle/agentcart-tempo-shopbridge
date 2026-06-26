@@ -4932,6 +4932,8 @@ class AgentCartService:
                 "openapi": "/openapi.json",
                 "mcp_tools": "/v1/mcp/tools",
                 "mcp_tools_alias": "/mcp/tools.json",
+                "standards_profiles": "/v1/standards/profiles",
+                "standards_profiles_well_known": "/.well-known/agentcart-standards.json",
                 "llms": "/llms.txt",
                 "registry": "/v1/registry",
                 "registry_records": "/v1/registry/records",
@@ -4965,6 +4967,24 @@ class AgentCartService:
                 "merchant_of_record_remains_merchant": True,
             },
         }
+
+    def standards_profiles_document(self) -> dict[str, Any]:
+        profiles_path = pathlib.Path(__file__).with_name("config") / "ucp_a2a_profiles.json"
+        data = json.loads(profiles_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise RuntimeError("standards profile document must be a JSON object")
+        document = dict(data)
+        document["service"] = {
+            "name": "AgentCart",
+            "capability_url": "/.well-known/agentcart.json",
+            "openapi_url": "/openapi.json",
+            "mcp_tools_url": "/v1/mcp/tools",
+            "standards_profile_urls": [
+                "/.well-known/agentcart-standards.json",
+                "/v1/standards/profiles",
+            ],
+        }
+        return document
 
     def mcp_tools_document(self) -> dict[str, Any]:
         return {
@@ -5263,6 +5283,7 @@ class AgentCartService:
                     "homepage": self.config.public_url,
                     "apiReference": "/openapi.json",
                     "mcpTools": "/v1/mcp/tools",
+                    "standardsProfiles": "/v1/standards/profiles",
                     "llms": "/llms.txt",
                 },
             },
@@ -5307,6 +5328,32 @@ class AgentCartService:
                             "200": {
                                 "description": "MCP-style tool catalog",
                                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/McpToolsDocument"}}},
+                            }
+                        },
+                    }
+                },
+                "/.well-known/agentcart-standards.json": {
+                    "get": {
+                        "operationId": "getAgentCartStandardsProfileWellKnown",
+                        "summary": "Get AgentCart standards profile mappings",
+                        "security": [],
+                        "responses": {
+                            "200": {
+                                "description": "AgentCart standards profile mappings",
+                                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StandardsProfilesDocument"}}},
+                            }
+                        },
+                    }
+                },
+                "/v1/standards/profiles": {
+                    "get": {
+                        "operationId": "getAgentCartStandardsProfiles",
+                        "summary": "Get AgentCart UCP/A2A mapping profiles",
+                        "security": [],
+                        "responses": {
+                            "200": {
+                                "description": "AgentCart UCP/A2A mapping profiles",
+                                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StandardsProfilesDocument"}}},
                             }
                         },
                     }
@@ -5845,6 +5892,19 @@ class AgentCartService:
                 },
                 "required": ["schema", "name", "version", "transport", "auth", "safety_contract", "tools"],
             },
+            "StandardsProfilesDocument": {
+                "type": "object",
+                "properties": {
+                    "schema": {"type": "string", "const": "agentcart.ucp_a2a_profiles.v1"},
+                    "stage": {"type": "string"},
+                    "gate_id": {"type": "string"},
+                    "compliance_claim": {"type": "string"},
+                    "required_boundaries": {"type": "array", "items": {"type": "string"}},
+                    "profiles": {"type": "array", "items": {"type": "object"}},
+                    "service": {"type": "object"},
+                },
+                "required": ["schema", "gate_id", "compliance_claim", "profiles"],
+            },
             "QuoteTournament": {
                 "type": "object",
                 "properties": {
@@ -6166,6 +6226,7 @@ Discovery:
 - OpenAPI: /openapi.json
 - MCP-style tool catalog: /v1/mcp/tools or /mcp/tools.json
 - Capabilities: /.well-known/agentcart.json
+- Standards profile mappings: /.well-known/agentcart-standards.json or /v1/standards/profiles
 - Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records, transparency log: GET /v1/registry/transparency
 - Registry health: GET /v1/registry/health
 - Registry monitor: GET /v1/registry/monitor, POST /v1/registry/monitor/run
@@ -8887,6 +8948,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             return
         if path == "/.well-known/agentcart.json":
             self.send_json(self.service.capability_document())
+            return
+        if path in {"/.well-known/agentcart-standards.json", "/v1/standards/profiles"}:
+            self.send_json(self.service.standards_profiles_document())
             return
         if path == "/openapi.json":
             self.send_json(self.service.openapi_document())

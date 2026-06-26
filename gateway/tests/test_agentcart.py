@@ -382,6 +382,7 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(offer["currency"], "EUR")
             self.assertIn("x-service-info", openapi)
             self.assertEqual(openapi["x-service-info"]["docs"]["mcpTools"], "/v1/mcp/tools")
+            self.assertEqual(openapi["x-service-info"]["docs"]["standardsProfiles"], "/v1/standards/profiles")
             self.assertIn("/v1/registry", openapi["paths"])
             self.assertIn("/v1/registry/records", openapi["paths"])
             self.assertIn("/v1/registry/transparency", openapi["paths"])
@@ -392,13 +393,21 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("/v1/orders/{order_id}/refunds", openapi["paths"])
             self.assertIn("/v1/mcp/tools", openapi["paths"])
             self.assertIn("/mcp/tools.json", openapi["paths"])
+            self.assertIn("/.well-known/agentcart-standards.json", openapi["paths"])
+            self.assertIn("/v1/standards/profiles", openapi["paths"])
             self.assertIn("McpToolsDocument", openapi["components"]["schemas"])
+            self.assertIn("StandardsProfilesDocument", openapi["components"]["schemas"])
             self.assertIn("AftercareState", openapi["components"]["schemas"])
             capability = service.capability_document()
             self.assertIn("agentcart-service", capability["protocol_profile_ids"])
             self.assertNotIn("mpp-http-auth", capability["protocol_profile_ids"])
             self.assertEqual(capability["endpoints"]["mcp_tools"], "/v1/mcp/tools")
             self.assertEqual(capability["endpoints"]["mcp_tools_alias"], "/mcp/tools.json")
+            self.assertEqual(capability["endpoints"]["standards_profiles"], "/v1/standards/profiles")
+            self.assertEqual(
+                capability["endpoints"]["standards_profiles_well_known"],
+                "/.well-known/agentcart-standards.json",
+            )
             self.assertEqual(capability["endpoints"]["registry_records"], "/v1/registry/records")
             self.assertEqual(capability["endpoints"]["registry_submit"], "/v1/registry/records")
             self.assertEqual(capability["endpoints"]["registry_transparency"], "/v1/registry/transparency")
@@ -436,6 +445,33 @@ class AgentCartTests(unittest.TestCase):
                 self.assertIn("auth", tool["annotations"])
             self.assertIn("/openapi.json", service.llms_text())
             self.assertIn("/v1/mcp/tools", service.llms_text())
+            self.assertIn("/v1/standards/profiles", service.llms_text())
+
+    def test_standards_profiles_are_publicly_served(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+            direct_document = service.standards_profiles_document()
+            self.assertEqual(direct_document["schema"], "agentcart.ucp_a2a_profiles.v1")
+            self.assertEqual(direct_document["gate_id"], "STD-003")
+            self.assertEqual(direct_document["compliance_claim"], "mapping_profiles_not_native_ucp_or_a2a")
+            profile_ids = {profile["id"] for profile in direct_document["profiles"]}
+            self.assertEqual(profile_ids, {"ucp-checkout-mapping", "a2a-handoff-profile"})
+            self.assertIn("no_native_a2a_json_rpc_claim", direct_document["required_boundaries"])
+
+            server = agentcart.AgentCartServer(("127.0.0.1", 0), service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                for path in ["/.well-known/agentcart-standards.json", "/v1/standards/profiles"]:
+                    with urllib.request.urlopen(f"{base_url}{path}", timeout=5) as response:
+                        document = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(document["schema"], "agentcart.ucp_a2a_profiles.v1")
+                    self.assertEqual(document["service"]["standards_profile_urls"][1], "/v1/standards/profiles")
+                    self.assertIn("ucp-checkout-mapping", {profile["id"] for profile in document["profiles"]})
+            finally:
+                server.shutdown()
+                server.server_close()
 
     def test_mcp_tool_catalog_is_publicly_served(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

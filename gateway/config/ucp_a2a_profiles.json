@@ -1,0 +1,206 @@
+{
+  "schema": "agentcart.ucp_a2a_profiles.v1",
+  "stage": "external_beta",
+  "gate_id": "STD-003",
+  "title": "UCP and A2A profile mappings",
+  "status": "implemented_alpha",
+  "compliance_claim": "mapping_profiles_not_native_ucp_or_a2a",
+  "summary": "AgentCart publishes checked UCP-style checkout and A2A-style handoff mappings around its commerce core without claiming native UCP transport or A2A JSON-RPC compliance.",
+  "published_documents": [
+    {
+      "id": "agentcart-standards-profile",
+      "schema": "agentcart.ucp_a2a_profiles.v1",
+      "urls": [
+        "/.well-known/agentcart-standards.json",
+        "/v1/standards/profiles"
+      ]
+    }
+  ],
+  "required_boundaries": [
+    "no_native_ucp_transport_claim",
+    "no_native_a2a_json_rpc_claim",
+    "human_approval_required",
+    "quote_hash_preserved",
+    "merchant_text_untrusted",
+    "merchant_of_record_preserved",
+    "payment_verifier_required_for_real_settlement"
+  ],
+  "profiles": [
+    {
+      "id": "ucp-checkout-mapping",
+      "source_standard": "UCP",
+      "status": "mapping_alpha",
+      "native_transport_supported": false,
+      "claim": "AgentCart maps UCP-style shopping and checkout concepts to existing AgentCart endpoints; it does not yet expose a native UCP checkout-session server.",
+      "concept_map": [
+        {
+          "source": "merchant_or_item_discovery",
+          "agentcart": "merchant registry plus catalog search",
+          "endpoints": [
+            "/v1/registry",
+            "/v1/catalog/search",
+            "/v1/quote-tournament"
+          ],
+          "safety": [
+            "verified_registry_before_external_catalog",
+            "merchant_text_untrusted"
+          ]
+        },
+        {
+          "source": "checkout_session_quote",
+          "agentcart": "final quote with tax, shipping, stock, delivery, quote hash, and expiry",
+          "endpoints": [
+            "/v1/quotes"
+          ],
+          "required_fields": [
+            "merchant",
+            "items",
+            "subtotal_cents",
+            "shipping",
+            "vat_lines",
+            "total_cents",
+            "currency",
+            "delivery_window",
+            "quote_hash",
+            "expires_at",
+            "payment_requirements"
+          ]
+        },
+        {
+          "source": "buyer_authorization",
+          "agentcart": "explicit human approval bound to the exact quote",
+          "endpoints": [
+            "/v1/approvals",
+            "/v1/approvals/{approval_id}/decision"
+          ],
+          "required_fields": [
+            "approval_hash",
+            "approval_record_hash",
+            "approval_material.quote_hash",
+            "ap2_style_mandate_mapping"
+          ]
+        },
+        {
+          "source": "payment_and_order_submission",
+          "agentcart": "approval-bound payment handoff and quote-bound checkout",
+          "endpoints": [
+            "/v1/checkout"
+          ],
+          "required_fields": [
+            "quote_id",
+            "approval_id",
+            "idempotency_key",
+            "payment_receipt.quote_hash",
+            "payment_receipt.payment_contract_hash"
+          ]
+        },
+        {
+          "source": "fulfillment_refund_aftercare",
+          "agentcart": "order status, delivery aftercare, refund request, and audit export",
+          "endpoints": [
+            "/v1/orders/{order_id}",
+            "/v1/orders/{order_id}/refunds",
+            "/v1/audit/{purchase_id}/export"
+          ],
+          "required_fields": [
+            "aftercare_state",
+            "order_lifecycle_state",
+            "refund_progress",
+            "allowed_claims"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "a2a-handoff-profile",
+      "source_standard": "A2A",
+      "status": "mapping_alpha",
+      "native_transport_supported": false,
+      "native_agent_card_published": false,
+      "claim": "AgentCart maps A2A-style agent capability and task handoff concepts to existing HTTP tools and direct-skill commands; it does not yet expose an A2A Agent Card or JSON-RPC task endpoint.",
+      "handoff_modes": [
+        "agentcart-service-http",
+        "shopbridge-direct-skill",
+        "mcp-style-tools"
+      ],
+      "skill_map": [
+        {
+          "source": "agent_card_capabilities",
+          "agentcart": "capability document plus standards profile document",
+          "endpoints": [
+            "/.well-known/agentcart.json",
+            "/.well-known/agentcart-standards.json"
+          ]
+        },
+        {
+          "source": "task_create_quote",
+          "agentcart": "create_quote tool or direct-skill quote command",
+          "endpoints": [
+            "/v1/quotes",
+            "/v1/mcp/tools"
+          ],
+          "skill_commands": [
+            "quote",
+            "discover_quotes"
+          ]
+        },
+        {
+          "source": "task_request_approval",
+          "agentcart": "create approval packet and wait for trusted human decision",
+          "endpoints": [
+            "/v1/approvals"
+          ],
+          "skill_commands": [
+            "approval_packet"
+          ]
+        },
+        {
+          "source": "task_payment_handoff",
+          "agentcart": "export payment mandate for an external wallet/payment-capable agent",
+          "endpoints": [
+            "/v1/checkout"
+          ],
+          "skill_commands": [
+            "payment_handoff"
+          ]
+        },
+        {
+          "source": "task_aftercare",
+          "agentcart": "status, refund, delivery exception, and audit handoff",
+          "endpoints": [
+            "/v1/orders/{order_id}",
+            "/v1/orders/{order_id}/refunds",
+            "/v1/audit/import",
+            "/v1/audit/{purchase_id}/export"
+          ],
+          "skill_commands": [
+            "aftercare",
+            "audit_packet"
+          ]
+        }
+      ]
+    }
+  ],
+  "runtime_checks": [
+    {
+      "id": "service-standards-profile-served",
+      "target": "agentcart_service",
+      "test": "gateway/tests/test_agentcart.py::AgentCartTests.test_standards_profiles_are_publicly_served"
+    },
+    {
+      "id": "service-capability-links-standards-profile",
+      "target": "agentcart_service",
+      "test": "gateway/tests/test_agentcart.py::AgentCartTests.test_discovery_documents_advertise_checkout_payment_info"
+    },
+    {
+      "id": "profile-config-contract",
+      "target": "checked_config",
+      "test": "gateway/tests/test_ucp_a2a_profiles.py::UCPA2AProfilesTest.test_checked_in_profiles_are_valid"
+    }
+  ],
+  "future_work": [
+    "Expose a native UCP checkout-session transport when a concrete runtime integration is selected.",
+    "Expose an A2A Agent Card and JSON-RPC task endpoint only after task lifecycle, auth, and streaming semantics are implemented.",
+    "Add conformance fixtures that prove a UCP or A2A client can complete quote, approval, payment handoff, checkout, aftercare, and audit flows without using AgentCart-specific fallbacks."
+  ]
+}

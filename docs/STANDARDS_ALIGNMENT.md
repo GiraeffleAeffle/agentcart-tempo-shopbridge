@@ -55,8 +55,8 @@ standards/adapters -> AgentCart commerce core -> WooCommerce + verifier rails
 | ERC-8004 | Public identity, registration file, reputation, and validation for agents/service providers | Off-chain merchant registry with domain proof, revocation, hash binding, transparency export, and optional ERC-8004-style identity mapping metadata | Add real onchain registry adapter and reputation/validation mapping when pilots need it |
 | ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC signed requests over method/path/body digest/nonce/expiry, key rotation metadata, and sanitized signed-request audit records | Add wallet-signature adapter while preserving the same canonical request fields |
 | ERC-8183 | Escrowed jobs with evaluator attestation | Not implemented | Use later for custom orders, services, pre-orders, disputes, and escrow flows; not required for normal grocery checkout |
-| AP2 / ACP / UCP | Agentic commerce/cart/authorization protocols | AP2-style approval/payment mandate field mapping implemented as an unsigned adapter mapping; UCP/ACP translators not implemented | Build signed AP2 runtime adapter and UCP/ACP translators into AgentCart Quote, Approval, Payment Requirements, and Order models |
-| MCP / A2A / agent skills | How agents discover and call capabilities | Direct skill exists; service exposes OpenAPI, llms, capability docs, and MCP-style tool schemas at `/v1/mcp/tools` and `/mcp/tools.json` | Keep skill-first buyer path and add A2A wrappers only when they improve distribution |
+| AP2 / ACP / UCP | Agentic commerce/cart/authorization protocols | AP2-style approval/payment mandate field mapping and UCP-style checkout profile mapping implemented as unsigned adapter mappings; ACP translator not implemented | Build signed AP2 runtime adapter and native UCP/ACP translators into AgentCart Quote, Approval, Payment Requirements, and Order models |
+| MCP / A2A / agent skills | How agents discover and call capabilities | Direct skill exists; service exposes OpenAPI, llms, capability docs, MCP-style tool schemas, and an A2A-style handoff profile mapping | Keep skill-first buyer path and add native A2A Agent Card / task wrappers only when they improve distribution |
 
 ## Canonical Core Model
 
@@ -235,8 +235,9 @@ Deliverables:
 
 - AP2-style checkout and payment mandate mapping from AgentCart approval
   records;
-- translator interfaces for ACP/UCP-style cart, authorization, and order
-  concepts;
+- UCP-style checkout and A2A-style handoff profile mappings around AgentCart
+  quote, approval, checkout, aftercare, and audit concepts;
+- translator interfaces for ACP-style cart, authorization, and order concepts;
 - MCP-style tool catalog at `/v1/mcp/tools` and `/mcp/tools.json`;
 - A2A wrappers only when they improve agent distribution;
 - conformance fixtures showing the same purchase maps to the same AgentCart
@@ -253,6 +254,11 @@ Current alpha:
 - `gateway/config/ap2_mandate_mapping.json` keeps the compliance claim explicit
   as `ap2_style_field_mapping_not_signed_ap2_vdc`;
 - `scripts/check-ap2-mandate-mapping.py` validates the gate and runtime test
+  references.
+- `docs/UCP_A2A_PROFILES.md` documents the UCP/A2A mapping boundary;
+- `gateway/config/ucp_a2a_profiles.json` keeps the compliance claim explicit as
+  `mapping_profiles_not_native_ucp_or_a2a`;
+- `scripts/check-ucp-a2a-profiles.py` validates the gate and runtime test
   references.
 
 ### Slice 6: Escrow And Custom Orders
@@ -280,8 +286,9 @@ Definition of done:
    implemented.
 5. MCP-style tool catalog. Alpha implemented.
 6. AP2-style mandate mapping. Alpha implemented.
-7. UCP/A2A translators. Next.
-8. ERC-8183-style escrow/custom-order flow.
+7. UCP/A2A profile mappings. Alpha implemented.
+8. Native UCP/A2A runtime adapters. Next.
+9. ERC-8183-style escrow/custom-order flow.
 
 This order keeps the merchant onboarding friction low while making the project
 more legible to the broader agentic commerce ecosystem.

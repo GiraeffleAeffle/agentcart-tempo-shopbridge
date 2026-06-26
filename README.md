@@ -32,6 +32,8 @@ For standards alignment across x402/MPP, ERC-8004, ERC-8128, ERC-8183, AP2,
 ACP, UCP, MCP, and A2A, see `docs/STANDARDS_ALIGNMENT.md`.
 For the checked AP2-style approval/payment mandate adapter boundary, see
 `docs/AP2_MANDATE_MAPPING.md`.
+For the checked UCP/A2A profile mapping boundary, see
+`docs/UCP_A2A_PROFILES.md`.
 
 ## Demo Flow
 

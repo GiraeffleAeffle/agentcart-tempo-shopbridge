@@ -35,6 +35,7 @@ py311_files=(
   scripts/check-woocommerce-compatibility-matrix.py
   scripts/check-buyer-agent-matrix.py
   scripts/check-ap2-mandate-mapping.py
+  scripts/check-ucp-a2a-profiles.py
   scripts/check-pilot-readiness.py
   scripts/check-prompt-injection-corpus.py
   scripts/check-quote-reliability-matrix.py
@@ -89,7 +90,8 @@ python3 -m py_compile "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
 python3 "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
-python3 "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
+AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND="${AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND:-$ROOT_DIR/scripts/run-wordpress-plugin-check.sh}" \
+  python3 "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
 python3 "$ROOT_DIR/scripts/check-woocommerce-compatibility-matrix.py" \
   --matrix "$ROOT_DIR/gateway/config/woocommerce_compatibility_matrix.json" >/dev/null
 python3 -m unittest discover -s "$ROOT_DIR/woocommerce-shopbridge/tests"
@@ -139,6 +141,11 @@ python3 "$ROOT_DIR/scripts/check-buyer-agent-adapter-examples.py" \
 section "AP2-style mandate mapping"
 python3 "$ROOT_DIR/scripts/check-ap2-mandate-mapping.py" \
   --mapping "$ROOT_DIR/gateway/config/ap2_mandate_mapping.json" \
+  --verify-test-refs >/dev/null
+
+section "UCP/A2A profile mappings"
+python3 "$ROOT_DIR/scripts/check-ucp-a2a-profiles.py" \
+  --profiles "$ROOT_DIR/gateway/config/ucp_a2a_profiles.json" \
   --verify-test-refs >/dev/null
 
 section "Prompt-injection corpus"
