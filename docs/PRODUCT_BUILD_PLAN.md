@@ -443,6 +443,14 @@ The checklist lives in `docs/PILOT_BETA_CHECKLIST.md` and
 buyer-agent setup, payment mode, support, rollback, safety, and pilot exit
 criteria explicit while the product is still moving quickly.
 
+Buyer-agent runtime coverage is tracked separately in
+`docs/BUYER_AGENT_TEST_MATRIX.md` and
+`gateway/config/buyer_agent_test_matrix.json`:
+
+```sh
+python3 scripts/check-buyer-agent-matrix.py
+```
+
 ## Near-Term Rule
 
 Do not add new grocery features directly into the large demo files unless the

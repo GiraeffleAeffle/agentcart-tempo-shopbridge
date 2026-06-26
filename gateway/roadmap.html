@@ -422,10 +422,10 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">75</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 75%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">76</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 76%"><span></span></div>
         </div>
-        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, and an external beta checklist gate. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
+        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, and buyer-agent runtime matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
 
       <div class="panel">
@@ -438,8 +438,8 @@
       <article class="panel next">
         <h3>Next Slice</h3>
         <ul>
-          <li>Buyer-agent test matrix: verify the service path, direct skill path, and one additional runtime against the same registry, quote, approval, checkout, and aftercare fixtures.</li>
-          <li>External beta evidence pack: collect merchant onboarding, payment-mode, support, rollback, privacy, and pilot exit evidence under the checklist schema.</li>
+          <li>External beta evidence pack: collect merchant onboarding, buyer-agent runtime, payment-mode, support, rollback, privacy, and pilot exit evidence under the checklist schemas.</li>
+          <li>Live runtime rehearsals: run the service path, direct skill path, and MCP-style path against the same staging merchant and save transcripts.</li>
           <li>Payment verifier hardening: managed replay backend, durable metrics store, provider alert routing, and clearer real-settlement failure states.</li>
         </ul>
       </article>
@@ -518,7 +518,7 @@
           <tr>
             <td>Buyer setup</td>
             <td>A buyer agent can use a small skill/tool package to discover merchants, compare final quotes, ask for approval, pay, and track orders.</td>
-            <td>Skill-only path exists as an alpha. It needs packaging, docs, and more agent runtime adapters.</td>
+            <td>Skill-only path, service path, and MCP-style runtime matrix exist as alpha. Live evidence across external runtimes remains.</td>
           </tr>
           <tr>
             <td>Trust</td>
@@ -533,7 +533,7 @@
           <tr>
             <td>Operations</td>
             <td>Release, monitoring, logs, failure modes, support docs, and plugin review gates are boring and repeatable.</td>
-            <td>Verify pipeline, strict WordPress official gates, registry monitor snapshots, alert delivery, and a validated pilot checklist exist. WordPress.org assets and support runbooks still need work.</td>
+            <td>Verify pipeline, strict WordPress official gates, registry monitor snapshots, alert delivery, validated pilot checklist, and buyer-agent matrix exist. WordPress.org assets and support runbooks still need work.</td>
           </tr>
         </tbody>
       </table>
@@ -546,11 +546,11 @@
       { name: "Trust And Registry", value: 83, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 62, note: "settings, setup wizard, readiness, registry actions, registry health checks, and approval-bound sandbox quote/checkout tests exist" },
-      { name: "Buyer Skill Path", value: 70, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; more runtime adapters remain" },
+      { name: "Buyer Skill Path", value: 72, note: "service path, packaged direct skill, and MCP-style runtime matrix cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 57, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, and pilot checklist validation exist; beta ops remain" },
-      { name: "Pilot Launch", value: 28, note: "P0 external beta checklist and validator exist; live evidence collection and runtime matrix remain" }
+      { name: "Operations", value: 58, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, and buyer-agent matrix validation exist; beta ops remain" },
+      { name: "Pilot Launch", value: 36, note: "P0 external beta checklist and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
 
     const gates = [
@@ -740,12 +740,12 @@
         code: "PIL",
         title: "Pilot launch",
         status: "planned",
-        value: 28,
-        scope: "Local demo and homelab deployment prove the flow; external beta checklist and validation gate define the minimum merchant, buyer-agent, payment, support, rollback, privacy, and exit evidence.",
-        remaining: "Collect real pilot evidence, run external beta shops, validate external buyer agents, complete docs-driven setup, and measure checkout success.",
+        value: 36,
+        scope: "Local demo and homelab deployment prove the flow; external beta checklist and buyer-agent matrix define merchant, runtime, payment, support, rollback, privacy, and exit evidence.",
+        remaining: "Collect real pilot evidence, run external beta shops, rehearse external buyer agents, complete docs-driven setup, and measure checkout success.",
         items: [
           { id: "PIL-001", priority: "P0", title: "External beta checklist", description: "Implemented: machine-readable checklist, documentation, validator, and verify pipeline gate for merchant onboarding, buyer-agent setup, payment mode, support, rollback, safety/privacy, and pilot exit criteria." },
-          { id: "PIL-002", priority: "P1", title: "Buyer-agent test matrix", description: "Validate the service and skill paths across at least three agent runtimes with documented setup steps." },
+          { id: "PIL-002", priority: "P1", title: "Buyer-agent test matrix", description: "Implemented alpha: service-backed OpenClaw/AgentCart, direct ShopBridge skill, and generic MCP-style clients now have a documented runtime matrix, required capabilities, safety rules, evidence IDs, and a verify pipeline gate." },
           { id: "PIL-003", priority: "P2", title: "Success metrics", description: "Track discovery-to-order success rate, failure reasons, merchant setup time, refund rate, and support volume." }
         ]
       }
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 75;
+    const overallValue = 76;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

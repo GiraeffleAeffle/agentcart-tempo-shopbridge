@@ -24,7 +24,8 @@ python3 scripts/check-pilot-readiness.py \
 Minimum scope before calling a beta useful:
 
 - 2 external or staging merchants.
-- 2 buyer-agent runtimes, for example AgentCart service and direct skill.
+- 3 buyer-agent runtimes: AgentCart service, direct skill, and one generic
+  MCP-style client.
 - 10 successful approved checkouts.
 - 14 calendar days of observation.
 
@@ -66,18 +67,21 @@ Exit criteria:
 
 ### pilot-buyer-agent-setup
 
-At least two buyer-agent paths can discover merchants, compare final quotes,
+At least three buyer-agent paths can discover merchants, compare final quotes,
 produce approval records, and create or hand off checkout payloads.
 
 Required evidence:
 
+- buyer-agent test matrix result;
 - service-backed agent run log;
 - skill-only agent run log;
+- generic MCP client run log;
 - approval record hash;
 - audit packet or export.
 
 Exit criteria:
 
+- buyer-agent test matrix passes;
 - agent does not scrape non-opt-in shops;
 - approval is required before checkout;
 - quote hash and payment contract hash are preserved;

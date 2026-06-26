@@ -4,7 +4,7 @@
   "stage": "external_beta",
   "minimum_pilot_scope": {
     "merchant_count": 2,
-    "buyer_agent_runtime_count": 2,
+    "buyer_agent_runtime_count": 3,
     "successful_checkout_count": 10,
     "pilot_duration_days": 14
   },
@@ -46,14 +46,17 @@
       "priority": "P0",
       "owner": "agent_runtime",
       "blocking": true,
-      "description": "At least two buyer-agent paths can discover merchants, compare final quotes, produce approval records, and create or hand off checkout payloads.",
+      "description": "At least three buyer-agent paths can discover merchants, compare final quotes, produce approval records, and create or hand off checkout payloads.",
       "required_evidence": [
+        "buyer_agent_test_matrix_result",
         "service_backed_agent_run_log",
         "skill_only_agent_run_log",
+        "generic_mcp_client_run_log",
         "approval_record_hash",
         "audit_packet_or_export"
       ],
       "exit_criteria": [
+        "buyer_agent_test_matrix_passes",
         "agent_does_not_scrape_non_opt_in_shops",
         "approval_is_required_before_checkout",
         "quote_hash_and_payment_contract_hash_are_preserved",

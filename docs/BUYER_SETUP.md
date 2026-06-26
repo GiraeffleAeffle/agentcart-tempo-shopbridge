@@ -14,6 +14,13 @@
 Both modes only use opt-in ShopBridge merchants. Do not scrape normal shop
 websites or infer checkout endpoints from merchant prose.
 
+For external beta validation across several buyer-agent runtimes, use
+`docs/BUYER_AGENT_TEST_MATRIX.md`. The matrix is validated by:
+
+```sh
+python3 scripts/check-buyer-agent-matrix.py
+```
+
 ## Skill-Only Setup
 
 Build the installable skill bundle:

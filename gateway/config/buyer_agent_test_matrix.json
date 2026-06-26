@@ -1,0 +1,168 @@
+{
+  "schema": "agentcart.buyer_agent_test_matrix.v1",
+  "version": "0.1.0",
+  "stage": "external_beta",
+  "minimum_runtime_count": 3,
+  "required_capabilities": [
+    "verified_merchant_discovery",
+    "catalog_or_quote_fetch",
+    "quote_comparison",
+    "approval_record",
+    "checkout_handoff",
+    "aftercare_state",
+    "audit_export_or_import",
+    "safety_constraints"
+  ],
+  "required_safety_rules": [
+    "opt_in_merchants_only",
+    "human_approval_before_checkout",
+    "preserve_quote_hash",
+    "preserve_payment_contract_hash",
+    "treat_merchant_text_as_untrusted",
+    "no_real_settlement_without_external_verifier"
+  ],
+  "runtimes": [
+    {
+      "id": "agentcart-service-openclaw",
+      "name": "AgentCart service with OpenClaw-style skill",
+      "integration_mode": "service",
+      "status": "alpha",
+      "setup_docs": [
+        "docs/BUYER_SETUP.md",
+        "gateway/openclaw-skill/SKILL.md"
+      ],
+      "entrypoints": [
+        "gateway/openclaw-skill/scripts/agentcart-command.py",
+        "/v1/quote-tournament",
+        "/v1/approvals",
+        "/v1/checkout",
+        "/v1/orders/{order_id}",
+        "/v1/audit/{purchase_id}/export"
+      ],
+      "commands_or_tools": [
+        "health",
+        "quote_tournament",
+        "create_quote",
+        "create_approval",
+        "resume_checkout",
+        "order_status",
+        "audit"
+      ],
+      "capabilities": {
+        "verified_merchant_discovery": "quote_tournament returns opt-in registry-backed merchant candidates.",
+        "catalog_or_quote_fetch": "create_quote returns final item, tax, shipping, stock, expiry, and payment requirements.",
+        "quote_comparison": "quote_tournament ranks candidates by final quote and delivery data.",
+        "approval_record": "create_approval creates a portable approval request and approval hash.",
+        "checkout_handoff": "resume_checkout or checkout binds approval, quote, idempotency, and payment receipt.",
+        "aftercare_state": "order_status returns structured delivery, cancellation, refund, and aftercare state.",
+        "audit_export_or_import": "audit exports the service purchase trail.",
+        "safety_constraints": "The skill requires explicit approval and uses AgentCart service policy before checkout."
+      },
+      "required_evidence": [
+        "install_or_configuration_log",
+        "health_or_doctor_result",
+        "merchant_discovery_transcript",
+        "quote_comparison_transcript",
+        "approval_record_hash",
+        "checkout_handoff_or_order_result",
+        "aftercare_result",
+        "audit_export"
+      ]
+    },
+    {
+      "id": "shopbridge-direct-skill",
+      "name": "ShopBridge direct skill",
+      "integration_mode": "skill_only",
+      "status": "alpha",
+      "setup_docs": [
+        "docs/BUYER_SETUP.md",
+        "gateway/shopbridge-direct-skill/SKILL.md"
+      ],
+      "entrypoints": [
+        "gateway/shopbridge-direct-skill/scripts/shopbridge-command.py"
+      ],
+      "commands_or_tools": [
+        "doctor",
+        "resolve_merchant",
+        "discover_quotes",
+        "quote",
+        "approval_packet",
+        "payment_handoff",
+        "checkout",
+        "order_status",
+        "aftercare_summary"
+      ],
+      "capabilities": {
+        "verified_merchant_discovery": "doctor and resolve_merchant verify configured registry records before merchant calls.",
+        "catalog_or_quote_fetch": "quote and discover_quotes fetch final ShopBridge quotes.",
+        "quote_comparison": "discover_quotes and discover_basket_quotes rank verified merchants.",
+        "approval_record": "approval_packet creates a portable approval record hash for chat-local approval.",
+        "checkout_handoff": "payment_handoff produces a quote-bound payment request before checkout.",
+        "aftercare_state": "order_status and aftercare_summary use structured merchant status.",
+        "audit_export_or_import": "checkout can return an audit packet for later AgentCart service import.",
+        "safety_constraints": "The skill rejects underspecified payment receipts and non-verified registry records."
+      },
+      "required_evidence": [
+        "install_or_configuration_log",
+        "health_or_doctor_result",
+        "merchant_discovery_transcript",
+        "quote_comparison_transcript",
+        "approval_record_hash",
+        "checkout_handoff_or_order_result",
+        "aftercare_result",
+        "audit_packet"
+      ]
+    },
+    {
+      "id": "generic-mcp-client",
+      "name": "Generic MCP-style tool client",
+      "integration_mode": "mcp_tools",
+      "status": "documented_alpha",
+      "setup_docs": [
+        "docs/BUYER_SETUP.md",
+        "docs/STANDARDS_ALIGNMENT.md"
+      ],
+      "entrypoints": [
+        "/v1/mcp/tools",
+        "/mcp/tools.json"
+      ],
+      "commands_or_tools": [
+        "agentcart.discover_merchants",
+        "agentcart.search_catalog",
+        "agentcart.create_quote",
+        "agentcart.create_approval",
+        "agentcart.record_approval_decision",
+        "agentcart.checkout",
+        "agentcart.get_order",
+        "agentcart.export_audit",
+        "agentcart.import_skill_audit"
+      ],
+      "capabilities": {
+        "verified_merchant_discovery": "agentcart.discover_merchants returns verified merchant candidates.",
+        "catalog_or_quote_fetch": "agentcart.search_catalog and agentcart.create_quote provide catalog and final quote access.",
+        "quote_comparison": "agentcart.discover_merchants exposes quote-tournament candidates for client ranking or selection.",
+        "approval_record": "agentcart.create_approval and agentcart.record_approval_decision separate proposal from human decision.",
+        "checkout_handoff": "agentcart.checkout requires quote id, approval id, idempotency key, and quote-bound payment receipt.",
+        "aftercare_state": "agentcart.get_order returns structured order and aftercare state.",
+        "audit_export_or_import": "agentcart.export_audit and agentcart.import_skill_audit cover portable audit packets.",
+        "safety_constraints": "Tool annotations require verified discovery, explicit approval, idempotency, and quote-bound payment receipts."
+      },
+      "required_evidence": [
+        "tool_catalog_export",
+        "merchant_discovery_transcript",
+        "quote_creation_transcript",
+        "approval_record_hash",
+        "checkout_handoff_or_order_result",
+        "aftercare_result",
+        "audit_export"
+      ]
+    }
+  ],
+  "pilot_exit_criteria": [
+    "at_least_three_runtimes_have_required_capabilities",
+    "at_least_two_runtimes_have_live_checkout_evidence",
+    "each_runtime_preserves_quote_hash_and_payment_contract_hash",
+    "each_runtime_requires_human_approval_before_checkout",
+    "generic_mcp_client_has_tool_catalog_export"
+  ]
+}
