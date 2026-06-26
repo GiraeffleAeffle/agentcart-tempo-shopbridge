@@ -174,8 +174,10 @@ payment verifier, registry proof, and sandbox testing. The Quick Start panel
 can prepare local sandbox access defaults, show setup progress, and surface
 buyer-agent endpoint URLs without silently exposing products. It can also run a
 sandbox quote check and guided checkout test through the same WooCommerce-backed
-quote/order code paths used by buyer agents, then clean up the test quote,
-stock hold, and test order so merchant tests do not consume availability. Hard
+quote/order code paths used by buyer agents. The checkout test now creates a
+sandbox approval record, carries its hashes into the WooCommerce order and
+payment verifier payload, then cleans up the test quote, stock hold, and test
+order so merchant tests do not consume availability. Hard
 stock-hold mode now requires merchant inventory hooks to reserve, confirm, and
 release quote-bound reservations; if those hooks are missing, quotes fail
 closed instead of pretending stock was reserved. The plugin publishes a registry

@@ -4,7 +4,7 @@
  *
  * This removes plugin configuration and ephemeral locks/transients. It
  * intentionally preserves WooCommerce order, refund, cancellation, payment,
- * and product metadata so merchants keep their commerce audit trail.
+ * approval, and product metadata so merchants keep their commerce audit trail.
  */
 
 if (!defined('WP_UNINSTALL_PLUGIN')) {

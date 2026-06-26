@@ -920,6 +920,7 @@ final class AgentCart_ShopBridge {
         $quote_id = (string) ($quote['id'] ?? '');
         $order_idempotency_key = 'agentcart-sandbox-checkout-' . substr(hash('sha256', $quote_id . '|' . wp_generate_uuid4()), 0, 24);
         $receipt = self::sandbox_checkout_payment_receipt($quote, $order_idempotency_key);
+        $approval = self::sandbox_checkout_approval_record($quote, $order_idempotency_key, $checked_at);
         $order_request = new WP_REST_Request('POST', '/' . self::API_NAMESPACE . '/orders');
         $order_request->set_header('Content-Type', 'application/json');
         $order_request->set_header('Idempotency-Key', $order_idempotency_key);
@@ -932,6 +933,13 @@ final class AgentCart_ShopBridge {
             'agentcart_quote_id' => $quote_id,
             'merchant_quote_id' => $quote_id,
             'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'approval_id' => (string) ($approval['approval_id'] ?? ''),
+            'approval_hash' => (string) ($approval['approval_hash'] ?? ''),
+            'approval_record_hash' => (string) ($approval['approval_record_hash'] ?? ''),
+            'approval_decision_hash' => (string) ($approval['approval_decision_hash'] ?? ''),
+            'approval' => $approval,
+            'approval_record' => $approval['approval_record'] ?? null,
+            'approval_decision_record' => $approval['approval_decision_record'] ?? null,
             'rail' => 'tempo-mpp',
             'reason' => 'AgentCart sandbox checkout test from WooCommerce admin',
             'ship_to' => $ship_to,
@@ -978,15 +986,20 @@ final class AgentCart_ShopBridge {
 
         $order_id = intval($order_response['id'] ?? 0);
         $order = $order_id > 0 ? wc_get_order($order_id) : null;
-        $cleanup = 'test order created';
+        if ($quote_id !== '') {
+            delete_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id);
+            self::release_stock_hold($quote_id, 'sandbox_checkout_cleanup');
+        }
+        $cleanup = 'test order created; quote transient deleted and soft stock hold released';
         if ($order instanceof WC_Order) {
             $order->update_meta_data('_agentcart_sandbox_checkout_test', 'yes');
+            $order->update_meta_data('_agentcart_sandbox_approval_hash', sanitize_text_field((string) ($approval['approval_hash'] ?? '')));
             $order->add_order_note('AgentCart sandbox checkout test created this order. Cancelling it immediately; no rail refund is executed by the setup test.');
             try {
                 $order->update_status('cancelled', 'AgentCart sandbox checkout test cleanup cancelled this test order.', true);
-                $cleanup = 'test order created and cancelled; no external refund executed';
+                $cleanup = 'test order created and cancelled; quote transient deleted and soft stock hold released; no external refund executed';
             } catch (Exception $exception) {
-                $cleanup = 'test order created; automatic cancellation failed: ' . $exception->getMessage();
+                $cleanup = 'test order created; quote transient deleted and soft stock hold released; automatic cancellation failed: ' . $exception->getMessage();
             }
             $order->save();
         }
@@ -1002,6 +1015,10 @@ final class AgentCart_ShopBridge {
             'ship_to' => $ship_to,
             'quote_id' => $quote_id,
             'quote_hash' => (string) ($quote['quote_hash'] ?? ''),
+            'approval_id' => (string) ($approval['approval_id'] ?? ''),
+            'approval_hash' => (string) ($approval['approval_hash'] ?? ''),
+            'approval_record_hash' => (string) ($approval['approval_record_hash'] ?? ''),
+            'approval_decision_hash' => (string) ($approval['approval_decision_hash'] ?? ''),
             'order_id' => (string) $order_id,
             'order_number' => (string) ($order_response['number'] ?? ($order instanceof WC_Order ? $order->get_order_number() : '')),
             'order_status' => $order instanceof WC_Order ? $order->get_status() : (string) ($order_response['status'] ?? ''),
@@ -1014,6 +1031,61 @@ final class AgentCart_ShopBridge {
             'payment_contract_hash' => (string) ($payment_verification['payment_contract_hash'] ?? $receipt['payment_contract_hash'] ?? ''),
             'real_settlement_verified' => !empty($payment_verification['real_settlement_verified']),
             'cleanup' => $cleanup,
+        ];
+    }
+
+    private static function sandbox_checkout_approval_record($quote, $order_idempotency_key, $checked_at) {
+        $quote = is_array($quote) ? $quote : [];
+        $merchant = isset($quote['merchant']) && is_array($quote['merchant']) ? $quote['merchant'] : self::merchant();
+        $quote_id = (string) ($quote['id'] ?? '');
+        $quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
+        $approval_id = 'approval_sandbox_' . substr(hash('sha256', $order_idempotency_key), 0, 16);
+        $approval_material = [
+            'merchant_id' => (string) ($merchant['id'] ?? self::merchant_id()),
+            'quote_id' => $quote_id,
+            'quote_hash' => $quote_hash,
+            'total_cents' => intval($quote['total_cents'] ?? 0),
+            'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
+            'payment_destination' => [
+                'rail' => 'tempo-mpp',
+                'network' => self::tempo_network(),
+                'recipient' => self::tempo_recipient(),
+            ],
+        ];
+        $approval_hash = hash('sha256', (string) wp_json_encode($approval_material));
+        $approval_record = [
+            'schema' => 'agentcart.approval_record.v1',
+            'approval_id' => $approval_id,
+            'approval_hash' => $approval_hash,
+            'approval_material' => $approval_material,
+            'human_approval_required' => true,
+            'channel' => 'woocommerce_admin',
+            'approver' => 'woocommerce_admin_sandbox',
+            'approved_at' => $checked_at,
+            'record_role' => 'sandbox_admin_approval_contract',
+        ];
+        $approval_record['approval_record_hash'] = hash('sha256', (string) wp_json_encode($approval_record));
+        $decision_record = [
+            'schema' => 'agentcart.approval_decision_record.v1',
+            'approval_id' => $approval_id,
+            'quote_id' => $quote_id,
+            'quote_hash' => $quote_hash,
+            'approval_record_hash' => $approval_record['approval_record_hash'],
+            'decision' => 'approved',
+            'channel' => 'woocommerce_admin',
+            'approver' => 'woocommerce_admin_sandbox',
+            'decided_at' => $checked_at,
+            'reason' => 'WooCommerce admin explicitly ran the AgentCart sandbox checkout test.',
+        ];
+        $decision_record['decision_record_hash'] = hash('sha256', (string) wp_json_encode($decision_record));
+        return [
+            'approval_id' => $approval_id,
+            'approval_hash' => $approval_hash,
+            'approval_record_hash' => $approval_record['approval_record_hash'],
+            'approval_decision_hash' => $decision_record['decision_record_hash'],
+            'approval_record' => $approval_record,
+            'approval_decision_record' => $decision_record,
+            'approved' => true,
         ];
     }
 
@@ -3513,6 +3585,12 @@ final class AgentCart_ShopBridge {
                             <?php if (!empty($sandbox_checkout_test['quote_hash'])) : ?>
                                 <p class="description">Quote hash: <code><?php echo esc_html((string) $sandbox_checkout_test['quote_hash']); ?></code></p>
                             <?php endif; ?>
+                            <?php if (!empty($sandbox_checkout_test['approval_hash'])) : ?>
+                                <p class="description">Approval hash: <code><?php echo esc_html((string) $sandbox_checkout_test['approval_hash']); ?></code></p>
+                            <?php endif; ?>
+                            <?php if (!empty($sandbox_checkout_test['approval_record_hash'])) : ?>
+                                <p class="description">Approval record hash: <code><?php echo esc_html((string) $sandbox_checkout_test['approval_record_hash']); ?></code></p>
+                            <?php endif; ?>
                             <?php if (!empty($sandbox_checkout_test['payment_contract_hash'])) : ?>
                                 <p class="description">Payment contract hash: <code><?php echo esc_html((string) $sandbox_checkout_test['payment_contract_hash']); ?></code></p>
                             <?php endif; ?>
@@ -4576,6 +4654,7 @@ final class AgentCart_ShopBridge {
         $body = $request->get_json_params();
         $body = is_array($body) ? $body : [];
         $receipt = isset($body['payment_receipt']) && is_array($body['payment_receipt']) ? $body['payment_receipt'] : [];
+        $approval_metadata = self::checkout_approval_metadata($body);
         $agentcart_order_id = sanitize_text_field((string) ($body['agentcart_order_id'] ?? ''));
         $idempotency_key = self::checkout_idempotency_key($body, $request);
         if (is_wp_error($idempotency_key)) {
@@ -4758,6 +4837,18 @@ final class AgentCart_ShopBridge {
         $order->update_meta_data('_agentcart_payment_rail', $payment_rail);
         $order->update_meta_data('_agentcart_reason', sanitize_text_field((string) ($body['reason'] ?? '')));
         $order->update_meta_data('_agentcart_quote_hash', $expected_quote_hash);
+        if ($approval_metadata['approval_id'] !== '') {
+            $order->update_meta_data('_agentcart_approval_id', $approval_metadata['approval_id']);
+        }
+        if ($approval_metadata['approval_hash'] !== '') {
+            $order->update_meta_data('_agentcart_approval_hash', $approval_metadata['approval_hash']);
+        }
+        if ($approval_metadata['approval_record_hash'] !== '') {
+            $order->update_meta_data('_agentcart_approval_record_hash', $approval_metadata['approval_record_hash']);
+        }
+        if ($approval_metadata['approval_decision_hash'] !== '') {
+            $order->update_meta_data('_agentcart_approval_decision_hash', $approval_metadata['approval_decision_hash']);
+        }
         $order->update_meta_data(self::ORDER_ITEMS_META, wp_json_encode($quote['items'] ?? []));
         $order->update_meta_data(self::ORDER_MERCHANT_POLICY_META, wp_json_encode($quote['merchant_policy'] ?? self::merchant_policy()));
         $order->update_meta_data('_agentcart_payment_verification', wp_json_encode($payment_verification));
@@ -5019,6 +5110,10 @@ final class AgentCart_ShopBridge {
             'status_url' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/status'),
             'status_token' => $status_token,
             'fulfillment' => self::serialize_fulfillment($order),
+            'approval_id' => (string) $order->get_meta('_agentcart_approval_id', true),
+            'approval_hash' => (string) $order->get_meta('_agentcart_approval_hash', true),
+            'approval_record_hash' => (string) $order->get_meta('_agentcart_approval_record_hash', true),
+            'approval_decision_hash' => (string) $order->get_meta('_agentcart_approval_decision_hash', true),
             'aftercare_state' => self::aftercare_state($order),
             'payment_verification' => is_array($payment_verification) ? $payment_verification : self::stored_payment_verification($order),
             'items' => self::serialize_order_items($order),
@@ -5140,6 +5235,19 @@ final class AgentCart_ShopBridge {
             $order->set_customer_user_agent('');
         }
         $order->update_meta_data('_agentcart_privacy_note', 'AgentCart order creation clears WooCommerce customer IP and user-agent fields.');
+    }
+
+    private static function checkout_approval_metadata($body) {
+        $body = is_array($body) ? $body : [];
+        $approval = isset($body['approval']) && is_array($body['approval']) ? $body['approval'] : [];
+        $approval_record = isset($body['approval_record']) && is_array($body['approval_record']) ? $body['approval_record'] : [];
+        $approval_decision_record = isset($body['approval_decision_record']) && is_array($body['approval_decision_record']) ? $body['approval_decision_record'] : [];
+        return [
+            'approval_id' => sanitize_text_field((string) ($body['approval_id'] ?? $approval['approval_id'] ?? $approval['id'] ?? $approval_record['approval_id'] ?? '')),
+            'approval_hash' => sanitize_text_field((string) ($body['approval_hash'] ?? $approval['approval_hash'] ?? $approval_record['approval_hash'] ?? '')),
+            'approval_record_hash' => sanitize_text_field((string) ($body['approval_record_hash'] ?? $approval['approval_record_hash'] ?? $approval_record['approval_record_hash'] ?? '')),
+            'approval_decision_hash' => sanitize_text_field((string) ($body['approval_decision_hash'] ?? $approval['approval_decision_hash'] ?? $approval_decision_record['decision_record_hash'] ?? $approval_decision_record['approval_decision_hash'] ?? '')),
+        ];
     }
 
     private static function merchant_quote_id_from_body($body) {
@@ -5568,6 +5676,7 @@ final class AgentCart_ShopBridge {
             'payment_contract' => $payment_contract,
             'payment_contract_hash' => $payment_contract_hash,
             'payment_receipt' => $receipt,
+            'approval' => self::checkout_approval_metadata($body),
             'agentcart_order_id' => sanitize_text_field((string) ($body['agentcart_order_id'] ?? '')),
             'expected' => [
                 'amount_cents' => intval($quote['total_cents'] ?? 0),

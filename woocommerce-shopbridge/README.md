@@ -110,8 +110,10 @@ retain their commerce audit trail.
 The `WooCommerce -> AgentCart` admin page includes a guided setup checklist for
 merchant id/support, agent-safe product exposure, WooCommerce tax and
 shipping setup, payment verifier configuration, registry proof publication, and
-sandbox quote/order testing. The same public-safe setup state is also exposed in
-the capability document for remote onboarding tools.
+sandbox quote/order testing. The checkout test creates a sandbox approval
+record, carries its hashes into the payment verifier payload and WooCommerce
+order metadata, then cancels the test order. The same public-safe setup state is
+also exposed in the capability document for remote onboarding tools.
 
 For a live endpoint smoke test against a seeded or staging shop:
 

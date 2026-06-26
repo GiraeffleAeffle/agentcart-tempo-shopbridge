@@ -2863,6 +2863,10 @@ class AgentCartTests(unittest.TestCase):
                     self.assertEqual(payload["payment_receipt"]["quote_hash"], "hash-woo-701")  # type: ignore[index]
                     self.assertEqual(payload["payment_receipt"]["payment_contract_hash"], "contract-hash-woo-701")  # type: ignore[index]
                     self.assertEqual(payload["quote_hash"], "hash-woo-701")
+                    self.assertEqual(payload["approval_id"], approval["id"])
+                    self.assertEqual(payload["approval_hash"], approval["approval_hash"])
+                    self.assertEqual(payload["approval_record_hash"], approval["approval_record_hash"])
+                    self.assertEqual(payload["approval_decision_hash"], decided["approval_decision_hash"])
                     return {
                         "platform": "woocommerce-agentcart-plugin",
                         "state": "created",
@@ -2937,7 +2941,7 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(quote["policy_result"]["decision"], "requires_approval")
 
             approval = service.create_approval({"quote_id": quote["id"]})
-            service.decide_approval(
+            decided = service.decide_approval(
                 approval["id"],
                 {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
             )

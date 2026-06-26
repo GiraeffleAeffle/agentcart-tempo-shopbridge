@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">72</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 72%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">73</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 73%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -513,7 +513,7 @@
           <tr>
             <td>Merchant setup</td>
             <td>A Woo merchant installs the ZIP or WordPress.org plugin, enables AgentCart, picks payment rails, and publishes a valid manifest without touching code.</td>
-            <td>Quick Start, readiness UX, sandbox quote and checkout tests, hosted registry submit/revoke UX, registry health checks, PHPCS/WPCS, and Plugin Check are wired. Deeper WP admin walkthroughs remain.</td>
+            <td>Quick Start, readiness UX, sandbox quote and approval-bound checkout tests, hosted registry submit/revoke UX, registry health checks, PHPCS/WPCS, and Plugin Check are wired. Deeper WP admin walkthroughs remain.</td>
           </tr>
           <tr>
             <td>Buyer setup</td>
@@ -545,7 +545,7 @@
       { name: "Core Commerce", value: 88, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 83, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
-      { name: "Merchant UX", value: 58, note: "settings, setup wizard, readiness, registry actions, registry health checks, and sandbox quote/checkout tests exist" },
+      { name: "Merchant UX", value: 62, note: "settings, setup wizard, readiness, registry actions, registry health checks, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 70, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; more runtime adapters remain" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
@@ -687,11 +687,11 @@
         code: "ONB",
         title: "Merchant onboarding UX",
         status: "partial",
-        value: 80,
-        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote/checkout tests, registry connection actions, and registry-side health/monitor checks.",
+        value: 84,
+        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote/approval/checkout tests, registry connection actions, and registry-side health/monitor checks.",
         remaining: "Add deeper WP admin walkthrough tests and merchant-facing copy cleanup.",
         items: [
-          { id: "ONB-001", priority: "P0", title: "Guided checkout test", description: "Add one-click test quote, approval, payment verification, order creation, and cleanup from the ShopBridge admin page." },
+          { id: "ONB-001", priority: "P0", title: "Guided checkout test", description: "Implemented: one-click test quote, sandbox approval record, payment verification, order creation, cancellation, and quote/hold cleanup from the ShopBridge admin page." },
           { id: "ONB-002", priority: "P1", title: "Registry health in WordPress", description: "Surface hosted registry connection, monitor snapshot, domain proof, and manifest freshness in the merchant admin UI." },
           { id: "ONB-003", priority: "P2", title: "Plain-language setup", description: "Replace low-level settings text with merchant-facing copy that explains each required setup step and consequence." }
         ]
