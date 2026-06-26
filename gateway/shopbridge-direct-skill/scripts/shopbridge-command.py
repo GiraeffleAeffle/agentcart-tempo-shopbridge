@@ -9,8 +9,10 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -52,6 +54,11 @@ REGISTRY_PATH = (
 SIGNED_REQUEST_SECRET = (
     os.getenv("SHOPBRIDGE_SIGNED_REQUEST_SECRET")
     or os.getenv("AGENTCART_SIGNED_REQUEST_SECRET")
+    or ""
+).strip()
+SIGNED_REQUEST_PRIVATE_KEY = (
+    os.getenv("SHOPBRIDGE_SIGNED_REQUEST_PRIVATE_KEY")
+    or os.getenv("AGENTCART_SIGNED_REQUEST_PRIVATE_KEY")
     or ""
 ).strip()
 SIGNED_REQUEST_SIGNER = (
@@ -134,7 +141,7 @@ def request_json(
 
 
 def signed_request_headers(url: str, *, method: str, body: bytes) -> dict[str, str]:
-    if not SIGNED_REQUEST_SECRET:
+    if not SIGNED_REQUEST_SECRET and not SIGNED_REQUEST_PRIVATE_KEY:
         return {}
     parsed = urllib.parse.urlsplit(url)
     signed_path = parsed.path or "/"
@@ -156,16 +163,46 @@ def signed_request_headers(url: str, *, method: str, body: bytes) -> dict[str, s
             signer,
         ]
     )
-    signature = hmac.new(SIGNED_REQUEST_SECRET.encode(), canonical_request.encode(), hashlib.sha256).hexdigest()
-    return {
+    headers = {
         "X-AgentCart-Signed-Method": signed_method,
         "X-AgentCart-Signed-Path": signed_path,
         "X-AgentCart-Content-Digest": digest,
         "X-AgentCart-Nonce": nonce,
         "X-AgentCart-Expires-At": expires_at,
         "X-AgentCart-Signer": signer,
-        "X-AgentCart-Signature": "sha256=" + signature,
     }
+    if SIGNED_REQUEST_PRIVATE_KEY:
+        signature = rsa_sha256_signature(canonical_request, SIGNED_REQUEST_PRIVATE_KEY)
+        headers["X-AgentCart-Signature-Alg"] = "rsa-sha256"
+        headers["X-AgentCart-Signature"] = "rsa-sha256=" + signature
+        return headers
+    signature = hmac.new(SIGNED_REQUEST_SECRET.encode(), canonical_request.encode(), hashlib.sha256).hexdigest()
+    headers["X-AgentCart-Signature"] = "sha256=" + signature
+    return headers
+
+
+def rsa_sha256_signature(message: str, private_key_pem: str) -> str:
+    if not shutil.which("openssl"):
+        raise RuntimeError("openssl is required for rsa-sha256 signed requests")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+        handle.write(private_key_pem)
+        handle.write("\n")
+        key_path = handle.name
+    try:
+        os.chmod(key_path, 0o600)
+        completed = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-sign", key_path],
+            input=message.encode(),
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        return base64.b64encode(completed.stdout).decode()
+    finally:
+        try:
+            os.unlink(key_path)
+        except OSError:
+            pass
 
 
 def money(cents: int, currency: str) -> str:
@@ -1908,8 +1945,9 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "registry_url_configured": bool(configured_registry_url(args)),
             "registry_path_configured": bool(configured_registry_path(args)),
             "registry_max_age_days": registry_max_age_days(args),
-            "signed_requests_configured": bool(SIGNED_REQUEST_SECRET),
-            "signed_request_signer": SIGNED_REQUEST_SIGNER if SIGNED_REQUEST_SECRET else "",
+            "signed_requests_configured": bool(SIGNED_REQUEST_SECRET or SIGNED_REQUEST_PRIVATE_KEY),
+            "signed_request_alg": "rsa-sha256" if SIGNED_REQUEST_PRIVATE_KEY else ("hmac-sha256" if SIGNED_REQUEST_SECRET else ""),
+            "signed_request_signer": SIGNED_REQUEST_SIGNER if (SIGNED_REQUEST_SECRET or SIGNED_REQUEST_PRIVATE_KEY) else "",
             "tempo_demo_proof_url_configured": bool(MPP_PROOF_URL),
             "tempo_demo_command": MPP_COMMAND,
         },

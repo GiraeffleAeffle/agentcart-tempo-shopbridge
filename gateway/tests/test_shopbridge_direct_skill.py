@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import base64
 import hashlib
 import hmac
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -340,12 +343,46 @@ def sample_order_status(**overrides):
     return order
 
 
+def openssl_rsa_keypair() -> tuple[str, str]:
+    if not shutil.which("openssl"):
+        raise unittest.SkipTest("openssl is required for rsa-sha256 signing tests")
+    with tempfile.TemporaryDirectory() as raw_tmp:
+        tmp = Path(raw_tmp)
+        private_path = tmp / "private.pem"
+        public_path = tmp / "public.pem"
+        subprocess.run(["openssl", "genrsa", "-out", str(private_path), "2048"], check=True, capture_output=True)
+        subprocess.run(["openssl", "rsa", "-in", str(private_path), "-pubout", "-out", str(public_path)], check=True, capture_output=True)
+        return private_path.read_text(encoding="utf-8"), public_path.read_text(encoding="utf-8")
+
+
+def openssl_verify_rsa_sha256(public_key_pem: str, message: str, signature_b64: str) -> bool:
+    if not shutil.which("openssl"):
+        raise unittest.SkipTest("openssl is required for rsa-sha256 signing tests")
+    with tempfile.TemporaryDirectory() as raw_tmp:
+        tmp = Path(raw_tmp)
+        public_path = tmp / "public.pem"
+        message_path = tmp / "message.txt"
+        signature_path = tmp / "signature.bin"
+        public_path.write_text(public_key_pem, encoding="utf-8")
+        message_path.write_text(message, encoding="utf-8")
+        signature_path.write_bytes(base64.b64decode(signature_b64))
+        completed = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-verify", str(public_path), "-signature", str(signature_path), str(message_path)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return completed.returncode == 0 and "Verified OK" in completed.stdout
+
+
 class ShopBridgeDirectSkillTests(unittest.TestCase):
     def test_signed_request_headers_bind_method_path_body_nonce_and_expiry(self) -> None:
         original_secret = shopbridge_direct.SIGNED_REQUEST_SECRET
+        original_private_key = shopbridge_direct.SIGNED_REQUEST_PRIVATE_KEY
         original_signer = shopbridge_direct.SIGNED_REQUEST_SIGNER
         try:
             shopbridge_direct.SIGNED_REQUEST_SECRET = "test-signing-secret"
+            shopbridge_direct.SIGNED_REQUEST_PRIVATE_KEY = ""
             shopbridge_direct.SIGNED_REQUEST_SIGNER = "buyer-agent"
             body = b'{"hello":"world"}'
             headers = shopbridge_direct.signed_request_headers(
@@ -355,6 +392,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             )
         finally:
             shopbridge_direct.SIGNED_REQUEST_SECRET = original_secret
+            shopbridge_direct.SIGNED_REQUEST_PRIVATE_KEY = original_private_key
             shopbridge_direct.SIGNED_REQUEST_SIGNER = original_signer
 
         self.assertEqual(headers["X-AgentCart-Signed-Method"], "POST")
@@ -375,6 +413,42 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         )
         expected = hmac.new(b"test-signing-secret", canonical.encode(), hashlib.sha256).hexdigest()
         self.assertEqual(headers["X-AgentCart-Signature"], "sha256=" + expected)
+
+    def test_signed_request_headers_can_use_rsa_private_key(self) -> None:
+        private_key, public_key = openssl_rsa_keypair()
+        original_secret = shopbridge_direct.SIGNED_REQUEST_SECRET
+        original_private_key = shopbridge_direct.SIGNED_REQUEST_PRIVATE_KEY
+        original_signer = shopbridge_direct.SIGNED_REQUEST_SIGNER
+        try:
+            shopbridge_direct.SIGNED_REQUEST_SECRET = ""
+            shopbridge_direct.SIGNED_REQUEST_PRIVATE_KEY = private_key
+            shopbridge_direct.SIGNED_REQUEST_SIGNER = "sig_rsa_test"
+            body = b'{"hello":"world"}'
+            headers = shopbridge_direct.signed_request_headers(
+                "https://merchant.example/wp-json/agentcart/v1/quote?x=1",
+                method="POST",
+                body=body,
+            )
+        finally:
+            shopbridge_direct.SIGNED_REQUEST_SECRET = original_secret
+            shopbridge_direct.SIGNED_REQUEST_PRIVATE_KEY = original_private_key
+            shopbridge_direct.SIGNED_REQUEST_SIGNER = original_signer
+
+        self.assertEqual(headers["X-AgentCart-Signature-Alg"], "rsa-sha256")
+        self.assertTrue(headers["X-AgentCart-Signature"].startswith("rsa-sha256="))
+        canonical = "\n".join(
+            [
+                "agentcart-signed-request-v1",
+                headers["X-AgentCart-Signed-Method"],
+                headers["X-AgentCart-Signed-Path"],
+                headers["X-AgentCart-Content-Digest"],
+                headers["X-AgentCart-Nonce"],
+                headers["X-AgentCart-Expires-At"],
+                headers["X-AgentCart-Signer"],
+            ]
+        )
+        signature = headers["X-AgentCart-Signature"].split("=", 1)[1]
+        self.assertTrue(openssl_verify_rsa_sha256(public_key, canonical, signature))
 
     def test_doctor_reports_missing_buyer_configuration_without_network(self) -> None:
         with (

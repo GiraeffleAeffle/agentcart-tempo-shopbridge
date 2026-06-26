@@ -79,12 +79,16 @@ more than 10 minutes in the future, and records older than
 local fixtures where you intentionally want to disable the freshness window.
 
 If a merchant advertises the `signed-http-ready` profile and requires signed
-requests, configure the HMAC secret provided by that merchant or your trusted
-registry/onboarding channel. Use the profile's `active_signer` value when it is
-present; older private demos can keep using any agreed signer label.
+requests, configure either the HMAC secret provided by that merchant or the RSA
+private key whose public key was registered with the merchant. Use the profile's
+`active_signer` value when it is present; older private demos can keep using
+any agreed signer label. Prefer RSA for public or multi-merchant setups because
+the merchant never receives the buyer-side private key.
 
 ```sh
 export SHOPBRIDGE_SIGNED_REQUEST_SECRET=replace-with-shopbridge-signing-secret
+# or:
+export SHOPBRIDGE_SIGNED_REQUEST_PRIVATE_KEY="$(cat /secure/path/agentcart-signer.pem)"
 export SHOPBRIDGE_SIGNED_REQUEST_SIGNER=sig_active_signer_from_profile
 ```
 

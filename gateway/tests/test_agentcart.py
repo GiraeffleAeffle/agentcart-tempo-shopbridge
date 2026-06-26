@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import base64
 import hashlib
 import hmac
 import json
 import pathlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -56,6 +59,7 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         woocommerce_consumer_secret="",
         woocommerce_agentcart_token="",
         woocommerce_signed_request_secret="",
+        woocommerce_signed_request_private_key="",
         woocommerce_signed_request_signer="agentcart-service",
         woocommerce_merchant_id="woocommerce-demo-tea",
         woocommerce_merchant_name="Woo Demo Tea Shop",
@@ -280,6 +284,38 @@ def skill_audit_packet(quote_id: str = "woo_quote_123") -> dict[str, object]:
     return packet
 
 
+def openssl_rsa_keypair() -> tuple[str, str]:
+    if not shutil.which("openssl"):
+        raise unittest.SkipTest("openssl is required for rsa-sha256 signing tests")
+    with tempfile.TemporaryDirectory() as raw_tmp:
+        tmp = pathlib.Path(raw_tmp)
+        private_path = tmp / "private.pem"
+        public_path = tmp / "public.pem"
+        subprocess.run(["openssl", "genrsa", "-out", str(private_path), "2048"], check=True, capture_output=True)
+        subprocess.run(["openssl", "rsa", "-in", str(private_path), "-pubout", "-out", str(public_path)], check=True, capture_output=True)
+        return private_path.read_text(encoding="utf-8"), public_path.read_text(encoding="utf-8")
+
+
+def openssl_verify_rsa_sha256(public_key_pem: str, message: str, signature_b64: str) -> bool:
+    if not shutil.which("openssl"):
+        raise unittest.SkipTest("openssl is required for rsa-sha256 signing tests")
+    with tempfile.TemporaryDirectory() as raw_tmp:
+        tmp = pathlib.Path(raw_tmp)
+        public_path = tmp / "public.pem"
+        message_path = tmp / "message.txt"
+        signature_path = tmp / "signature.bin"
+        public_path.write_text(public_key_pem, encoding="utf-8")
+        message_path.write_text(message, encoding="utf-8")
+        signature_path.write_bytes(base64.b64decode(signature_b64))
+        completed = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-verify", str(public_path), "-signature", str(signature_path), str(message_path)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return completed.returncode == 0 and "Verified OK" in completed.stdout
+
+
 class AgentCartTests(unittest.TestCase):
     def test_agentcart_signed_request_headers_bind_canonical_request(self) -> None:
         body = b'{"items":[]}'
@@ -307,6 +343,34 @@ class AgentCartTests(unittest.TestCase):
         )
         expected = hmac.new(b"service-signing-secret", canonical.encode(), hashlib.sha256).hexdigest()
         self.assertEqual(headers["X-AgentCart-Signature"], "sha256=" + expected)
+
+    def test_agentcart_signed_request_headers_can_use_rsa_private_key(self) -> None:
+        private_key, public_key = openssl_rsa_keypair()
+        body = b'{"items":[]}'
+        headers = agentcart.agentcart_signed_request_headers(
+            "https://merchant.example/index.php?rest_route=%2Fagentcart%2Fv1%2Fquote",
+            method="POST",
+            body=body,
+            secret="",
+            signer="sig_rsa_test",
+            private_key=private_key,
+        )
+
+        self.assertEqual(headers["X-AgentCart-Signature-Alg"], "rsa-sha256")
+        self.assertTrue(headers["X-AgentCart-Signature"].startswith("rsa-sha256="))
+        canonical = "\n".join(
+            [
+                "agentcart-signed-request-v1",
+                headers["X-AgentCart-Signed-Method"],
+                headers["X-AgentCart-Signed-Path"],
+                headers["X-AgentCart-Content-Digest"],
+                headers["X-AgentCart-Nonce"],
+                headers["X-AgentCart-Expires-At"],
+                headers["X-AgentCart-Signer"],
+            ]
+        )
+        signature = headers["X-AgentCart-Signature"].split("=", 1)[1]
+        self.assertTrue(openssl_verify_rsa_sha256(public_key, canonical, signature))
 
     def test_woocommerce_plugin_json_adds_signed_request_headers(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -356,6 +420,68 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(headers["x-agentcart-signed-method"], "POST")
             self.assertEqual(headers["x-agentcart-signed-path"], "/index.php?rest_route=%2Fagentcart%2Fv1%2Forders")
             self.assertIn("x-agentcart-signature", headers)
+
+    def test_woocommerce_plugin_json_can_use_rsa_signed_request_headers(self) -> None:
+        private_key, public_key = openssl_rsa_keypair()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                woocommerce_mode="plugin",
+                woocommerce_base_url="http://woo.test",
+                woocommerce_agentcart_token="merchant-token",
+                woocommerce_signed_request_secret="",
+                woocommerce_signed_request_private_key=private_key,
+                woocommerce_signed_request_signer="sig_rsa_test",
+            )
+            adapter = service.adapters["woocommerce-demo-tea"]
+            captured: dict[str, object] = {}
+
+            class FakeResponse:
+                def __enter__(self) -> "FakeResponse":
+                    return self
+
+                def __exit__(self, *_args: object) -> None:
+                    return None
+
+                def read(self) -> bytes:
+                    return b'{"ok":true}'
+
+            original_urlopen = urllib.request.urlopen
+
+            def fake_urlopen(request: urllib.request.Request, *, timeout: int = 0) -> FakeResponse:
+                captured["request"] = request
+                captured["timeout"] = timeout
+                return FakeResponse()
+
+            try:
+                urllib.request.urlopen = fake_urlopen  # type: ignore[assignment]
+                result = adapter.plugin_json(
+                    "http://woo.test/index.php?rest_route=%2Fagentcart%2Fv1%2Fquote",
+                    method="POST",
+                    payload={"items": []},
+                )
+            finally:
+                urllib.request.urlopen = original_urlopen  # type: ignore[assignment]
+
+            self.assertEqual(result, {"ok": True})
+            request = captured["request"]
+            self.assertIsInstance(request, urllib.request.Request)
+            headers = {key.lower(): value for key, value in request.header_items()}  # type: ignore[union-attr]
+            self.assertEqual(headers["x-agentcart-signature-alg"], "rsa-sha256")
+            self.assertTrue(headers["x-agentcart-signature"].startswith("rsa-sha256="))
+            canonical = "\n".join(
+                [
+                    "agentcart-signed-request-v1",
+                    headers["x-agentcart-signed-method"],
+                    headers["x-agentcart-signed-path"],
+                    headers["x-agentcart-content-digest"],
+                    headers["x-agentcart-nonce"],
+                    headers["x-agentcart-expires-at"],
+                    headers["x-agentcart-signer"],
+                ]
+            )
+            signature = headers["x-agentcart-signature"].split("=", 1)[1]
+            self.assertTrue(openssl_verify_rsa_sha256(public_key, canonical, signature))
 
     def test_catalog_search_returns_demo_tea_products(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

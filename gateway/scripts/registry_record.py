@@ -401,6 +401,7 @@ def minimal_config(tmp: pathlib.Path, *, hmac_secret: str = "", max_age_days: in
         woocommerce_consumer_secret="",
         woocommerce_agentcart_token="",
         woocommerce_signed_request_secret="",
+        woocommerce_signed_request_private_key="",
         woocommerce_signed_request_signer="agentcart-service",
         woocommerce_merchant_id="woocommerce-demo-tea",
         woocommerce_merchant_name="Woo Demo Tea Shop",

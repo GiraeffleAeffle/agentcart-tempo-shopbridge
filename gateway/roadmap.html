@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">82</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 82%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">83</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 83%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -543,7 +543,7 @@
   <script>
     const areas = [
       { name: "Core Commerce", value: 91, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
-      { name: "Trust And Registry", value: 84, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
+      { name: "Trust And Registry", value: 85, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, HMAC/RSA signed request gate, and audit trail" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 66, note: "settings, setup wizard, readiness, registry actions, registry health summary, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 76, note: "service path, packaged direct skill, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
@@ -610,13 +610,13 @@
         code: "SIG",
         title: "Signed requests",
         status: "alpha",
-        value: 78,
-        scope: "Sensitive endpoints can require canonical HMAC signatures with nonce, expiry, body digest, active signer metadata, multiple active keys, key rotation, retiring-key revocation, and sanitized verification audit records.",
-        remaining: "Add asymmetric/JWK signature verification and external retention/export for production support teams.",
+        value: 84,
+        scope: "Sensitive endpoints can require canonical HMAC or RSA signatures with nonce, expiry, body digest, active signer metadata, multiple HMAC keys, key rotation, retiring-key revocation, and sanitized verification audit records.",
+        remaining: "Add wallet/JWK signature adapters and external retention/export for production support teams.",
         items: [
           { id: "SIG-001", priority: "P0", title: "Key rotation UX", description: "Implemented: ShopBridge stores signed-request key records, supports multiple active keys, rotates active keys with a retirement window, publishes active signer metadata, accepts retiring keys, and lets merchants revoke retiring keys." },
           { id: "SIG-002", priority: "P1", title: "Request audit trail", description: "Implemented: signed request verification outcomes are stored in a bounded sanitized audit trail with hashes for path, digest, nonce, and signature plus normalized error codes for support and disputes." },
-          { id: "SIG-003", priority: "P2", title: "Asymmetric signatures", description: "Add public-key or JWK verification alongside HMAC so buyer agents can avoid sharing symmetric secrets." }
+          { id: "SIG-003", priority: "P2", title: "Asymmetric signatures", description: "Implemented: ShopBridge accepts an RSA public key, publishes rsa-sha256 support in signed-http-ready profiles, and the service/direct skill can sign canonical requests with the matching private key." }
         ]
       },
       {
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 82;
+    const overallValue = 83;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

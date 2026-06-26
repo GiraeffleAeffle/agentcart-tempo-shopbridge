@@ -53,7 +53,7 @@ standards/adapters -> AgentCart commerce core -> WooCommerce + verifier rails
 | MPP | Machine payment proof rail | Tempo demo proof and MPP-shaped flow exist | Keep as one payment protocol under `payment_requirements.protocols[]` |
 | Stripe machine payments / stablecoin acceptance | Production-friendly merchant settlement path for eligible merchants | Verifier fixtures and sandbox helper exist; US-region limitation documented | Treat as one rail behind the verifier seam, not as the whole checkout model |
 | ERC-8004 | Public identity, registration file, reputation, and validation for agents/service providers | Off-chain merchant registry with domain proof, revocation, hash binding, transparency export, and optional ERC-8004-style identity mapping metadata | Add real onchain registry adapter and reputation/validation mapping when pilots need it |
-| ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC signed requests over method/path/body digest/nonce/expiry, key rotation metadata, and sanitized signed-request audit records | Add wallet-signature adapter while preserving the same canonical request fields |
+| ERC-8128 | Wallet-signed HTTP requests for sensitive agent API calls | Alpha seam implemented with HMAC and RSA signed requests over method/path/body digest/nonce/expiry, key rotation metadata, and sanitized signed-request audit records | Add wallet/JWK signature adapter while preserving the same canonical request fields |
 | ERC-8183 | Escrowed jobs with evaluator attestation | Not implemented | Use later for custom orders, services, pre-orders, disputes, and escrow flows; not required for normal grocery checkout |
 | AP2 / ACP / UCP | Agentic commerce/cart/authorization protocols | AP2-style approval/payment mandate field mapping and UCP-style checkout profile mapping implemented as unsigned adapter mappings; ACP translator not implemented | Build signed AP2 runtime adapter and native UCP/ACP translators into AgentCart Quote, Approval, Payment Requirements, and Order models |
 | MCP / A2A / agent skills | How agents discover and call capabilities | Direct skill exists; service exposes OpenAPI, llms, capability docs, MCP-style tool schemas, and an A2A-style handoff profile mapping | Keep skill-first buyer path and add native A2A Agent Card / task wrappers only when they improve distribution |
@@ -211,7 +211,7 @@ Goal: reduce bearer-token dependence for public/sensitive endpoints.
 
 Deliverables:
 
-- optional ERC-8128-style HMAC verification for quote, checkout, status,
+- optional ERC-8128-style HMAC or RSA verification for quote, checkout, status,
   cancellation, and refund requests;
 - nonce/expiry replay protection via transient-backed single-use nonces;
 - merchant settings for accepted signer modes, active signer id, key rotation,

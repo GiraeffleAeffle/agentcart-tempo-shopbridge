@@ -18,6 +18,7 @@ import shlex
 import shutil
 import smtplib
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -135,6 +136,7 @@ class Config:
     woocommerce_consumer_secret: str
     woocommerce_agentcart_token: str
     woocommerce_signed_request_secret: str
+    woocommerce_signed_request_private_key: str
     woocommerce_signed_request_signer: str
     woocommerce_merchant_id: str
     woocommerce_merchant_name: str
@@ -245,6 +247,11 @@ class Config:
             woocommerce_signed_request_secret=(
                 os.getenv("WOOCOMMERCE_SIGNED_REQUEST_SECRET")
                 or os.getenv("AGENTCART_SIGNED_REQUEST_SECRET")
+                or ""
+            ).strip(),
+            woocommerce_signed_request_private_key=(
+                os.getenv("WOOCOMMERCE_SIGNED_REQUEST_PRIVATE_KEY")
+                or os.getenv("AGENTCART_SIGNED_REQUEST_PRIVATE_KEY")
                 or ""
             ).strip(),
             woocommerce_signed_request_signer=(
@@ -695,8 +702,9 @@ def agentcart_signed_request_headers(
     body: bytes,
     secret: str,
     signer: str,
+    private_key: str = "",
 ) -> dict[str, str]:
-    if not secret:
+    if not secret and not private_key:
         return {}
     parsed = urllib.parse.urlsplit(url)
     signed_path = parsed.path or "/"
@@ -718,16 +726,46 @@ def agentcart_signed_request_headers(
             signer,
         ]
     )
-    signature = hmac.new(secret.encode(), canonical_request.encode(), hashlib.sha256).hexdigest()
-    return {
+    headers = {
         "X-AgentCart-Signed-Method": signed_method,
         "X-AgentCart-Signed-Path": signed_path,
         "X-AgentCart-Content-Digest": digest,
         "X-AgentCart-Nonce": nonce,
         "X-AgentCart-Expires-At": expires_at,
         "X-AgentCart-Signer": signer,
-        "X-AgentCart-Signature": "sha256=" + signature,
     }
+    if private_key:
+        signature = rsa_sha256_signature(canonical_request, private_key)
+        headers["X-AgentCart-Signature-Alg"] = "rsa-sha256"
+        headers["X-AgentCart-Signature"] = "rsa-sha256=" + signature
+        return headers
+    signature = hmac.new(secret.encode(), canonical_request.encode(), hashlib.sha256).hexdigest()
+    headers["X-AgentCart-Signature"] = "sha256=" + signature
+    return headers
+
+
+def rsa_sha256_signature(message: str, private_key_pem: str) -> str:
+    if not shutil.which("openssl"):
+        raise RuntimeError("openssl is required for rsa-sha256 signed requests")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+        handle.write(private_key_pem)
+        handle.write("\n")
+        key_path = handle.name
+    try:
+        os.chmod(key_path, 0o600)
+        completed = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-sign", key_path],
+            input=message.encode(),
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        return base64.b64encode(completed.stdout).decode()
+    finally:
+        try:
+            os.unlink(key_path)
+        except OSError:
+            pass
 
 
 def command_available(command: str) -> bool:
@@ -1572,6 +1610,7 @@ class WooCommerceAdapter:
                 body=body or b"",
                 secret=self.config.woocommerce_signed_request_secret,
                 signer=self.config.woocommerce_signed_request_signer,
+                private_key=self.config.woocommerce_signed_request_private_key,
             )
         )
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
@@ -1608,6 +1647,7 @@ class WooCommerceAdapter:
                 body=body or b"",
                 secret=self.config.woocommerce_signed_request_secret,
                 signer=self.config.woocommerce_signed_request_signer,
+                private_key=self.config.woocommerce_signed_request_private_key,
             )
         )
         request = urllib.request.Request(url, data=body, headers=headers, method=method)

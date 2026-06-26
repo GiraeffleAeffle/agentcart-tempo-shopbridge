@@ -124,9 +124,12 @@ This creates `dist/shopbridge-direct-skill.zip`. See `docs/BUYER_SETUP.md` for
 skill-only and service-backed setup. For verified multi-merchant discovery in
 skill-only mode, configure `SHOPBRIDGE_REGISTRY_URL` or
 `SHOPBRIDGE_REGISTRY_PATH` once instead of passing registry records every time.
-If a merchant enables signed request mode, set the merchant-provided
-`SHOPBRIDGE_SIGNED_REQUEST_SECRET` and use the active signer id advertised by
-the merchant's `signed-http-ready` profile as `SHOPBRIDGE_SIGNED_REQUEST_SIGNER`.
+If a merchant enables signed request mode, configure either the
+merchant-provided `SHOPBRIDGE_SIGNED_REQUEST_SECRET` or your
+`SHOPBRIDGE_SIGNED_REQUEST_PRIVATE_KEY`. The RSA path is preferred for public
+or multi-merchant setups because the merchant stores only the matching public
+key. Use the active signer id advertised by the merchant's `signed-http-ready`
+profile as `SHOPBRIDGE_SIGNED_REQUEST_SIGNER`.
 
 When `AGENTCART_TOKEN` is set, open protected browser pages with the token once:
 

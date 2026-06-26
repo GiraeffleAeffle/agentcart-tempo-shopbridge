@@ -88,6 +88,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_shopbridge_registry_public_check", uninstall)
         self.assertIn("agentcart_shopbridge_signed_request_mode", uninstall)
         self.assertIn("agentcart_shopbridge_signed_request_secret", uninstall)
+        self.assertIn("agentcart_shopbridge_signed_request_public_key", uninstall)
         self.assertIn("agentcart_shopbridge_signed_request_keys", uninstall)
         self.assertIn("agentcart_shopbridge_signed_request_audit", uninstall)
         self.assertIn("agentcart_shopbridge_signed_nonce_", uninstall)
@@ -840,6 +841,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         for symbol in [
             "SIGNED_REQUEST_MODE_OPTION",
             "SIGNED_REQUEST_SECRET_OPTION",
+            "SIGNED_REQUEST_PUBLIC_KEY_OPTION",
             "SIGNED_REQUEST_KEYS_OPTION",
             "SIGNED_REQUEST_AUDIT_OPTION",
             "SIGNED_REQUEST_AUDIT_LIMIT",
@@ -847,31 +849,41 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             "SIGNED_REQUEST_KEY_RETIREMENT_SECONDS",
             "AGENTCART_SIGNED_REQUEST_MODE",
             "AGENTCART_SIGNED_REQUEST_SECRET",
+            "AGENTCART_SIGNED_REQUEST_PUBLIC_KEY",
         ]:
             self.assertIn(symbol, SOURCE)
         self.assertIn("sanitize_signed_request_mode_setting", settings_body)
         self.assertIn("sanitize_signed_request_secret_setting", settings_body)
+        self.assertIn("sanitize_signed_request_public_key_setting", settings_body)
         self.assertIn("render_signed_request_mode_setting_row", render_body)
+        self.assertIn("Signed request RSA public key", render_body)
         self.assertIn("render_signed_request_audit_panel", render_body)
         self.assertIn("Active signed request secret", render_body)
         self.assertIn("'id' => 'signed-http-ready'", profiles_body)
         self.assertIn("if (self::signed_request_profile_configured())", profiles_body)
-        self.assertIn("'signature_scheme' => 'agentcart-hmac-sha256-v1'", profiles_body + requirements_body)
+        self.assertIn("'signature_scheme' => self::signed_request_preferred_signature_scheme()", profiles_body + requirements_body)
+        self.assertIn("'signature_schemes' => self::signed_request_supported_signature_schemes()", profiles_body + requirements_body)
+        self.assertIn("'signature_alg' => 'X-AgentCart-Signature-Alg'", profiles_body + requirements_body)
         self.assertIn("'active_signer' => self::signed_request_active_key_id()", profiles_body + requirements_body)
         self.assertIn("'accepted_signers' => self::signed_request_public_key_summaries()", profiles_body + requirements_body)
         self.assertIn("'key_rotation' =>", profiles_body + requirements_body)
+        self.assertIn("openssl_verify", SOURCE)
+        self.assertIn("OPENSSL_ALGO_SHA256", SOURCE)
+        self.assertIn("rsa-sha256", SOURCE)
         for error in [
             "agentcart_signed_request_missing_method",
             "agentcart_signed_request_missing_path",
             "agentcart_signed_request_missing_digest",
             "agentcart_signed_request_missing_nonce",
             "agentcart_signed_request_missing_expiry",
+            "agentcart_signed_request_unsupported_signature_alg",
             "agentcart_signed_request_unknown_signer",
             "agentcart_signed_request_signature_mismatch",
             "agentcart_signed_request_replay",
         ]:
             self.assertIn(error, verifier_body)
-        self.assertIn("hash_hmac('sha256'", verifier_body)
+        self.assertIn("signed_request_signature_matches", verifier_body)
+        self.assertIn("hash_hmac('sha256'", SOURCE)
         self.assertIn("signed_request_key_candidates_for_signer", verifier_body)
         self.assertIn("get_transient($nonce_key)", verifier_body)
         self.assertIn("set_transient($nonce_key", verifier_body)
@@ -885,6 +897,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             "'expected_digest_hash'",
             "'nonce_hash'",
             "'signature_hash'",
+            "'signature_alg'",
             "'error_code'",
         ]:
             self.assertIn(field, event_body)

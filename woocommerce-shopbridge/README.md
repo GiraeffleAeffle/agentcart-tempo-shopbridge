@@ -73,6 +73,7 @@ define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
 define('AGENTCART_CHECKOUT_MODE', 'external_verifier_only'); // trusted_token_or_verifier or external_verifier_only
 define('AGENTCART_SIGNED_REQUEST_MODE', 'require_checkout'); // off, allow, require_checkout, require_mutations, or require_all_sensitive
 define('AGENTCART_SIGNED_REQUEST_SECRET', 'replace-with-request-signing-secret');
+define('AGENTCART_SIGNED_REQUEST_PUBLIC_KEY', "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----");
 define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
 define('AGENTCART_RETURNS_URL', 'https://shop.example/returns');
 define('AGENTCART_SUBSTITUTION_POLICY', 'approval_required'); // approval_required, not_allowed, or merchant_allowed
@@ -282,13 +283,16 @@ There are also two checkout authorization modes:
   verifier; the merchant token cannot create a paid order through demo fallback.
 
 Signed request mode is an additional request-authentication gate. When
-configured with `AGENTCART_SIGNED_REQUEST_SECRET`, or with signing keys managed
-from the AgentCart settings page, ShopBridge can require HMAC-SHA256 signatures
-for checkout only, checkout/refund/cancellation, or all sensitive
-quote/checkout/status/refund/cancellation endpoints. Admin-managed keys support
-multiple active signers and rotation with a retirement window; the
-`signed-http-ready` profile publishes the active signer id and accepted
-non-secret key metadata. The signature binds:
+configured with `AGENTCART_SIGNED_REQUEST_SECRET`,
+`AGENTCART_SIGNED_REQUEST_PUBLIC_KEY`, or signing keys managed from the
+AgentCart settings page, ShopBridge can require HMAC-SHA256 or RSA-SHA256
+signatures for checkout only, checkout/refund/cancellation, or all sensitive
+quote/checkout/status/refund/cancellation endpoints. Admin-managed HMAC keys
+support multiple active signers and rotation with a retirement window; the RSA
+path lets the buyer keep the private key while the merchant stores only the
+public key. The `signed-http-ready` profile publishes the active signer id,
+accepted non-secret key metadata, and supported signature schemes. The
+signature binds:
 
 ```text
 agentcart-signed-request-v1

@@ -152,9 +152,14 @@ def validate_protocol_profiles(document: dict[str, Any], label: str) -> None:
         require(profile.get("available") is not False, f"{label}.protocol_profiles must not advertise unavailable profile: {profile.get('id')}")
         require(profile.get("setup_required") is not True, f"{label}.protocol_profiles must not advertise setup-required profile: {profile.get('id')}")
         if profile.get("id") == "signed-http-ready":
-            require(profile.get("signature_scheme") == "agentcart-hmac-sha256-v1", f"{label}.signed-http-ready signature_scheme mismatch")
+            schemes = profile.get("signature_schemes")
+            require(isinstance(schemes, list) and bool(schemes), f"{label}.signed-http-ready signature_schemes must be a non-empty list")
+            require(
+                profile.get("signature_scheme") in {"agentcart-hmac-sha256-v1", "agentcart-rsa-sha256-v1"},
+                f"{label}.signed-http-ready signature_scheme mismatch",
+            )
             require(isinstance(profile.get("headers"), dict), f"{label}.signed-http-ready headers must be present")
-            for header in ["signed_method", "signed_path", "content_digest", "nonce", "expires_at", "signature"]:
+            for header in ["signed_method", "signed_path", "content_digest", "nonce", "expires_at", "signature_alg", "signature"]:
                 require(bool(profile["headers"].get(header)), f"{label}.signed-http-ready missing header mapping: {header}")
             require(isinstance(profile.get("required_for"), list), f"{label}.signed-http-ready required_for must be a list")
 

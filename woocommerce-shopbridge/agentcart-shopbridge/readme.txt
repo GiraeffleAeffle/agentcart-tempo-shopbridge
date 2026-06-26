@@ -58,9 +58,9 @@ actions.
 * Optional x402 exact-payment shim that emits quote-bound `PAYMENT-REQUIRED`
   metadata when network, asset, payTo, currency, decimals, and verifier are
   configured.
-* Optional signed-request mode that binds method, path, body digest, nonce,
-  expiry, and signer for quote, checkout, status, refund, and cancellation
-  calls.
+* Optional signed-request mode with HMAC-SHA256 or RSA-SHA256 signatures that
+  bind method, path, body digest, nonce, expiry, and signer for quote,
+  checkout, status, refund, and cancellation calls.
 * Bounded signed-request audit trail that stores verification outcomes and
   sanitized hashes instead of raw request bodies, signatures, or nonces.
 * Merchant-token-protected refund and cancellation endpoints.

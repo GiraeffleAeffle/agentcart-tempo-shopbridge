@@ -52,6 +52,7 @@ final class AgentCart_ShopBridge {
     const X402_MAX_TIMEOUT_SECONDS_OPTION = 'agentcart_shopbridge_x402_max_timeout_seconds';
     const SIGNED_REQUEST_MODE_OPTION = 'agentcart_shopbridge_signed_request_mode';
     const SIGNED_REQUEST_SECRET_OPTION = 'agentcart_shopbridge_signed_request_secret';
+    const SIGNED_REQUEST_PUBLIC_KEY_OPTION = 'agentcart_shopbridge_signed_request_public_key';
     const SIGNED_REQUEST_KEYS_OPTION = 'agentcart_shopbridge_signed_request_keys';
     const SIGNED_REQUEST_AUDIT_OPTION = 'agentcart_shopbridge_signed_request_audit';
     const SIGNED_REQUEST_NONCE_PREFIX = 'agentcart_shopbridge_signed_nonce_';
@@ -283,6 +284,11 @@ final class AgentCart_ShopBridge {
             'sanitize_callback' => [__CLASS__, 'sanitize_signed_request_secret_setting'],
             'default' => '',
         ]);
+        register_setting('agentcart_shopbridge', self::SIGNED_REQUEST_PUBLIC_KEY_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [__CLASS__, 'sanitize_signed_request_public_key_setting'],
+            'default' => '',
+        ]);
         register_setting('agentcart_shopbridge', self::PRODUCT_EXPOSURE_MODE_OPTION, [
             'type' => 'string',
             'sanitize_callback' => [__CLASS__, 'sanitize_product_exposure_mode_setting'],
@@ -395,6 +401,13 @@ final class AgentCart_ShopBridge {
         }
         self::store_single_signed_request_key($secret, 'settings');
         return $secret;
+    }
+
+    public static function sanitize_signed_request_public_key_setting($value) {
+        if (defined('AGENTCART_SIGNED_REQUEST_PUBLIC_KEY')) {
+            return self::signed_request_public_key();
+        }
+        return self::normalize_signed_request_public_key((string) $value);
     }
 
     public static function sanitize_merchant_id_setting($value) {
@@ -652,6 +665,7 @@ final class AgentCart_ShopBridge {
                     <?php self::render_checkout_mode_setting_row($checkout_mode); ?>
                     <?php self::render_signed_request_mode_setting_row($signed_request_mode); ?>
                     <?php self::render_password_setting_row('Active signed request secret', self::SIGNED_REQUEST_SECRET_OPTION, self::signed_request_secret(), 'AGENTCART_SIGNED_REQUEST_SECRET', 'Current HMAC secret for request-bound signatures. Saving this field creates one active signing key; use Credential Actions for rotation with a retirement window.'); ?>
+                    <?php self::render_textarea_setting_row('Signed request RSA public key', self::SIGNED_REQUEST_PUBLIC_KEY_OPTION, self::signed_request_public_key(), 'AGENTCART_SIGNED_REQUEST_PUBLIC_KEY', 'Optional RSA public key PEM for asymmetric request signatures. Buyer agents sign the same canonical request with the matching private key and send X-AgentCart-Signature-Alg: rsa-sha256.'); ?>
                     <?php self::render_product_exposure_setting_rows($product_exposure_mode, $product_exposure_tag, $product_exposure_categories, $product_blocked_categories); ?>
                     <?php self::render_stock_hold_setting_rows($stock_hold_mode, $stock_hold_minutes); ?>
                 </table>
@@ -1725,8 +1739,9 @@ final class AgentCart_ShopBridge {
                 <tr>
                     <th scope="row">Signed request signing keys</th>
                     <td>
-                        HMAC keys used to sign method, path, body digest, nonce, and expiry
-                        for request-bound quote, checkout, status, refund, and cancellation calls.
+                        HMAC secrets or RSA public keys used to verify method, path, body digest,
+                        nonce, and expiry for request-bound quote, checkout, status, refund, and
+                        cancellation calls.
                         <br>
                         <?php echo esc_html(self::signed_request_key_status_summary()); ?>
                     </td>
@@ -2175,15 +2190,17 @@ final class AgentCart_ShopBridge {
         }
 
         $signer = sanitize_text_field((string) ($request->get_header('x-agentcart-signer') ?: 'agentcart'));
-        $signature = strtolower(trim((string) $request->get_header('x-agentcart-signature')));
-        if (strpos($signature, 'sha256=') === 0) {
-            $signature = substr($signature, 7);
+        $signature_header = trim((string) $request->get_header('x-agentcart-signature'));
+        $signature_alg = self::signed_request_signature_alg($request, $signature_header);
+        if ($signature_alg === '') {
+            return new WP_Error('agentcart_signed_request_unsupported_signature_alg', 'Signed request signature algorithm is not supported.', ['status' => 401, 'bucket' => $bucket]);
         }
+        $signature = self::normalize_signed_request_signature($signature_header, $signature_alg);
         if ($signature === '') {
             return new WP_Error('agentcart_signed_request_missing_signature', 'Signed request header X-AgentCart-Signature is required.', ['status' => 401, 'bucket' => $bucket]);
         }
-        if (!preg_match('/^[a-f0-9]{64}$/', $signature)) {
-            return new WP_Error('agentcart_signed_request_invalid_signature', 'Signed request signature must be a hex HMAC-SHA256 value.', ['status' => 401, 'bucket' => $bucket]);
+        if (!self::signed_request_signature_format_valid($signature, $signature_alg)) {
+            return new WP_Error('agentcart_signed_request_invalid_signature', 'Signed request signature format is invalid for the selected algorithm.', ['status' => 401, 'bucket' => $bucket, 'signature_alg' => $signature_alg]);
         }
 
         $candidates = self::signed_request_key_candidates_for_signer($signer);
@@ -2194,8 +2211,10 @@ final class AgentCart_ShopBridge {
         $canonical = self::signed_request_canonical_string($method, $path, $expected_digest, $nonce, $expires_raw, $signer);
         $matched_key = null;
         foreach ($candidates as $key) {
-            $expected_signature = hash_hmac('sha256', $canonical, (string) ($key['secret'] ?? ''));
-            if (hash_equals($expected_signature, $signature)) {
+            if (self::signed_request_key_alg($key) !== $signature_alg) {
+                continue;
+            }
+            if (self::signed_request_signature_matches($canonical, $signature, $signature_alg, $key)) {
                 $matched_key = $key;
                 break;
             }
@@ -2215,6 +2234,7 @@ final class AgentCart_ShopBridge {
             'signer' => $signer,
             'key_id' => (string) ($matched_key['id'] ?? ''),
             'key_state' => (string) ($matched_key['state'] ?? ''),
+            'signature_alg' => $signature_alg,
             'bucket' => $bucket,
             'expires_at' => $expires_at,
         ];
@@ -2255,6 +2275,76 @@ final class AgentCart_ShopBridge {
         ]);
     }
 
+    private static function signed_request_signature_alg(WP_REST_Request $request, $signature_header = '') {
+        $alg = sanitize_key((string) $request->get_header('x-agentcart-signature-alg'));
+        if ($alg === '') {
+            $signature_header = trim((string) $signature_header);
+            if (stripos($signature_header, 'rsa-sha256=') === 0) {
+                return 'rsa-sha256';
+            }
+            return 'hmac-sha256';
+        }
+        if (in_array($alg, ['hmac-sha256', 'agentcart-hmac-sha256-v1'], true)) {
+            return 'hmac-sha256';
+        }
+        if (in_array($alg, ['rsa-sha256', 'agentcart-rsa-sha256-v1'], true)) {
+            return 'rsa-sha256';
+        }
+        return '';
+    }
+
+    private static function normalize_signed_request_signature($signature_header, $signature_alg) {
+        $signature = trim((string) $signature_header);
+        if ($signature_alg === 'hmac-sha256') {
+            $signature = strtolower($signature);
+            if (strpos($signature, 'sha256=') === 0) {
+                $signature = substr($signature, 7);
+            } elseif (strpos($signature, 'hmac-sha256=') === 0) {
+                $signature = substr($signature, 12);
+            }
+            return $signature;
+        }
+        if ($signature_alg === 'rsa-sha256') {
+            if (stripos($signature, 'rsa-sha256=') === 0) {
+                $signature = substr($signature, 11);
+            }
+            return preg_replace('/\s+/', '', $signature);
+        }
+        return '';
+    }
+
+    private static function signed_request_signature_format_valid($signature, $signature_alg) {
+        if ($signature_alg === 'hmac-sha256') {
+            return preg_match('/^[a-f0-9]{64}$/', (string) $signature) === 1;
+        }
+        if ($signature_alg === 'rsa-sha256') {
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decodes a request signature, not executable code.
+            $decoded = base64_decode((string) $signature, true);
+            return is_string($decoded) && strlen($decoded) >= 64;
+        }
+        return false;
+    }
+
+    private static function signed_request_signature_matches($canonical, $signature, $signature_alg, $key) {
+        if ($signature_alg === 'hmac-sha256') {
+            $expected_signature = hash_hmac('sha256', (string) $canonical, (string) ($key['secret'] ?? ''));
+            return hash_equals($expected_signature, (string) $signature);
+        }
+        if ($signature_alg === 'rsa-sha256') {
+            if (!function_exists('openssl_verify')) {
+                return false;
+            }
+            $public_key = (string) ($key['public_key'] ?? '');
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decodes a request signature, not executable code.
+            $decoded = base64_decode((string) $signature, true);
+            if ($public_key === '' || !is_string($decoded)) {
+                return false;
+            }
+            return openssl_verify((string) $canonical, $decoded, $public_key, OPENSSL_ALGO_SHA256) === 1;
+        }
+        return false;
+    }
+
     private static function signed_request_key_candidates_for_signer($signer) {
         $keys = self::signed_request_keys();
         if (!$keys) {
@@ -2269,10 +2359,21 @@ final class AgentCart_ShopBridge {
         if ($matches) {
             return $matches;
         }
-        if (preg_match('/^(sig_[a-f0-9]{16}|legacy|wp-config)$/', (string) $signer)) {
+        if (preg_match('/^(sig_[a-f0-9]{16}|sig_rsa_[a-f0-9]{16}|legacy|wp-config)$/', (string) $signer)) {
             return [];
         }
         return $keys;
+    }
+
+    private static function signed_request_key_alg($key) {
+        $alg = sanitize_key((string) ($key['alg'] ?? ''));
+        if ($alg === '') {
+            $alg = !empty($key['public_key']) ? 'rsa-sha256' : 'hmac-sha256';
+        }
+        if (in_array($alg, ['rsa-sha256', 'agentcart-rsa-sha256-v1'], true)) {
+            return 'rsa-sha256';
+        }
+        return 'hmac-sha256';
     }
 
     private static function signed_request_nonce_transient_name($signer, $nonce) {
@@ -2308,10 +2409,9 @@ final class AgentCart_ShopBridge {
         $nonce = trim((string) $request->get_header('x-agentcart-nonce'));
         $expires_raw = trim((string) $request->get_header('x-agentcart-expires-at'));
         $signer = sanitize_text_field((string) ($request->get_header('x-agentcart-signer') ?: 'agentcart'));
-        $signature = strtolower(trim((string) $request->get_header('x-agentcart-signature')));
-        if (strpos($signature, 'sha256=') === 0) {
-            $signature = substr($signature, 7);
-        }
+        $signature_header = trim((string) $request->get_header('x-agentcart-signature'));
+        $signature_alg = self::signed_request_signature_alg($request, $signature_header);
+        $signature = $signature_alg ? self::normalize_signed_request_signature($signature_header, $signature_alg) : $signature_header;
         $expected_digest = self::signed_request_content_digest($request);
         return [
             'id' => 'sigreq_' . substr(hash('sha256', wp_generate_uuid4() . '|' . microtime(true)), 0, 16),
@@ -2331,6 +2431,7 @@ final class AgentCart_ShopBridge {
             'signer' => $signer,
             'key_id' => sanitize_text_field((string) ($detail['key_id'] ?? '')),
             'key_state' => sanitize_key((string) ($detail['key_state'] ?? '')),
+            'signature_alg' => sanitize_key((string) ($detail['signature_alg'] ?? ($signature_alg ?: 'unsupported'))),
             'required' => self::signed_request_required_for_bucket($bucket),
             'mode' => self::signed_request_mode(),
         ];
@@ -3382,7 +3483,8 @@ final class AgentCart_ShopBridge {
                 'type' => 'auth',
                 'standard' => 'ERC-8128-style signed HTTP',
                 'status' => 'available',
-                'signature_scheme' => 'agentcart-hmac-sha256-v1',
+                'signature_scheme' => self::signed_request_preferred_signature_scheme(),
+                'signature_schemes' => self::signed_request_supported_signature_schemes(),
                 'mode' => self::signed_request_mode(),
                 'required_for' => self::signed_request_required_buckets(),
                 'max_ttl_seconds' => self::SIGNED_REQUEST_MAX_TTL_SECONDS,
@@ -3406,6 +3508,7 @@ final class AgentCart_ShopBridge {
                     'nonce' => 'X-AgentCart-Nonce',
                     'expires_at' => 'X-AgentCart-Expires-At',
                     'signer' => 'X-AgentCart-Signer',
+                    'signature_alg' => 'X-AgentCart-Signature-Alg',
                     'signature' => 'X-AgentCart-Signature',
                 ],
             ];
@@ -3984,6 +4087,31 @@ final class AgentCart_ShopBridge {
 
     private static function render_password_setting_row($label, $option, $value, $constant, $description) {
         self::render_setting_row('password', $label, $option, $value, $constant, $description);
+    }
+
+    private static function render_textarea_setting_row($label, $option, $value, $constant, $description) {
+        $constant_defined = defined($constant);
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr($option); ?>"><?php echo esc_html($label); ?></label></th>
+            <td>
+                <textarea
+                    id="<?php echo esc_attr($option); ?>"
+                    name="<?php echo esc_attr($option); ?>"
+                    class="large-text code"
+                    rows="6"
+                    autocomplete="off"
+                    <?php disabled($constant_defined); ?>
+                ><?php echo esc_textarea((string) $value); ?></textarea>
+                <p class="description">
+                    <?php echo esc_html($description); ?>
+                    <?php if ($constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code><?php echo esc_html($constant); ?></code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <?php
     }
 
     private static function render_setting_row($type, $label, $option, $value, $constant, $description) {
@@ -6884,7 +7012,8 @@ final class AgentCart_ShopBridge {
                 'required_for_checkout' => self::signed_request_required_for_bucket('checkout'),
                 'required_for' => self::signed_request_required_buckets(),
                 'profile_id' => self::signed_request_profile_configured() ? 'signed-http-ready' : null,
-                'signature_scheme' => 'agentcart-hmac-sha256-v1',
+                'signature_scheme' => self::signed_request_preferred_signature_scheme(),
+                'signature_schemes' => self::signed_request_supported_signature_schemes(),
                 'headers' => self::signed_request_header_names(),
                 'max_ttl_seconds' => self::SIGNED_REQUEST_MAX_TTL_SECONDS,
                 'active_signer' => self::signed_request_active_key_id(),
@@ -7225,48 +7354,76 @@ final class AgentCart_ShopBridge {
 
     private static function signed_request_secret() {
         $active_key = self::signed_request_active_key();
-        if ($active_key) {
+        if ($active_key && self::signed_request_key_alg($active_key) === 'hmac-sha256') {
             return (string) ($active_key['secret'] ?? '');
         }
         $keys = self::signed_request_keys();
-        if ($keys) {
-            return (string) ($keys[0]['secret'] ?? '');
+        foreach ($keys as $key) {
+            if (self::signed_request_key_alg($key) === 'hmac-sha256') {
+                return (string) ($key['secret'] ?? '');
+            }
         }
         return trim((string) get_option(self::SIGNED_REQUEST_SECRET_OPTION, ''));
     }
 
+    private static function signed_request_public_key() {
+        if (defined('AGENTCART_SIGNED_REQUEST_PUBLIC_KEY')) {
+            return self::normalize_signed_request_public_key((string) AGENTCART_SIGNED_REQUEST_PUBLIC_KEY);
+        }
+        return self::normalize_signed_request_public_key((string) get_option(self::SIGNED_REQUEST_PUBLIC_KEY_OPTION, ''));
+    }
+
+    private static function normalize_signed_request_public_key($value) {
+        $value = trim(str_replace(["\r\n", "\r"], "\n", (string) $value));
+        if ($value === '') {
+            return '';
+        }
+        if (strpos($value, '-----BEGIN PUBLIC KEY-----') === false || strpos($value, '-----END PUBLIC KEY-----') === false) {
+            return '';
+        }
+        return $value;
+    }
+
     private static function signed_request_keys() {
+        $keys = [];
+        $public_key = self::signed_request_public_key();
+        if ($public_key !== '') {
+            $keys[] = self::signed_request_public_key_record($public_key);
+        }
+
         if (defined('AGENTCART_SIGNED_REQUEST_SECRET')) {
             $secret = trim((string) AGENTCART_SIGNED_REQUEST_SECRET);
             if ($secret === '') {
-                return [];
+                return $keys;
             }
-            return [
-                [
-                    'id' => 'wp-config',
-                    'secret' => $secret,
-                    'state' => 'active',
-                    'created_at' => '',
-                    'retire_after' => null,
-                    'source' => 'wp-config',
-                ],
+            $keys[] = [
+                'id' => 'wp-config',
+                'alg' => 'hmac-sha256',
+                'secret' => $secret,
+                'state' => 'active',
+                'created_at' => '',
+                'retire_after' => null,
+                'source' => 'wp-config',
             ];
+            return $keys;
         }
 
         $stored = get_option(self::SIGNED_REQUEST_KEYS_OPTION, []);
-        $keys = self::sanitize_signed_request_keys($stored);
-        $keys = self::prune_expired_signed_request_keys($keys);
-        if ($keys) {
+        $hmac_keys = self::sanitize_signed_request_keys($stored);
+        $hmac_keys = self::prune_expired_signed_request_keys($hmac_keys);
+        if ($hmac_keys) {
+            $keys = array_merge($keys, $hmac_keys);
             return $keys;
         }
 
         $legacy_secret = trim((string) get_option(self::SIGNED_REQUEST_SECRET_OPTION, ''));
         if ($legacy_secret === '') {
-            return [];
+            return $keys;
         }
         $legacy_key = self::signed_request_key_record($legacy_secret, 'active', null, 'legacy-option', 'legacy');
         update_option(self::SIGNED_REQUEST_KEYS_OPTION, [$legacy_key], false);
-        return [$legacy_key];
+        $keys[] = $legacy_key;
+        return $keys;
     }
 
     private static function sanitize_signed_request_keys($stored) {
@@ -7297,6 +7454,7 @@ final class AgentCart_ShopBridge {
 
             $keys[] = [
                 'id' => $id,
+                'alg' => 'hmac-sha256',
                 'secret' => $secret,
                 'state' => $state,
                 'created_at' => sanitize_text_field((string) ($record['created_at'] ?? '')),
@@ -7381,11 +7539,25 @@ final class AgentCart_ShopBridge {
         $secret = trim((string) $secret);
         return [
             'id' => $id !== '' ? sanitize_key($id) : 'sig_' . substr(hash('sha256', $secret . '|' . wp_generate_uuid4()), 0, 16),
+            'alg' => 'hmac-sha256',
             'secret' => $secret,
             'state' => in_array($state, ['active', 'retiring'], true) ? $state : 'active',
             'created_at' => self::current_registry_timestamp(),
             'retire_after' => $retire_after,
             'source' => sanitize_key((string) $source) ?: 'admin',
+        ];
+    }
+
+    private static function signed_request_public_key_record($public_key) {
+        $public_key = self::normalize_signed_request_public_key($public_key);
+        return [
+            'id' => 'sig_rsa_' . substr(hash('sha256', $public_key), 0, 16),
+            'alg' => 'rsa-sha256',
+            'public_key' => $public_key,
+            'state' => 'active',
+            'created_at' => '',
+            'retire_after' => null,
+            'source' => defined('AGENTCART_SIGNED_REQUEST_PUBLIC_KEY') ? 'wp-config-public-key' : 'settings-public-key',
         ];
     }
 
@@ -7432,9 +7604,11 @@ final class AgentCart_ShopBridge {
         foreach (self::signed_request_keys() as $key) {
             $summaries[] = [
                 'id' => (string) ($key['id'] ?? ''),
+                'alg' => self::signed_request_key_alg($key),
                 'state' => (string) ($key['state'] ?? ''),
                 'retire_after' => $key['retire_after'] ?? null,
                 'source' => (string) ($key['source'] ?? 'admin'),
+                'public_key_fingerprint' => !empty($key['public_key']) ? hash('sha256', (string) $key['public_key']) : '',
             ];
         }
         return $summaries;
@@ -7443,13 +7617,45 @@ final class AgentCart_ShopBridge {
     private static function signed_request_key_status_summary() {
         $active = self::signed_request_active_key_count();
         $retiring = self::signed_request_retiring_key_count();
+        $asymmetric = self::signed_request_asymmetric_key_count();
         $active_id = self::signed_request_active_key_id();
         $days = (int) ceil(self::SIGNED_REQUEST_KEY_RETIREMENT_SECONDS / 86400);
-        $summary = sprintf('Active keys: %d. Retiring keys: %d. Retirement window: %d days.', $active, $retiring, $days);
+        $summary = sprintf('Active keys: %d. Asymmetric keys: %d. Retiring keys: %d. Retirement window: %d days.', $active, $asymmetric, $retiring, $days);
         if ($active_id !== '') {
             $summary .= ' Active signer: ' . $active_id . '.';
         }
         return $summary;
+    }
+
+    private static function signed_request_asymmetric_key_count() {
+        $count = 0;
+        foreach (self::signed_request_keys() as $key) {
+            if (self::signed_request_key_alg($key) === 'rsa-sha256') {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    private static function signed_request_supported_signature_schemes() {
+        $schemes = [];
+        foreach (self::signed_request_keys() as $key) {
+            $scheme = self::signed_request_key_alg($key) === 'rsa-sha256'
+                ? 'agentcart-rsa-sha256-v1'
+                : 'agentcart-hmac-sha256-v1';
+            if (!in_array($scheme, $schemes, true)) {
+                $schemes[] = $scheme;
+            }
+        }
+        return $schemes ?: ['agentcart-hmac-sha256-v1'];
+    }
+
+    private static function signed_request_preferred_signature_scheme() {
+        $active = self::signed_request_active_key();
+        if ($active && self::signed_request_key_alg($active) === 'rsa-sha256') {
+            return 'agentcart-rsa-sha256-v1';
+        }
+        return 'agentcart-hmac-sha256-v1';
     }
 
     private static function signed_request_profile_configured() {
@@ -7474,6 +7680,7 @@ final class AgentCart_ShopBridge {
             'nonce' => 'X-AgentCart-Nonce',
             'expires_at' => 'X-AgentCart-Expires-At',
             'signer' => 'X-AgentCart-Signer',
+            'signature_alg' => 'X-AgentCart-Signature-Alg',
             'signature' => 'X-AgentCart-Signature',
         ];
     }
