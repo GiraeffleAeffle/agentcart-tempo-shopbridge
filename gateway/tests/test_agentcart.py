@@ -96,6 +96,17 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         registry_alert_smtp_starttls=True,
         registry_alert_min_severity="warning",
         registry_alert_include_resolved=True,
+        ops_event_webhook_url="",
+        ops_event_webhook_token="",
+        ops_event_homeassistant_enabled=False,
+        ops_event_email_to=(),
+        ops_event_email_from="",
+        ops_event_smtp_host="",
+        ops_event_smtp_port=587,
+        ops_event_smtp_username="",
+        ops_event_smtp_password="",
+        ops_event_smtp_starttls=True,
+        ops_event_min_severity="warning",
     )
     if overrides:
         config = agentcart.Config(**{**config.__dict__, **overrides})
@@ -1038,6 +1049,199 @@ class AgentCartTests(unittest.TestCase):
             body = message.get_content()
             self.assertIn("registry_record_stale", body)
             self.assertIn("Only public merchant registry metadata", body)
+
+    def test_ops_event_webhook_receives_quote_checkout_and_refund_events(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            service = make_service(
+                tmp,
+                ops_event_webhook_url="https://ops.example/agentcart-commerce",
+                ops_event_webhook_token="ops-token",
+                ops_event_min_severity="info",
+            )
+            calls: list[dict[str, object]] = []
+
+            def fake_http_json(
+                url: str,
+                *,
+                method: str,
+                token: str,
+                payload: dict[str, object] | None = None,
+                headers_extra: dict[str, str] | None = None,
+                timeout: int = 10,
+            ) -> dict[str, object]:
+                calls.append(
+                    {
+                        "url": url,
+                        "method": method,
+                        "token": token,
+                        "payload": payload or {},
+                        "headers_extra": headers_extra or {},
+                        "timeout": timeout,
+                    }
+                )
+                return {"ok": True}
+
+            service.http_json = fake_http_json  # type: ignore[method-assign]
+
+            quote = service.create_quote(
+                {
+                    "agent_id": "ops-test-agent",
+                    "reason": "ops event smoke quote",
+                    "items": [{"product_id": "tea_sencha_100g", "quantity": 1}],
+                    "ship_to": {"country": "DE", "postal_code": "10115"},
+                }
+            )
+            approval = service.create_approval({"quote_id": quote["id"]})
+            decided = service.decide_approval(
+                approval["id"],
+                {"decision": "approved", "token": approval["decision_token"], "approver": "household-user"},
+            )
+            checkout_payload = {
+                "quote_id": quote["id"],
+                "approval_id": approval["id"],
+                "idempotency_key": "ops-checkout-1",
+            }
+            raw_body = json.dumps(checkout_payload, sort_keys=True, separators=(",", ":")).encode()
+            status, _headers, payment_required = service.checkout(
+                checkout_payload,
+                {"idempotency-key": "ops-checkout-1"},
+                raw_body,
+            )
+            self.assertEqual(status, 402)
+            status, _headers, checkout_body = service.checkout(
+                checkout_payload,
+                {
+                    "idempotency-key": "ops-checkout-1",
+                    "authorization": payment_required["demo_authorization"],
+                },
+                raw_body,
+            )
+            self.assertEqual(status, 201)
+            order = checkout_body["order"]
+            refund_result = service.refund_order(
+                order["id"],
+                {"idempotency_key": "ops-refund-1", "amount_cents": 100, "reason": "ops event refund"},
+            )
+
+            self.assertEqual(refund_result["refund"]["state"], "demo_refund_recorded")
+            event_types = [call["payload"]["event_type"] for call in calls]  # type: ignore[index]
+            self.assertEqual(event_types, ["quote.created", "order.created", "order.refund_recorded"])
+            self.assertTrue(all(call["url"] == "https://ops.example/agentcart-commerce" for call in calls))
+            self.assertTrue(all(call["token"] == "ops-token" for call in calls))
+            self.assertTrue(all(call["headers_extra"]["X-AgentCart-Event"] == "ops.event" for call in calls))  # type: ignore[index]
+            self.assertEqual(calls[0]["payload"]["schema"], "agentcart.ops_event_notification.v1")  # type: ignore[index]
+            self.assertEqual(calls[0]["payload"]["kind"], "quote")  # type: ignore[index]
+            self.assertEqual(calls[1]["payload"]["kind"], "checkout")  # type: ignore[index]
+            self.assertEqual(calls[1]["payload"]["refs"]["approval_record_hash"], decided["approval_record_hash"])  # type: ignore[index]
+            self.assertEqual(calls[2]["payload"]["kind"], "refund")  # type: ignore[index]
+            self.assertEqual(calls[2]["payload"]["severity"], "warning")  # type: ignore[index]
+            self.assertNotIn("ship_to", json.dumps([call["payload"] for call in calls], default=str))
+
+            notifications = service.state["ops_notifications"]
+            self.assertEqual(notifications["last_notifications"]["state"], "sent")
+            self.assertEqual(len(notifications["notification_history"]), 3)
+            self.assertEqual(notifications["notification_history"][-1]["event"]["event_type"], "order.refund_recorded")
+
+    def test_ops_event_homeassistant_receives_delivery_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                homeassistant_url="http://ha.test",
+                homeassistant_token="ha-token",
+                ha_notify_services=("notify.mobile_app_max",),
+                ops_event_homeassistant_enabled=True,
+                ops_event_min_severity="warning",
+            )
+            order_id = "order_exception_ops_1"
+            service.state["orders"] = {
+                order_id: {
+                    "id": order_id,
+                    "merchant_order_id": "9003",
+                    "quote_id": "quote_exception_ops_1",
+                    "state": "accepted",
+                    "items": [{"quantity": 1, "title": "Household tea"}],
+                    "total_cents": 1480,
+                    "currency": "EUR",
+                    "delivery_estimate": {"label": "2-4 business days"},
+                    "delivery_window": {
+                        "earliest_date": "2026-06-23",
+                        "latest_date": "2026-06-25",
+                        "label": "2-4 business days",
+                    },
+                    "shipment": {"status": "not_shipped"},
+                    "payment_receipt": {"id": "pay_ops_delivery", "method": "demo", "protocol": "demo", "status": "succeeded"},
+                    "merchant_order": {
+                        "status_url": "http://woo.test/wp-json/agentcart/v1/orders/9003/status",
+                        "status_token": "status-token",
+                    },
+                }
+            }
+            calls: list[dict[str, object]] = []
+
+            def fake_http_json(
+                url: str,
+                *,
+                method: str,
+                token: str,
+                payload: dict[str, object] | None = None,
+                headers_extra: dict[str, str] | None = None,
+                timeout: int = 10,
+            ) -> object:
+                if url == "http://woo.test/wp-json/agentcart/v1/orders/9003/status":
+                    return {
+                        "status": "processing",
+                        "payment_status": "paid",
+                        "fulfillment": {
+                            "state": "shipped",
+                            "carrier": "DHL",
+                            "tracking_number": "DHL-OPS-1",
+                            "tracking_url": "http://carrier.test/DHL-OPS-1",
+                            "tracking_status": "exception",
+                            "source": "woocommerce_shipment_tracking",
+                            "has_delivery_exception": True,
+                            "delivery_exception": {
+                                "state": "delayed",
+                                "summary": "Carrier reported a delivery delay.",
+                                "tracking_status": "exception",
+                                "carrier": "DHL",
+                                "tracking_number": "DHL-OPS-1",
+                                "source": "woocommerce_shipment_tracking",
+                                "requires_attention": True,
+                            },
+                        },
+                    }
+                calls.append(
+                    {
+                        "url": url,
+                        "method": method,
+                        "token": token,
+                        "payload": payload or {},
+                        "headers_extra": headers_extra or {},
+                        "timeout": timeout,
+                    }
+                )
+                return {"ok": True}
+
+            service.http_json = fake_http_json  # type: ignore[method-assign]
+
+            result = service.refresh_order_status(order_id)
+
+            self.assertTrue(result["order"]["shipment"]["has_delivery_exception"])
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["url"], "http://ha.test/api/services/notify/mobile_app_max")
+            self.assertEqual(calls[0]["token"], "ha-token")
+            ha_payload = calls[0]["payload"]
+            self.assertEqual(ha_payload["data"]["tag"], "agentcart_ops_event")  # type: ignore[index]
+            self.assertEqual(ha_payload["data"]["event_type"], "order.status_refreshed")  # type: ignore[index]
+            self.assertEqual(ha_payload["data"]["severity"], "warning")  # type: ignore[index]
+            self.assertIn("Delivery exception requires attention", ha_payload["message"])  # type: ignore[index]
+            notifications = service.state["ops_notifications"]
+            self.assertEqual(notifications["last_notifications"]["state"], "sent")
+            event = notifications["last_notifications"]["event"]
+            self.assertEqual(event["kind"], "delivery")
+            self.assertEqual(event["refs"]["delivery_exception"]["state"], "delayed")
+            self.assertNotIn("summary", event["refs"]["delivery_exception"])
 
     def test_hosted_registry_submission_rejects_record_hash_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

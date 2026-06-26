@@ -175,6 +175,17 @@ class Config:
     registry_alert_smtp_starttls: bool
     registry_alert_min_severity: str
     registry_alert_include_resolved: bool
+    ops_event_webhook_url: str
+    ops_event_webhook_token: str
+    ops_event_homeassistant_enabled: bool
+    ops_event_email_to: tuple[str, ...]
+    ops_event_email_from: str
+    ops_event_smtp_host: str
+    ops_event_smtp_port: int
+    ops_event_smtp_username: str
+    ops_event_smtp_password: str
+    ops_event_smtp_starttls: bool
+    ops_event_min_severity: str
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -289,6 +300,17 @@ class Config:
             registry_alert_smtp_starttls=bool_env("AGENTCART_REGISTRY_ALERT_SMTP_STARTTLS", True),
             registry_alert_min_severity=os.getenv("AGENTCART_REGISTRY_ALERT_MIN_SEVERITY", "warning").strip().lower(),
             registry_alert_include_resolved=bool_env("AGENTCART_REGISTRY_ALERT_INCLUDE_RESOLVED", True),
+            ops_event_webhook_url=os.getenv("AGENTCART_OPS_EVENT_WEBHOOK_URL", "").strip(),
+            ops_event_webhook_token=os.getenv("AGENTCART_OPS_EVENT_WEBHOOK_TOKEN", "").strip(),
+            ops_event_homeassistant_enabled=bool_env("AGENTCART_OPS_EVENT_HOMEASSISTANT_ENABLED", False),
+            ops_event_email_to=csv_env("AGENTCART_OPS_EVENT_EMAIL_TO"),
+            ops_event_email_from=os.getenv("AGENTCART_OPS_EVENT_EMAIL_FROM", "").strip(),
+            ops_event_smtp_host=os.getenv("AGENTCART_OPS_EVENT_SMTP_HOST", "").strip(),
+            ops_event_smtp_port=int(os.getenv("AGENTCART_OPS_EVENT_SMTP_PORT", "587")),
+            ops_event_smtp_username=os.getenv("AGENTCART_OPS_EVENT_SMTP_USERNAME", "").strip(),
+            ops_event_smtp_password=os.getenv("AGENTCART_OPS_EVENT_SMTP_PASSWORD", ""),
+            ops_event_smtp_starttls=bool_env("AGENTCART_OPS_EVENT_SMTP_STARTTLS", True),
+            ops_event_min_severity=os.getenv("AGENTCART_OPS_EVENT_MIN_SEVERITY", "warning").strip().lower(),
         )
 
 
@@ -1994,6 +2016,9 @@ class AgentCartService:
             monitor.setdefault("last_run_at", None)
             monitor.setdefault("last_notifications", None)
             monitor.setdefault("notification_history", [])
+            ops_notifications = self.state.setdefault("ops_notifications", {})
+            ops_notifications.setdefault("last_notifications", None)
+            ops_notifications.setdefault("notification_history", [])
             self.state.setdefault("audit_tail", [])
             self.state.setdefault("audit_imports", {})
             stock = self.state.setdefault("stock", {})
@@ -2059,6 +2084,7 @@ class AgentCartService:
             tail.append(event)
             del tail[:-100]
             self.save_state()
+        self.maybe_deliver_ops_event_notification(event)
         return event
 
     def import_audit_packet(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -4070,6 +4096,282 @@ class AgentCartService:
                 "recipient_count": len(recipients),
                 "error": str(exc),
             }
+
+    def ops_event_sink_config(self) -> dict[str, Any]:
+        webhook_configured = bool(self.config.ops_event_webhook_url)
+        homeassistant_configured = bool(
+            self.config.ops_event_homeassistant_enabled
+            and self.config.homeassistant_url
+            and self.config.homeassistant_token
+            and self.config.ha_notify_services
+        )
+        email_configured = bool(
+            self.config.ops_event_email_to
+            and self.config.ops_event_email_from
+            and self.config.ops_event_smtp_host
+        )
+        return {
+            "webhook_configured": webhook_configured,
+            "homeassistant_configured": homeassistant_configured,
+            "homeassistant_enabled": self.config.ops_event_homeassistant_enabled,
+            "email_configured": email_configured,
+            "email_recipient_count": len(self.config.ops_event_email_to),
+            "min_severity": self.normalized_ops_event_min_severity(),
+            "sink_count": int(webhook_configured) + int(homeassistant_configured) + int(email_configured),
+        }
+
+    def normalized_ops_event_min_severity(self) -> str:
+        value = (self.config.ops_event_min_severity or "warning").lower()
+        return value if value in {"info", "warning", "critical"} else "warning"
+
+    def ops_event_allowed(self, payload: dict[str, Any]) -> bool:
+        severity_rank = {"info": 1, "warning": 2, "critical": 3}
+        severity = str(payload.get("severity") or "info").lower()
+        minimum = self.normalized_ops_event_min_severity()
+        return severity_rank.get(severity, 0) >= severity_rank[minimum]
+
+    def ops_event_safe_refs(self, refs: dict[str, Any]) -> dict[str, Any]:
+        allowed = {
+            "quote_id",
+            "merchant_quote_id",
+            "order_id",
+            "merchant_order_id",
+            "approval_id",
+            "approval_hash",
+            "approval_record_hash",
+            "approval_decision_hash",
+            "payment_receipt_id",
+            "refund_id",
+            "merchant_refund_id",
+            "real_refund_verified",
+            "rail",
+            "idempotency_key",
+            "tracking_number",
+            "has_delivery_exception",
+            "product_ids",
+            "challenge_id",
+        }
+        safe: dict[str, Any] = {}
+        for key in sorted(allowed):
+            if key not in refs:
+                continue
+            value = refs[key]
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                safe[key] = value
+            elif isinstance(value, list):
+                safe[key] = [str(item)[:120] for item in value[:20]]
+        delivery_exception = refs.get("delivery_exception")
+        if isinstance(delivery_exception, dict):
+            safe["delivery_exception"] = {
+                "state": str(delivery_exception.get("state") or "")[:80],
+                "tracking_status": str(delivery_exception.get("tracking_status") or "")[:80],
+                "carrier": str(delivery_exception.get("carrier") or "")[:80],
+                "tracking_number": str(delivery_exception.get("tracking_number") or "")[:120],
+                "requires_attention": bool(delivery_exception.get("requires_attention")),
+                "source": str(delivery_exception.get("source") or "")[:120],
+            }
+        return safe
+
+    def ops_event_notification_payload(self, audit_event: dict[str, Any]) -> dict[str, Any] | None:
+        event_type = str(audit_event.get("event_type") or "")
+        refs = audit_event.get("refs") if isinstance(audit_event.get("refs"), dict) else {}
+        kind = ""
+        severity = "info"
+        message = ""
+        if event_type == "quote.created":
+            kind = "quote"
+            message = "AgentCart created a final quote."
+        elif event_type == "order.created":
+            kind = "checkout"
+            message = "AgentCart completed an approved checkout."
+        elif event_type == "order.refund_recorded":
+            kind = "refund"
+            severity = "info" if refs.get("real_refund_verified") is True else "warning"
+            message = "AgentCart recorded a merchant refund."
+        elif event_type == "order.status_refreshed":
+            delivery_exception = refs.get("delivery_exception") if isinstance(refs.get("delivery_exception"), dict) else {}
+            if not refs.get("has_delivery_exception") and not delivery_exception:
+                return None
+            kind = "delivery"
+            severity = "warning"
+            state = str(delivery_exception.get("state") or "delivery_exception")
+            message = f"Delivery exception requires attention: {state}."
+        elif event_type == "calendar.event_failed":
+            kind = "delivery"
+            severity = "warning"
+            message = "Home Assistant delivery calendar sync failed."
+        else:
+            return None
+
+        return {
+            "schema": "agentcart.ops_event_notification.v1",
+            "id": f"ops_event_{uuid.uuid4().hex[:16]}",
+            "event_type": event_type,
+            "kind": kind,
+            "severity": severity,
+            "message": message,
+            "purchase_id": audit_event.get("purchase_id"),
+            "actor": str(audit_event.get("actor") or "")[:120],
+            "reason": strip_html(str(audit_event.get("reason") or ""))[:300],
+            "refs": self.ops_event_safe_refs(refs),
+            "timestamp": audit_event.get("timestamp") or isoformat(utcnow()),
+            "public_url": self.config.public_url,
+        }
+
+    def ops_event_delivery_skipped(self, reason: str) -> dict[str, Any]:
+        return {
+            "schema": "agentcart.ops_event_delivery.v1",
+            "id": f"ops_delivery_{uuid.uuid4().hex[:16]}",
+            "state": "skipped",
+            "reason": reason,
+            "configured": self.ops_event_sink_config(),
+            "results": [],
+        }
+
+    def deliver_ops_event_notification(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.ops_event_allowed(payload):
+            return self.ops_event_delivery_skipped("below_configured_min_severity")
+        configured = self.ops_event_sink_config()
+        if int(configured.get("sink_count") or 0) == 0:
+            return {
+                **self.ops_event_delivery_skipped("no_ops_event_sinks_configured"),
+                "event": payload,
+            }
+        results = []
+        if self.config.ops_event_webhook_url:
+            results.append(self.send_ops_event_webhook(payload))
+        if configured.get("homeassistant_configured"):
+            results.append(self.send_ops_event_homeassistant(payload))
+        if configured.get("email_configured"):
+            results.append(self.send_ops_event_email(payload))
+        ok_count = sum(1 for result in results if result.get("ok"))
+        state = "sent" if ok_count == len(results) else "partial" if ok_count else "failed"
+        return {
+            "schema": "agentcart.ops_event_delivery.v1",
+            "id": f"ops_delivery_{uuid.uuid4().hex[:16]}",
+            "state": state,
+            "configured": configured,
+            "event": payload,
+            "results": results,
+        }
+
+    def record_ops_event_delivery(self, delivery: dict[str, Any]) -> None:
+        with self.lock:
+            ops_notifications = self.state.setdefault("ops_notifications", {})
+            ops_notifications["last_notifications"] = delivery
+            history = ops_notifications.setdefault("notification_history", [])
+            if not isinstance(history, list):
+                history = []
+                ops_notifications["notification_history"] = history
+            history.append(delivery)
+            limit = max(1, int(self.config.registry_monitor_history_limit or 50))
+            del history[:-limit]
+            self.save_state()
+
+    def maybe_deliver_ops_event_notification(self, audit_event: dict[str, Any]) -> None:
+        payload = self.ops_event_notification_payload(audit_event)
+        if payload is None:
+            return
+        try:
+            delivery = self.deliver_ops_event_notification(payload)
+        except Exception as exc:  # pragma: no cover - notifications must not break commerce
+            delivery = {
+                "schema": "agentcart.ops_event_delivery.v1",
+                "id": f"ops_delivery_{uuid.uuid4().hex[:16]}",
+                "state": "failed",
+                "event": payload,
+                "configured": self.ops_event_sink_config(),
+                "results": [{"sink": "internal", "ok": False, "error": str(exc)}],
+            }
+        if delivery.get("state") != "skipped":
+            self.record_ops_event_delivery(delivery)
+
+    def send_ops_event_webhook(self, payload: dict[str, Any]) -> dict[str, Any]:
+        url = self.config.ops_event_webhook_url
+        try:
+            self.http_json(
+                url,
+                method="POST",
+                token=self.config.ops_event_webhook_token,
+                payload=payload,
+                headers_extra={
+                    "X-AgentCart-Event": "ops.event",
+                    "X-AgentCart-Event-Id": str(payload.get("id") or ""),
+                },
+                timeout=8,
+            )
+            return {"sink": "webhook", "url": url, "ok": True}
+        except AgentCartError as exc:
+            return {"sink": "webhook", "url": url, "ok": False, "error": str(exc), "detail": exc.detail}
+
+    def send_ops_event_homeassistant(self, payload: dict[str, Any]) -> dict[str, Any]:
+        data = {
+            "title": f"AgentCart {payload.get('kind') or 'event'}",
+            "message": str(payload.get("message") or payload.get("event_type") or "AgentCart event"),
+            "data": {
+                "tag": "agentcart_ops_event",
+                "url": self.config.public_url,
+                "event_type": payload.get("event_type"),
+                "severity": payload.get("severity"),
+            },
+        }
+        results = []
+        for service in self.config.ha_notify_services:
+            if "." not in service:
+                results.append({"service": service, "ok": False, "error": "notify service must look like notify.mobile_app_name"})
+                continue
+            domain, service_name = service.split(".", 1)
+            url = f"{self.config.homeassistant_url}/api/services/{domain}/{service_name}"
+            try:
+                self.http_json(url, method="POST", token=self.config.homeassistant_token, payload=data, timeout=8)
+                results.append({"service": service, "ok": True})
+            except AgentCartError as exc:
+                results.append({"service": service, "ok": False, "error": str(exc), "detail": exc.detail})
+        ok = any(result.get("ok") for result in results)
+        return {"sink": "homeassistant", "ok": ok, "results": results}
+
+    def ops_event_email_subject(self, payload: dict[str, Any]) -> str:
+        return f"AgentCart {payload.get('severity') or 'info'}: {payload.get('kind') or payload.get('event_type')}"
+
+    def ops_event_email_body(self, payload: dict[str, Any]) -> str:
+        lines = [
+            "AgentCart commerce event notification.",
+            "",
+            f"Event: {payload.get('event_type') or ''}",
+            f"Kind: {payload.get('kind') or ''}",
+            f"Severity: {payload.get('severity') or ''}",
+            f"Message: {payload.get('message') or ''}",
+            f"Purchase: {payload.get('purchase_id') or ''}",
+            f"Timestamp: {payload.get('timestamp') or ''}",
+            "",
+            "References:",
+        ]
+        refs = payload.get("refs") if isinstance(payload.get("refs"), dict) else {}
+        for key, value in sorted(refs.items()):
+            lines.append(f"- {key}: {json.dumps(value, sort_keys=True, default=json_default)}")
+        lines.append("")
+        lines.append("No payment credentials, delivery addresses, or raw request bodies are included.")
+        return "\n".join(lines)
+
+    def send_ops_event_email(self, payload: dict[str, Any]) -> dict[str, Any]:
+        recipients = list(self.config.ops_event_email_to)
+        message = EmailMessage()
+        message["Subject"] = self.ops_event_email_subject(payload)
+        message["From"] = self.config.ops_event_email_from
+        message["To"] = ", ".join(recipients)
+        message["X-AgentCart-Event"] = "ops.event"
+        message["X-AgentCart-Event-Id"] = str(payload.get("id") or "")
+        message.set_content(self.ops_event_email_body(payload))
+        try:
+            with smtplib.SMTP(self.config.ops_event_smtp_host, self.config.ops_event_smtp_port, timeout=8) as smtp:
+                if self.config.ops_event_smtp_starttls:
+                    smtp.starttls()
+                if self.config.ops_event_smtp_username or self.config.ops_event_smtp_password:
+                    smtp.login(self.config.ops_event_smtp_username, self.config.ops_event_smtp_password)
+                smtp.send_message(message)
+            return {"sink": "email", "ok": True, "recipient_count": len(recipients)}
+        except Exception as exc:
+            return {"sink": "email", "ok": False, "recipient_count": len(recipients), "error": str(exc)}
 
     def run_registry_monitor(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
         request = request or {}
@@ -7814,6 +8116,10 @@ separate human confirmation.
                 "order_id": order_id,
                 "merchant_order_id": updated.get("merchant_order_id"),
                 "tracking_number": updated.get("shipment", {}).get("tracking_number"),
+                "has_delivery_exception": bool(updated.get("shipment", {}).get("has_delivery_exception")),
+                "delivery_exception": updated.get("shipment", {}).get("delivery_exception")
+                if isinstance(updated.get("shipment", {}).get("delivery_exception"), dict)
+                else None,
             },
         )
         return {"order": updated, "merchant_status": status, "refresh": {"state": "updated"}}

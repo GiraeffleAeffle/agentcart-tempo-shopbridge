@@ -80,6 +80,18 @@ registry alert deltas, set `AGENTCART_REGISTRY_ALERT_WEBHOOK_URL`, or enable
 `AGENTCART_REGISTRY_ALERT_SMTP_HOST`; optional SMTP username/password and
 STARTTLS settings support authenticated providers or a local relay.
 
+## Commerce Ops Events
+
+AgentCart can also send redacted commerce lifecycle notifications for quote,
+checkout, refund, and delivery-exception events. Configure
+`AGENTCART_OPS_EVENT_WEBHOOK_URL`, or enable
+`AGENTCART_OPS_EVENT_HOMEASSISTANT_ENABLED=true` with `HOMEASSISTANT_URL`,
+`HOMEASSISTANT_TOKEN`, and `HA_NOTIFY_SERVICES`. Email delivery uses the
+`AGENTCART_OPS_EVENT_EMAIL_*` and `AGENTCART_OPS_EVENT_SMTP_*` variables. These
+payloads include ids, hashes, rail/status metadata, and delivery-exception
+state; they do not include payment credentials, raw request bodies, or delivery
+addresses.
+
 ## Files Expected In Repo Root
 
 ```text

@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">73</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 73%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">74</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 74%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -549,7 +549,7 @@
       { name: "Buyer Skill Path", value: 70, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; more runtime adapters remain" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 50, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, alert delta delivery, and delivery exception surfaces exist; beta ops remain" }
+      { name: "Operations", value: 56, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, and delivery exception surfaces exist; beta ops remain" }
     ];
 
     const gates = [
@@ -725,12 +725,12 @@
       {
         code: "OBS",
         title: "Observability",
-        status: "open",
-        value: 50,
-        scope: "Health endpoints, registry monitor snapshots, verifier JSON metrics/logs, verifier failure webhooks, alert delivery results, notification history, and verify pipeline exist.",
-        remaining: "Add cross-service metrics, payment failure dashboards, Home Assistant alert bridge, channel retry/backoff policy, and merchant support diagnostics.",
+        status: "partial",
+        value: 60,
+        scope: "Health endpoints, registry monitor snapshots, verifier JSON metrics/logs, verifier failure webhooks, redacted commerce ops event delivery for quote/checkout/refund/delivery exceptions, alert delivery results, notification history, and verify pipeline exist.",
+        remaining: "Add cross-service metrics, payment failure dashboards, channel retry/backoff policy, merchant support diagnostics, and managed retention.",
         items: [
-          { id: "OBS-001", priority: "P0", title: "Alert delivery pipeline", description: "Registry alert deltas route to webhook and Home Assistant; verifier failures now emit throttled webhooks; extend the same delivery contract to quote, checkout, refund, delivery, and Home Assistant verifier alerts." },
+          { id: "OBS-001", priority: "P0", title: "Alert delivery pipeline", description: "Implemented: registry alert deltas route to webhook/Home Assistant/SMTP, verifier failures emit throttled webhooks, and quote/checkout/refund/delivery-exception audit events can emit independently configured redacted ops notifications to webhook, Home Assistant, or SMTP." },
           { id: "OBS-002", priority: "P1", title: "Structured logs and metrics", description: "Verifier requests now emit correlation IDs, JSON metrics, and structured event logs; extend the same contract to quote, checkout, refund, delivery, and registry paths." },
           { id: "OBS-003", priority: "P2", title: "Support diagnostics bundle", description: "Export a redacted diagnostic packet that merchants can share when AgentCart setup or checkout fails." }
         ]
@@ -759,7 +759,7 @@
       open: "Open"
     };
 
-    const overallValue = 72;
+    const overallValue = 74;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

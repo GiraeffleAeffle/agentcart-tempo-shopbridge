@@ -209,6 +209,11 @@ email, and inspect the same delivery status from the ShopBridge WordPress admin
 health panel. Buyer-side registry
 entries expose `registry_status` so agents and humans can distinguish verified,
 stale, revoked, local, and failed records without parsing raw verifier errors.
+The gateway also has opt-in commerce ops notifications for quote, approved
+checkout, refund, and delivery-exception audit events. These use the same
+webhook, Home Assistant, and SMTP delivery mechanics as registry alerts, but
+are configured independently through `AGENTCART_OPS_EVENT_*` variables and only
+send redacted ids, hashes, rail/status metadata, and delivery-exception state.
 The same setup guide is included in the public capability document for remote
 onboarding tools. The repo also includes an opt-in live smoke script for
 checking manifest/capability setup state, registry bundle/proof/revocation hash

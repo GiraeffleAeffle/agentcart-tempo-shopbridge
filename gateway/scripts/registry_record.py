@@ -441,6 +441,17 @@ def minimal_config(tmp: pathlib.Path, *, hmac_secret: str = "", max_age_days: in
         registry_alert_smtp_starttls=True,
         registry_alert_min_severity="warning",
         registry_alert_include_resolved=True,
+        ops_event_webhook_url="",
+        ops_event_webhook_token="",
+        ops_event_homeassistant_enabled=False,
+        ops_event_email_to=(),
+        ops_event_email_from="",
+        ops_event_smtp_host="",
+        ops_event_smtp_port=587,
+        ops_event_smtp_username="",
+        ops_event_smtp_password="",
+        ops_event_smtp_starttls=True,
+        ops_event_min_severity="warning",
     )
 
 
