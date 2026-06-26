@@ -11,7 +11,7 @@ services:
       - woo_db:/var/lib/mysql
 
   wordpress:
-    image: wordpress:php8.2-apache
+    image: ${WORDPRESS_IMAGE:-wordpress:php8.2-apache}
     restart: unless-stopped
     depends_on:
       - db
@@ -56,7 +56,7 @@ services:
       - ../../woocommerce-shopbridge/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
 
   wpcli:
-    image: wordpress:cli-php8.2
+    image: ${WORDPRESS_CLI_IMAGE:-wordpress:cli-php8.2}
     user: "0:0"
     depends_on:
       - wordpress

@@ -1390,6 +1390,7 @@ final class AgentCart_ShopBridge {
         if (!empty($monitor['alert_delivery_email_configured'])) {
             $alert_delivery_sinks[] = 'email';
         }
+        $admin_health_rows = self::registry_admin_health_summary($registry_public_check, $registry_connection_status, $registry_health_check);
         $endpoint_rows = '';
         foreach (['manifest', 'proof', 'revocations', 'bundle'] as $key) {
             $endpoint = is_array($endpoints[$key] ?? null) ? $endpoints[$key] : [];
@@ -1402,6 +1403,25 @@ final class AgentCart_ShopBridge {
             shipping, or policy settings change. Run the public endpoint check before asking a
             registry to ingest this shop.
         </p>
+        <h4>Registry Health Summary</h4>
+        <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
+            <thead>
+                <tr>
+                    <th scope="col">Check</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($admin_health_rows as $row) : ?>
+                    <tr>
+                        <th scope="row"><?php echo esc_html((string) ($row['label'] ?? 'Registry check')); ?></th>
+                        <td><?php self::render_admin_status_badge(!empty($row['ok']), (string) ($row['ok_label'] ?? 'OK'), (string) ($row['missing_label'] ?? 'Needs attention')); ?></td>
+                        <td><?php echo esc_html((string) ($row['detail'] ?? '')); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
         <table class="widefat striped" style="max-width: 980px;">
             <tbody>
                 <tr>
@@ -1562,6 +1582,86 @@ final class AgentCart_ShopBridge {
             </p>
         </div>
         <?php
+    }
+
+    private static function registry_admin_health_summary($registry_public_check, $registry_connection_status, $registry_health_check) {
+        $registry_public_check = is_array($registry_public_check) ? $registry_public_check : [];
+        $registry_connection_status = is_array($registry_connection_status) ? $registry_connection_status : [];
+        $registry_health_check = is_array($registry_health_check) ? $registry_health_check : [];
+        $health = is_array($registry_health_check['health'] ?? null) ? $registry_health_check['health'] : [];
+        $current_record = is_array($health['current_record'] ?? null) ? $health['current_record'] : [];
+        $monitor = is_array($registry_health_check['monitor'] ?? null) ? $registry_health_check['monitor'] : [];
+        $registry_connection_url = self::registry_connection_url();
+        $registry_updated_at = self::registry_updated_at();
+        $age_days = isset($current_record['age_days']) && is_numeric($current_record['age_days']) ? intval($current_record['age_days']) : null;
+        $manifest_fresh = $age_days !== null ? $age_days <= 180 : $registry_updated_at !== '';
+        $manifest_detail = $age_days !== null
+            ? 'Registry record updated_at ' . (string) ($current_record['updated_at'] ?? 'unknown') . '; age ' . $age_days . ' day(s).'
+            : 'Local registry updated_at ' . ($registry_updated_at !== '' ? $registry_updated_at : 'not set') . '; run registry health to fetch remote age.';
+        $connection_state = (string) ($registry_connection_status['state'] ?? 'not_submitted');
+        $public_state = (string) ($registry_public_check['state'] ?? 'not_checked');
+        $monitor_state = (string) ($monitor['state'] ?? 'not_available');
+        $notification_state = (string) ($monitor['last_notifications_state'] ?? '');
+        return [
+            [
+                'id' => 'hosted_registry_connection',
+                'label' => 'Hosted registry connection',
+                'ok' => $registry_connection_url !== '',
+                'ok_label' => 'Configured',
+                'missing_label' => 'Not configured',
+                'detail' => $registry_connection_url !== ''
+                    ? 'Connection URL is configured; last submission state ' . $connection_state . '.'
+                    : 'Add a registry connection URL to submit, revoke, and fetch health from WordPress.',
+            ],
+            [
+                'id' => 'domain_proof',
+                'label' => 'Domain proof',
+                'ok' => self::registry_domain_proof_configured() && $public_state === 'verified',
+                'ok_label' => 'Verified',
+                'missing_label' => self::registry_domain_proof_configured() ? 'Needs check' : 'Needs merchant id',
+                'detail' => self::registry_domain_proof_configured()
+                    ? 'Proof URL is generated; public endpoint check state ' . $public_state . '.'
+                    : 'Set a stable merchant id so the proof document can bind this domain.',
+            ],
+            [
+                'id' => 'manifest_freshness',
+                'label' => 'Manifest freshness',
+                'ok' => $manifest_fresh,
+                'ok_label' => 'Fresh',
+                'missing_label' => 'Stale or unknown',
+                'detail' => $manifest_detail,
+            ],
+            [
+                'id' => 'registry_entry',
+                'label' => 'Current registry entry',
+                'ok' => !empty($current_record['eligible']) && ($current_record['state'] ?? '') === 'verified',
+                'ok_label' => 'Eligible',
+                'missing_label' => empty($current_record) ? 'Not checked' : 'Not eligible',
+                'detail' => empty($current_record)
+                    ? 'Run registry health after submitting the bundle.'
+                    : 'Record state ' . (string) ($current_record['state'] ?? 'unknown') . '; error count ' . (string) intval($current_record['error_count'] ?? 0) . '.',
+            ],
+            [
+                'id' => 'monitor_snapshot',
+                'label' => 'Monitor snapshot',
+                'ok' => $monitor_state === 'fetched',
+                'ok_label' => 'Fetched',
+                'missing_label' => $monitor_state === 'unauthorized' ? 'Needs token' : 'Not fetched',
+                'detail' => $monitor_state === 'fetched'
+                    ? 'Last run ' . (string) ($monitor['last_run_at'] ?? 'unknown') . '; snapshots ' . (string) intval($monitor['snapshot_count'] ?? 0) . '; alerts ' . (string) intval($monitor['last_snapshot_alert_count'] ?? 0) . '.'
+                    : 'Fetch monitor status from the configured registry to see scheduled checks and alert deltas.',
+            ],
+            [
+                'id' => 'alert_delivery',
+                'label' => 'Alert delivery',
+                'ok' => in_array($notification_state, ['sent', 'skipped'], true),
+                'ok_label' => 'OK',
+                'missing_label' => 'Needs attention',
+                'detail' => $notification_state !== ''
+                    ? 'Last notification state ' . $notification_state . '; failed sinks ' . (string) intval($monitor['last_notifications_failed_result_count'] ?? 0) . '.'
+                    : 'Run registry monitor health to confirm webhook, Home Assistant, or email delivery state.',
+            ],
+        ];
     }
 
     private static function registry_transparency_url_for_key($key) {

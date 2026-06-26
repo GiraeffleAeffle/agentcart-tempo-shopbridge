@@ -1,0 +1,58 @@
+{
+  "schema": "agentcart.woocommerce_compatibility_matrix.v1",
+  "version": "0.1.0",
+  "plugin": {
+    "slug": "agentcart-shopbridge",
+    "requires_wordpress_at_least": "6.4",
+    "requires_php": "8.1",
+    "requires_plugins": [
+      "woocommerce"
+    ]
+  },
+  "verification": {
+    "metadata_files": [
+      "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",
+      "woocommerce-shopbridge/agentcart-shopbridge/readme.txt"
+    ],
+    "static_gates": [
+      "php -l",
+      "WordPress Coding Standards",
+      "PHPCompatibilityWP",
+      "WordPress Plugin Check",
+      "ShopBridge endpoint contract tests"
+    ],
+    "runtime_smoke_script": "scripts/woocommerce-demo-smoke.sh",
+    "live_endpoint_smoke": "scripts/woocommerce-shopbridge-smoke.py"
+  },
+  "runtime_matrix": [
+    {
+      "id": "wp-latest-php82-woo-latest",
+      "wordpress": "latest",
+      "php": "8.2",
+      "woocommerce": "latest-stable",
+      "wordpress_image": "wordpress:php8.2-apache",
+      "wordpress_cli_image": "wordpress:cli-php8.2",
+      "required_for_release": true,
+      "host_port": 18198,
+      "expected_shipping_cents": 490,
+      "notes": "Primary release smoke baseline for the bundled demo stack."
+    },
+    {
+      "id": "wp-latest-php81-woo-latest",
+      "wordpress": "latest",
+      "php": "8.1",
+      "woocommerce": "latest-stable",
+      "wordpress_image": "wordpress:php8.1-apache",
+      "wordpress_cli_image": "wordpress:cli-php8.1",
+      "required_for_release": false,
+      "host_port": 18199,
+      "expected_shipping_cents": 490,
+      "notes": "Manual runtime check for the declared PHP minimum when the official image is available."
+    }
+  ],
+  "release_claims": [
+    "Plugin metadata and readme declare WordPress 6.4+ and PHP 8.1+.",
+    "The required runtime smoke uses latest WordPress, latest stable WooCommerce, and PHP 8.2.",
+    "PHP 8.1 compatibility is statically gated through PHPCompatibilityWP and can be runtime-smoked with the optional matrix entry."
+  ]
+}

@@ -31,6 +31,7 @@ py311_files=(
   scripts/check-wordpress-plugin-package.py
   scripts/check-wordpress-plugin-review.py
   scripts/check-wordpress-official-gates.py
+  scripts/check-woocommerce-compatibility-matrix.py
   scripts/check-buyer-agent-matrix.py
   scripts/check-pilot-readiness.py
   scripts/check-prompt-injection-corpus.py
@@ -86,6 +87,8 @@ python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
 python3 "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
 python3 "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
+python3 "$ROOT_DIR/scripts/check-woocommerce-compatibility-matrix.py" \
+  --matrix "$ROOT_DIR/gateway/config/woocommerce_compatibility_matrix.json" >/dev/null
 python3 -m unittest discover -s "$ROOT_DIR/woocommerce-shopbridge/tests"
 
 section "WooCommerce ShopBridge live smoke"

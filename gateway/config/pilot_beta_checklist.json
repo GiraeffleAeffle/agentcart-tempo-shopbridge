@@ -31,6 +31,7 @@
         "catalog_preview_export",
         "sandbox_quote_check_result",
         "sandbox_checkout_test_result",
+        "woocommerce_compatibility_matrix_result",
         "registry_record_or_bundle_url"
       ],
       "exit_criteria": [

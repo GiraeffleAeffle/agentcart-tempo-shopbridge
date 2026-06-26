@@ -546,6 +546,31 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("#agentcart-product-exposure", SOURCE)
         self.assertNotIn("admin_url(", guide_body)
 
+    def test_registry_health_summary_is_visible_in_admin(self) -> None:
+        render_body = function_body("render_settings_page")
+        panel_body = function_body("render_registry_transparency_panel")
+        summary_body = function_body("registry_admin_health_summary")
+
+        self.assertIn("render_registry_transparency_panel", render_body)
+        self.assertIn("Registry Health Summary", panel_body)
+        self.assertIn("registry_admin_health_summary", panel_body)
+        for row_id in [
+            "hosted_registry_connection",
+            "domain_proof",
+            "manifest_freshness",
+            "registry_entry",
+            "monitor_snapshot",
+            "alert_delivery",
+        ]:
+            self.assertIn(row_id, summary_body)
+        self.assertIn("registry_connection_url", summary_body)
+        self.assertIn("registry_domain_proof_configured", summary_body)
+        self.assertIn("registry_updated_at", summary_body)
+        self.assertIn("age_days", summary_body)
+        self.assertIn("last_notifications_state", summary_body)
+        self.assertIn("last_snapshot_alert_count", summary_body)
+        self.assertIn("Run registry health", summary_body)
+
     def test_registry_revocation_endpoint_is_auto_published_and_bound(self) -> None:
         well_known_body = function_body("maybe_serve_well_known_manifest")
         proof_body = function_body("registry_domain_proof")

@@ -25,6 +25,10 @@ This starts the bundled WordPress/MariaDB demo, downloads WooCommerce if needed,
 seeds products, tax, shipping, terms, and ShopBridge settings, waits for the
 public AgentCart endpoints, then verifies a live WooCommerce-backed quote.
 
+The default runtime images are `wordpress:php8.2-apache` and
+`wordpress:cli-php8.2`. Override `WORDPRESS_IMAGE` and `WORDPRESS_CLI_IMAGE`
+when running compatibility matrix entries.
+
 Use `--down` when you want the script to stop the demo services after the smoke
 test:
 

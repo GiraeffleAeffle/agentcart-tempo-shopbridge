@@ -21,8 +21,11 @@ for the AgentCart endpoints, and runs the live quote smoke test.
 Environment:
   WOO_HOST_PORT                         default: 8098
   WOO_PUBLIC_URL                        default: http://127.0.0.1:${WOO_HOST_PORT}
+  WORDPRESS_IMAGE                       default: wordpress:php8.2-apache
+  WORDPRESS_CLI_IMAGE                   default: wordpress:cli-php8.2
   AGENTCART_WOO_SMOKE_BASE_URL          overrides smoke base URL
   AGENTCART_WOO_SMOKE_EXPECT_SHIPPING_CENTS default: 490
+  AGENTCART_WOO_SMOKE_DOWN_VOLUMES      set to 1 with --down for fresh matrix runs
 EOF
 }
 
@@ -91,5 +94,9 @@ printf 'WooCommerce demo smoke passed: %s\n' "$BASE_URL"
 
 if [ "$cleanup" -eq 1 ]; then
   printf 'Stopping WooCommerce demo services...\n'
-  "${compose_cmd[@]}" down
+  down_args=(down)
+  if [ "${AGENTCART_WOO_SMOKE_DOWN_VOLUMES:-0}" = "1" ]; then
+    down_args+=(-v)
+  fi
+  "${compose_cmd[@]}" "${down_args[@]}"
 fi

@@ -459,6 +459,14 @@ Merchant-controlled text safety is tracked in
 python3 scripts/check-prompt-injection-corpus.py --verify-test-refs
 ```
 
+WooCommerce release compatibility is tracked in
+`docs/WOOCOMMERCE_COMPATIBILITY.md` and
+`gateway/config/woocommerce_compatibility_matrix.json`:
+
+```sh
+python3 scripts/check-woocommerce-compatibility-matrix.py
+```
+
 ## Near-Term Rule
 
 Do not add new grocery features directly into the large demo files unless the

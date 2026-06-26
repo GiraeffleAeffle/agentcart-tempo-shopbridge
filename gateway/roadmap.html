@@ -422,10 +422,10 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">77</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 77%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">78</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 78%"><span></span></div>
         </div>
-        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, and prompt-injection corpus. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
+        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
 
       <div class="panel">
@@ -438,8 +438,8 @@
       <article class="panel next">
         <h3>Next Slice</h3>
         <ul>
-          <li>External beta evidence pack: collect merchant onboarding, buyer-agent runtime, prompt-injection, payment-mode, support, rollback, privacy, and pilot exit evidence under the checklist schemas.</li>
-          <li>Live runtime rehearsals: run the service path, direct skill path, and MCP-style path against the same staging merchant and save transcripts.</li>
+          <li>External beta evidence pack: collect merchant onboarding, compatibility, buyer-agent runtime, prompt-injection, payment-mode, support, rollback, privacy, and pilot exit evidence under the checklist schemas.</li>
+          <li>Live runtime rehearsals: run the service path, direct skill path, MCP-style path, and optional PHP 8.1 Woo matrix entry against the same staging merchant and save transcripts.</li>
           <li>Payment verifier hardening: managed replay backend, durable metrics store, provider alert routing, and clearer real-settlement failure states.</li>
         </ul>
       </article>
@@ -513,7 +513,7 @@
           <tr>
             <td>Merchant setup</td>
             <td>A Woo merchant installs the ZIP or WordPress.org plugin, enables AgentCart, picks payment rails, and publishes a valid manifest without touching code.</td>
-            <td>Quick Start, readiness UX, sandbox quote and approval-bound checkout tests, hosted registry submit/revoke UX, registry health checks, PHPCS/WPCS, and Plugin Check are wired. Deeper WP admin walkthroughs remain.</td>
+            <td>Quick Start, readiness UX, sandbox quote and approval-bound checkout tests, hosted registry submit/revoke UX, registry health summary, PHPCS/WPCS, Plugin Check, and compatibility matrix are wired. Deeper WP admin walkthroughs remain.</td>
           </tr>
           <tr>
             <td>Buyer setup</td>
@@ -542,14 +542,14 @@
 
   <script>
     const areas = [
-      { name: "Core Commerce", value: 88, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, and stale-quote recovery shape" },
+      { name: "Core Commerce", value: 89, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and stale-quote recovery shape" },
       { name: "Trust And Registry", value: 84, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
-      { name: "Merchant UX", value: 62, note: "settings, setup wizard, readiness, registry actions, registry health checks, and approval-bound sandbox quote/checkout tests exist" },
+      { name: "Merchant UX", value: 66, note: "settings, setup wizard, readiness, registry actions, registry health summary, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 72, note: "service path, packaged direct skill, and MCP-style runtime matrix cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
-      { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 59, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, and prompt-injection corpus validation exist; beta ops remain" },
+      { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
+      { name: "Operations", value: 60, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, prompt-injection corpus validation, and Woo compatibility validation exist; beta ops remain" },
       { name: "Pilot Launch", value: 36, note: "P0 external beta checklist and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
 
@@ -558,11 +558,11 @@
         code: "WOO",
         title: "Merchant bridge baseline",
         status: "done",
-        value: 92,
-        scope: "WooCommerce plugin exposes manifest, catalog, quote, checkout, order status, and verifier metadata.",
-        remaining: "Keep compatibility stable while other gates harden around it.",
+        value: 94,
+        scope: "WooCommerce plugin exposes manifest, catalog, quote, checkout, order status, verifier metadata, and a checked compatibility matrix.",
+        remaining: "Run optional matrix entries before broad external beta and keep compatibility stable while other gates harden around it.",
         items: [
-          { id: "WOO-001", priority: "P1", title: "Compatibility matrix", description: "Run smoke tests against supported WordPress, WooCommerce, and PHP versions, then document the supported baseline." },
+          { id: "WOO-001", priority: "P1", title: "Compatibility matrix", description: "Implemented alpha: plugin metadata/readme alignment, static compatibility gates, configurable WordPress/PHP demo images, a machine-readable matrix, docs, validator, and required PHP 8.2 latest-WP/latest-Woo smoke runner exist; optional PHP 8.1 runtime smoke remains manual before broad beta claims." },
           { id: "WOO-002", priority: "P2", title: "Adapter contract freeze", description: "Freeze manifest, catalog, quote, checkout, and order-status fields with regression fixtures before larger refactors." },
           { id: "WOO-003", priority: "P2", title: "Demo reset command", description: "Add one repeatable command to reseed demo products, taxes, shipping, registry state, and plugin settings." }
         ]
@@ -688,12 +688,12 @@
         code: "ONB",
         title: "Merchant onboarding UX",
         status: "partial",
-        value: 84,
-        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote/approval/checkout tests, registry connection actions, and registry-side health/monitor checks.",
+        value: 88,
+        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote/approval/checkout tests, registry connection actions, and a registry-side health summary with monitor and freshness checks.",
         remaining: "Add deeper WP admin walkthrough tests and merchant-facing copy cleanup.",
         items: [
           { id: "ONB-001", priority: "P0", title: "Guided checkout test", description: "Implemented: one-click test quote, sandbox approval record, payment verification, order creation, cancellation, and quote/hold cleanup from the ShopBridge admin page." },
-          { id: "ONB-002", priority: "P1", title: "Registry health in WordPress", description: "Surface hosted registry connection, monitor snapshot, domain proof, and manifest freshness in the merchant admin UI." },
+          { id: "ONB-002", priority: "P1", title: "Registry health in WordPress", description: "Implemented: WordPress admin now shows a registry health summary for hosted registry connection, domain proof, manifest freshness, current registry entry eligibility, monitor snapshots, and alert delivery." },
           { id: "ONB-003", priority: "P2", title: "Plain-language setup", description: "Replace low-level settings text with merchant-facing copy that explains each required setup step and consequence." }
         ]
       },
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 77;
+    const overallValue = 78;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

@@ -55,6 +55,7 @@ Required evidence:
 - catalog preview export;
 - sandbox quote check result;
 - sandbox checkout test result;
+- WooCommerce compatibility matrix result;
 - registry record or bundle URL.
 
 Exit criteria:
