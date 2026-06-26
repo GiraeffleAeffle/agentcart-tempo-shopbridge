@@ -162,6 +162,9 @@ Definition of done:
 
 - quote totals match WooCommerce checkout totals for the same basket/address;
 - unsupported products, destinations, and quantities fail before payment;
+- expired quotes, stock conflicts, and price/shipping/tax drift return
+  machine-readable recovery hints that tell the buyer agent to request a fresh
+  final quote;
 - merchant admin can understand why the shop is or is not agent-ready.
 
 Current alpha status: ShopBridge quotes through WooCommerce cart, tax, shipping,
@@ -457,6 +460,13 @@ Merchant-controlled text safety is tracked in
 
 ```sh
 python3 scripts/check-prompt-injection-corpus.py --verify-test-refs
+```
+
+Quote reliability is tracked in `docs/QUOTE_RELIABILITY.md` and
+`gateway/config/quote_reliability_matrix.json`:
+
+```sh
+python3 scripts/check-quote-reliability-matrix.py --verify-test-refs
 ```
 
 WooCommerce release compatibility is tracked in

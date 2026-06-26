@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">78</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 78%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">79</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 79%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -542,14 +542,14 @@
 
   <script>
     const areas = [
-      { name: "Core Commerce", value: 89, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and stale-quote recovery shape" },
+      { name: "Core Commerce", value: 91, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
       { name: "Trust And Registry", value: 84, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 66, note: "settings, setup wizard, readiness, registry actions, registry health summary, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 72, note: "service path, packaged direct skill, and MCP-style runtime matrix cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 60, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, prompt-injection corpus validation, and Woo compatibility validation exist; beta ops remain" },
+      { name: "Operations", value: 61, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
       { name: "Pilot Launch", value: 36, note: "P0 external beta checklist and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
 
@@ -584,13 +584,13 @@
         code: "QTE",
         title: "Quote integrity",
         status: "alpha",
-        value: 82,
-        scope: "Final quote includes tax, shipping, recipient, quote hash, expiry, soft stock holds, fail-closed hard reservation adapter metadata, stale-quote recovery hints, and idempotent checkout shape.",
-        remaining: "Add provider-specific hard reservation plugins and broader concurrency tests.",
+        value: 88,
+        scope: "Final quote includes tax, shipping, recipient, quote hash, expiry, soft stock holds, fail-closed hard reservation adapter metadata, stale-quote and money-drift recovery hints, a checked reliability matrix, and idempotent checkout shape.",
+        remaining: "Add provider-specific hard reservation plugins and true parallel runtime stress tests.",
         items: [
           { id: "QTE-001", priority: "P0", title: "Stock reservation adapter", description: "Implemented: soft Woo stock holds remain quote-hash-bound, and hard mode now fails closed unless merchant inventory hooks reserve, confirm, and release quote-bound stock holds." },
-          { id: "QTE-002", priority: "P1", title: "Stale quote recovery", description: "Expired quotes and stock conflicts now return machine-readable recovery hints; extend this to price, shipping, and tax drift." },
-          { id: "QTE-003", priority: "P1", title: "Concurrency tests", description: "Add parallel quote and checkout tests covering stock changes, idempotency keys, and quote expiry." }
+          { id: "QTE-002", priority: "P1", title: "Stale quote recovery", description: "Implemented alpha: expired quotes, stock conflicts, price drift, shipping drift, and tax drift return machine-readable recovery hints that direct buyer agents to request a fresh final quote." },
+          { id: "QTE-003", priority: "P1", title: "Concurrency tests", description: "Implemented alpha: quote locks, idempotent replay, single-use quote consumption, stock revalidation, expiry recovery, and money-drift checks are pinned by a machine-readable quote reliability matrix and runtime test references; add parallel runtime stress tests before beta." }
         ]
       },
       {
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 78;
+    const overallValue = 79;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

@@ -4832,11 +4832,6 @@ final class AgentCart_ShopBridge {
             return new WP_Error('agentcart_quote_hash_required', 'quote_hash is required for public checkout.', ['status' => 400]);
         }
 
-        $payment_verification = self::verify_payment_receipt($quote, $receipt, $body, $request);
-        if (is_wp_error($payment_verification)) {
-            return $payment_verification;
-        }
-
         $validated_items = [];
         $quote_ship_to = self::normalize_address($quote['ship_to'] ?? ['country' => '']);
         foreach ($quote['items'] as $item) {
@@ -4881,6 +4876,16 @@ final class AgentCart_ShopBridge {
                 return $stock_check;
             }
             $validated_items[] = [$product, $item, $quantity];
+        }
+
+        $quote_drift = self::validate_live_quote_totals_for_checkout($quote, $merchant_quote_id, $validated_items);
+        if (is_wp_error($quote_drift)) {
+            return $quote_drift;
+        }
+
+        $payment_verification = self::verify_payment_receipt($quote, $receipt, $body, $request);
+        if (is_wp_error($payment_verification)) {
+            return $payment_verification;
         }
 
         $stock_reservation_confirmation = self::confirm_stock_reservation_for_order($merchant_quote_id, $quote, $receipt, $body);
@@ -8026,6 +8031,165 @@ final class AgentCart_ShopBridge {
             'items' => isset($quote['items']) && is_array($quote['items']) ? $quote['items'] : [],
             'ship_to' => isset($quote['ship_to']) && is_array($quote['ship_to']) ? $quote['ship_to'] : null,
             'note' => 'Create a fresh quote before asking for approval or retrying payment.',
+        ];
+    }
+
+    private static function validate_live_quote_totals_for_checkout($quote, $merchant_quote_id, $validated_items) {
+        $quote = is_array($quote) ? $quote : [];
+        $cart = self::prepare_quote_cart(self::normalize_address($quote['ship_to'] ?? ['country' => '']));
+        if (is_wp_error($cart)) {
+            return $cart;
+        }
+        try {
+            foreach ($validated_items as $validated_item) {
+                $product = $validated_item[0] ?? null;
+                $quantity = intval($validated_item[2] ?? 0);
+                if (!($product instanceof WC_Product) || !$cart->add_to_cart($product->get_id(), $quantity)) {
+                    return self::quote_recovery_error(
+                        'agentcart_quote_product_changed',
+                        'WooCommerce can no longer recreate the stored merchant quote.',
+                        $quote,
+                        $merchant_quote_id,
+                        'product_changed'
+                    );
+                }
+            }
+            $cart->calculate_shipping();
+            $shipping_selection = self::select_shipping_rates_for_cart($cart);
+            if (is_wp_error($shipping_selection)) {
+                return self::quote_recovery_error(
+                    'agentcart_quote_shipping_changed',
+                    'WooCommerce shipping can no longer recreate the stored merchant quote.',
+                    $quote,
+                    $merchant_quote_id,
+                    'shipping_changed'
+                );
+            }
+            $cart->calculate_shipping();
+            $cart->calculate_totals();
+            $current_quote = self::quote_from_cart($cart);
+            if (is_wp_error($current_quote)) {
+                return self::quote_recovery_error(
+                    'agentcart_quote_price_changed',
+                    'WooCommerce can no longer calculate the stored merchant quote.',
+                    $quote,
+                    $merchant_quote_id,
+                    'price_changed'
+                );
+            }
+            $current_quote['currency'] = get_woocommerce_currency();
+            return self::quote_drift_error($quote, $current_quote, $merchant_quote_id);
+        } finally {
+            $cart->empty_cart();
+        }
+    }
+
+    private static function quote_drift_error($quote, $current_quote, $merchant_quote_id) {
+        $reason = self::quote_drift_reason($quote, $current_quote);
+        if ($reason === '') {
+            return true;
+        }
+        $codes = [
+            'currency_changed' => 'agentcart_quote_currency_changed',
+            'price_changed' => 'agentcart_quote_price_changed',
+            'shipping_changed' => 'agentcart_quote_shipping_changed',
+            'tax_changed' => 'agentcart_quote_tax_changed',
+            'total_changed' => 'agentcart_quote_total_changed',
+        ];
+        $labels = [
+            'currency_changed' => 'currency',
+            'price_changed' => 'product pricing',
+            'shipping_changed' => 'shipping',
+            'tax_changed' => 'tax',
+            'total_changed' => 'total',
+        ];
+        return new WP_Error(
+            $codes[$reason] ?? 'agentcart_quote_total_changed',
+            'Stored merchant quote no longer matches current WooCommerce ' . ($labels[$reason] ?? 'total') . '.',
+            [
+                'status' => 409,
+                'merchant_quote_id' => sanitize_text_field((string) $merchant_quote_id),
+                'quoted' => self::quote_money_snapshot($quote),
+                'current' => self::quote_money_snapshot($current_quote),
+                'recovery' => self::quote_recovery($reason, $quote, $merchant_quote_id),
+            ]
+        );
+    }
+
+    private static function quote_drift_reason($quote, $current_quote) {
+        if ((string) ($quote['currency'] ?? '') !== (string) ($current_quote['currency'] ?? '')) {
+            return 'currency_changed';
+        }
+        if (self::quote_item_totals_signature($quote['items'] ?? []) !== self::quote_item_totals_signature($current_quote['items'] ?? [])) {
+            return 'price_changed';
+        }
+        if (intval($quote['subtotal_cents'] ?? 0) !== intval($current_quote['subtotal_cents'] ?? 0)) {
+            return 'price_changed';
+        }
+        if (self::quote_shipping_signature($quote['shipping'] ?? []) !== self::quote_shipping_signature($current_quote['shipping'] ?? [])) {
+            return 'shipping_changed';
+        }
+        if (self::quote_vat_signature($quote['vat_lines'] ?? []) !== self::quote_vat_signature($current_quote['vat_lines'] ?? [])) {
+            return 'tax_changed';
+        }
+        if (intval($quote['total_cents'] ?? 0) !== intval($current_quote['total_cents'] ?? 0)) {
+            return 'total_changed';
+        }
+        return '';
+    }
+
+    private static function quote_item_totals_signature($items) {
+        $signature = [];
+        foreach ((array) $items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $signature[] = implode(':', [
+                self::source_product_id($item),
+                intval($item['quantity'] ?? 0),
+                intval($item['unit_price_cents'] ?? 0),
+                intval($item['line_total_cents'] ?? 0),
+            ]);
+        }
+        sort($signature, SORT_STRING);
+        return $signature;
+    }
+
+    private static function quote_shipping_signature($shipping) {
+        $shipping = is_array($shipping) ? $shipping : [];
+        return [
+            'amount_cents' => intval($shipping['amount_cents'] ?? 0),
+            'currency' => (string) ($shipping['currency'] ?? ''),
+            'method' => (string) ($shipping['method'] ?? ''),
+        ];
+    }
+
+    private static function quote_vat_signature($vat_lines) {
+        $signature = [];
+        foreach ((array) $vat_lines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $signature[] = implode(':', [
+                intval($line['rate_bps'] ?? 0),
+                intval($line['taxable_gross_cents'] ?? 0),
+                intval($line['vat_cents'] ?? 0),
+                !empty($line['included_in_price']) ? '1' : '0',
+            ]);
+        }
+        sort($signature, SORT_STRING);
+        return $signature;
+    }
+
+    private static function quote_money_snapshot($quote) {
+        $shipping = is_array($quote['shipping'] ?? null) ? $quote['shipping'] : [];
+        return [
+            'currency' => (string) ($quote['currency'] ?? ''),
+            'subtotal_cents' => intval($quote['subtotal_cents'] ?? 0),
+            'shipping' => self::quote_shipping_signature($shipping),
+            'vat_lines' => self::quote_vat_signature($quote['vat_lines'] ?? []),
+            'total_cents' => intval($quote['total_cents'] ?? 0),
+            'items' => self::quote_item_totals_signature($quote['items'] ?? []),
         ];
     }
 

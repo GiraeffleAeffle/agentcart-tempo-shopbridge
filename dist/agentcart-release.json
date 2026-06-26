@@ -1,10 +1,10 @@
 {
   "artifacts": [
     {
-      "bytes": 79224,
+      "bytes": 80289,
       "component": "woocommerce_shopbridge",
       "file": "dist/agentcart-shopbridge.zip",
-      "sha256": "2cefa00a8c2b21edb091e6240c97f66df4145f9134ca1250fa4ecebe7d983df8",
+      "sha256": "e4a781c978049f92d44f43eb6f6c291b59d5b2a045b49608722a57cf45990aa2",
       "version": "0.1.0"
     },
     {

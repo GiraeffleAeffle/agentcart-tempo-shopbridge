@@ -24,6 +24,8 @@ For release artifacts, checksums, upgrade, and rollback, see
 `docs/RELEASES.md`.
 For the production payment/refund verifier seam, see
 `docs/VERIFIER_CONTRACT.md`.
+For final quote expiry, stock, price, shipping, and tax drift handling, see
+`docs/QUOTE_RELIABILITY.md`.
 For standards alignment across x402/MPP, ERC-8004, ERC-8128, ERC-8183, AP2,
 ACP, UCP, MCP, and A2A, see `docs/STANDARDS_ALIGNMENT.md`.
 

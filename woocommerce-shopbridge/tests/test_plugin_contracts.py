@@ -1255,6 +1255,39 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'stock_reservation'", quote_hash_body)
         self.assertIn("'soft_quote_stock_holds'", capability_body)
 
+    def test_checkout_revalidates_quote_money_fields_before_payment_verification(self) -> None:
+        order_body = function_body("create_order")
+        drift_check_body = function_body("validate_live_quote_totals_for_checkout")
+        drift_error_body = function_body("quote_drift_error")
+        drift_reason_body = function_body("quote_drift_reason")
+
+        self.assertIn("validate_live_quote_totals_for_checkout($quote, $merchant_quote_id, $validated_items)", order_body)
+        self.assertIn("verify_payment_receipt($quote, $receipt, $body, $request)", order_body)
+        self.assertLess(
+            order_body.index("validate_live_quote_totals_for_checkout"),
+            order_body.index("verify_payment_receipt"),
+        )
+        self.assertIn("prepare_quote_cart", drift_check_body)
+        self.assertIn("select_shipping_rates_for_cart", drift_check_body)
+        self.assertIn("quote_from_cart", drift_check_body)
+        for reason in [
+            "price_changed",
+            "shipping_changed",
+            "tax_changed",
+            "currency_changed",
+            "total_changed",
+        ]:
+            self.assertIn(reason, drift_error_body + drift_reason_body)
+        for code in [
+            "agentcart_quote_price_changed",
+            "agentcart_quote_shipping_changed",
+            "agentcart_quote_tax_changed",
+            "agentcart_quote_currency_changed",
+            "agentcart_quote_total_changed",
+        ]:
+            self.assertIn(code, drift_error_body)
+        self.assertIn("'recovery' => self::quote_recovery($reason", drift_error_body)
+
     def test_hard_stock_reservation_adapter_contract_fails_closed(self) -> None:
         settings_body = function_body("sanitize_stock_hold_mode_setting")
         mode_rows_body = function_body("render_stock_hold_setting_rows")

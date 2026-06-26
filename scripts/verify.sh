@@ -35,6 +35,7 @@ py311_files=(
   scripts/check-buyer-agent-matrix.py
   scripts/check-pilot-readiness.py
   scripts/check-prompt-injection-corpus.py
+  scripts/check-quote-reliability-matrix.py
   scripts/verify-release.py
   scripts/verify-verifier-fixtures.py
   scripts/woocommerce-shopbridge-smoke.py
@@ -131,6 +132,11 @@ python3 "$ROOT_DIR/scripts/check-buyer-agent-matrix.py" \
 section "Prompt-injection corpus"
 python3 "$ROOT_DIR/scripts/check-prompt-injection-corpus.py" \
   --corpus "$ROOT_DIR/gateway/config/prompt_injection_corpus.json" \
+  --verify-test-refs >/dev/null
+
+section "Quote reliability matrix"
+python3 "$ROOT_DIR/scripts/check-quote-reliability-matrix.py" \
+  --matrix "$ROOT_DIR/gateway/config/quote_reliability_matrix.json" \
   --verify-test-refs >/dev/null
 
 section "Compose config"

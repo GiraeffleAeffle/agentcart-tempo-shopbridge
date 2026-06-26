@@ -1,0 +1,97 @@
+{
+  "schema": "agentcart.quote_reliability_matrix.v1",
+  "version": "0.1.0",
+  "stage": "external_beta",
+  "scope": "WooCommerce ShopBridge final quote checkout reliability",
+  "required_invariants": [
+    "quote_hash_preserved",
+    "payment_contract_hash_preserved",
+    "idempotency_key_required",
+    "idempotent_replay_returns_existing_order",
+    "quote_lock_before_order_creation",
+    "single_use_merchant_quote",
+    "stock_revalidated_before_order_creation",
+    "money_fields_revalidated_before_payment_verification",
+    "machine_readable_recovery_hints"
+  ],
+  "cases": [
+    {
+      "id": "expired-quote-recovery",
+      "priority": "P1",
+      "trigger": "merchant_quote_id is unknown or expires before checkout",
+      "expected_error": "agentcart_quote_expired",
+      "recovery_reason": "quote_expired",
+      "agent_action": "discard approval/payment attempt, request a fresh final quote, and ask for approval again"
+    },
+    {
+      "id": "stock-conflict-recovery",
+      "priority": "P1",
+      "trigger": "available WooCommerce stock minus active holds is lower than the quoted quantity",
+      "expected_error": "agentcart_stock_conflict",
+      "recovery_reason": "stock_changed",
+      "agent_action": "request a fresh final quote or choose another merchant/product before checkout"
+    },
+    {
+      "id": "price-drift-recovery",
+      "priority": "P1",
+      "trigger": "current WooCommerce item line totals or subtotal no longer match the stored final quote",
+      "expected_error": "agentcart_quote_price_changed",
+      "recovery_reason": "price_changed",
+      "agent_action": "request a fresh final quote before approval and payment"
+    },
+    {
+      "id": "shipping-drift-recovery",
+      "priority": "P1",
+      "trigger": "current WooCommerce shipping amount or selected method no longer matches the stored final quote",
+      "expected_error": "agentcart_quote_shipping_changed",
+      "recovery_reason": "shipping_changed",
+      "agent_action": "request a fresh final quote for the same delivery address before approval and payment"
+    },
+    {
+      "id": "tax-drift-recovery",
+      "priority": "P1",
+      "trigger": "current WooCommerce VAT lines no longer match the stored final quote",
+      "expected_error": "agentcart_quote_tax_changed",
+      "recovery_reason": "tax_changed",
+      "agent_action": "request a fresh final quote before approval and payment"
+    },
+    {
+      "id": "idempotent-checkout-replay",
+      "priority": "P1",
+      "trigger": "same idempotency key is retried after order creation",
+      "expected_error": "",
+      "recovery_reason": "",
+      "agent_action": "treat the replay response as the same order instead of creating a duplicate order"
+    },
+    {
+      "id": "merchant-quote-single-use",
+      "priority": "P1",
+      "trigger": "a second checkout attempts to consume an already-used merchant_quote_id",
+      "expected_error": "agentcart_quote_already_consumed",
+      "recovery_reason": "",
+      "agent_action": "fetch order status by the original order reference or request a fresh quote"
+    }
+  ],
+  "runtime_checks": [
+    {
+      "id": "quote-lock-before-order",
+      "target": "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",
+      "test": "woocommerce-shopbridge/tests/test_plugin_contracts.py::ShopBridgePluginContractTests.test_checkout_consumes_merchant_quote_under_quote_lock"
+    },
+    {
+      "id": "stock-holds-and-expiry-recovery",
+      "target": "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",
+      "test": "woocommerce-shopbridge/tests/test_plugin_contracts.py::ShopBridgePluginContractTests.test_soft_stock_holds_are_created_and_revalidated"
+    },
+    {
+      "id": "price-shipping-tax-drift-recovery",
+      "target": "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",
+      "test": "woocommerce-shopbridge/tests/test_plugin_contracts.py::ShopBridgePluginContractTests.test_checkout_revalidates_quote_money_fields_before_payment_verification"
+    },
+    {
+      "id": "buyer-payment-receipt-amount-binding",
+      "target": "gateway/shopbridge-direct-skill/scripts/shopbridge-command.py",
+      "test": "gateway/tests/test_shopbridge_direct_skill.py::ShopBridgeDirectSkillTests.test_payment_receipt_must_explicitly_bind_amount_currency_and_quote_hash"
+    }
+  ]
+}
