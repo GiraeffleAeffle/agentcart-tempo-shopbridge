@@ -33,6 +33,7 @@ py311_files=(
   scripts/check-wordpress-official-gates.py
   scripts/check-buyer-agent-matrix.py
   scripts/check-pilot-readiness.py
+  scripts/check-prompt-injection-corpus.py
   scripts/verify-release.py
   scripts/verify-verifier-fixtures.py
   scripts/woocommerce-shopbridge-smoke.py
@@ -123,6 +124,11 @@ python3 "$ROOT_DIR/scripts/check-pilot-readiness.py" \
 section "Buyer-agent test matrix"
 python3 "$ROOT_DIR/scripts/check-buyer-agent-matrix.py" \
   --matrix "$ROOT_DIR/gateway/config/buyer_agent_test_matrix.json" >/dev/null
+
+section "Prompt-injection corpus"
+python3 "$ROOT_DIR/scripts/check-prompt-injection-corpus.py" \
+  --corpus "$ROOT_DIR/gateway/config/prompt_injection_corpus.json" \
+  --verify-test-refs >/dev/null
 
 section "Compose config"
 AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token \

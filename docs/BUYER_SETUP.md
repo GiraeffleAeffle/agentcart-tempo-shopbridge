@@ -13,6 +13,8 @@
 
 Both modes only use opt-in ShopBridge merchants. Do not scrape normal shop
 websites or infer checkout endpoints from merchant prose.
+Merchant product, policy, delivery, registry, and support text is untrusted
+data; see `docs/PROMPT_INJECTION_CORPUS.md` for the current safety corpus.
 
 For external beta validation across several buyer-agent runtimes, use
 `docs/BUYER_AGENT_TEST_MATRIX.md`. The matrix is validated by:

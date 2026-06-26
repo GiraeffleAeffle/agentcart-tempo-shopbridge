@@ -228,6 +228,7 @@ notify services.
 - `docs/MERCHANT_REGISTRY.md`
 - `docs/DELIVERY_AND_REFUNDS.md`
 - `docs/BUYER_AGENT_TEST_MATRIX.md`
+- `docs/PROMPT_INJECTION_CORPUS.md`
 - `docs/PILOT_BETA_CHECKLIST.md`
 
 These documents are roadmap/specification notes, not finished production features. They define the concrete work required to move from hackathon demo to production candidate.

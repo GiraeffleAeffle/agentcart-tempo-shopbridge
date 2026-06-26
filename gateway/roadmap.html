@@ -422,10 +422,10 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">76</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 76%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">77</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 77%"><span></span></div>
         </div>
-        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, and buyer-agent runtime matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
+        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, and prompt-injection corpus. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
 
       <div class="panel">
@@ -438,7 +438,7 @@
       <article class="panel next">
         <h3>Next Slice</h3>
         <ul>
-          <li>External beta evidence pack: collect merchant onboarding, buyer-agent runtime, payment-mode, support, rollback, privacy, and pilot exit evidence under the checklist schemas.</li>
+          <li>External beta evidence pack: collect merchant onboarding, buyer-agent runtime, prompt-injection, payment-mode, support, rollback, privacy, and pilot exit evidence under the checklist schemas.</li>
           <li>Live runtime rehearsals: run the service path, direct skill path, and MCP-style path against the same staging merchant and save transcripts.</li>
           <li>Payment verifier hardening: managed replay backend, durable metrics store, provider alert routing, and clearer real-settlement failure states.</li>
         </ul>
@@ -523,7 +523,7 @@
           <tr>
             <td>Trust</td>
             <td>Agents can verify merchant identity, endpoint freshness, signed sensitive calls, and quote/order integrity without trusting arbitrary page text.</td>
-            <td>Registry, hosted submit/revoke persistence, hash-chained transparency export, optional onchain identity mapping, health summaries, persisted monitor snapshots, signed request gates and audit trail, webhook/Home Assistant/SMTP alerts, and Woo admin delivery status are present. Onchain backing and stronger governance remain.</td>
+            <td>Registry, hosted submit/revoke persistence, hash-chained transparency export, optional onchain identity mapping, health summaries, persisted monitor snapshots, signed request gates and audit trail, prompt-injection corpus, webhook/Home Assistant/SMTP alerts, and Woo admin delivery status are present. Onchain backing and stronger governance remain.</td>
           </tr>
           <tr>
             <td>Payments</td>
@@ -533,7 +533,7 @@
           <tr>
             <td>Operations</td>
             <td>Release, monitoring, logs, failure modes, support docs, and plugin review gates are boring and repeatable.</td>
-            <td>Verify pipeline, strict WordPress official gates, registry monitor snapshots, alert delivery, validated pilot checklist, and buyer-agent matrix exist. WordPress.org assets and support runbooks still need work.</td>
+            <td>Verify pipeline, strict WordPress official gates, registry monitor snapshots, alert delivery, validated pilot checklist, buyer-agent matrix, and prompt-injection corpus exist. WordPress.org assets and support runbooks still need work.</td>
           </tr>
         </tbody>
       </table>
@@ -543,13 +543,13 @@
   <script>
     const areas = [
       { name: "Core Commerce", value: 88, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, and stale-quote recovery shape" },
-      { name: "Trust And Registry", value: 83, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
+      { name: "Trust And Registry", value: 84, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 62, note: "settings, setup wizard, readiness, registry actions, registry health checks, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 72, note: "service path, packaged direct skill, and MCP-style runtime matrix cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 58, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, and buyer-agent matrix validation exist; beta ops remain" },
+      { name: "Operations", value: 59, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, and prompt-injection corpus validation exist; beta ops remain" },
       { name: "Pilot Launch", value: 36, note: "P0 external beta checklist and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
 
@@ -714,12 +714,12 @@
         code: "SEC",
         title: "Security and abuse controls",
         status: "alpha",
-        value: 44,
-        scope: "Basic validation, signed calls, opt-in exposure, REST rate limits, .well-known registry/discovery rate limits, and live runtime abuse smoke exist.",
-        remaining: "Add WAF guidance, prompt-injection tests, malware review assumptions, richer abuse telemetry, and incident playbooks.",
+        value: 62,
+        scope: "Basic validation, signed calls, opt-in exposure, REST rate limits, .well-known registry/discovery rate limits, live runtime abuse smoke, and prompt-injection corpus runtime checks exist.",
+        remaining: "Add WAF guidance, malware review assumptions, richer abuse telemetry, broader adversarial runtime evaluations, and incident playbooks.",
         items: [
           { id: "SEC-001", priority: "P0", title: "REST rate limits", description: "Implemented: live smoke can exhaust quote, checkout, status, refund, cancellation, and .well-known registry/discovery buckets, then require a 429 response with retry/reset metadata." },
-          { id: "SEC-002", priority: "P1", title: "Prompt-injection corpus", description: "Test product names, descriptions, merchant text, and registry profiles against buyer-agent prompt-injection handling." },
+          { id: "SEC-002", priority: "P1", title: "Prompt-injection corpus", description: "Implemented alpha: product title, product description, merchant name, registry profile, delivery note, and refund policy attacks are covered by a checked corpus, verify gate, and runtime tests for service/direct-skill untrusted merchant-text handling." },
           { id: "SEC-003", priority: "P2", title: "Incident playbooks", description: "Write revoke, disable, rollback, support, and disclosure procedures for compromised merchants or abusive clients." }
         ]
       },
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 76;
+    const overallValue = 77;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

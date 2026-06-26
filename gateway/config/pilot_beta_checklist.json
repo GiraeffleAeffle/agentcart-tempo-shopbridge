@@ -130,6 +130,7 @@
         "privacy_notice",
         "ops_event_redaction_sample",
         "rate_limit_smoke_result",
+        "prompt_injection_corpus_result",
         "prompt_injection_review_notes"
       ],
       "exit_criteria": [

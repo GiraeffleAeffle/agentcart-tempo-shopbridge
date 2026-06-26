@@ -154,6 +154,7 @@ Required evidence:
 - privacy notice;
 - ops event redaction sample;
 - rate-limit smoke result;
+- prompt-injection corpus result;
 - prompt-injection review notes.
 
 Exit criteria:

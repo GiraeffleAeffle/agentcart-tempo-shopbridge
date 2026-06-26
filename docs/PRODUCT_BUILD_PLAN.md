@@ -451,6 +451,14 @@ Buyer-agent runtime coverage is tracked separately in
 python3 scripts/check-buyer-agent-matrix.py
 ```
 
+Merchant-controlled text safety is tracked in
+`docs/PROMPT_INJECTION_CORPUS.md` and
+`gateway/config/prompt_injection_corpus.json`:
+
+```sh
+python3 scripts/check-prompt-injection-corpus.py --verify-test-refs
+```
+
 ## Near-Term Rule
 
 Do not add new grocery features directly into the large demo files unless the
