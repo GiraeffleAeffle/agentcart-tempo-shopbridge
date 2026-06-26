@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">71</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 71%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">72</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 72%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -549,7 +549,7 @@
       { name: "Buyer Skill Path", value: 70, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; more runtime adapters remain" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 48, note: "smoke pipeline, deployed-runtime compile gate, registry monitor snapshots, verifier logs/metrics/alerts, alert delta delivery, and delivery exception surfaces exist; beta ops remain" }
+      { name: "Operations", value: 50, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, alert delta delivery, and delivery exception surfaces exist; beta ops remain" }
     ];
 
     const gates = [
@@ -712,12 +712,12 @@
       {
         code: "SEC",
         title: "Security and abuse controls",
-        status: "planned",
-        value: 36,
-        scope: "Basic validation, signed calls, opt-in exposure, REST rate limits, and .well-known registry/discovery rate limits exist.",
+        status: "alpha",
+        value: 44,
+        scope: "Basic validation, signed calls, opt-in exposure, REST rate limits, .well-known registry/discovery rate limits, and live runtime abuse smoke exist.",
         remaining: "Add WAF guidance, prompt-injection tests, malware review assumptions, richer abuse telemetry, and incident playbooks.",
         items: [
-          { id: "SEC-001", priority: "P0", title: "REST rate limits", description: "Per-endpoint throttles cover quote, checkout, status, refund, cancellation, and .well-known registry/discovery paths; add runtime integration abuse tests next." },
+          { id: "SEC-001", priority: "P0", title: "REST rate limits", description: "Implemented: live smoke can exhaust quote, checkout, status, refund, cancellation, and .well-known registry/discovery buckets, then require a 429 response with retry/reset metadata." },
           { id: "SEC-002", priority: "P1", title: "Prompt-injection corpus", description: "Test product names, descriptions, merchant text, and registry profiles against buyer-agent prompt-injection handling." },
           { id: "SEC-003", priority: "P2", title: "Incident playbooks", description: "Write revoke, disable, rollback, support, and disclosure procedures for compromised merchants or abusive clients." }
         ]
@@ -759,7 +759,7 @@
       open: "Open"
     };
 
-    const overallValue = 71;
+    const overallValue = 72;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

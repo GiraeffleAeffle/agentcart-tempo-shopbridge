@@ -12,8 +12,30 @@ import urllib.request
 from typing import Any
 
 
+SMOKE_USER_AGENT = os.getenv("AGENTCART_WOO_SMOKE_USER_AGENT", f"AgentCartShopBridgeSmoke/{os.getpid()}")
+
+
 class SmokeError(AssertionError):
     pass
+
+
+class HttpJsonError(SmokeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int,
+        method: str,
+        path: str,
+        detail: Any,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.method = method
+        self.path = path
+        self.detail = detail
+        self.headers = headers or {}
 
 
 REGISTRY_HASH_EXCLUDED_KEYS = {
@@ -35,7 +57,7 @@ def http_json(
     timeout: int = 30,
 ) -> dict[str, Any]:
     data = json.dumps(payload).encode() if payload is not None else None
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "User-Agent": SMOKE_USER_AGENT}
     if data is not None:
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(f"{base_url.rstrip('/')}{path}", data=data, headers=headers, method=method)
@@ -48,7 +70,14 @@ def http_json(
             detail: Any = json.loads(raw)
         except json.JSONDecodeError:
             detail = raw
-        raise SmokeError(f"HTTP {exc.code} for {method} {path}: {detail}") from exc
+        raise HttpJsonError(
+            f"HTTP {exc.code} for {method} {path}: {detail}",
+            status=int(exc.code),
+            method=method,
+            path=path,
+            detail=detail,
+            headers=dict(exc.headers.items()) if exc.headers else {},
+        ) from exc
     except urllib.error.URLError as exc:
         raise SmokeError(f"Request failed for {method} {path}: {exc.reason}") from exc
     try:
@@ -258,6 +287,96 @@ def validate_quote(quote: dict[str, Any], *, args: argparse.Namespace, product: 
     require(isinstance(quote.get("delivery_window"), dict), "quote.delivery_window must be present")
 
 
+def validate_rate_limit_error(error: HttpJsonError, *, expected_bucket: str) -> dict[str, Any]:
+    require(error.status == 429, f"expected HTTP 429 rate limit response, got {error.status}")
+    require(isinstance(error.detail, dict), "rate limit response must be a JSON object")
+    require(error.detail.get("code") == "agentcart_rate_limited", "rate limit response code mismatch")
+    data = error.detail.get("data")
+    require(isinstance(data, dict), "rate limit response data must be present")
+    require(int(data.get("status") or 0) == 429, "rate limit data.status must be 429")
+    require(str(data.get("bucket") or "") == expected_bucket, f"rate limit bucket must be {expected_bucket}")
+    require(int(data.get("limit") or 0) > 0, "rate limit data.limit must be positive")
+    require(int(data.get("window_seconds") or 0) > 0, "rate limit data.window_seconds must be positive")
+    require(int(data.get("retry_after_seconds") or 0) > 0, "rate limit retry_after_seconds must be positive")
+    require("remaining" in data, "rate limit remaining metadata missing")
+    require(bool(data.get("reset_at")), "rate limit reset_at metadata missing")
+    return data
+
+
+def rate_limit_probe_scenarios(capability: dict[str, Any], selected_buckets: set[str]) -> list[dict[str, Any]]:
+    rate_limits = capability.get("rate_limits")
+    require(isinstance(rate_limits, dict), "capability.rate_limits must be present for abuse smoke")
+    candidates = {
+        "quote": {"path": "/wp-json/agentcart/v1/quote", "method": "POST", "payload": {}},
+        "checkout": {"path": "/wp-json/agentcart/v1/orders", "method": "POST", "payload": {}},
+        "order_status": {"path": "/wp-json/agentcart/v1/orders/0/status", "method": "GET", "payload": None},
+        "refund": {"path": "/wp-json/agentcart/v1/orders/0/refunds", "method": "POST", "payload": {}},
+        "cancellation": {"path": "/wp-json/agentcart/v1/orders/0/cancellations", "method": "POST", "payload": {}},
+        "registry": {"path": "/.well-known/agentcart-registry-proof.json", "method": "GET", "payload": None},
+    }
+    scenarios: list[dict[str, Any]] = []
+    for bucket in sorted(selected_buckets):
+        require(bucket in candidates, f"unsupported rate-limit abuse bucket: {bucket}")
+        policy = rate_limits.get(bucket)
+        require(isinstance(policy, dict), f"capability.rate_limits.{bucket} must be present")
+        scenario = dict(candidates[bucket])
+        scenario["bucket"] = bucket
+        scenario["limit"] = int(policy.get("limit") or 0)
+        require(scenario["limit"] > 0, f"capability.rate_limits.{bucket}.limit must be positive")
+        scenarios.append(scenario)
+    return scenarios
+
+
+def expect_rate_limit_exhaustion(
+    base_url: str,
+    scenario: dict[str, Any],
+    *,
+    max_attempts: int,
+) -> dict[str, Any]:
+    bucket = str(scenario["bucket"])
+    # Fixed-window limiters can roll over while the probe is running. Allow up
+    # to two windows so a live test that starts near a boundary still proves
+    # that the next full window returns 429.
+    attempts = min((int(scenario["limit"]) * 2) + 2, max(1, max_attempts))
+    last_error = "no response"
+    for index in range(attempts):
+        try:
+            http_json(
+                base_url,
+                str(scenario["path"]),
+                method=str(scenario["method"]),
+                payload=scenario.get("payload"),
+                timeout=10,
+            )
+        except HttpJsonError as exc:
+            if exc.status == 429:
+                data = validate_rate_limit_error(exc, expected_bucket=bucket)
+                return {
+                    "bucket": bucket,
+                    "path": scenario["path"],
+                    "attempts": index + 1,
+                    "limit": data["limit"],
+                    "retry_after_seconds": data["retry_after_seconds"],
+                    "reset_at": data["reset_at"],
+                }
+            last_error = str(exc)
+    raise SmokeError(f"rate limit bucket {bucket} did not return 429 within {attempts} attempts; last_error={last_error}")
+
+
+def run_rate_limit_abuse_checks(base_url: str, capability: dict[str, Any], args: argparse.Namespace) -> list[dict[str, Any]]:
+    selected = {
+        bucket.strip()
+        for bucket in str(args.rate_limit_buckets or "").split(",")
+        if bucket.strip()
+    }
+    require(bool(selected), "at least one rate-limit abuse bucket must be selected")
+    scenarios = rate_limit_probe_scenarios(capability, selected)
+    return [
+        expect_rate_limit_exhaustion(base_url, scenario, max_attempts=args.rate_limit_max_attempts)
+        for scenario in scenarios
+    ]
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     base_url = args.base_url.rstrip("/")
     capability = http_json(base_url, "/wp-json/agentcart/v1/capability")
@@ -279,6 +398,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     payload = quote_payload(product, args)
     quote = http_json(base_url, "/wp-json/agentcart/v1/quote", method="POST", payload=payload)
     validate_quote(quote, args=args, product=product)
+    rate_limit_abuse = []
+    if args.abuse_rate_limits:
+        rate_limit_abuse = run_rate_limit_abuse_checks(base_url, capability, args)
     return {
         "ok": True,
         "base_url": base_url,
@@ -296,6 +418,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "quote_hash": quote.get("quote_hash"),
         },
         "registry": registry,
+        "rate_limit_abuse": rate_limit_abuse,
         "setup_next_step": (capability.get("setup_guide") or {}).get("next_step"),
     }
 
@@ -316,6 +439,24 @@ def parser() -> argparse.ArgumentParser:
     parser.add_argument("--expect-shipping-cents", type=int, default=None)
     parser.add_argument("--require-shipping", action="store_true")
     parser.add_argument("--require-vat-lines", action="store_true")
+    parser.add_argument(
+        "--abuse-rate-limits",
+        action="store_true",
+        default=os.getenv("AGENTCART_WOO_SMOKE_ABUSE_RATE_LIMITS", "").strip() == "1",
+        help="Exhaust selected live REST rate-limit buckets and require a 429 response.",
+    )
+    parser.add_argument(
+        "--rate-limit-buckets",
+        default=os.getenv(
+            "AGENTCART_WOO_SMOKE_RATE_LIMIT_BUCKETS",
+            "quote,checkout,order_status,refund,cancellation,registry",
+        ),
+    )
+    parser.add_argument(
+        "--rate-limit-max-attempts",
+        type=int,
+        default=int(os.getenv("AGENTCART_WOO_SMOKE_RATE_LIMIT_MAX_ATTEMPTS", "200")),
+    )
     return parser
 
 

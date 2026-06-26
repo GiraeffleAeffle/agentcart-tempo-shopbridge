@@ -127,6 +127,15 @@ live check. The smoke test validates manifest/capability setup state, registry
 bundle/proof/revocation hash binding, catalog exposure, and WooCommerce-backed
 quote totals without creating an order.
 
+Set `AGENTCART_WOO_SMOKE_ABUSE_RATE_LIMITS=1` for staging or pilot shops when
+you also want the smoke test to exhaust quote, checkout, status, refund,
+cancellation, and `.well-known` registry buckets and require a `429` response
+with retry/reset metadata.
+
+Because the smoke creates a real quote, it can leave a temporary soft stock
+hold until the quote expires. For repeated staging runs, set
+`AGENTCART_WOO_SMOKE_PRODUCT_ID` to a high-stock or unmanaged test SKU.
+
 For the hackathon demo, `AGENTCART_SHOPBRIDGE_TOKEN` lets a trusted AgentCart gateway create orders after its own approval and payment proof flow.
 
 For production, configure `AGENTCART_PAYMENT_VERIFIER_URL` and set checkout mode

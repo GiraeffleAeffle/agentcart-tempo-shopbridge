@@ -249,6 +249,98 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
                 product=sample_catalog_product(),
             )
 
+    def test_rate_limit_error_validator_requires_retry_metadata(self) -> None:
+        error = smoke.HttpJsonError(
+            "HTTP 429",
+            status=429,
+            method="POST",
+            path="/wp-json/agentcart/v1/quote",
+            detail={
+                "code": "agentcart_rate_limited",
+                "message": "Too many AgentCart requests. Try again shortly.",
+                "data": {
+                    "status": 429,
+                    "bucket": "quote",
+                    "limit": 30,
+                    "window_seconds": 60,
+                    "retry_after_seconds": 42,
+                    "remaining": 0,
+                    "reset_at": "2026-06-26T12:00:00Z",
+                },
+            },
+        )
+
+        data = smoke.validate_rate_limit_error(error, expected_bucket="quote")
+
+        self.assertEqual(data["bucket"], "quote")
+        self.assertEqual(data["retry_after_seconds"], 42)
+
+    def test_rate_limit_abuse_probe_stops_on_429(self) -> None:
+        calls = []
+        original = smoke.http_json
+
+        def fake_http_json(base_url, path, *, method="GET", payload=None, timeout=30):
+            calls.append((base_url, path, method, payload, timeout))
+            if len(calls) < 3:
+                raise smoke.HttpJsonError(
+                    "HTTP 401",
+                    status=401,
+                    method=method,
+                    path=path,
+                    detail={"code": "rest_forbidden"},
+                )
+            raise smoke.HttpJsonError(
+                "HTTP 429",
+                status=429,
+                method=method,
+                path=path,
+                detail={
+                    "code": "agentcart_rate_limited",
+                    "data": {
+                        "status": 429,
+                        "bucket": "refund",
+                        "limit": 10,
+                        "window_seconds": 60,
+                        "retry_after_seconds": 31,
+                        "remaining": 0,
+                        "reset_at": "2026-06-26T12:00:00Z",
+                    },
+                },
+            )
+
+        smoke.http_json = fake_http_json
+        try:
+            result = smoke.expect_rate_limit_exhaustion(
+                "http://shop",
+                {
+                    "bucket": "refund",
+                    "path": "/wp-json/agentcart/v1/orders/0/refunds",
+                    "method": "POST",
+                    "payload": {},
+                    "limit": 10,
+                },
+                max_attempts=20,
+            )
+        finally:
+            smoke.http_json = original
+
+        self.assertEqual(result["bucket"], "refund")
+        self.assertEqual(result["attempts"], 3)
+        self.assertEqual(len(calls), 3)
+
+    def test_rate_limit_scenarios_are_built_from_capability_document(self) -> None:
+        capability = sample_capability()
+        capability["rate_limits"] = {
+            "quote": {"limit": 30, "window_seconds": 60, "scope": "hashed_client"},
+            "refund": {"limit": 10, "window_seconds": 60, "scope": "hashed_client"},
+        }
+
+        scenarios = smoke.rate_limit_probe_scenarios(capability, {"quote", "refund"})
+
+        self.assertEqual([scenario["bucket"] for scenario in scenarios], ["quote", "refund"])
+        self.assertEqual(scenarios[0]["method"], "POST")
+        self.assertEqual(scenarios[1]["path"], "/wp-json/agentcart/v1/orders/0/refunds")
+
 
 if __name__ == "__main__":
     unittest.main()

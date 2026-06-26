@@ -74,6 +74,9 @@ Production should add richer product controls:
 - Keep the plugin's baseline REST rate limits enabled for catalog, quote,
   order, status, refund, cancellation, and `.well-known` registry/discovery
   endpoints. Current `429` errors include retry and reset metadata.
+- Run the live abuse smoke with `AGENTCART_WOO_SMOKE_ABUSE_RATE_LIMITS=1`
+  against staging or pilot shops to exhaust quote, checkout, status, refund,
+  cancellation, and `.well-known` registry buckets and verify `429` metadata.
 - Add host-level reverse-proxy/CDN/WAF rate limits for public production shops.
 - Store and reject used transaction references.
 - Require idempotency keys for order creation and refunds.
@@ -102,8 +105,6 @@ harness for end-to-end endpoint behavior.
 - cancellation endpoint requires an idempotency key;
 - cancellation endpoint rejects shipped or terminal orders;
 - cancellation endpoint never claims real refund execution;
-- public REST and `.well-known` registry/discovery endpoints return `429` after
-  rate-limit exhaustion;
 - unsupported destination country fails before payment;
 - products outside the selected exposure mode are absent from catalog and
   rejected in quote;
