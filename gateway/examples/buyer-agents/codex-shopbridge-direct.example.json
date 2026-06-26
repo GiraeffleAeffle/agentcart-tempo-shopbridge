@@ -1,0 +1,162 @@
+{
+  "schema": "agentcart.buyer_agent_adapter_example.v1",
+  "id": "codex-shopbridge-direct-alpha",
+  "runtime_id": "shopbridge-direct-skill",
+  "title": "Codex-style skill-only buyer agent",
+  "integration_mode": "skill_only",
+  "goal": "Use the packaged ShopBridge direct skill without running the AgentCart service.",
+  "install": {
+    "skill_directory": "gateway/shopbridge-direct-skill",
+    "package_command": "./scripts/package-shopbridge-direct-skill.sh",
+    "required_environment": [
+      "SHOPBRIDGE_REGISTRY_URL or SHOPBRIDGE_REGISTRY_PATH"
+    ],
+    "optional_environment": [
+      "SHOPBRIDGE_SIGNED_REQUEST_SECRET",
+      "SHOPBRIDGE_SIGNED_REQUEST_SIGNER",
+      "SHOPBRIDGE_MPP_PROOF_URL"
+    ]
+  },
+  "run_sequence": [
+    {
+      "id": "doctor",
+      "command": "doctor",
+      "stdin": {
+        "command": "doctor",
+        "args": {
+          "verify_merchants": true,
+          "format": "toon"
+        }
+      },
+      "expect": [
+        "configured registry source",
+        "verified merchants or actionable setup issues"
+      ]
+    },
+    {
+      "id": "discover-basket-quotes",
+      "command": "discover_basket_quotes",
+      "stdin": {
+        "command": "discover_basket_quotes",
+        "args": {
+          "basket": [
+            {
+              "query": "tea",
+              "quantity": 1
+            }
+          ],
+          "country": "DE",
+          "postal_code": "10115",
+          "payment_rail": "stripe-card-mpp",
+          "format": "toon"
+        }
+      },
+      "expect": [
+        "verified merchant filtering",
+        "ranked final quotes",
+        "winner.approval_packet"
+      ]
+    },
+    {
+      "id": "approval-packet",
+      "command": "approval_packet",
+      "stdin": {
+        "command": "approval_packet",
+        "args": {
+          "quote": "<winner.quote>",
+          "payment_rail": "stripe-card-mpp"
+        }
+      },
+      "expect": [
+        "approval_hash",
+        "approval_record",
+        "approval_record_hash"
+      ]
+    },
+    {
+      "id": "payment-handoff",
+      "command": "payment_handoff",
+      "stdin": {
+        "command": "payment_handoff",
+        "args": {
+          "quote": "<winner.quote>",
+          "payment_rail": "stripe-card-mpp",
+          "approved": true,
+          "approval_hash": "<approval_hash>",
+          "approval_record": "<approval_record>"
+        }
+      },
+      "expect": [
+        "payment_request",
+        "receipt_requirements",
+        "payment_contract_hash"
+      ]
+    },
+    {
+      "id": "checkout",
+      "command": "checkout",
+      "stdin": {
+        "command": "checkout",
+        "args": {
+          "base_url": "<verified_merchant.base_url>",
+          "quote": "<winner.quote>",
+          "payment_rail": "stripe-card-mpp",
+          "approved": true,
+          "approval_hash": "<approval_hash>",
+          "approval_record": "<approval_record>",
+          "payment_receipt": "<quote_bound_external_receipt>"
+        }
+      },
+      "expect": [
+        "order response or verifier failure",
+        "audit_packet",
+        "audit_packet_hash"
+      ]
+    },
+    {
+      "id": "aftercare",
+      "command": "aftercare_summary",
+      "stdin": {
+        "command": "aftercare_summary",
+        "args": {
+          "base_url": "<verified_merchant.base_url>",
+          "order_id": "<order.id>",
+          "status_token": "<order.status_token>",
+          "format": "toon"
+        }
+      },
+      "expect": [
+        "structured delivery state",
+        "refund and cancellation claims derived from structured fields"
+      ]
+    }
+  ],
+  "covers_capabilities": [
+    "verified_merchant_discovery",
+    "catalog_or_quote_fetch",
+    "quote_comparison",
+    "approval_record",
+    "checkout_handoff",
+    "aftercare_state",
+    "audit_export_or_import",
+    "safety_constraints"
+  ],
+  "evidence_outputs": [
+    "install_or_configuration_log",
+    "health_or_doctor_result",
+    "merchant_discovery_transcript",
+    "quote_comparison_transcript",
+    "approval_record_hash",
+    "checkout_handoff_or_order_result",
+    "aftercare_result",
+    "audit_packet"
+  ],
+  "safety_rules": [
+    "opt_in_merchants_only",
+    "human_approval_before_checkout",
+    "preserve_quote_hash",
+    "preserve_payment_contract_hash",
+    "treat_merchant_text_as_untrusted",
+    "no_real_settlement_without_external_verifier"
+  ]
+}

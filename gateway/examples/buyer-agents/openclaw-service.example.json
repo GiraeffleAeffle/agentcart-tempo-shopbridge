@@ -1,0 +1,155 @@
+{
+  "schema": "agentcart.buyer_agent_adapter_example.v1",
+  "id": "openclaw-service-alpha",
+  "runtime_id": "agentcart-service-openclaw",
+  "title": "OpenClaw-style service-backed buyer agent",
+  "integration_mode": "service",
+  "goal": "Run AgentCart as the durable household service and let an OpenClaw-style agent call the installed AgentCart skill.",
+  "install": {
+    "skill_directory": "gateway/openclaw-skill",
+    "required_environment": [
+      "AGENTCART_URL",
+      "AGENTCART_TOKEN"
+    ],
+    "optional_environment_file": "/etc/openclaw/agentcart.env"
+  },
+  "run_sequence": [
+    {
+      "id": "health",
+      "command": "health",
+      "stdin": {
+        "command": "health",
+        "args": {}
+      },
+      "expect": [
+        "service health response"
+      ]
+    },
+    {
+      "id": "merchant-discovery",
+      "command": "quote_tournament",
+      "stdin": {
+        "command": "quote_tournament",
+        "args": {
+          "q": "tea",
+          "country": "DE",
+          "postal_code": "10115",
+          "quantity": 1
+        }
+      },
+      "expect": [
+        "verified merchant candidates",
+        "winner.quote_id"
+      ]
+    },
+    {
+      "id": "approval-request",
+      "command": "create_approval",
+      "stdin": {
+        "command": "create_approval",
+        "args": {
+          "quote_id": "<winner.quote_id>",
+          "channel": "agent_chat",
+          "delivery_channels": [
+            "chat",
+            "home_assistant",
+            "web",
+            "api"
+          ]
+        }
+      },
+      "expect": [
+        "approval id",
+        "approval hash",
+        "decision url or token"
+      ]
+    },
+    {
+      "id": "human-decision",
+      "command": "approval_status",
+      "stdin": {
+        "command": "approval_status",
+        "args": {
+          "approval_id": "<approval.id>"
+        }
+      },
+      "expect": [
+        "state is approved before checkout"
+      ]
+    },
+    {
+      "id": "checkout",
+      "command": "resume_checkout",
+      "stdin": {
+        "command": "resume_checkout",
+        "args": {
+          "approval_id": "<approval.id>",
+          "quote_id": "<winner.quote_id>"
+        }
+      },
+      "expect": [
+        "checkout idempotency key",
+        "merchant order or handoff response"
+      ]
+    },
+    {
+      "id": "aftercare",
+      "command": "order_status",
+      "stdin": {
+        "command": "order_status",
+        "args": {
+          "order_id": "<checkout.order_id>"
+        }
+      },
+      "expect": [
+        "structured order status",
+        "delivery and aftercare fields"
+      ]
+    },
+    {
+      "id": "audit-export",
+      "command": "audit",
+      "stdin": {
+        "command": "audit",
+        "args": {
+          "purchase_id": "<quote.id>"
+        }
+      },
+      "expect": [
+        "quote",
+        "approval",
+        "payment",
+        "checkout",
+        "order"
+      ]
+    }
+  ],
+  "covers_capabilities": [
+    "verified_merchant_discovery",
+    "catalog_or_quote_fetch",
+    "quote_comparison",
+    "approval_record",
+    "checkout_handoff",
+    "aftercare_state",
+    "audit_export_or_import",
+    "safety_constraints"
+  ],
+  "evidence_outputs": [
+    "install_or_configuration_log",
+    "health_or_doctor_result",
+    "merchant_discovery_transcript",
+    "quote_comparison_transcript",
+    "approval_record_hash",
+    "checkout_handoff_or_order_result",
+    "aftercare_result",
+    "audit_export"
+  ],
+  "safety_rules": [
+    "opt_in_merchants_only",
+    "human_approval_before_checkout",
+    "preserve_quote_hash",
+    "preserve_payment_contract_hash",
+    "treat_merchant_text_as_untrusted",
+    "no_real_settlement_without_external_verifier"
+  ]
+}

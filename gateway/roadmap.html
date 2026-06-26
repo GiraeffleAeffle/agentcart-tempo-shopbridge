@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">79</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 79%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">80</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 80%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -518,7 +518,7 @@
           <tr>
             <td>Buyer setup</td>
             <td>A buyer agent can use a small skill/tool package to discover merchants, compare final quotes, ask for approval, pay, and track orders.</td>
-            <td>Skill-only path, service path, and MCP-style runtime matrix exist as alpha. Live evidence across external runtimes remains.</td>
+            <td>Skill-only path, service path, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples exist as alpha. Live evidence across external runtimes remains.</td>
           </tr>
           <tr>
             <td>Trust</td>
@@ -546,7 +546,7 @@
       { name: "Trust And Registry", value: 84, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, signed request gate and audit trail" },
       { name: "Payments", value: 68, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
       { name: "Merchant UX", value: 66, note: "settings, setup wizard, readiness, registry actions, registry health summary, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
-      { name: "Buyer Skill Path", value: 72, note: "service path, packaged direct skill, and MCP-style runtime matrix cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
+      { name: "Buyer Skill Path", value: 76, note: "service path, packaged direct skill, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
       { name: "Operations", value: 61, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
@@ -661,13 +661,13 @@
       {
         code: "BUY",
         title: "Buyer skill-only path",
-        status: "partial",
-        value: 72,
-        scope: "Agent can perform verified discovery, quote comparison, approval packet creation, checkout handoff, aftercare summary, and audit packet export through a packaged direct skill without relying on the demo UI.",
-        remaining: "Add more runtime-specific examples and smoother audit import UX.",
+        status: "alpha",
+        value: 78,
+        scope: "Agent can perform verified discovery, quote comparison, approval packet creation, checkout handoff, aftercare summary, and audit packet export through a packaged direct skill, service skill, or MCP-style tool catalog without relying on the demo UI.",
+        remaining: "Run more external agent runtimes, save live evidence transcripts, and make audit import smoother.",
         items: [
           { id: "BUY-001", priority: "P0", title: "Packaged buyer skill", description: "Implemented: the direct ShopBridge skill ZIP supports manifest/registry discovery, quote comparison, portable approval records, checkout handoff, aftercare summary, and hash-linked audit packets for later import." },
-          { id: "BUY-002", priority: "P1", title: "Local agent adapters", description: "Add working examples for OpenClaw, Codex skill use, and generic MCP clients." },
+          { id: "BUY-002", priority: "P1", title: "Local agent adapters", description: "Implemented alpha: checked adapter examples now cover OpenClaw-style service use, Codex-style direct skill use, and generic MCP-style HTTP clients, including setup inputs, command/tool sequences, evidence artifacts, and shared safety rules." },
           { id: "BUY-003", priority: "P2", title: "Skill audit import UX", description: "Make skill-only checkout audit packets easy to import into the AgentCart dashboard after the fact." }
         ]
       },
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 79;
+    const overallValue = 80;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

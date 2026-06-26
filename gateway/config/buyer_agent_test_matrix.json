@@ -29,6 +29,8 @@
       "status": "alpha",
       "setup_docs": [
         "docs/BUYER_SETUP.md",
+        "docs/BUYER_AGENT_ADAPTERS.md",
+        "gateway/examples/buyer-agents/openclaw-service.example.json",
         "gateway/openclaw-skill/SKILL.md"
       ],
       "entrypoints": [
@@ -76,6 +78,8 @@
       "status": "alpha",
       "setup_docs": [
         "docs/BUYER_SETUP.md",
+        "docs/BUYER_AGENT_ADAPTERS.md",
+        "gateway/examples/buyer-agents/codex-shopbridge-direct.example.json",
         "gateway/shopbridge-direct-skill/SKILL.md"
       ],
       "entrypoints": [
@@ -120,6 +124,8 @@
       "status": "documented_alpha",
       "setup_docs": [
         "docs/BUYER_SETUP.md",
+        "docs/BUYER_AGENT_ADAPTERS.md",
+        "gateway/examples/buyer-agents/generic-mcp-client.example.json",
         "docs/STANDARDS_ALIGNMENT.md"
       ],
       "entrypoints": [

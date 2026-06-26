@@ -130,9 +130,12 @@ now share a portable `approval_record` / `approval_record_hash` shape; skill
 checkout also emits a hash-linked `audit_packet` for later import into a
 household audit trail, and the AgentCart service can import those packets
 idempotently through `/v1/audit/import` and export a quote/purchase audit
-bundle through `/v1/audit/{purchase_id}/export`. Production still needs durable
-buyer policy, stronger audit retention/search/permissions, richer matching for
-multi-item grocery baskets, and a packaged setup flow for non-technical buyers.
+bundle through `/v1/audit/{purchase_id}/export`. Checked OpenClaw-style,
+Codex-style direct skill, and generic MCP-style adapter examples now pin the
+buyer-agent setup sequences and evidence artifacts. Production still needs
+durable buyer policy, stronger audit retention/search/permissions, richer
+matching for multi-item grocery baskets, and a packaged setup flow for
+non-technical buyers.
 
 ### 2. Merchant Alpha
 
@@ -452,6 +455,14 @@ Buyer-agent runtime coverage is tracked separately in
 
 ```sh
 python3 scripts/check-buyer-agent-matrix.py
+```
+
+Checked buyer-agent adapter examples are tracked in
+`docs/BUYER_AGENT_ADAPTERS.md` and
+`gateway/config/buyer_agent_adapter_examples.json`:
+
+```sh
+python3 scripts/check-buyer-agent-adapter-examples.py
 ```
 
 Merchant-controlled text safety is tracked in

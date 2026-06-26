@@ -1,0 +1,180 @@
+{
+  "schema": "agentcart.buyer_agent_adapter_example.v1",
+  "id": "generic-mcp-client-alpha",
+  "runtime_id": "generic-mcp-client",
+  "title": "Generic MCP-style HTTP tool client",
+  "integration_mode": "mcp_tools",
+  "goal": "Use the AgentCart service as an MCP-style tool provider without relying on OpenClaw-specific behavior.",
+  "install": {
+    "tool_catalog_urls": [
+      "/v1/mcp/tools",
+      "/mcp/tools.json"
+    ],
+    "required_environment": [
+      "AGENTCART_URL",
+      "AGENTCART_TOKEN"
+    ]
+  },
+  "run_sequence": [
+    {
+      "id": "tool-catalog-export",
+      "tool": "GET /v1/mcp/tools",
+      "http": {
+        "method": "GET",
+        "path": "/v1/mcp/tools"
+      },
+      "expect": [
+        "agentcart.mcp_tools.v1",
+        "agentcart.discover_merchants",
+        "agentcart.checkout"
+      ]
+    },
+    {
+      "id": "merchant-discovery",
+      "tool": "agentcart.discover_merchants",
+      "http": {
+        "method": "GET",
+        "path": "/v1/quote-tournament?q=tea&country=DE&postal_code=10115&quantity=1"
+      },
+      "expect": [
+        "verified merchant candidates",
+        "winning quote candidate"
+      ]
+    },
+    {
+      "id": "quote-creation",
+      "tool": "agentcart.create_quote",
+      "http": {
+        "method": "POST",
+        "path": "/v1/quotes",
+        "body": {
+          "agent_id": "generic-mcp-client",
+          "reason": "Buyer asked the agent to purchase tea.",
+          "items": [
+            {
+              "product_id": "<product_id>",
+              "quantity": 1
+            }
+          ],
+          "ship_to": {
+            "country": "DE",
+            "postal_code": "10115"
+          }
+        }
+      },
+      "expect": [
+        "quote id",
+        "quote_hash",
+        "payment_contract_hash"
+      ]
+    },
+    {
+      "id": "approval-record",
+      "tool": "agentcart.create_approval",
+      "http": {
+        "method": "POST",
+        "path": "/v1/approvals",
+        "body": {
+          "quote_id": "<quote.id>",
+          "channel": "external",
+          "delivery_channels": [
+            "external"
+          ]
+        }
+      },
+      "expect": [
+        "approval id",
+        "approval hash",
+        "human decision URL or token"
+      ]
+    },
+    {
+      "id": "approval-decision",
+      "tool": "agentcart.record_approval_decision",
+      "http": {
+        "method": "POST",
+        "path": "/v1/approvals/<approval.id>/decision",
+        "body": {
+          "decision": "approved",
+          "token": "<human_decision_token>",
+          "approver": "generic-mcp-client-human"
+        }
+      },
+      "expect": [
+        "approved state before checkout"
+      ]
+    },
+    {
+      "id": "checkout",
+      "tool": "agentcart.checkout",
+      "http": {
+        "method": "POST",
+        "path": "/v1/checkout",
+        "body": {
+          "quote_id": "<quote.id>",
+          "approval_id": "<approval.id>",
+          "idempotency_key": "generic-mcp-client-<approval.id>",
+          "payment_receipt": "<quote_bound_external_receipt>"
+        }
+      },
+      "expect": [
+        "order result or payment handoff failure",
+        "idempotent retry behavior"
+      ]
+    },
+    {
+      "id": "aftercare",
+      "tool": "agentcart.get_order",
+      "http": {
+        "method": "GET",
+        "path": "/v1/orders/<order.id>"
+      },
+      "expect": [
+        "structured order state",
+        "fulfillment",
+        "aftercare"
+      ]
+    },
+    {
+      "id": "audit-export",
+      "tool": "agentcart.export_audit",
+      "http": {
+        "method": "GET",
+        "path": "/v1/audit/<quote.id>/export"
+      },
+      "expect": [
+        "quote",
+        "approval",
+        "checkout",
+        "order"
+      ]
+    }
+  ],
+  "covers_capabilities": [
+    "verified_merchant_discovery",
+    "catalog_or_quote_fetch",
+    "quote_comparison",
+    "approval_record",
+    "checkout_handoff",
+    "aftercare_state",
+    "audit_export_or_import",
+    "safety_constraints"
+  ],
+  "evidence_outputs": [
+    "tool_catalog_export",
+    "merchant_discovery_transcript",
+    "quote_creation_transcript",
+    "approval_record_hash",
+    "checkout_handoff_or_order_result",
+    "aftercare_result",
+    "audit_export"
+  ],
+  "safety_rules": [
+    "opt_in_merchants_only",
+    "human_approval_before_checkout",
+    "preserve_quote_hash",
+    "preserve_payment_contract_hash",
+    "treat_merchant_text_as_untrusted",
+    "no_real_settlement_without_external_verifier"
+  ]
+}

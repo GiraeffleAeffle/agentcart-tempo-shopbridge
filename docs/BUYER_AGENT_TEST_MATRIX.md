@@ -10,6 +10,13 @@ The machine-readable source is
 python3 scripts/check-buyer-agent-matrix.py
 ```
 
+Checked adapter examples for the runtime paths are documented in
+`docs/BUYER_AGENT_ADAPTERS.md` and validated with:
+
+```sh
+python3 scripts/check-buyer-agent-adapter-examples.py
+```
+
 To gate a real pilot evidence folder, store evidence as
 `<runtime-id>/<evidence-id>.md` and run:
 
@@ -25,6 +32,9 @@ python3 scripts/check-buyer-agent-matrix.py \
 
 Service-backed buyer mode using `gateway/openclaw-skill` and the AgentCart
 gateway API.
+
+Checked example:
+`gateway/examples/buyer-agents/openclaw-service.example.json`.
 
 Required proof:
 
@@ -43,6 +53,9 @@ audit, Home Assistant, Vikunja, and delivery state.
 
 Skill-only buyer mode using `gateway/shopbridge-direct-skill`, without the
 buyer running the AgentCart service.
+
+Checked example:
+`gateway/examples/buyer-agents/codex-shopbridge-direct.example.json`.
 
 Required proof:
 
@@ -63,6 +76,9 @@ memory unless the packet is later imported.
 
 Generic agent/tool runtime using the public tool catalog at `/v1/mcp/tools` or
 `/mcp/tools.json`.
+
+Checked example:
+`gateway/examples/buyer-agents/generic-mcp-client.example.json`.
 
 Required proof:
 

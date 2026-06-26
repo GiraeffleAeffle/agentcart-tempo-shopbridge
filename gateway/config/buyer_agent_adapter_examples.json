@@ -1,0 +1,46 @@
+{
+  "schema": "agentcart.buyer_agent_adapter_examples.v1",
+  "version": "0.1.0",
+  "stage": "external_beta",
+  "matrix": "gateway/config/buyer_agent_test_matrix.json",
+  "required_runtime_ids": [
+    "agentcart-service-openclaw",
+    "shopbridge-direct-skill",
+    "generic-mcp-client"
+  ],
+  "examples": [
+    {
+      "id": "openclaw-service-alpha",
+      "runtime_id": "agentcart-service-openclaw",
+      "integration_mode": "service",
+      "example_file": "gateway/examples/buyer-agents/openclaw-service.example.json",
+      "operator": "OpenClaw-style household agent",
+      "setup_docs": [
+        "docs/BUYER_SETUP.md",
+        "gateway/openclaw-skill/SKILL.md"
+      ]
+    },
+    {
+      "id": "codex-shopbridge-direct-alpha",
+      "runtime_id": "shopbridge-direct-skill",
+      "integration_mode": "skill_only",
+      "example_file": "gateway/examples/buyer-agents/codex-shopbridge-direct.example.json",
+      "operator": "Codex-style local skill runtime",
+      "setup_docs": [
+        "docs/BUYER_SETUP.md",
+        "gateway/shopbridge-direct-skill/SKILL.md"
+      ]
+    },
+    {
+      "id": "generic-mcp-client-alpha",
+      "runtime_id": "generic-mcp-client",
+      "integration_mode": "mcp_tools",
+      "example_file": "gateway/examples/buyer-agents/generic-mcp-client.example.json",
+      "operator": "Generic MCP-style tool client",
+      "setup_docs": [
+        "docs/BUYER_SETUP.md",
+        "docs/STANDARDS_ALIGNMENT.md"
+      ]
+    }
+  ]
+}

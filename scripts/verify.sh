@@ -28,6 +28,7 @@ py311_files=(
   gateway/shopbridge-direct-skill/scripts/shopbridge-command.py
   household-os/household_os.py
   scripts/build-release-manifest.py
+  scripts/check-buyer-agent-adapter-examples.py
   scripts/check-wordpress-plugin-package.py
   scripts/check-wordpress-plugin-review.py
   scripts/check-wordpress-official-gates.py
@@ -127,6 +128,11 @@ python3 "$ROOT_DIR/scripts/check-pilot-readiness.py" \
 
 section "Buyer-agent test matrix"
 python3 "$ROOT_DIR/scripts/check-buyer-agent-matrix.py" \
+  --matrix "$ROOT_DIR/gateway/config/buyer_agent_test_matrix.json" >/dev/null
+
+section "Buyer-agent adapter examples"
+python3 "$ROOT_DIR/scripts/check-buyer-agent-adapter-examples.py" \
+  --config "$ROOT_DIR/gateway/config/buyer_agent_adapter_examples.json" \
   --matrix "$ROOT_DIR/gateway/config/buyer_agent_test_matrix.json" >/dev/null
 
 section "Prompt-injection corpus"

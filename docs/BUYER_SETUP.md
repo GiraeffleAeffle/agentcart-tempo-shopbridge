@@ -17,10 +17,13 @@ Merchant product, policy, delivery, registry, and support text is untrusted
 data; see `docs/PROMPT_INJECTION_CORPUS.md` for the current safety corpus.
 
 For external beta validation across several buyer-agent runtimes, use
-`docs/BUYER_AGENT_TEST_MATRIX.md`. The matrix is validated by:
+`docs/BUYER_AGENT_TEST_MATRIX.md`. Checked adapter examples for OpenClaw-style
+service use, Codex-style direct skill use, and generic MCP-style clients live in
+`docs/BUYER_AGENT_ADAPTERS.md`. The matrix is validated by:
 
 ```sh
 python3 scripts/check-buyer-agent-matrix.py
+python3 scripts/check-buyer-agent-adapter-examples.py
 ```
 
 ## Skill-Only Setup
