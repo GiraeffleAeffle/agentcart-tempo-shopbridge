@@ -1,0 +1,154 @@
+{
+  "schema": "agentcart.pilot_beta_checklist.v1",
+  "version": "0.1.0",
+  "stage": "external_beta",
+  "minimum_pilot_scope": {
+    "merchant_count": 2,
+    "buyer_agent_runtime_count": 2,
+    "successful_checkout_count": 10,
+    "pilot_duration_days": 14
+  },
+  "payment_modes_allowed": [
+    "sandbox_verifier",
+    "trusted_testnet",
+    "external_verifier_with_real_refund_disabled"
+  ],
+  "payment_modes_blocked": [
+    "unaudited_real_settlement",
+    "refund_claims_without_verifier_evidence",
+    "public_checkout_with_merchant_token_only"
+  ],
+  "gates": [
+    {
+      "id": "pilot-merchant-onboarding",
+      "priority": "P0",
+      "owner": "merchant_success",
+      "blocking": true,
+      "description": "Each beta merchant can install ShopBridge, publish public discovery, expose only intended products, and pass sandbox quote/checkout checks.",
+      "required_evidence": [
+        "plugin_zip_install_screenshot_or_log",
+        "agentcart_settings_readiness_snapshot",
+        "catalog_preview_export",
+        "sandbox_quote_check_result",
+        "sandbox_checkout_test_result",
+        "registry_record_or_bundle_url"
+      ],
+      "exit_criteria": [
+        "merchant_id_is_stable",
+        "support_email_terms_and_returns_are_public",
+        "agentcart_exposure_mode_is_documented",
+        "tax_and_shipping_rules_match_manual_woocommerce_checkout",
+        "sandbox_checkout_order_is_cancelled_and_stock_hold_released"
+      ]
+    },
+    {
+      "id": "pilot-buyer-agent-setup",
+      "priority": "P0",
+      "owner": "agent_runtime",
+      "blocking": true,
+      "description": "At least two buyer-agent paths can discover merchants, compare final quotes, produce approval records, and create or hand off checkout payloads.",
+      "required_evidence": [
+        "service_backed_agent_run_log",
+        "skill_only_agent_run_log",
+        "approval_record_hash",
+        "audit_packet_or_export"
+      ],
+      "exit_criteria": [
+        "agent_does_not_scrape_non_opt_in_shops",
+        "approval_is_required_before_checkout",
+        "quote_hash_and_payment_contract_hash_are_preserved",
+        "buyer_aftercare_message_uses_structured_order_state"
+      ]
+    },
+    {
+      "id": "pilot-payment-mode",
+      "priority": "P0",
+      "owner": "payments",
+      "blocking": true,
+      "description": "The pilot payment mode is explicit, amount-bound, and honest about whether real settlement or refunds are executed.",
+      "required_evidence": [
+        "payment_mode_decision_record",
+        "verifier_health_or_fixture_result",
+        "refund_policy_statement",
+        "sample_payment_contract_hash"
+      ],
+      "exit_criteria": [
+        "public_checkout_uses_external_verifier_or_signed_gateway",
+        "demo_or_testnet_payments_are_labeled_as_not_real_settlement",
+        "real_refund_claims_require_verifier_evidence",
+        "idempotency_and_replay_checks_are_enabled"
+      ]
+    },
+    {
+      "id": "pilot-support-channel",
+      "priority": "P0",
+      "owner": "operations",
+      "blocking": true,
+      "description": "Merchants and test buyers know where to report failures, how fast responses are expected, and what diagnostic artifacts to share.",
+      "required_evidence": [
+        "support_contact",
+        "response_sla",
+        "diagnostic_collection_steps",
+        "incident_owner"
+      ],
+      "exit_criteria": [
+        "support_channel_is_monitored",
+        "merchant_can_revoke_registry_record",
+        "operator_can_find_audit_export",
+        "operator_can_disable_public_checkout"
+      ]
+    },
+    {
+      "id": "pilot-rollback",
+      "priority": "P0",
+      "owner": "operations",
+      "blocking": true,
+      "description": "The team can remove a beta merchant or roll back a bad plugin/gateway release without losing order audit evidence.",
+      "required_evidence": [
+        "previous_plugin_zip",
+        "release_manifest",
+        "rollback_command_or_runbook",
+        "registry_revocation_url"
+      ],
+      "exit_criteria": [
+        "plugin_can_be_deactivated_without_deleting_orders",
+        "registry_record_can_be_revoked",
+        "agentcart_gateway_release_can_be_rolled_back",
+        "pilot_test_products_can_be_disabled"
+      ]
+    },
+    {
+      "id": "pilot-safety-privacy",
+      "priority": "P0",
+      "owner": "security",
+      "blocking": true,
+      "description": "Pilot data handling is clear: no private demand on-chain, no raw payment credentials in logs, and merchant text is treated as untrusted data.",
+      "required_evidence": [
+        "privacy_notice",
+        "ops_event_redaction_sample",
+        "rate_limit_smoke_result",
+        "prompt_injection_review_notes"
+      ],
+      "exit_criteria": [
+        "registry_contains_public_merchant_metadata_only",
+        "ops_notifications_exclude_payment_credentials_and_delivery_addresses",
+        "merchant_product_text_is_not_executed_as_agent_instruction",
+        "rate_limit_abuse_smoke_passes_against_staging"
+      ]
+    }
+  ],
+  "success_metrics": {
+    "checkout_success_rate_min_percent": 80,
+    "merchant_setup_time_target_minutes": 30,
+    "quote_to_checkout_median_seconds_max": 180,
+    "unresolved_p0_incidents_allowed": 0,
+    "refund_claims_without_verifier_evidence_allowed": 0
+  },
+  "pilot_exit_criteria": [
+    "minimum_pilot_scope_is_met",
+    "all_p0_gates_have_evidence",
+    "success_metrics_meet_thresholds",
+    "no_unresolved_blocking_security_or_payment_incidents",
+    "at_least_one_merchant_can_complete_setup_from_docs_without_repo_author_help"
+  ]
+}

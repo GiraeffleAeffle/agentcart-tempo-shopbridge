@@ -422,10 +422,10 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">74</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 74%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">75</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 75%"><span></span></div>
         </div>
-        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, and local skill path. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
+        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, and an external beta checklist gate. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
 
       <div class="panel">
@@ -438,9 +438,9 @@
       <article class="panel next">
         <h3>Next Slice</h3>
         <ul>
-          <li>Merchant registry transparency and refresh UX: scheduled snapshots, alert delivery, verified domain proof, catalog hash freshness, revoke state, and safer automatic refresh.</li>
-          <li>Payment verifier hardening: managed replay backend, durable metrics store, Home Assistant alert bridge, and clearer failure states.</li>
-          <li>WooCommerce production gate: Plugin Check, PHPCS, packaging, uninstall behavior, and integration smoke coverage.</li>
+          <li>Buyer-agent test matrix: verify the service path, direct skill path, and one additional runtime against the same registry, quote, approval, checkout, and aftercare fixtures.</li>
+          <li>External beta evidence pack: collect merchant onboarding, payment-mode, support, rollback, privacy, and pilot exit evidence under the checklist schema.</li>
+          <li>Payment verifier hardening: managed replay backend, durable metrics store, provider alert routing, and clearer real-settlement failure states.</li>
         </ul>
       </article>
       <article class="panel risk">
@@ -533,7 +533,7 @@
           <tr>
             <td>Operations</td>
             <td>Release, monitoring, logs, failure modes, support docs, and plugin review gates are boring and repeatable.</td>
-            <td>Verify pipeline, strict WordPress official gates, registry monitor snapshots, and alert delivery exist. WordPress.org assets and support runbooks still need work.</td>
+            <td>Verify pipeline, strict WordPress official gates, registry monitor snapshots, alert delivery, and a validated pilot checklist exist. WordPress.org assets and support runbooks still need work.</td>
           </tr>
         </tbody>
       </table>
@@ -549,7 +549,8 @@
       { name: "Buyer Skill Path", value: 70, note: "service path and packaged direct skill cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; more runtime adapters remain" },
       { name: "Standards Adapters", value: 42, note: "x402 shim and MCP-style tool catalog exist; AP2/UCP/A2A translators remain" },
       { name: "Woo Release", value: 54, note: "ZIP, package checks, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 56, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, and delivery exception surfaces exist; beta ops remain" }
+      { name: "Operations", value: 57, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, redacted commerce ops event delivery, delivery exception surfaces, and pilot checklist validation exist; beta ops remain" },
+      { name: "Pilot Launch", value: 28, note: "P0 external beta checklist and validator exist; live evidence collection and runtime matrix remain" }
     ];
 
     const gates = [
@@ -738,12 +739,12 @@
       {
         code: "PIL",
         title: "Pilot launch",
-        status: "open",
-        value: 12,
-        scope: "Local demo and homelab deployment prove the flow.",
-        remaining: "Run external beta shops, external buyer agents, docs-driven setup, and measured checkout success.",
+        status: "planned",
+        value: 28,
+        scope: "Local demo and homelab deployment prove the flow; external beta checklist and validation gate define the minimum merchant, buyer-agent, payment, support, rollback, privacy, and exit evidence.",
+        remaining: "Collect real pilot evidence, run external beta shops, validate external buyer agents, complete docs-driven setup, and measure checkout success.",
         items: [
-          { id: "PIL-001", priority: "P0", title: "External beta checklist", description: "Define merchant onboarding, test data, payment mode, support channel, rollback, and pilot exit criteria." },
+          { id: "PIL-001", priority: "P0", title: "External beta checklist", description: "Implemented: machine-readable checklist, documentation, validator, and verify pipeline gate for merchant onboarding, buyer-agent setup, payment mode, support, rollback, safety/privacy, and pilot exit criteria." },
           { id: "PIL-002", priority: "P1", title: "Buyer-agent test matrix", description: "Validate the service and skill paths across at least three agent runtimes with documented setup steps." },
           { id: "PIL-003", priority: "P2", title: "Success metrics", description: "Track discovery-to-order success rate, failure reasons, merchant setup time, refund rate, and support volume." }
         ]
@@ -759,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 74;
+    const overallValue = 75;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

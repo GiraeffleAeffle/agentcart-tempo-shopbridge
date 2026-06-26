@@ -430,6 +430,19 @@ The code should move toward these deeper modules:
    - Benefit: agents get a small stable interface whether the buyer runs a
      local service or not.
 
+## Pilot Gate
+
+Before inviting external merchants, run the beta checklist validator:
+
+```sh
+python3 scripts/check-pilot-readiness.py
+```
+
+The checklist lives in `docs/PILOT_BETA_CHECKLIST.md` and
+`gateway/config/pilot_beta_checklist.json`. It keeps merchant onboarding,
+buyer-agent setup, payment mode, support, rollback, safety, and pilot exit
+criteria explicit while the product is still moving quickly.
+
 ## Near-Term Rule
 
 Do not add new grocery features directly into the large demo files unless the

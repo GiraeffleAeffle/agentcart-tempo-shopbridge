@@ -31,6 +31,7 @@ py311_files=(
   scripts/check-wordpress-plugin-package.py
   scripts/check-wordpress-plugin-review.py
   scripts/check-wordpress-official-gates.py
+  scripts/check-pilot-readiness.py
   scripts/verify-release.py
   scripts/verify-verifier-fixtures.py
   scripts/woocommerce-shopbridge-smoke.py
@@ -113,6 +114,10 @@ section "Stripe MPP verifier syntax"
 section "Verifier contract fixtures"
 python3 "$ROOT_DIR/scripts/verify-verifier-fixtures.py" >/dev/null
 bash "$ROOT_DIR/gateway/scripts/verifier-replay-smoke.sh"
+
+section "Pilot readiness checklist"
+python3 "$ROOT_DIR/scripts/check-pilot-readiness.py" \
+  --checklist "$ROOT_DIR/gateway/config/pilot_beta_checklist.json" >/dev/null
 
 section "Compose config"
 AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token \
