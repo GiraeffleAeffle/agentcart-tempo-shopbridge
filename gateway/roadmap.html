@@ -425,7 +425,7 @@
           <div class="score-number"><strong id="overall-score">86</strong><span>%</span></div>
           <div id="overall-progress" class="progress" style="--value: 86%"><span></span></div>
         </div>
-        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
+        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, evidence-required beta release gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
 
       <div class="panel">
@@ -438,7 +438,7 @@
       <article class="panel next">
         <h3>Next Slice</h3>
         <ul>
-          <li>External beta evidence pack: collect merchant onboarding, compatibility, buyer-agent runtime, prompt-injection, payment-mode, support, rollback, privacy, and pilot exit evidence under the checklist schemas.</li>
+          <li>External beta evidence pack: collect merchant onboarding, live Woo smoke, compatibility, buyer-agent runtime, prompt-injection, production payment profile, support, rollback, privacy, and pilot exit evidence under the checklist schemas.</li>
           <li>Live runtime rehearsals: run the service path, direct skill path, MCP-style path, and optional PHP 8.1 Woo matrix entry against the same staging merchant and save transcripts.</li>
           <li>Payment verifier hardening: managed replay backend, durable metrics store, provider alert routing, and clearer real-settlement failure states.</li>
         </ul>
@@ -549,8 +549,8 @@
       { name: "Buyer Skill Path", value: 76, note: "service path, packaged direct skill, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
       { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 64, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, merchant support diagnostics, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
-      { name: "Pilot Launch", value: 36, note: "P0 external beta checklist and P1 buyer-agent matrix validators exist; live evidence collection remains" }
+      { name: "Operations", value: 65, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, merchant support diagnostics, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, evidence-required beta release gate, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
+      { name: "Pilot Launch", value: 39, note: "P0 external beta checklist, evidence-required beta release checker, production payment profile checker, and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
 
     const gates = [
@@ -624,11 +624,11 @@
         title: "Payment verifier",
         status: "partial",
         value: 70,
-        scope: "Verifier contract, payment contract hash, fixture validation, replay request hashes, conflict checks, receipt checks, append-only replay journal, JSON metrics, structured logs, failure alert webhooks, and testnet proof handling exist.",
+        scope: "Verifier contract, payment contract hash, fixture validation, production payment env profile check, replay request hashes, conflict checks, receipt checks, append-only replay journal, JSON metrics, structured logs, failure alert webhooks, and testnet proof handling exist.",
         remaining: "Move the sandbox file store, replay journal, and metrics to managed transactional storage, add deeper refund execution, and wire provider dashboards.",
         items: [
           { id: "PAY-001", priority: "P0", title: "Amount-bound verifier", description: "Plugin and Stripe verifier now bind quote total, currency/FX policy, recipient/profile, quote hash, rail, and receipt via a payment_contract_hash." },
-          { id: "PAY-002", priority: "P1", title: "Durable replay store", description: "Sandbox verifier now stores request hashes, exact idempotent replays, conflict rejection, lock checks, writeability health, and an optional sanitized append-only replay journal; replace the file store with managed transactional storage for production." },
+          { id: "PAY-002", priority: "P1", title: "Durable replay store", description: "Sandbox verifier now stores request hashes, exact idempotent replays, conflict rejection, lock checks, writeability health, and an optional sanitized append-only replay journal; the production payment profile gate requires durable replay before beta/release claims. Replace the file store with managed transactional storage for production." },
           { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Sandbox verifier now exposes success rate, rejection reasons, provider errors, latency, settlement/refund counters, replay counters, replay journal health, structured request logs, and throttled failure webhooks; add managed dashboards next." }
         ]
       },
@@ -740,13 +740,14 @@
         code: "PIL",
         title: "Pilot launch",
         status: "planned",
-        value: 36,
-        scope: "Local demo and homelab deployment prove the flow; external beta checklist and buyer-agent matrix define merchant, runtime, payment, support, rollback, privacy, and exit evidence.",
+        value: 39,
+        scope: "Local demo and homelab deployment prove the flow; external beta checklist, evidence-required beta release gate, production payment profile gate, and buyer-agent matrix define merchant, runtime, payment, support, rollback, privacy, and exit evidence.",
         remaining: "Collect real pilot evidence, run external beta shops, rehearse external buyer agents, complete docs-driven setup, and measure checkout success.",
         items: [
-          { id: "PIL-001", priority: "P0", title: "External beta checklist", description: "Implemented: machine-readable checklist, documentation, validator, and verify pipeline gate for merchant onboarding, buyer-agent setup, payment mode, support, rollback, safety/privacy, and pilot exit criteria." },
-          { id: "PIL-002", priority: "P1", title: "Buyer-agent test matrix", description: "Implemented alpha: service-backed OpenClaw/AgentCart, direct ShopBridge skill, and generic MCP-style clients now have a documented runtime matrix, required capabilities, safety rules, evidence IDs, and a verify pipeline gate." },
-          { id: "PIL-003", priority: "P2", title: "Success metrics", description: "Track discovery-to-order success rate, failure reasons, merchant setup time, refund rate, and support volume." }
+          { id: "PIL-001", priority: "P0", title: "External beta checklist", description: "Implemented: machine-readable checklist, documentation, validator, live Woo smoke evidence ID, production payment profile evidence ID, and schema gate for merchant onboarding, buyer-agent setup, payment mode, support, rollback, safety/privacy, and pilot exit criteria." },
+          { id: "PIL-002", priority: "P0", title: "Evidence-required release gate", description: "Implemented: external beta release checker fails without recorded pilot evidence, buyer-agent runtime evidence, and a production-shaped payment profile that disables token-only checkout fallback." },
+          { id: "PIL-003", priority: "P1", title: "Buyer-agent test matrix", description: "Implemented alpha: service-backed OpenClaw/AgentCart, direct ShopBridge skill, and generic MCP-style clients now have a documented runtime matrix, required capabilities, safety rules, evidence IDs, and a verify pipeline gate." },
+          { id: "PIL-004", priority: "P2", title: "Success metrics", description: "Track discovery-to-order success rate, failure reasons, merchant setup time, refund rate, and support volume." }
         ]
       }
     ];

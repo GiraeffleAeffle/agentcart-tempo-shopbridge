@@ -31,6 +31,7 @@
         "catalog_preview_export",
         "sandbox_quote_check_result",
         "sandbox_checkout_test_result",
+        "live_woocommerce_smoke_result",
         "woocommerce_compatibility_matrix_result",
         "registry_record_or_bundle_url"
       ],
@@ -73,6 +74,7 @@
       "required_evidence": [
         "payment_mode_decision_record",
         "verifier_health_or_fixture_result",
+        "production_payment_profile_check_result",
         "refund_policy_statement",
         "sample_payment_contract_hash"
       ],

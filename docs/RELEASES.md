@@ -65,6 +65,28 @@ Or run the full gate:
 ./scripts/verify.sh
 ```
 
+`verify.sh` is the development/release-artifact gate. It validates the checked-in
+pilot schemas and the checked-in production-payment env overlay shape, but it
+does not claim that an external beta has recorded evidence unless you explicitly
+enable the beta gate:
+
+```sh
+AGENTCART_BETA_RELEASE_GATE=1 \
+AGENTCART_PILOT_EVIDENCE_DIR=pilot-evidence/example-shop \
+AGENTCART_BUYER_AGENT_EVIDENCE_DIR=pilot-evidence/buyer-agents \
+AGENTCART_PAYMENT_ENV_FILE=deploy/home-server/.env \
+./scripts/verify.sh
+```
+
+You can also run the stricter gate directly:
+
+```sh
+python3 scripts/check-beta-release-readiness.py \
+  --pilot-evidence-dir pilot-evidence/example-shop \
+  --buyer-agent-evidence-dir pilot-evidence/buyer-agents \
+  --payment-env-file deploy/home-server/.env
+```
+
 The full gate includes a Python 3.11 compile check for runtime files. If local
 `python3.11` is unavailable, it uses Docker `python:3.11-slim` when Docker is
 available. The gateway Docker smoke image also uses Python 3.11. This protects

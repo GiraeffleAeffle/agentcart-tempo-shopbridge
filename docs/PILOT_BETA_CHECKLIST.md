@@ -10,6 +10,9 @@ The machine-readable source of this checklist is
 python3 scripts/check-pilot-readiness.py
 ```
 
+That command validates the checklist schema only. It is useful for development,
+but it does not certify that an external beta is ready.
+
 To gate a real pilot evidence folder, store evidence as
 `<gate-id>/<evidence-id>.md` and run:
 
@@ -18,6 +21,21 @@ python3 scripts/check-pilot-readiness.py \
   --evidence-dir pilot-evidence/example-shop \
   --require-evidence
 ```
+
+For an external beta/release decision, use the stricter gate. It requires pilot
+evidence, buyer-agent runtime evidence, and a production-shaped payment profile:
+
+```sh
+python3 scripts/check-beta-release-readiness.py \
+  --pilot-evidence-dir pilot-evidence/example-shop \
+  --buyer-agent-evidence-dir pilot-evidence/buyer-agents \
+  --payment-env-file deploy/home-server/.env
+```
+
+`./scripts/verify.sh` runs the schema checks by default. Set
+`AGENTCART_BETA_RELEASE_GATE=1` plus `AGENTCART_PILOT_EVIDENCE_DIR`,
+`AGENTCART_BUYER_AGENT_EVIDENCE_DIR`, and `AGENTCART_PAYMENT_ENV_FILE` only
+when you want `verify.sh` to run the evidence-required external beta gate.
 
 ## Pilot Scope
 
@@ -55,6 +73,7 @@ Required evidence:
 - catalog preview export;
 - sandbox quote check result;
 - sandbox checkout test result;
+- live WooCommerce smoke result;
 - WooCommerce compatibility matrix result;
 - registry record or bundle URL.
 
@@ -97,6 +116,7 @@ Required evidence:
 
 - payment mode decision record;
 - verifier health or fixture result;
+- production payment profile check result;
 - refund policy statement;
 - sample payment contract hash.
 

@@ -35,8 +35,10 @@ py311_files=(
   scripts/check-woocommerce-compatibility-matrix.py
   scripts/check-buyer-agent-matrix.py
   scripts/check-ap2-mandate-mapping.py
+  scripts/check-beta-release-readiness.py
   scripts/check-ucp-a2a-profiles.py
   scripts/check-pilot-readiness.py
+  scripts/check-production-payment-profile.py
   scripts/check-prompt-injection-corpus.py
   scripts/check-quote-reliability-matrix.py
   scripts/verify-release.py
@@ -129,6 +131,25 @@ section "Pilot readiness checklist"
 python3 "$ROOT_DIR/scripts/check-pilot-readiness.py" \
   --checklist "$ROOT_DIR/gateway/config/pilot_beta_checklist.json" >/dev/null
 
+section "Production payment profile shape"
+python3 "$ROOT_DIR/scripts/check-production-payment-profile.py" \
+  --env-file "$ROOT_DIR/deploy/home-server/.env.example" \
+  --env-file "$ROOT_DIR/deploy/home-server/.env.production-payment.example" \
+  --allow-placeholders >/dev/null
+
+section "External beta release evidence gate"
+if [ "${AGENTCART_BETA_RELEASE_GATE:-0}" = "1" ]; then
+  : "${AGENTCART_PILOT_EVIDENCE_DIR:?set AGENTCART_PILOT_EVIDENCE_DIR for external beta release checks}"
+  : "${AGENTCART_BUYER_AGENT_EVIDENCE_DIR:?set AGENTCART_BUYER_AGENT_EVIDENCE_DIR for external beta release checks}"
+  : "${AGENTCART_PAYMENT_ENV_FILE:?set AGENTCART_PAYMENT_ENV_FILE for external beta release checks}"
+  python3 "$ROOT_DIR/scripts/check-beta-release-readiness.py" \
+    --pilot-evidence-dir "$AGENTCART_PILOT_EVIDENCE_DIR" \
+    --buyer-agent-evidence-dir "$AGENTCART_BUYER_AGENT_EVIDENCE_DIR" \
+    --payment-env-file "$AGENTCART_PAYMENT_ENV_FILE" >/dev/null
+else
+  printf 'AGENTCART_BETA_RELEASE_GATE=1 not set; skipping evidence-required external beta gate\n'
+fi
+
 section "Buyer-agent test matrix"
 python3 "$ROOT_DIR/scripts/check-buyer-agent-matrix.py" \
   --matrix "$ROOT_DIR/gateway/config/buyer_agent_test_matrix.json" >/dev/null
@@ -166,6 +187,12 @@ docker compose \
   --env-file "$ROOT_DIR/deploy/home-server/.env.example" \
   -f "$ROOT_DIR/deploy/home-server/docker-compose.yml" \
   --profile homeassistant \
+  --profile woocommerce-demo \
+  config >/dev/null
+docker compose \
+  --env-file "$ROOT_DIR/deploy/home-server/.env.example" \
+  --env-file "$ROOT_DIR/deploy/home-server/.env.production-payment.example" \
+  -f "$ROOT_DIR/deploy/home-server/docker-compose.yml" \
   --profile woocommerce-demo \
   config >/dev/null
 
