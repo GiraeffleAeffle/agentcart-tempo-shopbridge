@@ -41,8 +41,9 @@ actions.
 
 * Merchant-controlled product exposure: manual checkbox, WooCommerce tag,
   WooCommerce categories, or all published simple products.
-* Non-mutating product exposure preview showing included, blocked, and
-  out-of-policy products before catalog publication.
+* Non-mutating product exposure preview and saved catalog snapshot diff showing
+  included, blocked, added, removed, changed, and out-of-policy products before
+  registry refresh or catalog publication.
 * Blocked categories, product-level checkout exclusion, max quantity limits,
   and product-specific shipping country overrides.
 * WooCommerce cart, tax, shipping, stock, and order creation integration.
@@ -142,14 +143,16 @@ privacy policy depend on the registry service configured by the merchant.
    when they are not managed through wp-config.php.
 6. Add normal WooCommerce products and expose only the products that are safe
    for agent checkout.
-7. In the Registry Proof section, refresh metadata when stable identity/payment
+7. Preview product exposure, review the catalog diff, and save a current
+   catalog snapshot after confirming the agent-readable catalog looks right.
+8. In the Registry Proof section, refresh metadata when stable identity/payment
    settings change, then run the public endpoint check.
-8. Share the registry bundle URL with a registry or local buyer-agent test, or
+9. Share the registry bundle URL with a registry or local buyer-agent test, or
    configure the optional Registry connection URL and submit the bundle from the
    Registry Proof section.
-9. Test the manifest, catalog, quote, and guided non-production checkout path
+10. Test the manifest, catalog, quote, and guided non-production checkout path
    before public use.
-10. Use Support Diagnostics on `WooCommerce -> AgentCart` when setup, registry,
+11. Use Support Diagnostics on `WooCommerce -> AgentCart` when setup, registry,
     signed request, verifier, or checkout support needs a redacted JSON bundle.
 
 == Frequently Asked Questions ==

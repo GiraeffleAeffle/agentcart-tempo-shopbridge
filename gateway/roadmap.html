@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">85</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 85%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">86</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 86%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -542,10 +542,10 @@
 
   <script>
     const areas = [
-      { name: "Core Commerce", value: 91, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
+      { name: "Core Commerce", value: 92, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview with saved catalog diffs, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
       { name: "Trust And Registry", value: 85, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, HMAC/RSA signed request gate, and audit trail" },
       { name: "Payments", value: 70, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, append-only replay journal, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
-      { name: "Merchant UX", value: 67, note: "settings, setup wizard, readiness, registry actions, registry health summary, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
+      { name: "Merchant UX", value: 69, note: "settings, setup wizard, readiness, registry actions, registry health summary, product exposure diff checkpoints, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 76, note: "service path, packaged direct skill, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
       { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
@@ -571,13 +571,13 @@
         code: "CAT",
         title: "Product exposure safety",
         status: "alpha",
-        value: 87,
-        scope: "Merchant-controlled enablement, manual product opt-in, tag/category/all-products modes, exposure preview, restricted-goods default blocking, stock visibility, categories, shipping countries, and safer catalog surface.",
-        remaining: "Add catalog diff history and clearer defaults for stores with many products.",
+        value: 91,
+        scope: "Merchant-controlled enablement, manual product opt-in, tag/category/all-products modes, exposure preview, saved catalog snapshot diff, restricted-goods default blocking, stock visibility, categories, shipping countries, and safer catalog surface.",
+        remaining: "Add richer catalog history and clearer defaults for stores with many products.",
         items: [
           { id: "CAT-001", priority: "P0", title: "Bulk exposure policy", description: "Implemented: merchants can expose products by manual checkbox, WooCommerce tag, WooCommerce category, or all published simple products, with a non-mutating preview of included and blocked catalog entries." },
           { id: "CAT-002", priority: "P1", title: "Restricted-goods guardrails", description: "Implemented: products matching restricted-goods rules are blocked from catalog, quote, and checkout by default, with an explicit per-product merchant allow override and retained structured review metadata." },
-          { id: "CAT-003", priority: "P2", title: "Catalog diff preview", description: "Show merchants what changed in the agent-readable catalog before publishing or refreshing registry metadata." }
+          { id: "CAT-003", priority: "P2", title: "Catalog diff preview", description: "Implemented: merchants can save the current agent catalog as a snapshot baseline and compare future exposure previews for added, removed, and changed products before refreshing registry metadata." }
         ]
       },
       {
@@ -760,7 +760,7 @@
       open: "Open"
     };
 
-    const overallValue = 85;
+    const overallValue = 86;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

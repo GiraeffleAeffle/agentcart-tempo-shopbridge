@@ -79,6 +79,7 @@ final class AgentCart_ShopBridge {
     const PRODUCT_EXPOSURE_CATEGORIES_OPTION = 'agentcart_shopbridge_product_exposure_categories';
     const PRODUCT_BLOCKED_CATEGORIES_OPTION = 'agentcart_shopbridge_product_blocked_categories';
     const PRODUCT_EXPOSURE_PREVIEW_OPTION = 'agentcart_shopbridge_product_exposure_preview';
+    const PRODUCT_EXPOSURE_SNAPSHOT_OPTION = 'agentcart_shopbridge_product_exposure_snapshot';
     const PRODUCT_EXPOSURE_PREVIEW_LIMIT = 200;
     const PRODUCT_ENABLED_META = '_agentcart_enabled';
     const PRODUCT_BLOCKED_META = '_agentcart_checkout_blocked';
@@ -712,6 +713,11 @@ final class AgentCart_ShopBridge {
             </form>
             <form method="post" style="display: inline-block; margin-right: 8px;">
                 <?php wp_nonce_field('agentcart_shopbridge_product_action'); ?>
+                <input type="hidden" name="agentcart_product_action" value="save_catalog_snapshot" />
+                <?php submit_button('Save current catalog snapshot', 'secondary', 'submit', false); ?>
+            </form>
+            <form method="post" style="display: inline-block; margin-right: 8px;">
+                <?php wp_nonce_field('agentcart_shopbridge_product_action'); ?>
                 <input type="hidden" name="agentcart_product_action" value="enable_all_published_simple" />
                 <?php submit_button('Enable all published simple products', 'secondary', 'submit', false); ?>
             </form>
@@ -1231,15 +1237,37 @@ final class AgentCart_ShopBridge {
             $preview = self::build_product_exposure_preview();
             update_option(self::PRODUCT_EXPOSURE_PREVIEW_OPTION, $preview, false);
             if (($preview['state'] ?? '') === 'passed') {
+                $diff = is_array($preview['catalog_diff'] ?? null) ? $preview['catalog_diff'] : [];
                 return sprintf(
-                    'Product exposure preview generated: %d products would enter the AgentCart catalog.',
-                    intval($preview['included_count'] ?? 0)
+                    'Product exposure preview generated: %d products would enter the AgentCart catalog. Diff: %d added, %d removed, %d changed.',
+                    intval($preview['included_count'] ?? 0),
+                    intval($diff['added_count'] ?? 0),
+                    intval($diff['removed_count'] ?? 0),
+                    intval($diff['changed_count'] ?? 0)
                 );
             }
             return [
                 'type' => 'error',
                 'message' => 'Product exposure preview failed: ' . ($preview['message'] ?? 'review product exposure settings.'),
             ];
+        }
+        if ($action === 'save_catalog_snapshot') {
+            $preview = self::build_product_exposure_preview();
+            update_option(self::PRODUCT_EXPOSURE_PREVIEW_OPTION, $preview, false);
+            if (($preview['state'] ?? '') !== 'passed') {
+                return [
+                    'type' => 'error',
+                    'message' => 'Catalog snapshot was not saved: ' . ($preview['message'] ?? 'review product exposure settings.'),
+                ];
+            }
+            $snapshot = self::product_exposure_snapshot_from_preview($preview);
+            update_option(self::PRODUCT_EXPOSURE_SNAPSHOT_OPTION, $snapshot, false);
+            $preview['catalog_diff'] = self::catalog_snapshot_diff($snapshot, $snapshot);
+            update_option(self::PRODUCT_EXPOSURE_PREVIEW_OPTION, $preview, false);
+            return sprintf(
+                'Catalog snapshot saved: %d products are now the comparison baseline for future AgentCart catalog previews.',
+                intval($snapshot['included_count'] ?? 0)
+            );
         }
         if ($action === 'enable_all_published_simple') {
             $count = self::set_agentcart_exposure_for_published_simple_products('yes');
@@ -4248,6 +4276,7 @@ final class AgentCart_ShopBridge {
                 'agentcart_enabled_product_count' => self::agentcart_enabled_product_count(),
                 'stock_hold_mode' => self::stock_hold_mode(),
                 'stock_hold_minutes' => self::stock_hold_minutes(),
+                'snapshot' => self::product_exposure_snapshot_summary(),
                 'exposure_preview' => self::support_diagnostics_exposure_preview_summary(self::product_exposure_preview_result()),
             ],
             'sandbox_checks' => [
@@ -4326,7 +4355,23 @@ final class AgentCart_ShopBridge {
             'blocked_count' => intval($preview['blocked_count'] ?? 0),
             'not_matching_count' => intval($preview['not_matching_count'] ?? 0),
             'preview_limit' => intval($preview['preview_limit'] ?? 0),
+            'catalog_snapshot' => self::product_exposure_snapshot_summary(is_array($preview['catalog_snapshot'] ?? null) ? $preview['catalog_snapshot'] : null),
+            'catalog_diff' => self::support_diagnostics_catalog_diff_summary(is_array($preview['catalog_diff'] ?? null) ? $preview['catalog_diff'] : []),
             'blocked_reason_counts' => $blocked_reason_counts,
+        ];
+    }
+
+    private static function support_diagnostics_catalog_diff_summary($diff) {
+        $diff = is_array($diff) ? $diff : [];
+        return [
+            'state' => (string) ($diff['state'] ?? ''),
+            'baseline_saved_at' => (string) ($diff['baseline_saved_at'] ?? ''),
+            'baseline_catalog_hash' => (string) ($diff['baseline_catalog_hash'] ?? ''),
+            'current_catalog_hash' => (string) ($diff['current_catalog_hash'] ?? ''),
+            'added_count' => intval($diff['added_count'] ?? 0),
+            'removed_count' => intval($diff['removed_count'] ?? 0),
+            'changed_count' => intval($diff['changed_count'] ?? 0),
+            'unchanged_count' => intval($diff['unchanged_count'] ?? 0),
         ];
     }
 
@@ -4750,6 +4795,12 @@ final class AgentCart_ShopBridge {
         $blocked_products = is_array($preview['blocked_products'] ?? null) ? $preview['blocked_products'] : [];
         $visible_included = array_slice($included_products, 0, self::PRODUCT_EXPOSURE_PREVIEW_LIMIT);
         $visible_blocked = array_slice($blocked_products, 0, min(50, self::PRODUCT_EXPOSURE_PREVIEW_LIMIT));
+        $snapshot = self::product_exposure_snapshot_result();
+        $diff = is_array($preview['catalog_diff'] ?? null)
+            ? $preview['catalog_diff']
+            : self::catalog_snapshot_diff($snapshot, self::product_exposure_snapshot_from_preview($preview));
+        $diff_rows = self::catalog_snapshot_diff_rows($diff);
+        $visible_diff_rows = array_slice($diff_rows, 0, 25);
         ?>
         <h3>Product Exposure Preview</h3>
         <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
@@ -4781,8 +4832,66 @@ final class AgentCart_ShopBridge {
                         Published simple products scanned: <strong><?php echo esc_html((string) intval($preview['published_simple_count'] ?? 0)); ?></strong>
                     </td>
                 </tr>
+                <tr>
+                    <th scope="row">Saved catalog snapshot</th>
+                    <td>
+                        <?php self::render_admin_status_badge(!empty($snapshot), 'Baseline saved', 'No baseline'); ?>
+                        <?php if (!empty($snapshot['saved_at'])) : ?>
+                            <br><span class="description"><?php echo esc_html((string) $snapshot['saved_at']); ?></span>
+                        <?php else : ?>
+                            <br><span class="description">Save a snapshot after reviewing a good catalog. Future previews will show what changed.</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if (!empty($snapshot)) : ?>
+                            Products: <strong><?php echo esc_html((string) intval($snapshot['included_count'] ?? 0)); ?></strong>
+                            <br><span class="description">Hash: <code><?php echo esc_html((string) ($snapshot['catalog_hash'] ?? '')); ?></code></span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Catalog diff</th>
+                    <td>
+                        <?php self::render_admin_status_badge(($diff['state'] ?? '') === 'unchanged', 'No changes', (($diff['state'] ?? '') === 'no_snapshot' ? 'No baseline' : 'Review changes')); ?>
+                        <br>
+                        Added: <strong><?php echo esc_html((string) intval($diff['added_count'] ?? 0)); ?></strong>
+                        &middot; removed: <strong><?php echo esc_html((string) intval($diff['removed_count'] ?? 0)); ?></strong>
+                        &middot; changed: <strong><?php echo esc_html((string) intval($diff['changed_count'] ?? 0)); ?></strong>
+                    </td>
+                    <td>
+                        Unchanged: <strong><?php echo esc_html((string) intval($diff['unchanged_count'] ?? 0)); ?></strong>
+                    </td>
+                </tr>
             </tbody>
         </table>
+        <?php if (!empty($visible_diff_rows)) : ?>
+            <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
+                <thead>
+                    <tr>
+                        <th scope="col">Catalog diff</th>
+                        <th scope="col">Product</th>
+                        <th scope="col">Changed fields</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($visible_diff_rows as $row): ?>
+                        <tr>
+                            <td><code><?php echo esc_html((string) ($row['change_type'] ?? 'changed')); ?></code></td>
+                            <th scope="row">
+                                <?php echo esc_html((string) ($row['title'] ?? $row['product_id'] ?? 'Product')); ?>
+                                <br><code><?php echo esc_html((string) ($row['product_id'] ?? '')); ?></code>
+                            </th>
+                            <td><?php echo esc_html(implode(', ', is_array($row['changed_fields'] ?? null) ? $row['changed_fields'] : [])); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php if (count($diff_rows) > count($visible_diff_rows)) : ?>
+                <p class="description" style="max-width: 760px;">
+                    Showing the first <?php echo esc_html((string) count($visible_diff_rows)); ?> changed products from this preview.
+                </p>
+            <?php endif; ?>
+        <?php endif; ?>
         <?php if (!empty($visible_included)) : ?>
             <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
                 <thead>
@@ -4937,6 +5046,8 @@ final class AgentCart_ShopBridge {
                 'category_based_product_exposure' => true,
                 'all_published_simple_product_exposure' => true,
                 'blocked_category_product_exclusion' => true,
+                'catalog_diff_preview' => true,
+                'catalog_snapshot_baseline' => true,
                 'per_product_agentcart_max_quantity' => true,
                 'per_product_agentcart_block_override' => true,
                 'per_product_shipping_country_overrides' => true,
@@ -4980,6 +5091,7 @@ final class AgentCart_ShopBridge {
                 'blocked_categories' => self::product_blocked_categories(),
                 'published_simple_products_exposed' => self::agentcart_enabled_product_count(),
                 'manual_meta_key' => self::PRODUCT_ENABLED_META,
+                'snapshot' => self::product_exposure_snapshot_summary(),
             ],
             'product_policy' => [
                 'max_quantity_default' => 20,
@@ -8475,6 +8587,30 @@ final class AgentCart_ShopBridge {
         return is_array($stored) ? $stored : [];
     }
 
+    private static function product_exposure_snapshot_result() {
+        $stored = get_option(self::PRODUCT_EXPOSURE_SNAPSHOT_OPTION, []);
+        return is_array($stored) ? $stored : [];
+    }
+
+    private static function product_exposure_snapshot_summary($snapshot = null) {
+        $snapshot = is_array($snapshot) ? $snapshot : self::product_exposure_snapshot_result();
+        if (!$snapshot) {
+            return [
+                'configured' => false,
+                'saved_at' => '',
+                'catalog_hash' => '',
+                'included_count' => 0,
+            ];
+        }
+        return [
+            'configured' => true,
+            'saved_at' => (string) ($snapshot['saved_at'] ?? ''),
+            'settings_fingerprint' => (string) ($snapshot['settings_fingerprint'] ?? ''),
+            'catalog_hash' => (string) ($snapshot['catalog_hash'] ?? ''),
+            'included_count' => intval($snapshot['included_count'] ?? 0),
+        ];
+    }
+
     private static function product_exposure_settings_fingerprint() {
         return self::canonical_json_hash([
             'mode' => self::product_exposure_mode(),
@@ -8522,7 +8658,7 @@ final class AgentCart_ShopBridge {
                 $included_products[] = $row;
             }
         }
-        return [
+        $preview = [
             'schema' => 'agentcart.shopbridge.product_exposure_preview.v1',
             'state' => 'passed',
             'checked_at' => $checked_at,
@@ -8540,6 +8676,12 @@ final class AgentCart_ShopBridge {
             'blocked_products' => $blocked_products,
             'preview_limit' => self::PRODUCT_EXPOSURE_PREVIEW_LIMIT,
         ];
+        $preview['catalog_snapshot'] = self::product_exposure_snapshot_summary();
+        $preview['catalog_diff'] = self::catalog_snapshot_diff(
+            self::product_exposure_snapshot_result(),
+            self::product_exposure_snapshot_from_preview($preview)
+        );
+        return $preview;
     }
 
     private static function product_exposure_preview_row(WC_Product $product, $blocked_reasons) {
@@ -8564,6 +8706,148 @@ final class AgentCart_ShopBridge {
             'restricted_goods' => self::product_restricted_goods($product),
             'restricted_goods_override' => $product->get_meta(self::PRODUCT_RESTRICTED_GOODS_ALLOWED_META, true) === 'yes',
         ];
+    }
+
+    private static function product_exposure_snapshot_from_preview($preview) {
+        $preview = is_array($preview) ? $preview : [];
+        $included_products = is_array($preview['included_products'] ?? null) ? $preview['included_products'] : [];
+        $products = [];
+        foreach ($included_products as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $product = self::catalog_snapshot_product_from_preview_row($row);
+            if (empty($product['product_id'])) {
+                continue;
+            }
+            $products[] = $product;
+        }
+        usort($products, static function ($left, $right) {
+            return strcmp((string) ($left['product_id'] ?? ''), (string) ($right['product_id'] ?? ''));
+        });
+        return [
+            'schema' => 'agentcart.shopbridge.catalog_snapshot.v1',
+            'saved_at' => self::current_registry_timestamp(),
+            'settings_fingerprint' => (string) ($preview['settings_fingerprint'] ?? self::product_exposure_settings_fingerprint()),
+            'catalog_hash' => self::canonical_json_hash($products),
+            'included_count' => count($products),
+            'products' => $products,
+        ];
+    }
+
+    private static function catalog_snapshot_product_from_preview_row($row) {
+        $row = is_array($row) ? $row : [];
+        $product = [
+            'product_id' => sanitize_text_field((string) ($row['product_id'] ?? '')),
+            'source_product_id' => intval($row['source_product_id'] ?? 0),
+            'title' => sanitize_text_field((string) ($row['title'] ?? '')),
+            'sku' => sanitize_text_field((string) ($row['sku'] ?? '')),
+            'exposure_source' => sanitize_text_field((string) ($row['exposure_source'] ?? '')),
+            'category_slugs' => is_array($row['category_slugs'] ?? null) ? array_values(array_map('sanitize_title', $row['category_slugs'])) : [],
+            'shipping_countries' => is_array($row['shipping_countries'] ?? null) ? array_values(array_map('strtoupper', array_map('sanitize_text_field', $row['shipping_countries']))) : [],
+            'stock_status' => sanitize_key((string) ($row['stock_status'] ?? '')),
+            'stock_quantity' => isset($row['stock_quantity']) ? intval($row['stock_quantity']) : null,
+            'price_cents' => intval($row['price_cents'] ?? 0),
+            'currency' => strtoupper(sanitize_text_field((string) ($row['currency'] ?? ''))),
+            'max_quantity' => intval($row['max_quantity'] ?? 0),
+            'restricted_goods_count' => is_array($row['restricted_goods'] ?? null) ? count($row['restricted_goods']) : 0,
+            'restricted_goods_override' => !empty($row['restricted_goods_override']),
+        ];
+        $product['product_hash'] = self::canonical_json_hash($product);
+        return $product;
+    }
+
+    private static function catalog_snapshot_product_map($snapshot) {
+        $snapshot = is_array($snapshot) ? $snapshot : [];
+        $products = is_array($snapshot['products'] ?? null) ? $snapshot['products'] : [];
+        $map = [];
+        foreach ($products as $product) {
+            if (!is_array($product) || empty($product['product_id'])) {
+                continue;
+            }
+            $map[(string) $product['product_id']] = $product;
+        }
+        ksort($map, SORT_STRING);
+        return $map;
+    }
+
+    private static function catalog_snapshot_diff($baseline, $current) {
+        $baseline = is_array($baseline) ? $baseline : [];
+        $current = is_array($current) ? $current : [];
+        $baseline_map = self::catalog_snapshot_product_map($baseline);
+        $current_map = self::catalog_snapshot_product_map($current);
+        $added = [];
+        $removed = [];
+        $changed = [];
+        $unchanged = [];
+
+        foreach ($current_map as $product_id => $product) {
+            if (!isset($baseline_map[$product_id])) {
+                $added[] = self::catalog_snapshot_diff_row('added', $product, null);
+                continue;
+            }
+            if ((string) ($product['product_hash'] ?? '') !== (string) ($baseline_map[$product_id]['product_hash'] ?? '')) {
+                $changed[] = self::catalog_snapshot_diff_row('changed', $product, $baseline_map[$product_id]);
+            } else {
+                $unchanged[] = $product_id;
+            }
+        }
+        foreach ($baseline_map as $product_id => $product) {
+            if (!isset($current_map[$product_id])) {
+                $removed[] = self::catalog_snapshot_diff_row('removed', $product, null);
+            }
+        }
+
+        $has_baseline = !empty($baseline);
+        $changed_count = count($added) + count($removed) + count($changed);
+        return [
+            'schema' => 'agentcart.shopbridge.catalog_diff.v1',
+            'state' => !$has_baseline ? 'no_snapshot' : ($changed_count > 0 ? 'changed' : 'unchanged'),
+            'baseline_saved_at' => (string) ($baseline['saved_at'] ?? ''),
+            'baseline_catalog_hash' => (string) ($baseline['catalog_hash'] ?? ''),
+            'current_catalog_hash' => (string) ($current['catalog_hash'] ?? ''),
+            'added_count' => count($added),
+            'removed_count' => count($removed),
+            'changed_count' => count($changed),
+            'unchanged_count' => count($unchanged),
+            'added_products' => $added,
+            'removed_products' => $removed,
+            'changed_products' => $changed,
+        ];
+    }
+
+    private static function catalog_snapshot_diff_row($change_type, $product, $baseline_product = null) {
+        $product = is_array($product) ? $product : [];
+        $baseline_product = is_array($baseline_product) ? $baseline_product : [];
+        $changed_fields = [];
+        if ($change_type === 'changed') {
+            foreach (['title', 'sku', 'exposure_source', 'category_slugs', 'shipping_countries', 'stock_status', 'stock_quantity', 'price_cents', 'currency', 'max_quantity', 'restricted_goods_count', 'restricted_goods_override'] as $field) {
+                if (($product[$field] ?? null) !== ($baseline_product[$field] ?? null)) {
+                    $changed_fields[] = $field;
+                }
+            }
+        }
+        return [
+            'change_type' => sanitize_key((string) $change_type),
+            'product_id' => (string) ($product['product_id'] ?? ''),
+            'title' => (string) ($product['title'] ?? ''),
+            'sku' => (string) ($product['sku'] ?? ''),
+            'changed_fields' => $changed_fields,
+        ];
+    }
+
+    private static function catalog_snapshot_diff_rows($diff) {
+        $diff = is_array($diff) ? $diff : [];
+        $rows = [];
+        foreach (['added_products', 'removed_products', 'changed_products'] as $key) {
+            $items = is_array($diff[$key] ?? null) ? $diff[$key] : [];
+            foreach ($items as $item) {
+                if (is_array($item)) {
+                    $rows[] = $item;
+                }
+            }
+        }
+        return $rows;
     }
 
     private static function product_exposure_match_source(WC_Product $product) {

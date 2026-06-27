@@ -116,6 +116,9 @@ sandbox quote/order testing. The checkout test creates a sandbox approval
 record, carries its hashes into the payment verifier payload and WooCommerce
 order metadata, then cancels the test order. The same public-safe setup state is
 also exposed in the capability document for remote onboarding tools.
+The Product Exposure panel can save a current catalog snapshot and compare
+future previews against it, so merchants can review added, removed, and changed
+agent-readable products before refreshing registry metadata.
 The same admin page can download a redacted support diagnostics JSON bundle for
 setup, registry, signed-request, verifier, product exposure, sandbox-check, and
 WooCommerce configuration support.
