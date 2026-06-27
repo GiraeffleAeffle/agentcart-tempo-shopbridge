@@ -207,7 +207,10 @@ first-party alpha endpoint for that connection:
 same domain-proof path, exposes active records at `GET /v1/registry/records`,
 removes revoked hashes from the active feed, and exports submit, refresh, and
 revoke events through a public hash-chained transparency log at
-`GET /v1/registry/transparency`. Registry entries can also carry optional
+`GET /v1/registry/transparency`. It also exposes
+`GET /v1/registry/feed-proof`, a compact canonical proof payload that pins the
+active record hashes, revoked record hashes, and transparency-log head for
+external monitoring or later signing/onchain anchoring. Registry entries can also carry optional
 ERC-8004-style `onchain_identity` / `erc8004_identity` metadata, which the
 gateway normalizes, validates, binds to the manifest registry claim when used,
 and exposes as a mapping status without making onchain registration mandatory.

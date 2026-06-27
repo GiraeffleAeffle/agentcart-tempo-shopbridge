@@ -276,12 +276,13 @@ python3 gateway/scripts/registry_record.py build --manifest-url https://shop.exa
 python3 gateway/scripts/registry_record.py verify --record-file merchant-registry-record.json
 ```
 
-The hosted alpha feed is available at `GET /v1/registry/records`; the normalized
-agent-facing registry remains `GET /v1/registry`. Operators and agents can also
-check aggregate verifier state, freshness, revocations, and action items at
-`GET /v1/registry/health`. Authenticated operators can persist monitor
-snapshots and alert deltas with `POST /v1/registry/monitor/run`, then read the
-history at `GET /v1/registry/monitor`; set
+The hosted alpha feed is available at `GET /v1/registry/records`; a compact feed
+proof is available at `GET /v1/registry/feed-proof`; the normalized agent-facing
+registry remains `GET /v1/registry`. Operators and agents can also check
+aggregate verifier state, freshness, revocations, and action items at
+`GET /v1/registry/health`. Authenticated operators can persist monitor snapshots
+and alert deltas with `POST /v1/registry/monitor/run`, then read the history at
+`GET /v1/registry/monitor`; set
 `AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS` to run that monitor periodically.
 Set `AGENTCART_REGISTRY_ALERT_WEBHOOK_URL` or
 `AGENTCART_REGISTRY_ALERT_HOMEASSISTANT_ENABLED=true` to deliver new/resolved

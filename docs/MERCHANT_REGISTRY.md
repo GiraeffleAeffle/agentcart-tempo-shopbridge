@@ -162,6 +162,10 @@ event. `GET /v1/registry/transparency` exports that log with sequence numbers,
 previous event hashes, event hashes, source request hashes, record hashes, and
 chain verification status so agents can audit registry continuity without
 trusting mutable feed state alone.
+`GET /v1/registry/feed-proof` returns a compact canonical payload hash over the
+active record hashes, revoked record hashes, and current transparency-log head.
+Operators and buyer agents can pin that hash between runs today, and the same
+payload is the intended input for a later public signature or onchain anchor.
 `GET /v1/registry/health` summarizes verifier states, source errors, hosted
 record/revocation counts, stale records, endpoint failures, and suggested
 operator actions.
@@ -372,6 +376,8 @@ The gateway now:
   hashes from the active feed;
 - appends hosted submit, refresh, and revoke events to a public hash-chained
   transparency export at `/v1/registry/transparency`;
+- exposes a compact feed proof at `/v1/registry/feed-proof` so monitors can pin
+  active record hashes, revoked hashes, and the transparency head;
 - normalizes optional ERC-8004-style `onchain_identity` / `erc8004_identity`
   metadata and exposes the mapping status without requiring onchain
   registration for early pilots;

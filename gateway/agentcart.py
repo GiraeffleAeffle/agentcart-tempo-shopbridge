@@ -2545,6 +2545,76 @@ class AgentCartService:
             "entry_count": len(entries),
             "revocation_count": len(store.get("revocations", [])),
             "transparency": transparency,
+            "feed_proof_url": "/v1/registry/feed-proof",
+        }
+
+    def hosted_registry_feed_proof_payload(self, store: dict[str, Any]) -> dict[str, Any]:
+        revoked_hashes = self.hosted_registry_revoked_hashes(store)
+        entries = [
+            record
+            for record in store.get("entries", [])
+            if isinstance(record, dict)
+            and not record.get("revoked_at")
+            and registry_record_hash(record) not in revoked_hashes
+        ]
+        revocations = [item for item in store.get("revocations", []) if isinstance(item, dict)]
+        events = self.hosted_registry_transparency_events(store)
+        verification = self.verify_hosted_registry_transparency_events(events)
+        record_hashes = sorted(registry_record_hash(record) for record in entries)
+        revocation_record_hashes = sorted(
+            record_hash
+            for record_hash in (
+                str(item.get("record_hash") or item.get("registry_record_hash") or "")
+                for item in revocations
+            )
+            if record_hash
+        )
+        return {
+            "schema": "agentcart.registry_feed_proof_payload.v1",
+            "source_schema": "agentcart.hosted_merchant_registry_feed.v1",
+            "entry_count": len(entries),
+            "revocation_count": len(revocations),
+            "record_hashes": record_hashes,
+            "revocation_record_hashes": revocation_record_hashes,
+            "records_hash": canonical_json_hash(record_hashes),
+            "revocations_hash": canonical_json_hash(revocation_record_hashes),
+            "transparency": {
+                "event_count": verification["event_count"],
+                "log_head_hash": verification["log_head_hash"],
+                "chain_valid": verification["chain_valid"],
+                "hash_alg": verification["hash_alg"],
+            },
+        }
+
+    def hosted_registry_feed_proof(self) -> dict[str, Any]:
+        store = self.read_hosted_registry_store()
+        payload = self.hosted_registry_feed_proof_payload(store)
+        payload_hash = canonical_json_hash(payload)
+        return {
+            "schema": "agentcart.registry_feed_proof.v1",
+            "generated_at": isoformat(utcnow()),
+            "source_updated_at": str(store.get("updated_at") or ""),
+            "hash_alg": "sha-256",
+            "payload_hash": payload_hash,
+            "payload": payload,
+            "entry_count": payload["entry_count"],
+            "revocation_count": payload["revocation_count"],
+            "record_hashes": payload["record_hashes"],
+            "revocation_record_hashes": payload["revocation_record_hashes"],
+            "transparency": payload["transparency"],
+            "records_url": "/v1/registry/records",
+            "transparency_url": "/v1/registry/transparency",
+            "signature": {
+                "alg": "none",
+                "status": "unsigned_alpha",
+                "value": "",
+            },
+            "verification": {
+                "payload_hash": payload_hash,
+                "payload_hash_input": "canonical JSON of payload",
+                "records_hash_input": "sorted active registry record hashes",
+                "revocations_hash_input": "sorted revoked registry record hashes",
+            },
         }
 
     def hosted_registry_transparency_events(self, store: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2807,6 +2877,7 @@ class AgentCartService:
             "verification": verification,
             "registry_url": f"{self.config.public_url}/v1/registry",
             "registry_records_url": f"{self.config.public_url}/v1/registry/records",
+            "registry_feed_proof_url": f"{self.config.public_url}/v1/registry/feed-proof",
             "registry_transparency_url": f"{self.config.public_url}/v1/registry/transparency",
             "transparency_event_hash": transparency_event["event_hash"],
             "transparency_log_head_hash": transparency_event["event_hash"],
@@ -2881,6 +2952,7 @@ class AgentCartService:
             "domain": domain,
             "record_hash": record_hash,
             "registry_records_url": f"{self.config.public_url}/v1/registry/records",
+            "registry_feed_proof_url": f"{self.config.public_url}/v1/registry/feed-proof",
             "registry_transparency_url": f"{self.config.public_url}/v1/registry/transparency",
             "transparency_event_hash": transparency_event["event_hash"],
             "transparency_log_head_hash": transparency_event["event_hash"],
@@ -3693,6 +3765,7 @@ class AgentCartService:
                 "updated_at": hosted_feed.get("updated_at"),
                 "records_url": "/v1/registry/records",
                 "submit_url": "/v1/registry/records",
+                "feed_proof_url": "/v1/registry/feed-proof",
                 "transparency_url": "/v1/registry/transparency",
                 "transparency_event_count": int(transparency_summary.get("event_count") or 0),
                 "transparency_log_head_hash": str(transparency_summary.get("log_head_hash") or ""),
@@ -3705,6 +3778,7 @@ class AgentCartService:
                 "revocation_count": 0,
                 "records_url": "/v1/registry/records",
                 "submit_url": "/v1/registry/records",
+                "feed_proof_url": "/v1/registry/feed-proof",
                 "transparency_url": "/v1/registry/transparency",
                 "error": {"message": str(exc), "detail": exc.detail},
             }
@@ -5033,6 +5107,7 @@ class AgentCartService:
                 "registry": "/v1/registry",
                 "registry_records": "/v1/registry/records",
                 "registry_submit": "/v1/registry/records",
+                "registry_feed_proof": "/v1/registry/feed-proof",
                 "registry_transparency": "/v1/registry/transparency",
                 "registry_health": "/v1/registry/health",
                 "registry_monitor": "/v1/registry/monitor",
@@ -5514,6 +5589,19 @@ class AgentCartService:
                             "401": {"description": "Registry submit token required"},
                         },
                     },
+                },
+                "/v1/registry/feed-proof": {
+                    "get": {
+                        "operationId": "getRegistryFeedProof",
+                        "summary": "Get compact hosted registry feed proof for monitor pinning",
+                        "security": [],
+                        "responses": {
+                            "200": {
+                                "description": "Hosted registry feed proof",
+                                "content": {"application/json": {"schema": {"type": "object"}}},
+                            }
+                        },
+                    }
                 },
                 "/v1/registry/transparency": {
                     "get": {
@@ -6322,7 +6410,7 @@ Discovery:
 - MCP-style tool catalog: /v1/mcp/tools or /mcp/tools.json
 - Capabilities: /.well-known/agentcart.json
 - Standards profile mappings: /.well-known/agentcart-standards.json or /v1/standards/profiles
-- Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records, transparency log: GET /v1/registry/transparency
+- Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records, feed proof: GET /v1/registry/feed-proof, transparency log: GET /v1/registry/transparency
 - Registry health: GET /v1/registry/health
 - Registry monitor: GET /v1/registry/monitor, POST /v1/registry/monitor/run
 
@@ -9159,6 +9247,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/registry/records":
             self.send_json(self.service.hosted_registry_feed())
+            return
+        if path == "/v1/registry/feed-proof":
+            self.send_json(self.service.hosted_registry_feed_proof())
             return
         if path == "/v1/registry/transparency":
             self.send_json(self.service.hosted_registry_transparency_log())

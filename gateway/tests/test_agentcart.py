@@ -1600,6 +1600,63 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(feed["transparency"]["event_count"], 3)
             self.assertEqual(feed["transparency"]["log_head_hash"], log["log_head_hash"])
             self.assertEqual(feed["transparency"]["url"], "/v1/registry/transparency")
+            self.assertEqual(feed["feed_proof_url"], "/v1/registry/feed-proof")
+
+    def test_hosted_registry_feed_proof_pins_records_revocations_and_transparency(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            record_hash = agentcart.registry_record_hash(record)
+            service = make_service(tmp)
+            install_domain_proof_http_json(service, record, manifest)
+
+            initial = service.hosted_registry_feed_proof()
+            self.assertEqual(initial["schema"], "agentcart.registry_feed_proof.v1")
+            self.assertEqual(initial["entry_count"], 0)
+            self.assertEqual(initial["record_hashes"], [])
+            self.assertEqual(initial["payload_hash"], agentcart.canonical_json_hash(initial["payload"]))
+
+            service.submit_hosted_registry_request(
+                {
+                    "operation": "upsert",
+                    "registry_record": record,
+                    "record_hash": record_hash,
+                }
+            )
+
+            submitted = service.hosted_registry_feed_proof()
+            self.assertEqual(submitted["entry_count"], 1)
+            self.assertEqual(submitted["revocation_count"], 0)
+            self.assertEqual(submitted["record_hashes"], [record_hash])
+            self.assertEqual(submitted["payload"]["records_hash"], agentcart.canonical_json_hash([record_hash]))
+            self.assertEqual(submitted["payload_hash"], agentcart.canonical_json_hash(submitted["payload"]))
+            self.assertTrue(submitted["transparency"]["chain_valid"])
+            self.assertEqual(submitted["transparency"]["event_count"], 1)
+            self.assertEqual(
+                submitted["transparency"]["log_head_hash"],
+                service.hosted_registry_transparency_log()["log_head_hash"],
+            )
+
+            service.submit_hosted_registry_request(
+                {
+                    "operation": "revoke",
+                    "record_hash": record_hash,
+                    "merchant_id": "signed-tea-shop",
+                    "domain": "signed.example",
+                    "reason": "merchant_admin_revoke",
+                }
+            )
+
+            revoked = service.hosted_registry_feed_proof()
+            self.assertNotEqual(revoked["payload_hash"], submitted["payload_hash"])
+            self.assertEqual(revoked["entry_count"], 0)
+            self.assertEqual(revoked["revocation_count"], 1)
+            self.assertEqual(revoked["record_hashes"], [])
+            self.assertEqual(revoked["revocation_record_hashes"], [record_hash])
+            self.assertEqual(revoked["payload_hash"], agentcart.canonical_json_hash(revoked["payload"]))
+            self.assertTrue(revoked["transparency"]["chain_valid"])
+            self.assertEqual(revoked["transparency"]["event_count"], 2)
 
     def test_hosted_registry_submission_http_requires_registry_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -1649,6 +1706,17 @@ class AgentCartTests(unittest.TestCase):
                     feed = json.loads(response.read())
                 self.assertEqual(feed["entry_count"], 1)
                 self.assertEqual(feed["transparency"]["event_count"], 1)
+                self.assertEqual(feed["feed_proof_url"], "/v1/registry/feed-proof")
+
+                with urllib.request.urlopen(f"{base_url}/v1/registry/feed-proof", timeout=5) as response:
+                    proof = json.loads(response.read())
+                self.assertEqual(proof["schema"], "agentcart.registry_feed_proof.v1")
+                self.assertEqual(proof["entry_count"], 1)
+                self.assertEqual(proof["record_hashes"], [agentcart.registry_record_hash(record)])
+                self.assertEqual(proof["payload_hash"], agentcart.canonical_json_hash(proof["payload"]))
+                self.assertTrue(proof["transparency"]["chain_valid"])
+                self.assertEqual(proof["transparency"]["event_count"], 1)
+                self.assertEqual(proof["transparency"]["log_head_hash"], feed["transparency"]["log_head_hash"])
 
                 with urllib.request.urlopen(f"{base_url}/v1/registry/transparency", timeout=5) as response:
                     transparency = json.loads(response.read())
