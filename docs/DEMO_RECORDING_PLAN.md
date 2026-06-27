@@ -6,7 +6,7 @@ Target length: **3 minutes maximum**.
 
 | Time | Shot | What to say |
 | --- | --- | --- |
-| 0:00-0:20 | Title / pitch slide | "Tempo MPP can handle machine payment. AgentCart solves the missing shop bridge: product discovery, final quote, approval, order, delivery, refund metadata, and audit." |
+| 0:00-0:20 | Opening slide | "Tempo MPP can handle machine payment. AgentCart solves the missing shop bridge: product discovery, final quote, approval, order, delivery, refund metadata, and audit." |
 | 0:20-0:45 | Architecture page | "The agent does not scrape websites. It calls AgentCart, gets opt-in merchant manifests and quotes, applies household policy, then uses an MPP-shaped checkout." |
 | 0:45-1:15 | WooCommerce admin plugin | "A normal WooCommerce shop installs ShopBridge, configures support, shipping countries, Tempo or Stripe verifier settings, and stays merchant of record." |
 | 1:15-2:20 | Live order flow | Ask: `Please buy my favourite tea. Discover shops, choose the best final quote, and ask me for approval before checkout.` Show quote comparison, approval, checkout, and proof page. |

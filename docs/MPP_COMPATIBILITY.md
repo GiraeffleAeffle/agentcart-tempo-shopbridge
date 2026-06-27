@@ -97,7 +97,7 @@ support for stablecoins, cards, bank transfers, Lightning, and custom rails.
 
 Tempo's built-in MPP payment method is a TIP-20 stablecoin rail. The official
 docs describe USDC.e as the mainnet default and pathUSD as the testnet default.
-So, in this hackathon demo:
+In the bundled local demo:
 
 - WooCommerce quotes the physical product in EUR.
 - The attached Tempo proof is a USD-stablecoin testnet proof, currently pathUSD.
@@ -158,7 +158,7 @@ WooCommerce payment gateway; AgentCart's order endpoint is for agent checkout.
 
 ## Refunds
 
-Refunds should be part of the production profile, but the hackathon demo should
+Refunds should be part of the production profile, but local/testnet flows should
 not claim real refund execution unless the payment rail actually moves money
 back.
 

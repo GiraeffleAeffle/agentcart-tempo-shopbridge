@@ -1,7 +1,9 @@
 # Settlement Options
 
-> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
-
+> Status: production-candidate alpha. Payment rails are modeled through a
+> quote-bound verifier contract, but live settlement operations still require a
+> production verifier, provider credentials, refund authority, and operational
+> monitoring.
 
 AgentCart separates quote/order semantics from the payment rail. The merchant
 quotes in the store currency, while the verifier proves that the payment rail
@@ -11,7 +13,7 @@ settled or authorized the exact quote.
 
 ### Tempo MPP Stablecoin Proof
 
-Useful for the hackathon and machine-payment demonstrations.
+Useful for machine-payment demonstrations and stablecoin-native merchants.
 
 - Quote currency: usually merchant storefront currency, for example EUR.
 - Tempo proof asset: network-specific stablecoin, for example pathUSD on

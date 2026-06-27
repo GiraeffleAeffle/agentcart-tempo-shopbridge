@@ -41,6 +41,7 @@ py311_files=(
   scripts/check-production-payment-profile.py
   scripts/check-prompt-injection-corpus.py
   scripts/check-quote-reliability-matrix.py
+  scripts/check-repo-positioning.py
   scripts/verify-release.py
   scripts/verify-verifier-fixtures.py
   scripts/woocommerce-shopbridge-smoke.py
@@ -181,6 +182,9 @@ section "Quote reliability matrix"
 python3 "$ROOT_DIR/scripts/check-quote-reliability-matrix.py" \
   --matrix "$ROOT_DIR/gateway/config/quote_reliability_matrix.json" \
   --verify-test-refs >/dev/null
+
+section "Repo production positioning"
+python3 "$ROOT_DIR/scripts/check-repo-positioning.py" >/dev/null
 
 section "Compose config"
 AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token AGENTCART_REGISTRY_SUBMIT_TOKEN=verify-registry-token \

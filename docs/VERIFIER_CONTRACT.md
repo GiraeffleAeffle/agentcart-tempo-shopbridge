@@ -1,12 +1,12 @@
 # Payment Verifier Contract
 
-The hackathon demo has two payment modes:
+ShopBridge has two payment verification modes:
 
-- `trusted_agentcart_token`: demo mode. A trusted AgentCart gateway creates the
-  WooCommerce order after its own approval and MPP-shaped checkout. This is not
-  production settlement.
 - `external_verifier`: production shape. ShopBridge calls an external verifier
   before creating a paid WooCommerce order or recording a rail-verified refund.
+- `trusted_agentcart_token`: local/private mode. A trusted AgentCart gateway
+  creates the WooCommerce order after its own approval and MPP-shaped checkout.
+  This is not production settlement.
 
 For production order creation, ShopBridge should also be configured with
 checkout mode `external_verifier_only`. That keeps the merchant token available

@@ -62,6 +62,30 @@ def sample_capability():
     }
 
 
+def sample_setup_required_capability():
+    capability = sample_capability()
+    capability["protocol_profiles"] = [
+        {
+            "id": "agentcart-shopbridge",
+            "type": "commerce",
+            "status": "setup_required",
+            "available": False,
+            "setup_required": True,
+            "unavailable_reasons": ["payment verifier"],
+        }
+    ]
+    capability["setup_guide"]["production_complete"] = True
+    capability["setup_guide"]["steps"] = [
+        {"id": "merchant_identity", "required_for": ["production"], "state": "complete"},
+        {"id": "products", "required_for": ["production"], "state": "complete"},
+        {"id": "tax_shipping", "required_for": ["production"], "state": "complete"},
+        {"id": "payment_verifier", "required_for": ["production"], "state": "complete"},
+        {"id": "registry", "required_for": ["production"], "state": "complete"},
+        {"id": "sandbox_test", "required_for": ["demo"], "state": "complete"},
+    ]
+    return capability
+
+
 def sample_manifest():
     return {
         "merchant": {"id": "woocommerce-demo-shop"},
@@ -188,6 +212,13 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
     def test_capability_and_manifest_require_setup_and_endpoint_contracts(self) -> None:
         smoke.validate_capability(sample_capability())
         smoke.validate_manifest(sample_manifest())
+
+    def test_setup_required_shopbridge_profile_is_allowed_in_non_strict_smoke(self) -> None:
+        smoke.validate_capability(sample_setup_required_capability())
+
+    def test_production_ready_smoke_rejects_setup_required_shopbridge_profile(self) -> None:
+        with self.assertRaises(smoke.SmokeError):
+            smoke.validate_production_setup(sample_setup_required_capability())
 
     def test_registry_bundle_validator_accepts_matching_proof_and_revocations(self) -> None:
         record = sample_registry_record()

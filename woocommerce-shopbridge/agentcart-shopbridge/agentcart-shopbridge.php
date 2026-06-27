@@ -663,7 +663,7 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Registry connection URL', self::REGISTRY_CONNECTION_URL_OPTION, self::registry_connection_url(), 'AGENTCART_REGISTRY_CONNECTION_URL', 'Optional hosted registry ingestion endpoint. When configured, Registry Proof actions can submit the generated bundle or a revocation request without copy/paste.'); ?>
                     <?php self::render_password_setting_row('Registry connection token', self::REGISTRY_CONNECTION_TOKEN_OPTION, self::registry_connection_token(), 'AGENTCART_REGISTRY_CONNECTION_TOKEN', 'Optional bearer token for the configured registry connection endpoint. Leave blank when the registry is public or uses domain-proof only.'); ?>
                     <?php self::render_aftercare_policy_setting_rows($substitution_policy, $cancellation_window_minutes); ?>
-                    <?php self::render_text_setting_row('Tempo network', self::TEMPO_NETWORK_OPTION, self::tempo_network(), 'AGENTCART_TEMPO_NETWORK', 'For the hackathon this is usually testnet.'); ?>
+                    <?php self::render_text_setting_row('Tempo network', self::TEMPO_NETWORK_OPTION, self::tempo_network(), 'AGENTCART_TEMPO_NETWORK', 'For local testnet development this is usually testnet.'); ?>
                     <?php self::render_text_setting_row('Tempo recipient address', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Merchant or payment-provider recipient used by the payment verifier.'); ?>
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
                     <?php self::render_text_setting_row('x402 network', self::X402_NETWORK_OPTION, $x402_network, 'AGENTCART_X402_NETWORK', 'Optional x402 network identifier such as eip155:84532 or base-sepolia. Leave blank to avoid advertising x402.'); ?>
@@ -3475,15 +3475,23 @@ final class AgentCart_ShopBridge {
         ];
     }
 
-    private static function protocol_profiles() {
+    private static function protocol_profiles($readiness = null) {
+        $readiness = is_array($readiness) ? $readiness : self::readiness();
+        $public_discovery_ready = self::public_discovery_ready($readiness);
+        $public_discovery_blockers = self::public_discovery_blockers($readiness);
         $profiles = [
             [
                 'id' => 'agentcart-shopbridge',
                 'type' => 'commerce',
                 'version' => '0.1',
-                'status' => 'available',
+                'status' => $public_discovery_ready ? 'available' : 'setup_required',
+                'available' => $public_discovery_ready,
+                'setup_required' => !$public_discovery_ready,
+                'unavailable_reasons' => $public_discovery_blockers,
                 'role' => 'merchant_catalog_quote_checkout',
                 'adapter' => 'agentcart.shopbridge.v1',
+                'paid_order_creation' => $public_discovery_ready,
+                'paid_order_creation_requires_production_ready' => true,
                 'endpoints' => [
                     'manifest' => home_url('/.well-known/agentcart.json'),
                     'capability' => rest_url(self::API_NAMESPACE . '/capability'),
@@ -3611,10 +3619,10 @@ final class AgentCart_ShopBridge {
         return $profiles;
     }
 
-    private static function protocol_profile_ids() {
+    private static function protocol_profile_ids($readiness = null) {
         return array_values(array_map(function ($profile) {
             return (string) ($profile['id'] ?? '');
-        }, self::protocol_profiles()));
+        }, self::protocol_profiles($readiness)));
     }
 
     private static function payment_protocol_profile_ids() {
@@ -4103,6 +4111,10 @@ final class AgentCart_ShopBridge {
         if ($enabled_product_count <= 0) {
             $missing_production[] = 'AgentCart-enabled product';
         }
+        $snapshot = self::product_exposure_snapshot_summary();
+        if (empty($snapshot['configured']) || intval($snapshot['included_count'] ?? 0) <= 0) {
+            $missing_production[] = 'saved catalog exposure snapshot';
+        }
 
         return [
             'demo_ready' => empty($missing_demo),
@@ -4125,6 +4137,17 @@ final class AgentCart_ShopBridge {
             'demo_note' => 'Demo readiness means an AgentCart gateway can create quote-bound WooCommerce orders after its own approval and payment proof flow.',
             'production_note' => 'Production readiness requires rail-bound payment/refund verification, legal terms, fulfillment operations, and merchant compliance beyond this plugin status.',
         ];
+    }
+
+    private static function public_discovery_ready($readiness = null) {
+        $readiness = is_array($readiness) ? $readiness : self::readiness();
+        return !empty($readiness['production_ready']);
+    }
+
+    private static function public_discovery_blockers($readiness = null) {
+        $readiness = is_array($readiness) ? $readiness : self::readiness();
+        $blockers = $readiness['missing_for_production'] ?? [];
+        return is_array($blockers) ? array_values(array_map('strval', $blockers)) : [];
     }
 
     private static function public_origin_is_https() {
@@ -5026,21 +5049,26 @@ final class AgentCart_ShopBridge {
     }
 
     private static function capability_document() {
+        $readiness = self::readiness();
+        $public_discovery_ready = self::public_discovery_ready($readiness);
         return [
             'name' => 'AgentCart ShopBridge for WooCommerce',
             'version' => '0.1.0',
             'merchant' => self::merchant(),
             'manifest_url' => home_url('/.well-known/agentcart.json'),
-            'readiness' => self::readiness(),
-            'setup_guide' => self::setup_guide(),
+            'readiness' => $readiness,
+            'setup_guide' => self::setup_guide($readiness),
             'protocols' => self::legacy_protocols(),
-            'protocol_profiles' => self::protocol_profiles(),
-            'protocol_profile_ids' => self::protocol_profile_ids(),
+            'protocol_profiles' => self::protocol_profiles($readiness),
+            'protocol_profile_ids' => self::protocol_profile_ids($readiness),
             'capabilities' => [
                 'catalog' => true,
                 'quote' => true,
                 'server_side_quote_binding' => true,
-                'paid_order_creation' => true,
+                'paid_order_creation' => $public_discovery_ready,
+                'paid_order_creation_requires_production_ready' => true,
+                'public_discovery_ready' => $public_discovery_ready,
+                'public_discovery_blockers' => self::public_discovery_blockers($readiness),
                 'idempotent_order_creation' => true,
                 'checkout_replay_conflict_detection' => true,
                 'external_verifier_only_checkout_mode' => self::external_verifier_required_for_checkout(),
@@ -5183,7 +5211,7 @@ final class AgentCart_ShopBridge {
                 'registry_claim' => self::registry_claim(),
                 'registry_record_hash' => self::registry_record_hash_value(),
                 'registry_updated_at' => self::registry_updated_at(),
-                'registry_ready' => true,
+                'registry_ready' => $public_discovery_ready && self::merchant_registry_profile_configured(),
                 'registry_public_check' => self::registry_public_check_result(),
                 'suggested_registry_record' => self::suggested_registry_record(),
                 'registry_onboarding_bundle' => self::registry_onboarding_bundle(),

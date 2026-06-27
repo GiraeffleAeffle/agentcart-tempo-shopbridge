@@ -160,6 +160,7 @@ def validate_production_setup(capability: dict[str, Any]) -> dict[str, Any]:
                 for blocker in blockers
             )
         )
+    validate_protocol_profiles(capability, "capability", require_available=True)
     return {
         "production_complete": True,
         "checked_step_count": len(
@@ -185,7 +186,7 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     require(bool(manifest["discovery"].get("registry_bundle_url")), "manifest registry bundle URL missing")
 
 
-def validate_protocol_profiles(document: dict[str, Any], label: str) -> None:
+def validate_protocol_profiles(document: dict[str, Any], label: str, *, require_available: bool = False) -> None:
     profiles = document.get("protocol_profiles")
     require(isinstance(profiles, list) and profiles, f"{label}.protocol_profiles must be non-empty")
     profile_ids = {str(profile.get("id") or "") for profile in profiles if isinstance(profile, dict)}
@@ -193,8 +194,17 @@ def validate_protocol_profiles(document: dict[str, Any], label: str) -> None:
     for profile in profiles:
         require(isinstance(profile, dict), f"{label}.protocol_profiles entries must be objects")
         require(bool(profile.get("id")), f"{label}.protocol_profiles entry id missing")
-        require(profile.get("available") is not False, f"{label}.protocol_profiles must not advertise unavailable profile: {profile.get('id')}")
-        require(profile.get("setup_required") is not True, f"{label}.protocol_profiles must not advertise setup-required profile: {profile.get('id')}")
+        profile_id = str(profile.get("id") or "")
+        if require_available:
+            require(profile.get("available") is not False, f"{label}.protocol_profiles must not advertise unavailable profile: {profile_id}")
+            require(profile.get("setup_required") is not True, f"{label}.protocol_profiles must not advertise setup-required profile: {profile_id}")
+            require(str(profile.get("status") or "") != "setup_required", f"{label}.protocol_profiles must be production-available: {profile_id}")
+        elif profile.get("available") is False or profile.get("setup_required") is True:
+            reasons = profile.get("unavailable_reasons")
+            require(
+                isinstance(reasons, list) and bool(reasons),
+                f"{label}.protocol_profiles setup-required profile must include unavailable_reasons: {profile_id}",
+            )
         if profile.get("id") == "signed-http-ready":
             schemes = profile.get("signature_schemes")
             require(isinstance(schemes, list) and bool(schemes), f"{label}.signed-http-ready signature_schemes must be a non-empty list")

@@ -28,7 +28,7 @@ paths.
 
 ## Quick Start
 
-From the clean hackathon repo root:
+From the repo root:
 
 ```sh
 cd deploy/home-server
@@ -104,7 +104,7 @@ deploy/home-server/
 
 For LAN, homelab, or Tailscale exposure, set the relevant `*_HOST_BIND` values
 to `0.0.0.0` or a specific interface in `.env`. The defaults bind to
-`127.0.0.1` so a clean local judging run is not accidentally exposed.
+`127.0.0.1` so a clean local run is not accidentally exposed.
 
 ## Production Caveat
 

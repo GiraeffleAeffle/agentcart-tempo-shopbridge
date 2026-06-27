@@ -1,11 +1,11 @@
 # AgentCart Production Tracks
 
-> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
+> Status: production-candidate alpha with explicit production gaps. This
+> document separates implemented capabilities from the remaining gates required
+> before live merchant pilots.
 
-
-This file turns the hackathon "what's next" list into concrete engineering
-tracks. The current repository is still a prototype; production use requires
-the items below.
+This file turns the production roadmap into concrete engineering tracks.
+Production use requires the remaining items below.
 
 The standards direction is tracked in `docs/STANDARDS_ALIGNMENT.md`: AgentCart
 keeps a stable commerce core and adds adapters for x402/MPP, ERC-8004,

@@ -1,7 +1,7 @@
 # AgentCart Product Build Plan
 
-> Status: post-hackathon execution plan. This document turns the winning demo
-> into a merchant- and buyer-usable product.
+> Status: production-candidate alpha execution plan. This document turns the
+> prototype into a merchant- and buyer-usable product.
 
 ## Product Direction
 
@@ -360,7 +360,7 @@ Deliverables:
 
 Definition of done:
 
-- a merchant and a buyer can install without reading the hackathon internals;
+- a merchant and a buyer can install without reading local-demo internals;
 - releases have tests, versioning, and rollback/update guidance.
 
 Current alpha status: the repo packages the WooCommerce plugin ZIP and the

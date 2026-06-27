@@ -10,8 +10,8 @@
 > managed provider refund operations.
 
 
-The hackathon demo exposes a merchant-estimated delivery window. Production
-should distinguish that from real carrier tracking.
+The bundled local demo exposes a merchant-estimated delivery window. Production
+must distinguish that from real carrier tracking.
 
 ## Delivery States
 

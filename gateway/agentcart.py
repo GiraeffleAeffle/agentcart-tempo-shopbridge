@@ -7553,7 +7553,7 @@ separate human confirmation.
                 "residual electricity supplier and balancing responsibilities",
                 "taxes, levies, grid charges, billing, cancellation, and consumer information handling",
             ],
-            "judge_note": (
+            "review_note": (
                 "AgentCart can expose a safe offer and consent/payment trail. "
                 "A real neighbourhood energy sale needs a compliant energy-sharing stack outside this demo."
             ),
@@ -7726,8 +7726,8 @@ separate human confirmation.
             "currency": "EUR",
             "created_at": isoformat(utcnow()),
             "note": (
-                "The app-level amount represents the demo energy offer. "
-                "The linked MPP proof URL may be a fixed hackathon test resource."
+                "The app-level amount represents the local test energy offer. "
+                "The linked MPP proof URL may be a fixed test resource."
             ),
         }
         if proof.get("state") != "skipped":
@@ -9121,9 +9121,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
                 raise NotFound("agent console file not found")
             self.send_html(agent_path.read_text())
             return
-        if path == "/judge":
+        if path == "/review":
             self.require_auth_if_configured()
-            self.send_html(render_judge_view(self.service))
+            self.send_html(render_review_view(self.service))
             return
         if path == "/registry":
             if first_query(query, "q"):
@@ -9948,7 +9948,7 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
     <p class="lead">The registry is an identity and integrity anchor for opt-in shops. It does not publish household demand, does not rank by advertising spend, and does not settle payments. Agents use it to find manifests, then request private final quotes.</p>
     <div class="actions">
       <a class="button secondary" href="/">Dashboard</a>
-      <a class="button secondary" href="/judge">Judge View</a>
+      <a class="button secondary" href="/review">Review View</a>
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>
       <a class="button secondary" href="/protocol-fields.html">Field Map</a>
       <a class="button secondary" href="/v1/registry">Registry JSON</a>
@@ -10111,7 +10111,7 @@ def render_dashboard(state: dict[str, Any]) -> str:
       <a class="button secondary" href="/demo">Demo Cockpit</a>
       <a class="button secondary" href="/intent-auction-overview.html">Intent Market</a>
       <a class="button secondary" href="/registry?q=sencha">Registry</a>
-      <a class="button secondary" href="/judge">Judge View</a>
+      <a class="button secondary" href="/review">Review View</a>
       <a class="button secondary" href="/energy">Energy Market</a>
     </form>
   </header>
@@ -10139,7 +10139,7 @@ def render_dashboard(state: dict[str, Any]) -> str:
 </html>"""
 
 
-def render_judge_view(service: AgentCartService) -> str:
+def render_review_view(service: AgentCartService) -> str:
     state = service.dashboard_state()
     orders = state.get("orders", [])
     offers = state.get("energy_offers", [])
@@ -10201,7 +10201,7 @@ def render_judge_view(service: AgentCartService) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentCart Judge View</title>
+  <title>AgentCart Review View</title>
   <style>
     :root {{ color-scheme: light; --ink:#172027; --muted:#5d6870; --line:#d9e0e6; --panel:#f5f8f7; --brand:#0a6c60; --warn:#8a4b12; --good:#0a6c60; }}
     body {{ margin:0; font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); background:#fff; }}
@@ -10235,7 +10235,7 @@ def render_judge_view(service: AgentCartService) -> str:
 </head>
 <body>
   <header>
-    <h1>AgentCart Judge View</h1>
+    <h1>AgentCart Review View</h1>
     <p class="lead">The project is not another payment primitive. It is a practical bridge that lets opt-in merchants and households expose machine-readable offers, quote final terms, enforce household policy, get human consent, attach MPP-compatible payment proof, and leave an audit trail.</p>
     <div class="actions">
       <a class="button" href="/">Dashboard</a>
@@ -10251,7 +10251,7 @@ def render_judge_view(service: AgentCartService) -> str:
   </header>
   <main>
     <section class="band">
-      <h2>What Judges Should See</h2>
+      <h2>What Reviewers Should See</h2>
       <div class="grid">
         <div class="step"><h3>1. Agent-readable offer</h3><p>Products and surplus energy are exposed as structured resources, not scraped browser pages.</p></div>
         <div class="step"><h3>2. Final terms before payment</h3><p>Quote or offer includes price, validity, stock or telemetry, merchant/seller identity, delivery or legal scope.</p></div>
@@ -10349,7 +10349,7 @@ def render_energy_page(service: AgentCartService, error: str = "") -> str:
     <p class="lead">A demo market where household energy telemetry becomes a discoverable, short-lived neighbour offer with explicit demo settlement proof.</p>
     <div class="actions">
       <a class="button secondary" href="/">Dashboard</a>
-      <a class="button secondary" href="/judge">Judge View</a>
+      <a class="button secondary" href="/review">Review View</a>
       <form method="post" action="/demo/energy-offer"><button type="submit" {'disabled' if not can_offer else ''}>Create Offer From Current Surplus</button></form>
     </div>
     {error_html}
@@ -10559,7 +10559,7 @@ def render_order_proof_page(service: AgentCartService, order_id: str) -> str:
 
     <h2>Payment Proof</h2>
     <table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>{proof_rows}</tbody></table>
-    <p class="topline">MPPscan indexes public/registered MPP servers. This hackathon endpoint runs locally at <code>127.0.0.1</code>, so it is not expected to appear there unless exposed and registered. The Tempo receipt reference is the on-chain/testnet leg to show in the Tempo explorer when present.</p>
+    <p class="topline">MPPscan indexes public/registered MPP servers. A local endpoint running at <code>127.0.0.1</code> is not expected to appear there unless exposed and registered. The Tempo receipt reference is the on-chain/testnet leg to show in the Tempo explorer when present.</p>
 
     <h2 id="refunds">Refund Demo</h2>
     {refund_action}

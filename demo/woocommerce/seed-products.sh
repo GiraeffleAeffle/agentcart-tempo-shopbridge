@@ -49,7 +49,7 @@ wp option update woocommerce_ship_to_countries "specific" --allow-root
 wp option update woocommerce_specific_ship_to_countries "$AGENTCART_DEMO_COUNTRIES_JSON" --format=json --allow-root
 wp option update woocommerce_coming_soon "no" --allow-root
 wp option update woocommerce_cod_settings \
-  '{"enabled":"yes","title":"Manual demo checkout","description":"Browser-only fallback for the fake shop. AgentCart orders use household approval and Tempo MPP proof instead of this checkout.","instructions":"For the hackathon demo, use the AgentCart household-agent flow for payment proof."}' \
+  '{"enabled":"yes","title":"Manual demo checkout","description":"Browser-only fallback for the fake shop. AgentCart orders use household approval and Tempo MPP proof instead of this checkout.","instructions":"For local demos, use the AgentCart household-agent flow for payment proof."}' \
   --format=json \
   --allow-root
 wp rewrite structure '/%postname%/' --allow-root

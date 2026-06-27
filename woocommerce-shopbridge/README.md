@@ -146,12 +146,15 @@ Because the smoke creates a real quote, it can leave a temporary soft stock
 hold until the quote expires. For repeated staging runs, set
 `AGENTCART_WOO_SMOKE_PRODUCT_ID` to a high-stock or unmanaged test SKU.
 
-For the hackathon demo, `AGENTCART_SHOPBRIDGE_TOKEN` lets a trusted AgentCart gateway create orders after its own approval and payment proof flow.
+For production, configure `AGENTCART_PAYMENT_VERIFIER_URL`,
+`AGENTCART_PAYMENT_VERIFIER_TOKEN`, and set checkout mode to
+`external_verifier_only`. Public agents can then create orders only when the
+verifier confirms the quote-bound receipt; the merchant token cannot fall back
+to local trusted checkout for paid order creation.
 
-For production, configure `AGENTCART_PAYMENT_VERIFIER_URL` and set checkout mode
-to `external_verifier_only`. Public agents can then create orders only when the
-verifier confirms the quote-bound receipt; the merchant token no longer falls
-back to demo settlement for order creation.
+For local or private gateway testing, `AGENTCART_SHOPBRIDGE_TOKEN` can let a
+trusted AgentCart gateway create orders after its own approval and payment proof
+flow. Do not use trusted-token checkout as a public settlement path.
 
 The settings page also shows:
 
@@ -279,8 +282,8 @@ proxy, CDN/WAF, or host-level rate limiting on public shops.
 
 There are two payment verification modes:
 
-- `trusted_agentcart_token`: hackathon/demo mode. The merchant token authenticates the gateway, and the plugin checks receipt amount/currency against the stored quote. This is not sufficient for production settlement.
 - `external_verifier`: production shape. The plugin POSTs quote, quote hash, expected amount/currency/merchant, and receipt to `AGENTCART_PAYMENT_VERIFIER_URL`. Only verifier responses with `ok: true` create a paid WooCommerce order.
+- `trusted_agentcart_token`: local/private mode. The merchant token authenticates the gateway, and the plugin checks receipt amount/currency against the stored quote. This is not sufficient for production settlement.
 
 There are also two checkout authorization modes:
 

@@ -5,14 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=openclaw
-Group=openclaw
-WorkingDirectory=/home/openclaw/workspace/agentcart
-EnvironmentFile=-/etc/openclaw/agentcart-mpp-smoke.env
-ExecStart=/usr/bin/node /home/openclaw/workspace/agentcart/scripts/mpp-smoke-server.mjs
+User=agentcart
+Group=agentcart
+WorkingDirectory=/opt/agentcart/gateway
+EnvironmentFile=-/etc/agentcart/mpp-smoke.env
+ExecStart=/usr/bin/node /opt/agentcart/gateway/scripts/mpp-smoke-server.mjs
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-

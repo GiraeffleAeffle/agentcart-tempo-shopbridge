@@ -1,9 +1,10 @@
 # WooCommerce Plugin Production Hardening
 
-> Status: roadmap/design notes. The hackathon repo implements the demo slice; this document lists production work that is not complete yet.
+> Status: production-candidate alpha with explicit WooCommerce plugin gaps.
+> This document separates implemented hardening from the remaining controls
+> needed before live merchant pilots.
 
-
-The ShopBridge plugin is demo-capable and now includes merchant-controlled
+The ShopBridge plugin now includes merchant-controlled
 product exposure modes: manual per-product opt-in, WooCommerce product tag, or
 WooCommerce product categories, or all published simple products. It also
 supports a non-mutating product exposure preview with saved catalog snapshot

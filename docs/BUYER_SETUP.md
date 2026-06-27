@@ -1,14 +1,16 @@
 # Buyer Setup
 
-> Status: alpha setup path for testers. Use the skill-only path for the lowest
+> Status: production-candidate alpha. Use the skill-only path for the lowest
 > friction buyer integration. Use the AgentCart service path when the buyer
 > needs durable household policy, approval state, audit, and local integrations.
+> External beta claims still require the buyer-agent evidence gate in
+> `docs/BUYER_AGENT_TEST_MATRIX.md`.
 
 ## Choose A Buyer Mode
 
 | Mode | Install | Best for | Tradeoff |
 | --- | --- | --- | --- |
-| Skill-only ShopBridge | Install `dist/shopbridge-direct-skill.zip` or copy `gateway/shopbridge-direct-skill` into the agent's skill folder | A buyer agent that can run local scripts and talk directly to verified ShopBridge merchants | Approval and audit are local to the agent chat unless the agent provides persistence |
+| Skill-only ShopBridge | Install the release ZIP `shopbridge-direct-skill.zip`; source installs can copy `gateway/shopbridge-direct-skill` into the agent's skill folder | A buyer agent that can run local scripts and talk directly to verified ShopBridge merchants | Approval and audit are local to the agent chat unless the agent provides persistence |
 | AgentCart service | Run `deploy/home-server` and install `gateway/openclaw-skill` | Household policy, Home Assistant/Vikunja/calendar/audit integrations, durable approvals | More moving parts and a local service to operate |
 
 Both modes only use opt-in ShopBridge merchants. Do not scrape normal shop
@@ -28,7 +30,8 @@ python3 scripts/check-buyer-agent-adapter-examples.py
 
 ## Skill-Only Setup
 
-Build the installable skill bundle:
+Install the `shopbridge-direct-skill.zip` release artifact, or build it from
+source:
 
 ```sh
 ./scripts/package-shopbridge-direct-skill.sh
@@ -40,8 +43,8 @@ This creates:
 dist/shopbridge-direct-skill.zip
 ```
 
-Install by extracting the ZIP into the buyer agent's skills directory, or by
-copying this folder directly:
+Install by extracting the ZIP into the buyer agent's skills directory. Source
+installs can copy this folder directly:
 
 ```text
 gateway/shopbridge-direct-skill
@@ -50,10 +53,11 @@ gateway/shopbridge-direct-skill
 The skill has no long-running service dependency. It needs `python3` and network
 access to the merchant's ShopBridge origin.
 
-For a known single merchant, set:
+For a known single merchant in local development, set:
 
 ```sh
 export SHOPBRIDGE_BASE_URL=http://127.0.0.1:8098
+export SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN=1
 ```
 
 For production-style multi-merchant discovery, pass verified registry records to

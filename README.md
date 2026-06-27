@@ -1,19 +1,28 @@
-# AgentCart ShopBridge for Tempo MPP
+# AgentCart ShopBridge
 
-AgentCart is a household-safe bridge between personal agents and opt-in
-WooCommerce merchants. It demonstrates the missing commerce layer around MPP:
-product discovery, final quote, household policy, human approval, payment proof,
-WooCommerce order creation, delivery visibility, refund metadata, and audit.
+AgentCart ShopBridge is an agent-commerce bridge for WooCommerce merchants and
+buyer agents. It adds the commerce layer that payment protocols alone do not
+provide: merchant discovery, product catalog exposure, final quote calculation,
+tax and shipping, buyer approval, quote-bound payment verification,
+WooCommerce order creation, delivery visibility, refunds/cancellations, and
+audit records.
+
+Current status: production-candidate alpha. The WooCommerce plugin, buyer skill,
+registry, verifier contract, package scripts, and release checks are present.
+Before a real public merchant pilot, the external beta evidence gate,
+production payment profile, live production-ready smoke, legal terms, and real
+payment rail operations must pass.
 
 ## What Is In This Repo
 
 ```text
-gateway/                  AgentCart API, household demo, pitch/architecture pages
-household-os/             Home Assistant / Vikunja / OpenClaw chat bridge
-woocommerce-shopbridge/   WordPress/WooCommerce plugin
-demo/woocommerce/         Local WooCommerce demo shop compose files and seed script
-deploy/home-server/       NUC/home-server compose package
-docs/                     Hackathon story, 3-minute runbook, roadmap, protocol notes
+woocommerce-shopbridge/   WordPress/WooCommerce merchant plugin
+gateway/                  AgentCart registry, verifier-facing gateway, buyer API, demos
+gateway/shopbridge-direct-skill/  Service-free buyer skill for direct merchant calls
+deploy/home-server/       Self-hosted buyer-side stack for household agents
+household-os/             Optional Home Assistant / Vikunja / chat bridge
+demo/woocommerce/         Local WooCommerce staging shop and seed script
+docs/                     Production roadmap, protocol contracts, release gates
 ```
 
 For independent local testing, use the Local Gateway and Home-Server Package
@@ -35,18 +44,26 @@ For the checked AP2-style approval/payment mandate adapter boundary, see
 For the checked UCP/A2A profile mapping boundary, see
 `docs/UCP_A2A_PROFILES.md`.
 
-## Demo Flow
+## Production Shape
 
-1. Household agent receives: "Please buy my favourite tea".
-2. AgentCart resolves the household preference to Hazel's Chocolate Tea.
-3. AgentCart discovers two opt-in shops and runs a private quote tournament.
-4. The best quote is selected by final price, delivery, policy, and manifest
-   integrity.
-5. User approves the exact quote.
-6. Checkout follows an MPP-shaped HTTP 402 payment flow and attaches a Tempo
-   testnet proof.
-7. The WooCommerce ShopBridge plugin creates the merchant order.
-8. AgentCart updates Vikunja, delivery calendar, and audit state.
+The production path has three independent parts:
+
+1. Merchant plugin: WooCommerce stays the product, stock, tax, shipping,
+   fulfillment, refund, and support system of record. ShopBridge exposes
+   agent-readable discovery, catalog, quote, order, status, refund, cancellation,
+   verifier, signed-request, and registry surfaces.
+2. Buyer path: buyers can use either the AgentCart gateway service or the
+   packaged direct ShopBridge skill. The direct skill is the lowest-friction path
+   because it can call verified merchant endpoints without running AgentCart as a
+   buyer-side service.
+3. Trust and payment path: merchant registry records bind the shop domain,
+   manifest, proof, revocation pointer, and payment profile. External verifiers
+   bind payment receipts to the quote total, currency/FX policy, merchant
+   recipient/profile, quote hash, payment contract hash, and replay-safe
+   transaction reference.
+
+Local demos remain in the repo because they are useful for development,
+regression testing, and onboarding. They are not the production architecture.
 
 ## Important Boundary
 
@@ -62,8 +79,8 @@ marks an order paid only after the verifier confirms the receipt. Signed
 request mode is optional and binds method, path, body digest, nonce, expiry,
 and signer for sensitive endpoint calls.
 
-The hackathon demo uses EUR product quotes and a pathUSD Tempo testnet proof.
-That is not real EUR settlement. Production needs one of:
+The bundled local demo can use EUR product quotes with a pathUSD Tempo testnet
+proof. That is not real EUR settlement. Production needs one of:
 
 - merchant acceptance of stablecoin settlement and accounting;
 - quote-bound FX through the verifier/payment provider contract hash plus
@@ -71,7 +88,46 @@ That is not real EUR settlement. Production needs one of:
 - Stripe/card MPP settlement;
 - a future EUR-compatible MPP rail.
 
-## Local Gateway
+## Merchant Install
+
+For a normal WordPress admin install, download `agentcart-shopbridge.zip` from a
+release artifact or build it locally:
+
+```sh
+./scripts/package-woocommerce-plugin.sh
+```
+
+The generated ZIP is:
+
+```text
+dist/agentcart-shopbridge.zip
+```
+
+In WordPress, open `Plugins -> Add New -> Upload Plugin`, select the ZIP,
+install, activate, then open `WooCommerce -> AgentCart`.
+
+Before admitting a shop to a public pilot, complete the production-required
+setup steps in the ShopBridge admin page:
+
+- stable merchant id and support contact;
+- WooCommerce tax, shipping, terms, and return policy setup;
+- product exposure mode and blocked/restricted product review;
+- external verifier URL/token and `external_verifier_only` checkout mode;
+- signed request policy for sensitive endpoints;
+- public HTTPS manifest, registry proof, revocation document, and registry
+  bundle.
+
+Run the live production-ready smoke against the shop:
+
+```sh
+AGENTCART_WOO_SMOKE_BASE_URL=https://shop.example.com \
+AGENTCART_WOO_SMOKE_REQUIRE_SHIPPING=1 \
+AGENTCART_WOO_SMOKE_REQUIRE_VAT_LINES=1 \
+AGENTCART_WOO_SMOKE_REQUIRE_PRODUCTION_READY=1 \
+./scripts/verify.sh
+```
+
+## Local Development Gateway
 
 ```sh
 cd gateway
@@ -88,7 +144,7 @@ http://127.0.0.1:8099/onboarding.html
 http://127.0.0.1:8099/registry?q=Hazel%27s%20Chocolate%20Tea&country=DE&postal_code=10115
 ```
 
-## Home-Server Package
+## Buyer Home-Server Package
 
 ```sh
 cd deploy/home-server
@@ -103,7 +159,8 @@ docker-compose --profile homeassistant --profile woocommerce-demo up -d --build
 docker-compose --profile woocommerce-demo run --rm woocommerce-seed
 ```
 
-For the standalone WooCommerce ShopBridge demo and quote-total smoke test:
+For the standalone WooCommerce ShopBridge staging shop and quote-total smoke
+test:
 
 ```sh
 scripts/woocommerce-demo-smoke.sh
@@ -141,15 +198,13 @@ http://localhost:8099/demo?token=replace-with-random-agentcart-token
 The query token is stored as a same-origin local demo cookie so linked pages and
 browser fetches can read the protected local APIs.
 
-## WooCommerce Plugin
+## Merchant Plugin Details
 
-For a normal WordPress admin install, use the packaged plugin ZIP:
+The plugin ZIP is generated at:
 
 ```text
 dist/agentcart-shopbridge.zip
 ```
-
-In WordPress, open `Plugins -> Add New -> Upload Plugin`, select the ZIP, install, activate, then open `WooCommerce -> AgentCart`.
 
 To rebuild the ZIP from source:
 
@@ -176,7 +231,10 @@ For a manual server install, copy `woocommerce-shopbridge/agentcart-shopbridge` 
 wp-content/plugins/agentcart-shopbridge
 ```
 
-A GitHub repo or ZIP does not make the plugin appear in WordPress plugin search. The searchable `Plugins -> Add New` directory is WordPress.org's plugin directory and requires a separate submission/review process. For the hackathon and private installs, use `Upload Plugin` with the ZIP.
+A GitHub repo or ZIP does not make the plugin appear in WordPress plugin search.
+The searchable `Plugins -> Add New` directory is WordPress.org's plugin
+directory and requires a separate submission/review process. For private
+installs before WordPress.org approval, use `Upload Plugin` with the ZIP.
 
 After activation, open `WooCommerce -> AgentCart`. The Quick Start panel can
 prepare sandbox access defaults, show setup progress, and surface the manifest,
@@ -232,7 +290,6 @@ notify services.
 
 ## Production Roadmap
 
-- `docs/DEMO_RECORDING_PLAN.md`
 - `docs/PRODUCTION_NEXT_STEPS.md`
 - `docs/WOOCOMMERCE_PRODUCTION_HARDENING.md`
 - `docs/WOOCOMMERCE_COMPATIBILITY.md`
@@ -243,7 +300,8 @@ notify services.
 - `docs/PROMPT_INJECTION_CORPUS.md`
 - `docs/PILOT_BETA_CHECKLIST.md`
 
-These documents are roadmap/specification notes, not finished production features. They define the concrete work required to move from hackathon demo to production candidate.
+These documents are roadmap/specification notes. They define the concrete work
+required to move from production-candidate alpha to live merchant pilots.
 
 ## Verification
 
@@ -270,5 +328,6 @@ cd household-os
 python3 -m unittest discover -s tests
 ```
 
-Use `docs/HACKATHON_DEMO.md` for the full presentation runbook and
-`docs/PROJECT_STORY.md` for the Devpost story.
+Historical presentation material is kept under `docs/HACKATHON_DEMO.md`,
+`docs/DEMO_RECORDING_PLAN.md`, and `docs/PROJECT_STORY.md`. It is not part of
+the production install path.
