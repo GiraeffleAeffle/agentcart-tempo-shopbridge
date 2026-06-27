@@ -14,7 +14,9 @@
     "optional_environment": [
       "SHOPBRIDGE_SIGNED_REQUEST_SECRET",
       "SHOPBRIDGE_SIGNED_REQUEST_SIGNER",
-      "SHOPBRIDGE_MPP_PROOF_URL"
+      "SHOPBRIDGE_MPP_PROOF_URL",
+      "AGENTCART_URL",
+      "AGENTCART_TOKEN"
     ]
   },
   "run_sequence": [
@@ -129,6 +131,24 @@
         "structured delivery state",
         "refund and cancellation claims derived from structured fields"
       ]
+    },
+    {
+      "id": "audit-import",
+      "command": "audit_import",
+      "optional": true,
+      "stdin": {
+        "command": "audit_import",
+        "args": {
+          "agentcart_url": "<optional_buyer_agentcart_url>",
+          "agentcart_token": "<optional_buyer_agentcart_token>",
+          "checkout_payload": "<checkout_payload_or_checkout_result>"
+        }
+      },
+      "expect": [
+        "local audit_packet_hash validation",
+        "idempotent service import result",
+        "audit_export_url"
+      ]
     }
   ],
   "covers_capabilities": [
@@ -149,7 +169,8 @@
     "approval_record_hash",
     "checkout_handoff_or_order_result",
     "aftercare_result",
-    "audit_packet"
+    "audit_packet",
+    "audit_import_result"
   ],
   "safety_rules": [
     "opt_in_merchants_only",

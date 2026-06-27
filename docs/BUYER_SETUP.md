@@ -179,17 +179,18 @@ Checkout safety:
 Audit import into an AgentCart service:
 
 If the buyer later runs the AgentCart service, import the skill-only checkout
-packet with:
+packet through the direct skill:
 
 ```sh
-curl -sS -X POST "$AGENTCART_URL/v1/audit/import" \
-  -H "X-AgentCart-Token: $AGENTCART_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"audit_packet":{...},"source":"shopbridge-direct-skill"}'
+printf '%s\n' '{"command":"audit_import","args":{"checkout_payload":{...}}}' \
+  | AGENTCART_URL=http://localhost:8099 \
+    AGENTCART_TOKEN=replace-with-random-agentcart-token \
+    python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py
 ```
 
-The service verifies `audit_packet_hash` and ignores duplicate imports with the
-same packet hash.
+The command extracts `checkout_payload.audit_packet`, verifies
+`audit_packet_hash` locally, and posts it to `/v1/audit/import`. The service
+also verifies the hash and ignores duplicate imports with the same packet hash.
 
 The imported trail is then visible in the dashboard audit table and can be
 exported as JSON with:

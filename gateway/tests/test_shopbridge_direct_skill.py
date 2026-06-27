@@ -609,6 +609,118 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(payload["audit_packet"]["events"][0]["event_type"], "approval.approved")
         self.assertEqual(payload["audit_packet"]["events"][-1]["refs"]["agentcart_order_id"], payload["agentcart_order_id"])
 
+    def test_audit_import_posts_valid_checkout_packet_to_agentcart_service(self) -> None:
+        quote = sample_quote()
+        approval_hash = shopbridge_direct.approval_packet(quote)["approval_hash"]
+        checkout_payload = shopbridge_direct.checkout_payload(
+            {
+                "quote": quote,
+                "approved": True,
+                "approval_hash": approval_hash,
+                "payment_receipt": sample_payment_receipt(),
+            }
+        )
+        calls = []
+
+        def fake_agentcart_request(path, *, method="GET", payload=None, base_url="", token=""):
+            calls.append(
+                {
+                    "path": path,
+                    "method": method,
+                    "payload": payload,
+                    "base_url": base_url,
+                    "token": token,
+                }
+            )
+            return {
+                "imported": True,
+                "event_count": 3,
+                "audit_packet_hash": payload["audit_packet"]["audit_packet_hash"],  # type: ignore[index]
+                "quote_id": payload["audit_packet"]["quote_id"],  # type: ignore[index]
+            }
+
+        with mock.patch.object(shopbridge_direct, "agentcart_service_request_json", side_effect=fake_agentcart_request):
+            result = shopbridge_direct.command_audit_import(
+                {
+                    "agentcart_url": "http://127.0.0.1:8099",
+                    "agentcart_token": "agentcart-token",
+                    "checkout_payload": checkout_payload,
+                }
+            )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["audit_packet_hash"], checkout_payload["audit_packet_hash"])
+        self.assertEqual(result["quote_id"], "woo_quote_123")
+        self.assertEqual(result["audit_export_url"], "http://127.0.0.1:8099/v1/audit/woo_quote_123/export")
+        self.assertEqual(calls[0]["path"], "/v1/audit/import")
+        self.assertEqual(calls[0]["method"], "POST")
+        self.assertEqual(calls[0]["base_url"], "http://127.0.0.1:8099")
+        self.assertEqual(calls[0]["token"], "agentcart-token")
+        self.assertEqual(calls[0]["payload"]["source"], "shopbridge-direct-skill")
+        self.assertEqual(calls[0]["payload"]["audit_packet"]["audit_packet_hash"], checkout_payload["audit_packet_hash"])
+
+    def test_audit_import_rejects_tampered_packet_before_network(self) -> None:
+        quote = sample_quote()
+        approval_hash = shopbridge_direct.approval_packet(quote)["approval_hash"]
+        checkout_payload = shopbridge_direct.checkout_payload(
+            {
+                "quote": quote,
+                "approved": True,
+                "approval_hash": approval_hash,
+                "payment_receipt": sample_payment_receipt(),
+            }
+        )
+        tampered = json.loads(json.dumps(checkout_payload["audit_packet"]))
+        tampered["quote_hash"] = "tampered"
+
+        with mock.patch.object(shopbridge_direct, "agentcart_service_request_json", side_effect=AssertionError("network called")):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.command_audit_import(
+                    {
+                        "agentcart_url": "http://127.0.0.1:8099",
+                        "audit_packet": tampered,
+                    }
+                )
+
+        self.assertEqual(str(raised.exception), "audit_packet_hash is invalid")
+
+    def test_agentcart_audit_import_client_uses_bearer_token_and_rejects_public_http(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            shopbridge_direct.agentcart_service_base_url({"agentcart_url": "http://agentcart.example"})
+        self.assertEqual(str(raised.exception), "agentcart_url_requires_https_public_origin")
+
+        calls = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"ok":true}'
+
+        def fake_urlopen(request, timeout=0):
+            calls.append({"request": request, "timeout": timeout})
+            return Response()
+
+        with mock.patch.object(shopbridge_direct.urllib.request, "urlopen", side_effect=fake_urlopen):
+            result = shopbridge_direct.agentcart_service_request_json(
+                "/v1/audit/import",
+                method="POST",
+                payload={"audit_packet": {}},
+                base_url="http://127.0.0.1:8099",
+                token="agentcart-token",
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(calls[0]["timeout"], 30)
+        self.assertEqual(calls[0]["request"].full_url, "http://127.0.0.1:8099/v1/audit/import")
+        self.assertEqual(calls[0]["request"].get_method(), "POST")
+        self.assertEqual(calls[0]["request"].get_header("Authorization"), "Bearer agentcart-token")
+        self.assertEqual(calls[0]["request"].get_header("Content-type"), "application/json")
+
     def test_approval_packet_binds_stripe_payment_destination(self) -> None:
         packet = shopbridge_direct.approval_packet(sample_quote(), payment_rail="stripe-card-mpp")
 

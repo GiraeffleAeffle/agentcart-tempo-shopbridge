@@ -63,6 +63,16 @@ REGISTRY_PATH = (
     or os.getenv("AGENTCART_MERCHANT_REGISTRY_PATH")
     or ""
 ).strip()
+AGENTCART_SERVICE_URL = (
+    os.getenv("SHOPBRIDGE_AGENTCART_URL")
+    or os.getenv("AGENTCART_URL")
+    or ""
+).strip()
+AGENTCART_SERVICE_TOKEN = (
+    os.getenv("SHOPBRIDGE_AGENTCART_TOKEN")
+    or os.getenv("AGENTCART_TOKEN")
+    or ""
+).strip()
 SIGNED_REQUEST_SECRET = (
     os.getenv("SHOPBRIDGE_SIGNED_REQUEST_SECRET")
     or os.getenv("AGENTCART_SIGNED_REQUEST_SECRET")
@@ -123,6 +133,17 @@ def require_trusted_merchant_origin(base_url: str, args: dict[str, Any] | None =
         raise SystemExit(f"{field}_requires_public_origin")
 
 
+def require_trusted_agentcart_origin(base_url: str) -> None:
+    parsed = urllib.parse.urlparse(str(base_url or ""))
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SystemExit("agentcart_url_invalid")
+    if parsed.scheme == "https":
+        return
+    if private_or_local_host(parsed.hostname or ""):
+        return
+    raise SystemExit("agentcart_url_requires_https_public_origin")
+
+
 def base_url_from_args(args: dict[str, Any] | None = None) -> str:
     args = args or {}
     raw = args.get("base_url") or args.get("shopbridge_base_url") or args.get("merchant_base_url") or BASE_URL
@@ -178,6 +199,56 @@ def request_json(
     url = f"{origin}{path}"
     request_headers.update(signed_request_headers(url, method=method, body=data or b""))
     req = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        try:
+            detail: Any = json.loads(body)
+        except json.JSONDecodeError:
+            detail = body
+        raise SystemExit(json.dumps({"error": {"status": exc.code, "detail": detail}}, indent=2))
+
+
+def agentcart_service_base_url(args: dict[str, Any]) -> str:
+    raw = (
+        args.get("agentcart_url")
+        or args.get("agentcart_base_url")
+        or args.get("agentcart_service_url")
+        or AGENTCART_SERVICE_URL
+    )
+    base_url = str(raw or "").rstrip("/")
+    if not base_url:
+        raise SystemExit("agentcart_url or AGENTCART_URL is required")
+    require_trusted_agentcart_origin(base_url)
+    return base_url
+
+
+def agentcart_service_token(args: dict[str, Any]) -> str:
+    return str(
+        args.get("agentcart_token")
+        or args.get("agentcart_service_token")
+        or AGENTCART_SERVICE_TOKEN
+        or ""
+    ).strip()
+
+
+def agentcart_service_request_json(
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    base_url: str,
+    token: str = "",
+) -> dict[str, Any]:
+    data = json.dumps(payload).encode() if payload is not None else None
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"{base_url.rstrip('/')}{path}", data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode())
@@ -3373,6 +3444,64 @@ def skill_audit_packet(
     return packet
 
 
+def audit_packet_from_args(args: dict[str, Any]) -> dict[str, Any]:
+    packet = args.get("audit_packet")
+    if isinstance(packet, dict):
+        return packet
+    for key in ("checkout_payload", "checkout_result", "payload"):
+        value = args.get(key)
+        if isinstance(value, dict) and isinstance(value.get("audit_packet"), dict):
+            return value["audit_packet"]
+    raise SystemExit("audit_packet or checkout_payload.audit_packet is required")
+
+
+def validate_audit_packet(packet: dict[str, Any]) -> str:
+    if packet.get("schema") != "agentcart.skill_audit_packet.v1":
+        raise SystemExit("unsupported audit packet schema")
+    packet_hash = str(packet.get("audit_packet_hash") or "")
+    if not packet_hash:
+        raise SystemExit("audit_packet_hash is required")
+    if not hmac.compare_digest(packet_hash, hash_without(packet, "audit_packet_hash")):
+        raise SystemExit("audit_packet_hash is invalid")
+    if not str(packet.get("quote_id") or "").strip():
+        raise SystemExit("audit packet quote_id is required")
+    for required in ("approval_hash", "approval_record_hash", "approval_decision_hash"):
+        if not str(packet.get(required) or "").strip():
+            raise SystemExit(f"audit packet {required} is required")
+    events = packet.get("events")
+    if not isinstance(events, list) or not events:
+        raise SystemExit("audit packet events must be a non-empty list")
+    return packet_hash
+
+
+def command_audit_import(args: dict[str, Any]) -> dict[str, Any]:
+    packet = audit_packet_from_args(args)
+    packet_hash = validate_audit_packet(packet)
+    base_url = agentcart_service_base_url(args)
+    token = agentcart_service_token(args)
+    source = str(args.get("source") or "shopbridge-direct-skill")
+    request = {"audit_packet": packet, "source": source}
+    purchase_id = str(args.get("purchase_id") or packet.get("quote_id") or "")
+    if purchase_id:
+        request["purchase_id"] = purchase_id
+    result = agentcart_service_request_json(
+        "/v1/audit/import",
+        method="POST",
+        payload=request,
+        base_url=base_url,
+        token=token,
+    )
+    return {
+        "ok": True,
+        "agentcart_url": base_url,
+        "audit_packet_hash": packet_hash,
+        "quote_id": purchase_id,
+        "import": result,
+        "audit_export_url": f"{base_url}/v1/audit/{urllib.parse.quote(purchase_id)}/export" if purchase_id else "",
+        "dashboard_url": f"{base_url}/?purchase_id={urllib.parse.quote(purchase_id)}" if purchase_id else base_url,
+    }
+
+
 def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("approved"):
         raise SystemExit("approved=true is required before checkout")
@@ -3503,6 +3632,8 @@ def main() -> None:
         compact = result
     elif command == "checkout_payload":
         compact = checkout_payload(args)
+    elif command == "audit_import":
+        compact = command_audit_import(args)
     elif command == "order_status":
         result = command_order_status(args)
         compact = result

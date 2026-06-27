@@ -174,8 +174,8 @@
             "/v1/audit/{purchase_id}/export"
           ],
           "skill_commands": [
-            "aftercare",
-            "audit_packet"
+            "aftercare_summary",
+            "audit_import"
           ]
         }
       ]

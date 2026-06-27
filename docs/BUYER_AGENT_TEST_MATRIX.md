@@ -65,12 +65,14 @@ Required proof:
 - approval packet hash;
 - payment handoff result;
 - checkout result or checkout payload;
+- optional audit import result when an AgentCart service is available later;
 - aftercare summary;
 - portable audit packet.
 
 This path is the lowest-friction buyer setup. The agent must preserve the
 approval packet and audit packet because there is no service-side household
-memory unless the packet is later imported.
+memory unless the packet is later imported with the direct skill's
+`audit_import` command.
 
 ### generic-mcp-client
 

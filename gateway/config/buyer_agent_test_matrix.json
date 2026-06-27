@@ -93,6 +93,7 @@
         "approval_packet",
         "payment_handoff",
         "checkout",
+        "audit_import",
         "order_status",
         "aftercare_summary"
       ],
@@ -103,7 +104,7 @@
         "approval_record": "approval_packet creates a portable approval record hash for chat-local approval.",
         "checkout_handoff": "payment_handoff produces a quote-bound payment request before checkout.",
         "aftercare_state": "order_status and aftercare_summary use structured merchant status.",
-        "audit_export_or_import": "checkout can return an audit packet for later AgentCart service import.",
+        "audit_export_or_import": "checkout can return an audit packet, and audit_import can later import it into an AgentCart service without making that service mandatory at purchase time.",
         "safety_constraints": "The skill rejects underspecified payment receipts and non-verified registry records."
       },
       "required_evidence": [
@@ -114,7 +115,8 @@
         "approval_record_hash",
         "checkout_handoff_or_order_result",
         "aftercare_result",
-        "audit_packet"
+        "audit_packet",
+        "audit_import_result"
       ]
     },
     {
