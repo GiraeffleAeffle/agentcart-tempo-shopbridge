@@ -6,7 +6,7 @@
 
 ## Artifacts
 
-The release pipeline produces:
+The release pipeline produces and uploads these files to a GitHub Release:
 
 ```text
 dist/agentcart-shopbridge.zip
@@ -14,6 +14,69 @@ dist/shopbridge-direct-skill.zip
 dist/agentcart-release.json
 dist/agentcart-release.sig   # optional, only when signing a release
 ```
+
+`semantic-release` is the public release driver for this repo. It reads
+conventional commits on `main`, calculates the next version, stamps that version
+into the shipped surfaces, runs the package builders, creates the release
+manifest, and publishes the ZIPs plus manifest as GitHub Release assets.
+
+Version stamping updates the release workspace before packaging:
+
+- `gateway/package.json` and `gateway/package-lock.json`;
+- WooCommerce plugin `Version:` header;
+- WordPress plugin `readme.txt` `Stable tag`;
+- direct skill `version:` frontmatter.
+
+The generated ZIPs and manifest stay out of git. Git tags and GitHub Release
+assets are the distribution channel.
+
+## Automated GitHub Releases
+
+The release workflow is `.github/workflows/release.yml`.
+
+It runs on pushes to `main` and manual dispatch. The job:
+
+1. installs root semantic-release tooling, gateway Node dependencies, and
+   WordPress coding standards tooling;
+2. runs `scripts/verify.sh` with strict WordPress official gates;
+3. runs `npm run release`;
+4. lets semantic-release create the Git tag, release notes, and GitHub Release
+   assets.
+
+Use conventional commits to control releases:
+
+```text
+fix: patch release
+feat: minor release
+feat!: major release
+```
+
+You can also add a `BREAKING CHANGE:` footer for a major release.
+
+Local config check:
+
+```sh
+npm ci
+npm run release:config-check
+```
+
+Semantic-release dry runs still verify GitHub push permission for tag creation,
+so they need a token or CI credentials:
+
+```sh
+GITHUB_TOKEN=... npm run release:dry-run
+```
+
+Dry runs do not publish assets. To exercise the artifact preparation locally
+without GitHub credentials, pass an explicit version and source commit:
+
+```sh
+scripts/prepare-semantic-release.sh 0.3.0 "$(git rev-parse HEAD)"
+```
+
+That command modifies versioned source files in the working tree. Use it in a
+throwaway branch or reset the changes afterward unless you intend to inspect
+the exact release workspace.
 
 The WooCommerce ZIP includes the plugin entrypoint, WordPress `readme.txt`, and
 `uninstall.php`. Uninstall removes ShopBridge settings and ephemeral state, but

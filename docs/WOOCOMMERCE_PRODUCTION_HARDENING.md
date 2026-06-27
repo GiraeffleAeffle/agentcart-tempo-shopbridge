@@ -133,6 +133,7 @@ For a real WordPress plugin release:
 - run `scripts/check-wordpress-official-gates.py --strict` after installing the
   `woocommerce-shopbridge/composer.json` dev tools; strict mode also runs the
   official Plugin Check plugin in the bundled local WordPress/Woo stack;
-- add GitHub release zip build;
+- publish GitHub Release assets through semantic-release after `scripts/verify.sh`
+  passes;
 - document required WooCommerce versions;
 - document verifier contract and merchant compliance caveats.

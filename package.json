@@ -1,0 +1,23 @@
+{
+  "name": "agentcart-tempo-shopbridge",
+  "private": true,
+  "description": "AgentCart ShopBridge monorepo release tooling.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "verify": "bash scripts/verify.sh",
+    "release": "semantic-release",
+    "release:dry-run": "semantic-release --dry-run --no-ci",
+    "release:config-check": "node -e \"const c=require('./release.config.cjs'); if (!Array.isArray(c.plugins) || !c.plugins.length) process.exit(1); console.log('release config ok')\"",
+    "release:prepare": "scripts/prepare-semantic-release.sh"
+  },
+  "devDependencies": {
+    "@semantic-release/exec": "^7.1.0",
+    "semantic-release": "^25.0.5"
+  }
+}

@@ -42,6 +42,7 @@ py311_files=(
   scripts/check-prompt-injection-corpus.py
   scripts/check-quote-reliability-matrix.py
   scripts/check-repo-positioning.py
+  scripts/stamp-release-version.py
   scripts/verify-release.py
   scripts/verify-verifier-fixtures.py
   scripts/woocommerce-shopbridge-smoke.py
@@ -185,6 +186,9 @@ python3 "$ROOT_DIR/scripts/check-quote-reliability-matrix.py" \
 
 section "Repo production positioning"
 python3 "$ROOT_DIR/scripts/check-repo-positioning.py" >/dev/null
+python3 "$ROOT_DIR/scripts/stamp-release-version.py" 1.2.3-beta.4 --check >/dev/null
+bash -n "$ROOT_DIR/scripts/prepare-semantic-release.sh"
+node -e "const c=require(process.argv[1]); if (!Array.isArray(c.plugins) || !c.plugins.length) process.exit(1)" "$ROOT_DIR/release.config.cjs"
 
 section "Compose config"
 AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token AGENTCART_REGISTRY_SUBMIT_TOKEN=verify-registry-token \

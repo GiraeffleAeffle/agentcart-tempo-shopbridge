@@ -31,8 +31,8 @@ For buyer-agent setup, including the packaged direct skill, see
 `docs/BUYER_SETUP.md`.
 For checked OpenClaw, Codex-style skill, and generic MCP buyer examples, see
 `docs/BUYER_AGENT_ADAPTERS.md`.
-For release artifacts, checksums, upgrade, and rollback, see
-`docs/RELEASES.md`.
+For release artifacts, checksums, semantic-release publishing, upgrade, and
+rollback, see `docs/RELEASES.md`.
 For the production payment/refund verifier seam, see
 `docs/VERIFIER_CONTRACT.md`.
 For final quote expiry, stock, price, shipping, and tax drift handling, see

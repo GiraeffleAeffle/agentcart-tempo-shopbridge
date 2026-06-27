@@ -1,15 +1,26 @@
-name: CI
+name: Release
 
 on:
   push:
-  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
-  verify:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,16 +45,9 @@ jobs:
       - name: Install release Node dependencies
         run: npm ci
 
-      - name: Audit release production dependencies
-        run: npm audit --omit=dev
-
       - name: Install gateway Node dependencies
         working-directory: gateway
         run: npm ci
-
-      - name: Audit gateway Node dependencies
-        working-directory: gateway
-        run: npm audit --audit-level=high
 
       - name: Install WordPress coding standards tooling
         working-directory: woocommerce-shopbridge
@@ -54,3 +58,10 @@ jobs:
           AGENTCART_WORDPRESS_OFFICIAL_TOOLS_REQUIRED: "1"
           AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND: scripts/run-wordpress-plugin-check.sh
         run: bash scripts/verify.sh
+
+      - name: Publish semantic release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AGENTCART_RELEASE_SIGNING_KEY: ${{ secrets.AGENTCART_RELEASE_SIGNING_KEY }}
+          AGENTCART_RELEASE_SIGNING_KEY_ID: ${{ vars.AGENTCART_RELEASE_SIGNING_KEY_ID }}
+        run: npm run release

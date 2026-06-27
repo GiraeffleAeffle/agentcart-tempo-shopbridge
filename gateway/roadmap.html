@@ -548,7 +548,7 @@
       { name: "Merchant UX", value: 69, note: "settings, setup wizard, readiness, registry actions, registry health summary, product exposure diff checkpoints, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 80, note: "service path, packaged direct skill with HTTPS/public origin checks and origin-bound approvals, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
-      { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
+      { name: "Woo Release", value: 64, note: "ZIP, package checks, semantic-release GitHub artifact workflow, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
       { name: "Operations", value: 66, note: "smoke pipeline, deployed-runtime compile gate, live production-readiness smoke, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, merchant support diagnostics, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, evidence-required beta release gate, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
       { name: "Pilot Launch", value: 41, note: "P0 external beta checklist, evidence-required beta release checker, production payment profile checker, live production setup smoke, and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
@@ -705,13 +705,14 @@
         code: "WPR",
         title: "WordPress plugin release",
         status: "partial",
-        value: 58,
-        scope: "Installable ZIP, release artifacts, package checks, review-risk checks, Composer-pinned PHPCS/WPCS, and strict local Plugin Check runner pass.",
-        remaining: "Add readme assets, deeper WP integration tests, i18n, submission polish, and a final WordPress.org account submission pass.",
+        value: 64,
+        scope: "Installable ZIP, semantic-release GitHub artifacts, release manifests, package checks, review-risk checks, Composer-pinned PHPCS/WPCS, and strict local Plugin Check runner pass.",
+        remaining: "Add readme assets, deeper WP integration tests, i18n, submission polish, WordPress.org account submission pass, and source-distribution signing beyond GitHub Releases.",
         items: [
           { id: "WPR-001", priority: "P0", title: "Plugin Check and PHPCS", description: "Implemented: Composer-pinned WPCS tooling passes, and strict release mode starts a local WordPress/Woo install, installs official Plugin Check, and fails unless Plugin Check reports no errors." },
           { id: "WPR-002", priority: "P1", title: "WordPress.org assets", description: "Prepare readme, screenshots, icons, banners, tags, and required disclosures for directory submission." },
-          { id: "WPR-003", priority: "P2", title: "Uninstall and privacy review", description: "Verify uninstall cleanup, stored options, logs, and privacy disclosures against WordPress.org expectations." }
+          { id: "WPR-003", priority: "P2", title: "Uninstall and privacy review", description: "Verify uninstall cleanup, stored options, logs, and privacy disclosures against WordPress.org expectations." },
+          { id: "WPR-004", priority: "P0", title: "Semantic release artifacts", description: "Implemented: semantic-release stamps the computed version into the gateway package, WooCommerce plugin header/readme, and direct skill metadata, then publishes ZIPs and the release manifest as GitHub Release assets after the verification pipeline passes." }
         ]
       },
       {
