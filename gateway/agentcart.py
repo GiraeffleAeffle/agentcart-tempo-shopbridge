@@ -9,6 +9,7 @@ import hashlib
 import html
 import hmac
 import http.cookies
+import ipaddress
 import json
 import os
 import pathlib
@@ -290,7 +291,6 @@ class Config:
             hosted_registry_submit_token=(
                 os.getenv("AGENTCART_HOSTED_REGISTRY_TOKEN")
                 or os.getenv("AGENTCART_REGISTRY_SUBMIT_TOKEN")
-                or os.getenv("AGENTCART_TOKEN")
                 or ""
             ).strip(),
             registry_monitor_interval_seconds=int(os.getenv("AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS", "0")),
@@ -320,6 +320,29 @@ class Config:
             ops_event_min_severity=os.getenv("AGENTCART_OPS_EVENT_MIN_SEVERITY", "warning").strip().lower(),
         )
 
+    def startup_security_errors(self, effective_bind: str | None = None) -> list[str]:
+        bind = (effective_bind or self.bind or "").strip()
+        if is_loopback_host(bind):
+            return []
+
+        errors: list[str] = []
+        if not self.agentcart_token:
+            errors.append("AGENTCART_TOKEN is required when AgentCart binds outside loopback")
+        if self.hosted_registry_enabled:
+            if not self.hosted_registry_submit_token:
+                errors.append(
+                    "AGENTCART_REGISTRY_SUBMIT_TOKEN or AGENTCART_HOSTED_REGISTRY_TOKEN is required "
+                    "when hosted registry submission is enabled outside loopback"
+                )
+            elif self.agentcart_token and hmac.compare_digest(self.hosted_registry_submit_token, self.agentcart_token):
+                errors.append("hosted registry submit token must be distinct from AGENTCART_TOKEN outside loopback")
+        return errors
+
+    def validate_startup_security(self, effective_bind: str | None = None) -> None:
+        errors = self.startup_security_errors(effective_bind)
+        if errors:
+            raise RuntimeError("; ".join(errors))
+
 
 def csv_env(name: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in os.getenv(name, "").split(",") if part.strip())
@@ -330,6 +353,18 @@ def bool_env(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_loopback_host(host: str) -> bool:
+    normalized = (host or "").strip().strip("[]").lower()
+    if normalized in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    if normalized in {"", "0.0.0.0", "::"}:
+        return False
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 def utcnow() -> dt.datetime:
@@ -10603,6 +10638,7 @@ def render_approval_page(service: AgentCartService, approval_id: str, token: str
 
 class AgentCartServer(ThreadingHTTPServer):
     def __init__(self, server_address: tuple[str, int], service: AgentCartService) -> None:
+        service.config.validate_startup_security(server_address[0])
         super().__init__(server_address, AgentCartHandler)
         self.service = service
         self.registry_monitor_stop = threading.Event()

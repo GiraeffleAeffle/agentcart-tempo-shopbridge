@@ -109,8 +109,12 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             self.assertNotIn(preserved_meta, uninstall)
 
     def test_refund_endpoint_requires_idempotency_key(self) -> None:
+        auth_body = function_body("authorize_refund")
         body = function_body("create_refund")
 
+        self.assertIn("enforce_signed_request_policy($request, 'refund')", auth_body)
+        self.assertIn("has_valid_merchant_token($request)", auth_body)
+        self.assertNotIn("signed_request_verified($request)", auth_body)
         self.assertIn("refund_idempotency_key", body)
         self.assertIn("agentcart_refund_idempotency_key_required", body)
         self.assertIn("find_existing_refund", body)
@@ -178,6 +182,27 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("update_meta_data('_agentcart_merchant_quote_id', $merchant_quote_id)", order_body)
         self.assertIn("'meta_key' => '_agentcart_merchant_quote_id'", quote_lookup_body)
         self.assertIn("'meta_value' => $merchant_quote_id", quote_lookup_body)
+
+    def test_checkout_idempotent_replay_requires_exact_request_hash(self) -> None:
+        order_body = function_body("create_order")
+        replay_body = function_body("validate_existing_order_replay")
+        hash_body = function_body("checkout_request_hash")
+        canonical_body = function_body("canonicalize_checkout_request_value")
+
+        self.assertIn("CHECKOUT_REQUEST_HASH_META", SOURCE)
+        self.assertIn("checkout_request_hash($body, $request)", order_body)
+        self.assertIn("update_meta_data(self::CHECKOUT_REQUEST_HASH_META, $checkout_request_hash)", order_body)
+        self.assertIn(
+            "validate_existing_order_replay($existing_order, $body, $receipt, $agentcart_order_id, $idempotency_key, $checkout_request_hash)",
+            order_body,
+        )
+        self.assertIn("agentcart_idempotency_replay_unverifiable", replay_body)
+        self.assertIn("Replay checkout request body or payment headers do not match", replay_body)
+        self.assertLess(replay_body.index("CHECKOUT_REQUEST_HASH_META"), replay_body.index("_agentcart_order_id"))
+        self.assertIn("'payment-signature'", hash_body)
+        self.assertIn("'payment-response'", hash_body)
+        self.assertIn("array_is_list_compat", canonical_body)
+        self.assertIn("private static function array_is_list_compat", SOURCE)
 
     def test_public_endpoints_are_rate_limited(self) -> None:
         self.assertIn("RATE_LIMIT_TRANSIENT_PREFIX", SOURCE)
@@ -948,7 +973,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("enforce_signed_request_policy($request, 'order_status')", status_body)
         self.assertIn("enforce_signed_request_policy($request, 'refund')", refund_body)
         self.assertIn("enforce_signed_request_policy($request, 'cancellation')", cancellation_body)
-        self.assertIn("signed_request_verified($request)", status_body + refund_body + cancellation_body)
+        self.assertIn("signed_request_verified($request)", status_body)
+        self.assertNotIn("signed_request_verified($request)", refund_body + cancellation_body)
+        self.assertIn("has_valid_merchant_token($request)", refund_body + cancellation_body)
 
     def test_support_diagnostics_bundle_is_admin_only_and_redacted(self) -> None:
         routes_body = function_body("register_routes")
@@ -1209,6 +1236,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
 
     def test_cancellation_endpoint_is_idempotent_merchant_only_and_refund_safe(self) -> None:
         routes_body = function_body("register_routes")
+        auth_body = function_body("authorize_cancellation")
         cancellation_body = function_body("create_cancellation")
         key_body = function_body("cancellation_idempotency_key")
         eligibility_body = function_body("cancellation_eligibility")
@@ -1224,6 +1252,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
 
         self.assertIn("/orders/(?P<id>[\\d]+)/cancellations", routes_body)
         self.assertIn("authorize_cancellation", routes_body)
+        self.assertIn("enforce_signed_request_policy($request, 'cancellation')", auth_body)
+        self.assertIn("has_valid_merchant_token($request)", auth_body)
+        self.assertNotIn("signed_request_verified($request)", auth_body)
         self.assertIn("cancellation_idempotency_key", cancellation_body)
         self.assertIn("agentcart_cancellation_idempotency_key_required", cancellation_body)
         self.assertIn("find_existing_cancellation_event", cancellation_body)

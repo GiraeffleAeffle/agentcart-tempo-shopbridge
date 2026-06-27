@@ -132,7 +132,7 @@ AGENTCART_REQUIRE_VERIFIED_REGISTRY=true
 AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS=180
 AGENTCART_HOSTED_REGISTRY_ENABLED=true
 AGENTCART_HOSTED_REGISTRY_PATH=/data/hosted-merchant-registry.json
-AGENTCART_HOSTED_REGISTRY_TOKEN=replace-with-submit-token
+AGENTCART_REGISTRY_SUBMIT_TOKEN=replace-with-distinct-submit-token
 AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS=0
 AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT=50
 AGENTCART_REGISTRY_ALERT_WEBHOOK_URL=
@@ -165,6 +165,11 @@ operator actions.
 new/resolved alert deltas; `GET /v1/registry/monitor` returns the retained
 snapshot history. The optional `AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS`
 scheduler can run the same monitor automatically.
+
+Hosted registry submissions use `AGENTCART_REGISTRY_SUBMIT_TOKEN`
+(`AGENTCART_HOSTED_REGISTRY_TOKEN` remains accepted as a legacy alias). When the
+gateway binds outside loopback, startup fails unless this submit token is set
+and distinct from the broad `AGENTCART_TOKEN`.
 
 Monitor alert delivery is opt-in. When `AGENTCART_REGISTRY_ALERT_WEBHOOK_URL`
 is set, AgentCart posts an `agentcart.registry_alert_notification.v1` JSON event

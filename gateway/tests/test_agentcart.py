@@ -599,6 +599,40 @@ class AgentCartTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
 
+    def test_server_rejects_public_bind_without_agentcart_token(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                agentcart_token="",
+                hosted_registry_submit_token="registry-submit-token",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "AGENTCART_TOKEN is required"):
+                agentcart.AgentCartServer(("0.0.0.0", 0), service)
+
+    def test_server_rejects_public_hosted_registry_without_distinct_submit_token(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            missing_submit_token = make_service(tmp, agentcart_token="agentcart-token", hosted_registry_submit_token="")
+            with self.assertRaisesRegex(RuntimeError, "REGISTRY_SUBMIT_TOKEN"):
+                agentcart.AgentCartServer(("0.0.0.0", 0), missing_submit_token)
+
+            reused_submit_token = make_service(
+                tmp,
+                agentcart_token="shared-token",
+                hosted_registry_submit_token="shared-token",
+            )
+            with self.assertRaisesRegex(RuntimeError, "must be distinct"):
+                agentcart.AgentCartServer(("0.0.0.0", 0), reused_submit_token)
+
+            safe_service = make_service(
+                tmp,
+                agentcart_token="agentcart-token",
+                hosted_registry_submit_token="registry-submit-token",
+            )
+            server = agentcart.AgentCartServer(("0.0.0.0", 0), safe_service)
+            server.server_close()
+
     def test_mcp_tool_catalog_is_publicly_served(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(pathlib.Path(raw_tmp))

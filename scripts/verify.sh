@@ -180,7 +180,7 @@ python3 "$ROOT_DIR/scripts/check-quote-reliability-matrix.py" \
   --verify-test-refs >/dev/null
 
 section "Compose config"
-AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token \
+AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token AGENTCART_REGISTRY_SUBMIT_TOKEN=verify-registry-token \
   docker compose -f "$ROOT_DIR/gateway/docker-compose.yml" config >/dev/null
 docker compose -f "$ROOT_DIR/demo/woocommerce/docker-compose.yml" config >/dev/null
 docker compose \
@@ -236,7 +236,11 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   container="agentcart-gateway-verify"
   docker build -q -t "$image" "$ROOT_DIR/gateway" >/dev/null
   docker rm -f "$container" >/dev/null 2>&1 || true
-  docker run -d --rm --name "$container" -e AGENTCART_BIND=0.0.0.0 -p 127.0.0.1:18099:8099 "$image" >/dev/null
+  docker run -d --rm --name "$container" \
+    -e AGENTCART_BIND=0.0.0.0 \
+    -e AGENTCART_TOKEN=verify-token \
+    -e AGENTCART_REGISTRY_SUBMIT_TOKEN=verify-registry-token \
+    -p 127.0.0.1:18099:8099 "$image" >/dev/null
   cleanup() {
     docker rm -f "$container" >/dev/null 2>&1 || true
   }

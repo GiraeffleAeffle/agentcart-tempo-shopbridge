@@ -22,6 +22,7 @@ final class AgentCart_ShopBridge {
     const QUOTE_TRANSIENT_PREFIX = 'agentcart_shopbridge_quote_';
     const STATUS_TOKEN_META = '_agentcart_order_status_token';
     const IDEMPOTENCY_KEY_META = '_agentcart_idempotency_key';
+    const CHECKOUT_REQUEST_HASH_META = '_agentcart_checkout_request_hash';
     const REFUND_IDEMPOTENCY_KEY_META = '_agentcart_refund_idempotency_key';
     const REFUND_REQUESTED_REFERENCE_META = '_agentcart_refund_requested_reference';
     const REFUND_REFERENCE_META = '_agentcart_refund_reference';
@@ -2145,9 +2146,6 @@ final class AgentCart_ShopBridge {
         if (is_wp_error($signed_request)) {
             return $signed_request;
         }
-        if (self::signed_request_verified($request)) {
-            return true;
-        }
         if (self::has_valid_merchant_token($request)) {
             return true;
         }
@@ -2169,9 +2167,6 @@ final class AgentCart_ShopBridge {
         $signed_request = self::enforce_signed_request_policy($request, 'cancellation');
         if (is_wp_error($signed_request)) {
             return $signed_request;
-        }
-        if (self::signed_request_verified($request)) {
-            return true;
         }
         if (self::has_valid_merchant_token($request)) {
             return true;
@@ -5398,9 +5393,10 @@ final class AgentCart_ShopBridge {
             return new WP_Error('agentcart_idempotency_key_required', 'agentcart_order_id, idempotency_key, or Idempotency-Key header is required.', ['status' => 400]);
         }
 
+        $checkout_request_hash = self::checkout_request_hash($body, $request);
         $existing_order = self::find_existing_checkout_order($agentcart_order_id, $idempotency_key);
         if ($existing_order) {
-            $replay_error = self::validate_existing_order_replay($existing_order, $body, $receipt, $agentcart_order_id, $idempotency_key);
+            $replay_error = self::validate_existing_order_replay($existing_order, $body, $receipt, $agentcart_order_id, $idempotency_key, $checkout_request_hash);
             if (is_wp_error($replay_error)) {
                 return $replay_error;
             }
@@ -5414,7 +5410,7 @@ final class AgentCart_ShopBridge {
         try {
             $existing_order = self::find_existing_checkout_order($agentcart_order_id, $idempotency_key);
             if ($existing_order) {
-                $replay_error = self::validate_existing_order_replay($existing_order, $body, $receipt, $agentcart_order_id, $idempotency_key);
+                $replay_error = self::validate_existing_order_replay($existing_order, $body, $receipt, $agentcart_order_id, $idempotency_key, $checkout_request_hash);
                 if (is_wp_error($replay_error)) {
                     return $replay_error;
                 }
@@ -5564,6 +5560,7 @@ final class AgentCart_ShopBridge {
         $order->set_transaction_id(sanitize_text_field((string) $receipt['id']));
         $order->update_meta_data('_agentcart_order_id', $agentcart_order_id);
         $order->update_meta_data(self::IDEMPOTENCY_KEY_META, $idempotency_key);
+        $order->update_meta_data(self::CHECKOUT_REQUEST_HASH_META, $checkout_request_hash);
         $order->update_meta_data('_agentcart_quote_id', sanitize_text_field((string) ($body['agentcart_quote_id'] ?? '')));
         $order->update_meta_data('_agentcart_merchant_quote_id', $merchant_quote_id);
         $order->update_meta_data('_agentcart_payment_receipt_id', sanitize_text_field((string) $receipt['id']));
@@ -6045,7 +6042,15 @@ final class AgentCart_ShopBridge {
         return !empty($existing_orders) ? $existing_orders[0] : null;
     }
 
-    private static function validate_existing_order_replay(WC_Order $order, $body, $receipt, $agentcart_order_id, $idempotency_key) {
+    private static function validate_existing_order_replay(WC_Order $order, $body, $receipt, $agentcart_order_id, $idempotency_key, $checkout_request_hash) {
+        $stored_checkout_request_hash = (string) $order->get_meta(self::CHECKOUT_REQUEST_HASH_META, true);
+        if ($stored_checkout_request_hash === '') {
+            return new WP_Error('agentcart_idempotency_replay_unverifiable', 'Existing order is missing the checkout request hash required for safe idempotent replay.', ['status' => 409]);
+        }
+        if ($checkout_request_hash === '' || !hash_equals($stored_checkout_request_hash, $checkout_request_hash)) {
+            return new WP_Error('agentcart_idempotency_conflict', 'Replay checkout request body or payment headers do not match the existing order.', ['status' => 409]);
+        }
+
         $stored_agentcart_order_id = (string) $order->get_meta('_agentcart_order_id', true);
         if ($agentcart_order_id !== '' && $stored_agentcart_order_id !== '' && !hash_equals($stored_agentcart_order_id, $agentcart_order_id)) {
             return new WP_Error('agentcart_idempotency_conflict', 'agentcart_order_id is already bound to a different order.', ['status' => 409]);
@@ -6090,6 +6095,45 @@ final class AgentCart_ShopBridge {
             return new WP_Error('agentcart_idempotency_conflict', 'Replay payment rail does not match the existing order.', ['status' => 409]);
         }
 
+        return true;
+    }
+
+    private static function checkout_request_hash($body, WP_REST_Request $request) {
+        $hash_payload = [
+            'body' => self::canonicalize_checkout_request_value(is_array($body) ? $body : []),
+            'headers' => [
+                'idempotency-key' => sanitize_text_field((string) $request->get_header('idempotency-key')),
+                'payment-signature' => self::x402_payment_signature_header($request),
+                'payment-response' => trim(sanitize_text_field((string) $request->get_header('PAYMENT-RESPONSE'))),
+            ],
+        ];
+        return hash('sha256', (string) wp_json_encode($hash_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    private static function canonicalize_checkout_request_value($value) {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (!self::array_is_list_compat($value)) {
+            ksort($value);
+        }
+        foreach ($value as $key => $child) {
+            $value[$key] = self::canonicalize_checkout_request_value($child);
+        }
+        return $value;
+    }
+
+    private static function array_is_list_compat($value) {
+        if (!is_array($value)) {
+            return false;
+        }
+        $expected_key = 0;
+        foreach ($value as $key => $_child) {
+            if ($key !== $expected_key) {
+                return false;
+            }
+            $expected_key++;
+        }
         return true;
     }
 
