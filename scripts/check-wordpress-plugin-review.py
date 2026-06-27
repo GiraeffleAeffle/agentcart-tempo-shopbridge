@@ -65,20 +65,19 @@ def check_custom_admin_actions(source: str) -> None:
 def check_external_http_verifier_calls(source: str) -> None:
     payment_body = function_body(source, "call_payment_verifier")
     refund_body = function_body(source, "call_refund_verifier")
+    verifier_http_body = function_body(source, "verifier_http_post")
     registry_body = function_body(source, "call_registry_connection")
     public_fetch_body = function_body(source, "fetch_public_json")
     registry_health_body = function_body(source, "fetch_registry_connection_json")
-    if source.count("wp_remote_post(") != 3:
+    if source.count("wp_remote_post(") != 2:
         fail("external HTTP calls should be limited to the payment/refund verifier and registry connection wrappers")
     if source.count("wp_remote_get(") != 2:
         fail("external HTTP GET calls should be limited to public endpoint checks and registry health checks")
     for name, body in [("payment verifier", payment_body), ("refund verifier", refund_body)]:
         for literal in [
-            "wp_remote_post($verifier_url",
             "'Content-Type' => 'application/json'",
             "$headers['Authorization'] = 'Bearer ' . $token",
-            "wp_json_encode($payload)",
-            "'timeout' =>",
+            "self::verifier_http_post($verifier_url, $payload, $headers,",
             "is_wp_error($response)",
             "wp_remote_retrieve_response_code($response)",
             "wp_remote_retrieve_body($response)",
@@ -86,6 +85,17 @@ def check_external_http_verifier_calls(source: str) -> None:
         ]:
             if literal not in body:
                 fail(f"{name} HTTP call missing review guard: {literal}")
+    for literal in [
+        "self::normalize_payment_verifier_url($verifier_url)",
+        "wp_remote_post($url",
+        "'headers' => $headers",
+        "'body' => wp_json_encode($payload)",
+        "'timeout' => intval($timeout)",
+        "'redirection' => 0",
+        "'limit_response_size' => 1048576",
+    ]:
+        if literal not in verifier_http_body:
+            fail(f"verifier HTTP wrapper missing review guard: {literal}")
     for literal in [
         "wp_remote_post($registry_url",
         "'Content-Type' => 'application/json'",

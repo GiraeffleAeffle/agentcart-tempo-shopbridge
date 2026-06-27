@@ -80,6 +80,10 @@ Production should add richer product controls:
 - Run the live abuse smoke with `AGENTCART_WOO_SMOKE_ABUSE_RATE_LIMITS=1`
   against staging or pilot shops to exhaust quote, checkout, status, refund,
   cancellation, and `.well-known` registry buckets and verify `429` metadata.
+- Run the live production setup smoke with
+  `AGENTCART_WOO_SMOKE_REQUIRE_PRODUCTION_READY=1` before admitting a shop to a
+  pilot. This fails while production-required setup steps such as merchant
+  identity, verifier mode, or registry proof are still incomplete.
 - Add host-level reverse-proxy/CDN/WAF rate limits for public production shops.
 - Store and reject used transaction references.
 - Require idempotency keys for order creation and refunds.

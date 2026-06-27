@@ -465,6 +465,44 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertIn("buyer_configuration", [check["id"] for check in result["checks"]])
         self.assertFalse(result["configuration"]["base_url"]["configured"])
 
+    def test_single_merchant_public_http_origin_is_rejected_before_request(self) -> None:
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.command_catalog({"base_url": "http://merchant.example", "search": "tea"})
+
+        self.assertEqual(str(raised.exception), "base_url_requires_https_public_origin")
+
+    def test_single_merchant_private_origin_requires_explicit_local_demo_flag(self) -> None:
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.command_catalog({"base_url": "http://192.168.178.150:8098", "search": "tea"})
+
+        self.assertEqual(str(raised.exception), "base_url_requires_https_public_origin")
+
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            self.assertEqual(base_url, "http://192.168.178.150:8098")
+            return {"merchant": {"name": "Homelab Tea Shop"}, "products": []}
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+            result = shopbridge_direct.command_catalog(
+                {
+                    "base_url": "http://192.168.178.150:8098",
+                    "allow_private_origin": True,
+                    "search": "tea",
+                }
+            )
+
+        self.assertEqual(result["merchant"]["name"], "Homelab Tea Shop")
+
+    def test_doctor_reports_unsafe_single_merchant_origin(self) -> None:
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+            result = shopbridge_direct.command_doctor({"base_url": "http://merchant.example"})
+
+        self.assertFalse(result["ok"])
+        override = next(check for check in result["checks"] if check["id"] == "single_merchant_override")
+        self.assertFalse(override["ok"])
+        self.assertEqual(override["error"], "base_url_requires_https_public_origin")
+
     def test_doctor_reports_registry_path_record_count_without_verifying_merchants(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -821,6 +859,47 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertFalse(result["ok"], result)
         self.assertIn("external_verifier_required_for_public_checkout", result["issues"])
         self.assertNotIn("payment_request", result)
+
+    def test_quote_origin_trust_binds_approval_and_checkout_origin(self) -> None:
+        calls = []
+
+        def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+            calls.append({"path": path, "method": method, "payload": payload, "base_url": base_url})
+            return sample_quote()
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+            quote = shopbridge_direct.command_quote(
+                {
+                    "base_url": "https://merchant.example",
+                    "items": [{"product_id": "woo_10", "quantity": 1}],
+                    "registry_record_hash": "registry-record-hash-123",
+                    "manifest_url": "https://merchant.example/.well-known/agentcart.json",
+                }
+            )
+
+        self.assertEqual(calls[0]["base_url"], "https://merchant.example")
+        trust = quote["agentcart_direct_skill"]
+        self.assertEqual(trust["merchant_origin"], "https://merchant.example")
+        self.assertEqual(trust["registry_record_hash"], "registry-record-hash-123")
+
+        packet = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")
+        self.assertEqual(packet["approval_material"]["merchant_origin"], "https://merchant.example")
+        self.assertEqual(packet["approval_material"]["registry_record_hash"], "registry-record-hash-123")
+
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected checkout call")):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.command_checkout(
+                    {
+                        "base_url": "https://other.example",
+                        "quote": quote,
+                        "payment_rail": "stripe-card-mpp",
+                        "approved": True,
+                        "approval_hash": packet["approval_hash"],
+                        "payment_receipt": sample_payment_receipt(),
+                    }
+                )
+
+        self.assertEqual(str(raised.exception), "checkout_base_url does not match approved quote merchant_origin")
 
     def test_resolve_merchant_verifies_registry_record_and_returns_base_url(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
@@ -1563,7 +1642,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
         with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
             result = shopbridge_direct.command_order_status(
-                {"order_id": "123", "status_token": "status-token-abc"}
+                {"order_id": "123", "status_token": "status-token-abc", "allow_private_origin": True}
             )
 
         self.assertEqual(result, {"ok": True})

@@ -5,6 +5,7 @@ import base64
 import datetime as dt
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -31,8 +32,19 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "y", "on"}
+
+
 DEFAULT_BASE_URL = "http://127.0.0.1:8098"
 BASE_URL = os.getenv("SHOPBRIDGE_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+ALLOW_PRIVATE_ORIGIN = env_bool(
+    "SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN",
+    env_bool("AGENTCART_ALLOW_PRIVATE_ORIGIN", False),
+)
 MPP_PROOF_URL = os.getenv("SHOPBRIDGE_MPP_PROOF_URL", "").strip()
 MPP_COMMAND = os.getenv("SHOPBRIDGE_MPP_COMMAND", "npx mppx").strip()
 MPP_NETWORK = os.getenv("SHOPBRIDGE_MPP_NETWORK", "testnet").strip()
@@ -68,10 +80,55 @@ SIGNED_REQUEST_SIGNER = (
 ).strip()
 
 
+def boolish(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def private_or_local_host(host: str) -> bool:
+    host = host.lower().strip("[]")
+    if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".local"):
+        return True
+    try:
+        parsed = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(parsed.is_private or parsed.is_loopback or parsed.is_link_local)
+
+
+def allow_private_merchant_origin(args: dict[str, Any] | None = None) -> bool:
+    args = args or {}
+    return boolish(
+        args.get("allow_private_origin", args.get("allow_local_origin", args.get("local_demo"))),
+        ALLOW_PRIVATE_ORIGIN,
+    )
+
+
+def require_trusted_merchant_origin(base_url: str, args: dict[str, Any] | None = None, *, field: str = "base_url") -> None:
+    parsed = urllib.parse.urlparse(str(base_url or ""))
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SystemExit(f"{field}_invalid")
+    private_host = private_or_local_host(parsed.hostname or "")
+    allow_private = allow_private_merchant_origin(args)
+    if parsed.scheme != "https":
+        if allow_private and private_host:
+            return
+        raise SystemExit(f"{field}_requires_https_public_origin")
+    if private_host and not allow_private:
+        raise SystemExit(f"{field}_requires_public_origin")
+
+
 def base_url_from_args(args: dict[str, Any] | None = None) -> str:
     args = args or {}
     raw = args.get("base_url") or args.get("shopbridge_base_url") or args.get("merchant_base_url") or BASE_URL
-    return str(raw).rstrip("/")
+    base_url = str(raw).rstrip("/")
+    require_trusted_merchant_origin(base_url, args)
+    return base_url
 
 
 def configured_base_url(args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -102,14 +159,7 @@ def configured_base_url(args: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def arg_bool(args: dict[str, Any], name: str, default: bool = False) -> bool:
-    value = args.get(name)
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+    return boolish(args.get(name), default)
 
 
 def request_json(
@@ -363,8 +413,7 @@ def origin_for_url(value: str) -> str:
 
 
 def local_registry_host(host: str) -> bool:
-    host = host.lower()
-    return host in {"localhost", "127.0.0.1", "::1"} or host.startswith("192.168.") or host.endswith(".local")
+    return private_or_local_host(host)
 
 
 def validate_registry_source_url(url: str, *, field: str = "registry_url") -> None:
@@ -1494,6 +1543,51 @@ def payment_destination_label(destination: dict[str, Any]) -> str:
     return str(rail or "unknown payment rail")
 
 
+QUOTE_TRUST_KEY = "agentcart_direct_skill"
+
+
+def normalized_origin(value: str) -> str:
+    parsed = urllib.parse.urlparse(str(value or ""))
+    if parsed.scheme and parsed.netloc:
+        return urllib.parse.urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), "", "", "")).rstrip("/")
+    return str(value or "").rstrip("/")
+
+
+def quote_trust_metadata(quote: dict[str, Any]) -> dict[str, Any]:
+    metadata = quote.get(QUOTE_TRUST_KEY)
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def annotate_quote_trust(
+    quote: dict[str, Any],
+    *,
+    merchant_origin: str,
+    registry_record_hash: str = "",
+    manifest_url: str = "",
+) -> dict[str, Any]:
+    copied = json.loads(json.dumps(quote, ensure_ascii=False))
+    trust = {
+        "schema": "agentcart.direct_skill_quote_trust.v1",
+        "merchant_origin": normalized_origin(merchant_origin),
+        "registry_record_hash": str(registry_record_hash or ""),
+        "manifest_url": str(manifest_url or ""),
+        "source": "verified_registry_record" if registry_record_hash else "single_merchant_base_url",
+        "created_at": iso_now(),
+    }
+    trust["trust_hash"] = hash_without(trust, "trust_hash")
+    copied[QUOTE_TRUST_KEY] = trust
+    return copied
+
+
+def checkout_base_url_for_quote(args: dict[str, Any], quote: dict[str, Any]) -> str:
+    base_url = base_url_from_args(args)
+    trust = quote_trust_metadata(quote)
+    approved_origin = str(trust.get("merchant_origin") or "")
+    if approved_origin and normalized_origin(base_url) != normalized_origin(approved_origin):
+        raise SystemExit("checkout_base_url does not match approved quote merchant_origin")
+    return base_url
+
+
 def approval_material(quote: dict[str, Any], *, payment_rail: str | None = None) -> dict[str, Any]:
     merchant = quote.get("merchant") or {}
     shipping = quote.get("shipping") or {}
@@ -1501,7 +1595,8 @@ def approval_material(quote: dict[str, Any], *, payment_rail: str | None = None)
     protocols = payment_protocols(quote)
     destination = payment_destination(quote, payment_rail)
     selected_rail = destination.get("rail") or payment_rail
-    return {
+    trust = quote_trust_metadata(quote)
+    material = {
         "quote_id": quote.get("id"),
         "merchant": {
             "id": merchant.get("id"),
@@ -1529,6 +1624,11 @@ def approval_material(quote: dict[str, Any], *, payment_rail: str | None = None)
         "payment_methods": [protocol.get("id") for protocol in protocols if isinstance(protocol, dict)],
         "data_trust": untrusted_merchant_text_metadata(),
     }
+    if trust:
+        material["merchant_origin"] = trust.get("merchant_origin")
+        material["registry_record_hash"] = trust.get("registry_record_hash")
+        material["quote_trust"] = trust
+    return material
 
 
 def approval_record_from_material(
@@ -1548,6 +1648,8 @@ def approval_record_from_material(
         "record_role": "approval_contract",
         "safety_boundaries": [
             "merchant",
+            "merchant_origin",
+            "registry_record_hash",
             "items",
             "total_cents",
             "currency",
@@ -1909,17 +2011,25 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
                 }
             )
     elif base["configured"]:
+        origin_error = ""
+        try:
+            require_trusted_merchant_origin(str(base["effective"]), args)
+        except SystemExit as exc:
+            origin_error = str(exc)
         checks.append(
             {
                 "id": "single_merchant_override",
-                "ok": True,
+                "ok": not origin_error,
                 "base_url": base["effective"],
                 "source": base["source"],
+                "error": origin_error,
                 "note": "single-merchant mode is for local tests or user-specified shops; production discovery should use verified registry records",
             }
         )
-        if arg_bool(args, "probe", False):
-            readiness = command_readiness({"base_url": base["effective"]})
+        if not origin_error and arg_bool(args, "probe", False):
+            readiness = command_readiness(
+                {"base_url": base["effective"], "allow_private_origin": allow_private_merchant_origin(args)}
+            )
             checks.append(
                 {
                     "id": "merchant_readiness_probe",
@@ -1945,6 +2055,7 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "registry_url_configured": bool(configured_registry_url(args)),
             "registry_path_configured": bool(configured_registry_path(args)),
             "registry_max_age_days": registry_max_age_days(args),
+            "allow_private_origin": allow_private_merchant_origin(args),
             "signed_requests_configured": bool(SIGNED_REQUEST_SECRET or SIGNED_REQUEST_PRIVATE_KEY),
             "signed_request_alg": "rsa-sha256" if SIGNED_REQUEST_PRIVATE_KEY else ("hmac-sha256" if SIGNED_REQUEST_SECRET else ""),
             "signed_request_signer": SIGNED_REQUEST_SIGNER if (SIGNED_REQUEST_SECRET or SIGNED_REQUEST_PRIVATE_KEY) else "",
@@ -1993,7 +2104,14 @@ def command_quote(args: dict[str, Any]) -> dict[str, Any]:
         "items": quote_items_from_args(args),
         "ship_to": quote_ship_to_from_args(args),
     }
-    return request_json("/wp-json/agentcart/v1/quote", method="POST", payload=payload, base_url=base_url_from_args(args))
+    base_url = base_url_from_args(args)
+    quote = request_json("/wp-json/agentcart/v1/quote", method="POST", payload=payload, base_url=base_url)
+    return annotate_quote_trust(
+        quote,
+        merchant_origin=base_url,
+        registry_record_hash=str(args.get("registry_record_hash") or ""),
+        manifest_url=str(args.get("manifest_url") or ""),
+    )
 
 
 def product_id_for_quote(product: dict[str, Any]) -> str:
@@ -2509,6 +2627,8 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                         "base_url": base_url,
                         "items": [{"product_id": product_id, "quantity": quantity}],
                         "ship_to": ship_to,
+                        "registry_record_hash": resolved.get("registry_record_hash"),
+                        "manifest_url": resolved.get("manifest_url"),
                     }
                 )
                 preflight = command_checkout_preflight(
@@ -2770,7 +2890,15 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
             )
             continue
         try:
-            quote = command_quote({"base_url": base_url, "items": quote_items, "ship_to": ship_to})
+            quote = command_quote(
+                {
+                    "base_url": base_url,
+                    "items": quote_items,
+                    "ship_to": ship_to,
+                    "registry_record_hash": resolved.get("registry_record_hash"),
+                    "manifest_url": resolved.get("manifest_url"),
+                }
+            )
             preflight = command_checkout_preflight(
                 {
                     "quote": quote,
@@ -2939,6 +3067,7 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
         "approval_summary": approval["summary"],
         "available_payment_methods": available_protocols,
         "payment_destination": destination,
+        "quote_trust": quote_trust_metadata(quote),
         "external_verifier_configured": bool(verification.get("external_verifier_configured")),
     }
 
@@ -3028,6 +3157,7 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
         "approval_hash": approval["approval_hash"],
         "approval_record_hash": approval["approval_record_hash"],
         "ap2_style_payment_mandate": approval["ap2_style_mandate_mapping"]["payment_mandate"],
+        "quote_trust": quote_trust_metadata(quote),
         "merchant": {
             "id": str(merchant.get("id") or ""),
             "name": str(merchant.get("name") or ""),
@@ -3247,6 +3377,7 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("approved"):
         raise SystemExit("approved=true is required before checkout")
     quote = args["quote"]
+    trust = quote_trust_metadata(quote)
     approval_record = validated_or_new_approval_record(args, quote)
     expected_approval_hash = approval_record["approval_hash"]
     supplied_approval_hash = str(args.get("approval_hash") or "")
@@ -3274,6 +3405,9 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
         "quote": quote,
         "rail": destination.get("rail"),
         "payment_destination": destination,
+        "merchant_origin": trust.get("merchant_origin") or "",
+        "registry_record_hash": trust.get("registry_record_hash") or "",
+        "quote_trust": trust,
         "approval_hash": expected_approval_hash,
         "approval_record": approval_record,
         "approval_record_hash": approval_record["approval_record_hash"],
@@ -3288,7 +3422,8 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
 
 def command_checkout(args: dict[str, Any]) -> dict[str, Any]:
     payload = checkout_payload(args)
-    return request_json("/wp-json/agentcart/v1/orders", method="POST", payload=payload, base_url=base_url_from_args(args))
+    base_url = checkout_base_url_for_quote(args, payload["quote"])
+    return request_json("/wp-json/agentcart/v1/orders", method="POST", payload=payload, base_url=base_url)
 
 
 def command_order_status(args: dict[str, Any]) -> dict[str, Any]:
@@ -3301,6 +3436,7 @@ def command_order_status(args: dict[str, Any]) -> dict[str, Any]:
         token = args.get("status_token") or args.get("token")
         headers = {"X-AgentCart-Order-Token": str(token)} if token else None
         base_url = origin_for_url(status_url) if parsed.scheme and parsed.netloc else base_url_from_args(args)
+        require_trusted_merchant_origin(base_url, args, field="status_url" if parsed.scheme and parsed.netloc else "base_url")
         return request_json(path, headers=headers, base_url=base_url)
     order_id = str(args.get("order_id") or args.get("id") or "")
     if not order_id:

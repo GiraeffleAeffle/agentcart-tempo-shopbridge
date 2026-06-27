@@ -18,7 +18,10 @@ unless the calling agent provides those features.
 
 Required environment for single-merchant alpha/testing:
 
-- `SHOPBRIDGE_BASE_URL`: optional merchant WordPress origin override, for example `http://192.168.178.150:8098`
+- `SHOPBRIDGE_BASE_URL`: optional merchant WordPress origin override. Public
+  merchant origins must be HTTPS.
+- `SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN`: set to `1` only for loopback, homelab, or
+  other private-network demos such as `http://192.168.178.150:8098`.
 
 Optional environment for verified merchant discovery:
 
@@ -31,8 +34,10 @@ Optional environment for merchants that require signed requests:
 
 - `SHOPBRIDGE_SIGNED_REQUEST_SECRET`: HMAC secret shared with the merchant's
   ShopBridge signed request setting
-- `SHOPBRIDGE_SIGNED_REQUEST_SIGNER`: signer label published in
-  `X-AgentCart-Signer`; default `agentcart-direct-skill`
+- `SHOPBRIDGE_SIGNED_REQUEST_SIGNER`: signer id published in
+  `X-AgentCart-Signer`; use the merchant profile's `active_signer` for
+  rotated or multi-key merchants. The default `agentcart-direct-skill` is only
+  compatible with one-key legacy/demo installs.
 
 Optional environment for demo checkout:
 
@@ -91,7 +96,8 @@ agent can resolve by merchant id without passing a record each time:
 Only continue when the result has `"ok": true`. Pass the returned `base_url` to
 later commands so catalog, quote, checkout, and status calls go to the verified
 merchant origin. In local demos, `SHOPBRIDGE_BASE_URL` can still be used as a
-manual single-shop override.
+manual single-shop override when `SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN=1` or
+`allow_private_origin:true` is supplied.
 
 Manifest:
 
@@ -182,8 +188,9 @@ Approval packet:
 ```
 
 The `approval_hash` binds merchant, items, total, delivery, quote hash, expiry,
-payment rail, and structured payment destination. For Stripe/card MPP this
-destination is the seller Stripe profile/network id from the quote's
+payment rail, structured payment destination, and, when the quote was obtained
+through this skill, the merchant origin and registry record hash. For
+Stripe/card MPP this destination is the seller Stripe profile/network id from the quote's
 `payment_requirements.protocols[]`. For Tempo MPP it is the network and
 recipient address. Pass that same hash to checkout after the human approves the
 packet. The response also includes a portable `approval_record` and
@@ -292,6 +299,9 @@ the approved quote.
   items, total, delivery window, and payment note.
 - Always create an `approval_packet` first and pass its `approval_hash` to
   checkout. A plain `approved=true` flag is not enough.
+- Public merchant origins must be HTTPS. Private HTTP origins require the
+  explicit local-demo flag, and checkout rejects a different `base_url` than the
+  one bound into the approved quote.
 - Persist or export the `approval_record_hash` and checkout `audit_packet`
   whenever the calling agent supports durable memory. They are the portable
   evidence of what the human approved in skill-only mode.

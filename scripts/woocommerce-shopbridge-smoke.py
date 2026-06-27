@@ -130,6 +130,50 @@ def validate_capability(capability: dict[str, Any]) -> None:
         require(bool(endpoints.get(endpoint)), f"capability.endpoints.{endpoint} must be present")
 
 
+def validate_production_setup(capability: dict[str, Any]) -> dict[str, Any]:
+    setup_guide = capability.get("setup_guide")
+    require(isinstance(setup_guide, dict), "capability.setup_guide must be present")
+    steps = setup_guide.get("steps")
+    require(isinstance(steps, list), "setup_guide.steps must be a list")
+    blockers: list[dict[str, str]] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        required_for = step.get("required_for")
+        if not isinstance(required_for, list) or "production" not in {str(item) for item in required_for}:
+            continue
+        state = str(step.get("state") or "")
+        if state != "complete":
+            blockers.append(
+                {
+                    "id": str(step.get("id") or ""),
+                    "label": str(step.get("label") or ""),
+                    "state": state,
+                    "summary": str(step.get("summary") or ""),
+                }
+            )
+    if setup_guide.get("production_complete") is not True or blockers:
+        raise SmokeError(
+            "production setup is incomplete: "
+            + ", ".join(
+                f"{blocker['id'] or blocker['label']}={blocker['state'] or 'unknown'}"
+                for blocker in blockers
+            )
+        )
+    return {
+        "production_complete": True,
+        "checked_step_count": len(
+            [
+                step
+                for step in steps
+                if isinstance(step, dict)
+                and isinstance(step.get("required_for"), list)
+                and "production" in {str(item) for item in step.get("required_for", [])}
+            ]
+        ),
+    }
+
+
 def validate_manifest(manifest: dict[str, Any]) -> None:
     require(isinstance(manifest.get("merchant"), dict), "manifest.merchant must be present")
     validate_protocol_profiles(manifest, "manifest")
@@ -386,6 +430,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     base_url = args.base_url.rstrip("/")
     capability = http_json(base_url, "/wp-json/agentcart/v1/capability")
     validate_capability(capability)
+    production_setup = None
+    if args.require_production_ready:
+        production_setup = validate_production_setup(capability)
     manifest = http_json(base_url, "/.well-known/agentcart.json")
     validate_manifest(manifest)
     registry_bundle = http_json(base_url, "/.well-known/agentcart-registry-bundle.json")
@@ -424,6 +471,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "registry": registry,
         "rate_limit_abuse": rate_limit_abuse,
+        "production_setup": production_setup,
         "setup_next_step": (capability.get("setup_guide") or {}).get("next_step"),
     }
 
@@ -444,6 +492,12 @@ def parser() -> argparse.ArgumentParser:
     parser.add_argument("--expect-shipping-cents", type=int, default=None)
     parser.add_argument("--require-shipping", action="store_true")
     parser.add_argument("--require-vat-lines", action="store_true")
+    parser.add_argument(
+        "--require-production-ready",
+        action="store_true",
+        default=os.getenv("AGENTCART_WOO_SMOKE_REQUIRE_PRODUCTION_READY", "").strip() == "1",
+        help="Fail if the live ShopBridge capability setup guide still has production-required setup steps.",
+    )
     parser.add_argument(
         "--abuse-rate-limits",
         action="store_true",

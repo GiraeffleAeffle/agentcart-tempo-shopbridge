@@ -422,8 +422,8 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">86</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 86%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">89</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 89%"><span></span></div>
         </div>
         <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, evidence-required beta release gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
       </div>
@@ -543,14 +543,14 @@
   <script>
     const areas = [
       { name: "Core Commerce", value: 92, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview with saved catalog diffs, restricted-goods default blocking, soft holds, hard reservation adapter contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
-      { name: "Trust And Registry", value: 85, note: "manifest profiles, domain proof, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, HMAC/RSA signed request gate, and audit trail" },
-      { name: "Payments", value: 70, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, append-only replay journal, metrics, alert webhooks, fixtures, and demo proofs exist; managed rail ops still open" },
+      { name: "Trust And Registry", value: 89, note: "manifest profiles, domain proof, hosted live-proof ingestion, hosted record feed, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, strict HMAC/RSA signer matching, and audit trail" },
+      { name: "Payments", value: 72, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, append-only replay journal, metrics, alert webhooks, fixtures, and CLI value-proof boundaries exist; managed rail ops still open" },
       { name: "Merchant UX", value: 69, note: "settings, setup wizard, readiness, registry actions, registry health summary, product exposure diff checkpoints, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
-      { name: "Buyer Skill Path", value: 76, note: "service path, packaged direct skill, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
+      { name: "Buyer Skill Path", value: 80, note: "service path, packaged direct skill with HTTPS/public origin checks and origin-bound approvals, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
       { name: "Woo Release", value: 59, note: "ZIP, package checks, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 65, note: "smoke pipeline, deployed-runtime compile gate, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, merchant support diagnostics, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, evidence-required beta release gate, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
-      { name: "Pilot Launch", value: 39, note: "P0 external beta checklist, evidence-required beta release checker, production payment profile checker, and P1 buyer-agent matrix validators exist; live evidence collection remains" }
+      { name: "Operations", value: 66, note: "smoke pipeline, deployed-runtime compile gate, live production-readiness smoke, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, merchant support diagnostics, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, evidence-required beta release gate, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
+      { name: "Pilot Launch", value: 41, note: "P0 external beta checklist, evidence-required beta release checker, production payment profile checker, live production setup smoke, and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
 
     const gates = [
@@ -598,38 +598,41 @@
         title: "Merchant registry",
         status: "active",
         value: 93,
-        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted submit/revoke persistence, raw hosted feed, hash-chained transparency export, optional ERC-8004-style identity mapping, health endpoint/page, persisted monitor snapshots, webhook/Home Assistant/SMTP alert delivery, WordPress admin delivery status, revocations, and quote tournament entry point.",
+        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted live-proof ingestion, hosted submit/revoke persistence, raw hosted feed, hash-chained transparency export, optional ERC-8004-style identity mapping, health endpoint/page, persisted monitor snapshots, webhook/Home Assistant/SMTP alert delivery, WordPress admin delivery status, revocations, and quote tournament entry point.",
         remaining: "Add real onchain backing, stronger governance, and alert runbooks before broad merchant pilots.",
         items: [
           { id: "IAM-001", priority: "P0", title: "Registry alert delivery", description: "Implemented: monitor alert delivery supports webhook, Home Assistant, and SMTP email, while the registry page and ShopBridge WordPress admin surface last delivery state and failures." },
           { id: "IAM-002", priority: "P1", title: "Transparency log export", description: "Implemented: hosted submit, refresh, and revoke operations append hash-chained events exposed at /v1/registry/transparency with chain verification metadata." },
-          { id: "IAM-003", priority: "P2", title: "Onchain identity mapping", description: "Implemented: registry records can carry optional ERC-8004-style onchain_identity metadata, which the gateway validates, binds to registry claims when present, and exposes without requiring onchain registration." }
+          { id: "IAM-003", priority: "P2", title: "Onchain identity mapping", description: "Implemented: registry records can carry optional ERC-8004-style onchain_identity metadata, which the gateway validates, binds to registry claims when present, and exposes without requiring onchain registration." },
+          { id: "IAM-004", priority: "P1", title: "Hosted live-proof ingestion", description: "Implemented: hosted public submissions strip submitted snapshots, fetch merchant-owned manifest/proof/revocation URLs live, and store snapshot-free records in the hosted feed." }
         ]
       },
       {
         code: "SIG",
         title: "Signed requests",
         status: "alpha",
-        value: 84,
-        scope: "Sensitive endpoints can require canonical HMAC or RSA signatures with nonce, expiry, body digest, active signer metadata, multiple HMAC keys, key rotation, retiring-key revocation, and sanitized verification audit records.",
+        value: 87,
+        scope: "Sensitive endpoints can require canonical HMAC or RSA signatures with nonce, expiry, body digest, active signer metadata, strict signer-id matching, multiple HMAC keys, key rotation, retiring-key revocation, and sanitized verification audit records.",
         remaining: "Add wallet/JWK signature adapters and external retention/export for production support teams.",
         items: [
           { id: "SIG-001", priority: "P0", title: "Key rotation UX", description: "Implemented: ShopBridge stores signed-request key records, supports multiple active keys, rotates active keys with a retirement window, publishes active signer metadata, accepts retiring keys, and lets merchants revoke retiring keys." },
           { id: "SIG-002", priority: "P1", title: "Request audit trail", description: "Implemented: signed request verification outcomes are stored in a bounded sanitized audit trail with hashes for path, digest, nonce, and signature plus normalized error codes for support and disputes." },
-          { id: "SIG-003", priority: "P2", title: "Asymmetric signatures", description: "Implemented: ShopBridge accepts an RSA public key, publishes rsa-sha256 support in signed-http-ready profiles, and the service/direct skill can sign canonical requests with the matching private key." }
+          { id: "SIG-003", priority: "P2", title: "Asymmetric signatures", description: "Implemented: ShopBridge accepts an RSA public key, publishes rsa-sha256 support in signed-http-ready profiles, and the service/direct skill can sign canonical requests with the matching private key." },
+          { id: "SIG-004", priority: "P0", title: "Strict signer matching", description: "Implemented: signed request verification now fails closed for unknown signer names, accepts exact published signer ids, and limits generic legacy labels to single-key private/demo installs." }
         ]
       },
       {
         code: "PAY",
         title: "Payment verifier",
         status: "partial",
-        value: 70,
-        scope: "Verifier contract, payment contract hash, fixture validation, production payment env profile check, replay request hashes, conflict checks, receipt checks, append-only replay journal, JSON metrics, structured logs, failure alert webhooks, and testnet proof handling exist.",
+        value: 72,
+        scope: "Verifier contract, payment contract hash, fixture validation, production payment env profile check, replay request hashes, conflict checks, receipt checks, append-only replay journal, JSON metrics, structured logs, failure alert webhooks, and CLI value-proof handling exist.",
         remaining: "Move the sandbox file store, replay journal, and metrics to managed transactional storage, add deeper refund execution, and wire provider dashboards.",
         items: [
           { id: "PAY-001", priority: "P0", title: "Amount-bound verifier", description: "Plugin and Stripe verifier now bind quote total, currency/FX policy, recipient/profile, quote hash, rail, and receipt via a payment_contract_hash." },
           { id: "PAY-002", priority: "P1", title: "Durable replay store", description: "Sandbox verifier now stores request hashes, exact idempotent replays, conflict rejection, lock checks, writeability health, and an optional sanitized append-only replay journal; the production payment profile gate requires durable replay before beta/release claims. Replace the file store with managed transactional storage for production." },
-          { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Sandbox verifier now exposes success rate, rejection reasons, provider errors, latency, settlement/refund counters, replay counters, replay journal health, structured request logs, and throttled failure webhooks; add managed dashboards next." }
+          { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Sandbox verifier now exposes success rate, rejection reasons, provider errors, latency, settlement/refund counters, replay counters, replay journal health, structured request logs, and throttled failure webhooks; add managed dashboards next." },
+          { id: "PAY-004", priority: "P1", title: "CLI proof boundary", description: "Implemented: Tempo/x402 CLI proof helpers record value_transfer evidence only and never mark real_settlement without an external verifier response bound to amount, currency/FX, recipient/profile, quote hash, payment contract hash, and replay-safe transaction reference." }
         ]
       },
       {
@@ -662,13 +665,14 @@
         code: "BUY",
         title: "Buyer skill-only path",
         status: "alpha",
-        value: 78,
-        scope: "Agent can perform verified discovery, quote comparison, approval packet creation, checkout handoff, aftercare summary, and audit packet export through a packaged direct skill, service skill, or MCP-style tool catalog without relying on the demo UI.",
+        value: 82,
+        scope: "Agent can perform verified discovery, quote comparison, approval packet creation, origin-bound checkout handoff, aftercare summary, and audit packet export through a packaged direct skill, service skill, or MCP-style tool catalog without relying on the demo UI.",
         remaining: "Run more external agent runtimes, save live evidence transcripts, and make audit import smoother.",
         items: [
           { id: "BUY-001", priority: "P0", title: "Packaged buyer skill", description: "Implemented: the direct ShopBridge skill ZIP supports manifest/registry discovery, quote comparison, portable approval records, checkout handoff, aftercare summary, and hash-linked audit packets for later import." },
           { id: "BUY-002", priority: "P1", title: "Local agent adapters", description: "Implemented alpha: checked adapter examples now cover OpenClaw-style service use, Codex-style direct skill use, and generic MCP-style HTTP clients, including setup inputs, command/tool sequences, evidence artifacts, and shared safety rules." },
-          { id: "BUY-003", priority: "P2", title: "Skill audit import UX", description: "Make skill-only checkout audit packets easy to import into the AgentCart dashboard after the fact." }
+          { id: "BUY-003", priority: "P2", title: "Skill audit import UX", description: "Make skill-only checkout audit packets easy to import into the AgentCart dashboard after the fact." },
+          { id: "BUY-004", priority: "P1", title: "Origin-bound approvals", description: "Implemented: public merchant origins must be HTTPS, private homelab origins require an explicit local-demo flag, and checkout rejects a base URL that differs from the merchant origin bound into the approved quote." }
         ]
       },
       {
@@ -740,14 +744,15 @@
         code: "PIL",
         title: "Pilot launch",
         status: "planned",
-        value: 39,
-        scope: "Local demo and homelab deployment prove the flow; external beta checklist, evidence-required beta release gate, production payment profile gate, and buyer-agent matrix define merchant, runtime, payment, support, rollback, privacy, and exit evidence.",
+        value: 41,
+        scope: "Local demo and homelab deployment prove the flow; external beta checklist, evidence-required beta release gate, production payment profile gate, live production-readiness smoke, and buyer-agent matrix define merchant, runtime, payment, support, rollback, privacy, and exit evidence.",
         remaining: "Collect real pilot evidence, run external beta shops, rehearse external buyer agents, complete docs-driven setup, and measure checkout success.",
         items: [
           { id: "PIL-001", priority: "P0", title: "External beta checklist", description: "Implemented: machine-readable checklist, documentation, validator, live Woo smoke evidence ID, production payment profile evidence ID, and schema gate for merchant onboarding, buyer-agent setup, payment mode, support, rollback, safety/privacy, and pilot exit criteria." },
           { id: "PIL-002", priority: "P0", title: "Evidence-required release gate", description: "Implemented: external beta release checker fails without recorded pilot evidence, buyer-agent runtime evidence, and a production-shaped payment profile that disables token-only checkout fallback." },
           { id: "PIL-003", priority: "P1", title: "Buyer-agent test matrix", description: "Implemented alpha: service-backed OpenClaw/AgentCart, direct ShopBridge skill, and generic MCP-style clients now have a documented runtime matrix, required capabilities, safety rules, evidence IDs, and a verify pipeline gate." },
-          { id: "PIL-004", priority: "P2", title: "Success metrics", description: "Track discovery-to-order success rate, failure reasons, merchant setup time, refund rate, and support volume." }
+          { id: "PIL-004", priority: "P2", title: "Success metrics", description: "Track discovery-to-order success rate, failure reasons, merchant setup time, refund rate, and support volume." },
+          { id: "PIL-005", priority: "P1", title: "Live production setup smoke", description: "Implemented: Woo live smoke can fail on production-required setup blockers such as merchant identity, external verifier mode, shipping/VAT, and registry proof before a shop enters a pilot." }
         ]
       }
     ];
@@ -761,7 +766,7 @@
       open: "Open"
     };
 
-    const overallValue = 86;
+    const overallValue = 89;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

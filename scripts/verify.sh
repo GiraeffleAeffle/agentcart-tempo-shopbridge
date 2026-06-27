@@ -110,6 +110,9 @@ if [ -n "${AGENTCART_WOO_SMOKE_BASE_URL:-}" ]; then
   if [ "${AGENTCART_WOO_SMOKE_REQUIRE_VAT_LINES:-}" = "1" ]; then
     smoke_args+=(--require-vat-lines)
   fi
+  if [ "${AGENTCART_WOO_SMOKE_REQUIRE_PRODUCTION_READY:-}" = "1" ]; then
+    smoke_args+=(--require-production-ready)
+  fi
   python3 "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py" "${smoke_args[@]}" >/dev/null
 else
   printf 'AGENTCART_WOO_SMOKE_BASE_URL not set; skipping live WooCommerce smoke\n'

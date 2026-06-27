@@ -81,9 +81,10 @@ local fixtures where you intentionally want to disable the freshness window.
 If a merchant advertises the `signed-http-ready` profile and requires signed
 requests, configure either the HMAC secret provided by that merchant or the RSA
 private key whose public key was registered with the merchant. Use the profile's
-`active_signer` value when it is present; older private demos can keep using
-any agreed signer label. Prefer RSA for public or multi-merchant setups because
-the merchant never receives the buyer-side private key.
+`active_signer` value when it is present. The plugin only accepts legacy generic
+signer labels for one-key private/demo installs; rotated or multi-key merchants
+require the published signer id. Prefer RSA for public or multi-merchant setups
+because the merchant never receives the buyer-side private key.
 
 ```sh
 export SHOPBRIDGE_SIGNED_REQUEST_SECRET=replace-with-shopbridge-signing-secret

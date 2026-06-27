@@ -181,6 +181,12 @@ to the selected payment rail or payment provider deployment because it must
 carry provider credentials, refund authority, replay protection, and operational
 monitoring.
 
+Tempo, x402, or other CLI proof helpers are value-proof artifacts only. Even on
+a successful mainnet command, AgentCart does not set `real_settlement` from CLI
+success alone. Real settlement claims require the external verifier response to
+bind amount, currency or FX policy, merchant recipient/profile, quote hash,
+payment contract hash, and a non-replayed transaction reference.
+
 Validate the checked-in fixtures and the WooCommerce plugin payload field names:
 
 ```sh

@@ -54,7 +54,9 @@ or the next trust-hardening gate.
 ShopBridge advertises `signed-http-ready` only when signed request mode and at
 least one accepted request-signing key are configured. The profile publishes the
 active signer id and non-secret accepted-key metadata so buyer agents can bind
-checkout calls without scraping WordPress admin pages.
+checkout calls without scraping WordPress admin pages. Verification now fails
+closed for unknown signer names; generic legacy labels are accepted only for
+single-key demo/private installs.
 
 ## Visual Architecture
 

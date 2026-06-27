@@ -151,8 +151,12 @@ AGENTCART_REGISTRY_ALERT_INCLUDE_RESOLVED=true
 
 `GET /v1/registry/records` exposes the raw hosted record feed plus revocations.
 `POST /v1/registry/records` accepts ShopBridge admin submit/revoke requests,
-stores the raw merchant record, verifies it with the same domain-proof and
-manifest checks, and refreshes the agent-facing `GET /v1/registry` view.
+strips any local snapshot documents from the submitted record, fetches the live
+merchant manifest/proof/revocation URLs, verifies them with the same
+domain-proof and manifest checks, stores the verified record, and refreshes the
+agent-facing `GET /v1/registry` view. Embedded manifest/proof/revocation
+snapshots are accepted only for local file feeds and reproducible fixture tests;
+they are not a public hosted-registry trust source.
 Each accepted submit, refresh, or revoke appends a hash-chained transparency
 event. `GET /v1/registry/transparency` exports that log with sequence numbers,
 previous event hashes, event hashes, source request hashes, record hashes, and

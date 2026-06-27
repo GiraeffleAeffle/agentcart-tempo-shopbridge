@@ -524,6 +524,23 @@ def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+REGISTRY_LOCAL_SNAPSHOT_FIELDS = {
+    "manifest",
+    "manifest_snapshot",
+    "manifest_document",
+    "proof_snapshot",
+    "proof_document",
+    "proof_document_expected",
+    "revocation_snapshot",
+    "revocation_document",
+    "revocation_document_expected",
+}
+
+
+def registry_record_without_local_snapshots(record: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in record.items() if key not in REGISTRY_LOCAL_SNAPSHOT_FIELDS}
+
+
 def registry_record_hash(record: dict[str, Any]) -> str:
     return canonical_json_hash(registry_signature_payload(record))
 
@@ -2630,7 +2647,7 @@ class AgentCartService:
             "events": events,
         }
 
-    def submitted_registry_record(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    def submitted_registry_record(self, payload: dict[str, Any], *, include_snapshots: bool = True) -> tuple[dict[str, Any], str]:
         record = payload.get("registry_record")
         bundle = payload.get("registry_onboarding_bundle") or payload.get("bundle")
         if not isinstance(record, dict) and isinstance(bundle, dict):
@@ -2643,32 +2660,35 @@ class AgentCartService:
             raise BadRequest("registry_record must be a JSON object")
 
         bundle_document = bundle if isinstance(bundle, dict) else {}
-        manifest_snapshot = (
-            payload.get("manifest_snapshot")
-            or payload.get("manifest_document")
-            or bundle_document.get("manifest_snapshot")
-            or bundle_document.get("manifest_document")
-        )
-        if isinstance(manifest_snapshot, dict) and not isinstance(copied.get("manifest_snapshot"), dict):
-            copied["manifest_snapshot"] = manifest_snapshot
+        if include_snapshots:
+            manifest_snapshot = (
+                payload.get("manifest_snapshot")
+                or payload.get("manifest_document")
+                or bundle_document.get("manifest_snapshot")
+                or bundle_document.get("manifest_document")
+            )
+            if isinstance(manifest_snapshot, dict) and not isinstance(copied.get("manifest_snapshot"), dict):
+                copied["manifest_snapshot"] = manifest_snapshot
 
-        proof_snapshot = (
-            payload.get("proof_document")
-            or payload.get("proof_snapshot")
-            or bundle_document.get("proof_document")
-            or bundle_document.get("proof_document_expected")
-        )
-        if isinstance(proof_snapshot, dict) and not isinstance(copied.get("proof_snapshot"), dict):
-            copied["proof_snapshot"] = proof_snapshot
+            proof_snapshot = (
+                payload.get("proof_document")
+                or payload.get("proof_snapshot")
+                or bundle_document.get("proof_document")
+                or bundle_document.get("proof_document_expected")
+            )
+            if isinstance(proof_snapshot, dict) and not isinstance(copied.get("proof_snapshot"), dict):
+                copied["proof_snapshot"] = proof_snapshot
 
-        revocation_snapshot = (
-            payload.get("revocation_document")
-            or payload.get("revocation_snapshot")
-            or bundle_document.get("revocation_document")
-            or bundle_document.get("revocation_document_expected")
-        )
-        if isinstance(revocation_snapshot, dict) and not isinstance(copied.get("revocation_snapshot"), dict):
-            copied["revocation_snapshot"] = revocation_snapshot
+            revocation_snapshot = (
+                payload.get("revocation_document")
+                or payload.get("revocation_snapshot")
+                or bundle_document.get("revocation_document")
+                or bundle_document.get("revocation_document_expected")
+            )
+            if isinstance(revocation_snapshot, dict) and not isinstance(copied.get("revocation_snapshot"), dict):
+                copied["revocation_snapshot"] = revocation_snapshot
+        else:
+            copied = registry_record_without_local_snapshots(copied)
 
         actual_hash = registry_record_hash(copied)
         supplied_hash = str(payload.get("record_hash") or bundle_document.get("record_hash") or "").strip()
@@ -2725,7 +2745,7 @@ class AgentCartService:
         raise BadRequest("operation must be upsert or revoke")
 
     def upsert_hosted_registry_record(self, payload: dict[str, Any]) -> dict[str, Any]:
-        record, record_hash = self.submitted_registry_record(payload)
+        record, record_hash = self.submitted_registry_record(payload, include_snapshots=False)
         entry = self.verify_registry_record(record)
         verification = entry.get("verification") if isinstance(entry.get("verification"), dict) else {}
         state = str(verification.get("state") or "rejected")
@@ -2797,7 +2817,7 @@ class AgentCartService:
         record: dict[str, Any] | None = None
         record_hash = str(payload.get("record_hash") or payload.get("registry_record_hash") or "").strip()
         if not record_hash:
-            record, record_hash = self.submitted_registry_record(payload)
+            record, record_hash = self.submitted_registry_record(payload, include_snapshots=False)
         now = isoformat(utcnow())
         merchant_id = str((record or {}).get("merchant_id") or payload.get("merchant_id") or "")
         domain = str((record or {}).get("domain") or payload.get("domain") or "")
@@ -6474,9 +6494,9 @@ separate human confirmation.
             "settlement_asset": tempo_default_settlement_asset(self.config.tempo_mpp_network),
             "quote_currency": quote.get("currency"),
             "quote_total_cents": quote.get("total_cents"),
-            "real_settlement": completed.returncode == 0 and self.config.tempo_mpp_network == "mainnet",
+            "real_settlement": False,
             "value_transfer": completed.returncode == 0,
-            "settlement_note": "Tempo MPP proof uses the configured Tempo asset. In the hackathon setup this is a USD-stablecoin proof artifact, not EUR settlement of the physical WooCommerce order.",
+            "settlement_note": "Tempo MPP CLI proof can show a rail value transfer, but AgentCart does not treat it as real merchant settlement unless a quote-bound external verifier confirms amount, currency/FX, recipient, quote hash, and transaction reference.",
             "url": self.config.tempo_mpp_proof_url,
             "command": full_command[:1] + ["..."],
             "returncode": completed.returncode,
@@ -6558,7 +6578,9 @@ separate human confirmation.
             "state": "succeeded" if completed.returncode == 0 else "failed",
             "provider": "agentcash_x402",
             "mode": "agentcash-cli",
-            "real_settlement": completed.returncode == 0,
+            "real_settlement": False,
+            "value_transfer": completed.returncode == 0,
+            "settlement_note": "AgentCash/x402 CLI proof can show a rail value transfer, but AgentCart does not treat it as real merchant settlement unless a quote-bound external verifier confirms amount, currency/FX, recipient, quote hash, and transaction reference.",
             "url": self.config.agentcash_proof_url,
             "command": full_command[:1] + ["..."],
             "returncode": completed.returncode,

@@ -1019,6 +1019,14 @@ function expectedFromPayload(payload) {
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
+  const authoritativeContractHashes = [
+    payload.payment_contract_hash,
+    expected.payment_contract_hash,
+    requirements.payment_contract_hash,
+    verification.payment_contract_hash,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
   const uniqueContractHashes = new Set(suppliedContractHashes);
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
     throw Object.assign(new Error("expected.amount_cents must be a positive integer."), { status: 400 });
@@ -1034,6 +1042,14 @@ function expectedFromPayload(payload) {
   }
   if (rail === "stripe-card-mpp" && profileId !== stripeProfileId) {
     throw Object.assign(new Error("Stripe profile id does not match verifier configuration."), { status: 400 });
+  }
+  if (!authoritativeContractHashes.length) {
+    throw Object.assign(new Error("payment_contract_hash is required from the request, expected block, or quote."), {
+      status: 400,
+    });
+  }
+  if (suppliedContractHashes.some((value) => !/^[a-f0-9]{64}$/i.test(value))) {
+    throw Object.assign(new Error("payment_contract_hash must be a SHA-256 hex digest."), { status: 400 });
   }
   if (uniqueContractHashes.size > 1) {
     throw Object.assign(new Error("payment_contract_hash values do not match."), { status: 400 });
@@ -1070,6 +1086,9 @@ function assertReceiptMatchesExpected(receipt, expected) {
     throw Object.assign(new Error("payment_receipt rail does not match expected.rail."), { status: 400 });
   }
   const receiptContractHash = String(receipt.payment_contract_hash || receipt.contract_hash || "").trim();
+  if (expected.paymentContractHash && !receiptContractHash) {
+    throw Object.assign(new Error("payment_receipt.payment_contract_hash is required."), { status: 400 });
+  }
   if (receiptContractHash && expected.paymentContractHash && receiptContractHash !== expected.paymentContractHash) {
     throw Object.assign(new Error("payment_receipt.payment_contract_hash does not match expected payment_contract_hash."), {
       status: 400,
@@ -1465,7 +1484,8 @@ async function handler(request) {
       const status = readiness();
       response = jsonResponse(status, status.ok ? 200 : 503);
     } else if (request.method === "GET" && (url.pathname === "/metrics" || url.pathname === "/metrics.json")) {
-      response = jsonResponse(verifierMetricsSnapshot());
+      const unauthorized = requireVerifierToken(request);
+      response = unauthorized || jsonResponse(verifierMetricsSnapshot());
     } else if (request.method !== "POST") {
       response = jsonResponse({ ok: false, error: "not found" }, 404);
     } else {

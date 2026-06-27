@@ -184,8 +184,16 @@ assert status2 == 200 and body2["ok"] is True and body2.get("idempotent_replay")
 status3, body3 = post("conflict", payload(contract_b))
 assert status3 == 409 and body3.get("replay_conflict") is True, (status3, body3)
 
+unauthorized_metrics = subprocess.run(
+    ["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", f"http://127.0.0.1:{port}/metrics"],
+    check=True,
+    text=True,
+    stdout=subprocess.PIPE,
+)
+assert unauthorized_metrics.stdout == "401", unauthorized_metrics.stdout
+
 metrics_result = subprocess.run(
-    ["curl", "-fsS", f"http://127.0.0.1:{port}/metrics"],
+    ["curl", "-fsS", "-H", "authorization: Bearer verifier_dummy", f"http://127.0.0.1:{port}/metrics"],
     check=True,
     text=True,
     stdout=subprocess.PIPE,

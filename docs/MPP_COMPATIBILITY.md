@@ -190,6 +190,12 @@ the explorer reference as an external value proof. In the current WooCommerce
 demo, the merchant order is still created through the trusted AgentCart gateway
 token mode unless an external verifier is configured.
 
+AgentCart treats CLI-based Tempo or x402 proofs as `value_transfer` evidence,
+not as `real_settlement`. A production settlement claim requires the configured
+external verifier to validate amount, currency or FX conversion, recipient or
+profile, quote hash, payment contract hash, and replay-safe transaction
+reference.
+
 ## Production Requirements
 
 Before this becomes production MPP commerce, replace the demo/trusted-token

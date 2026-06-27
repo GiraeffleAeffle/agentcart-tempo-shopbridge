@@ -320,6 +320,9 @@ def verify_plugin_contract_fields() -> None:
         "'tempo_network' => self::tempo_network()",
         "'tempo_recipient' => self::tempo_recipient()",
         "'stripe_profile_id' => self::stripe_profile_id()",
+        "self::verifier_http_post($verifier_url, $payload, $headers, 15)",
+        "self::verifier_error_detail($status, $decoded, $raw_body)",
+        "agentcart_payment_contract_required",
     ]:
         require(literal in payment_body, f"call_payment_verifier missing {literal}")
     for literal in [
@@ -340,8 +343,20 @@ def verify_plugin_contract_fields() -> None:
         "'tempo_network' => self::tempo_network()",
         "'tempo_recipient' => self::tempo_recipient()",
         "'stripe_profile_id' => self::stripe_profile_id()",
+        "self::verifier_http_post($verifier_url, $payload, $headers, 20)",
+        "self::verifier_error_detail($status, $decoded, $raw_body)",
     ]:
         require(literal in refund_body, f"call_refund_verifier missing {literal}")
+    for literal in [
+        "sanitize_payment_verifier_url_setting",
+        "normalize_payment_verifier_url",
+        "'redirection' => 0",
+        "'limit_response_size' => 1048576",
+        "verifier_error_detail",
+        "raw_body_hash",
+        "raw_body_bytes",
+    ]:
+        require(literal in source, f"plugin verifier HTTP hardening missing {literal}")
 
 
 def verify_stripe_verifier_replay_fields() -> None:
@@ -389,6 +404,10 @@ def verify_stripe_verifier_replay_fields() -> None:
         "claimReplayReference(\"refunds\"",
         "refund.requested_reference is required",
         "idempotencyKey: requestedReference",
+        "authoritativeContractHashes",
+        "payment_contract_hash is required from the request, expected block, or quote.",
+        "payment_contract_hash must be a SHA-256 hex digest.",
+        "payment_receipt.payment_contract_hash is required.",
         "providerErrorClass",
         "providerErrorResponse",
         "provider_error_class",
@@ -418,6 +437,7 @@ def verify_stripe_verifier_replay_fields() -> None:
         "real_settlement_verified",
         "real_refund_verified",
         "url.pathname === \"/metrics\"",
+        "unauthorized || jsonResponse(verifierMetricsSnapshot())",
     ]:
         require(literal in source, f"stripe verifier missing replay guard: {literal}")
     require(

@@ -78,6 +78,17 @@ AGENTCART_PAYMENT_ENV_FILE=deploy/home-server/.env \
 ./scripts/verify.sh
 ```
 
+For a running WooCommerce merchant, add the live smoke target. Production-ready
+mode fails if the ShopBridge setup guide still has production-required blockers:
+
+```sh
+AGENTCART_WOO_SMOKE_BASE_URL=https://shop.example.com \
+AGENTCART_WOO_SMOKE_REQUIRE_SHIPPING=1 \
+AGENTCART_WOO_SMOKE_REQUIRE_VAT_LINES=1 \
+AGENTCART_WOO_SMOKE_REQUIRE_PRODUCTION_READY=1 \
+./scripts/verify.sh
+```
+
 You can also run the stricter gate directly:
 
 ```sh

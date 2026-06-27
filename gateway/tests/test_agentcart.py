@@ -240,6 +240,41 @@ def domain_proof_registry_record(
     return record
 
 
+def install_domain_proof_http_json(
+    service: object,
+    record: dict[str, object],
+    manifest: dict[str, object],
+    *,
+    revocation: dict[str, object] | None = None,
+) -> list[str]:
+    clean_record = agentcart.registry_record_without_local_snapshots(record)
+    proof = domain_proof_document(clean_record)
+    urls = {
+        str(clean_record["manifest_url"]): manifest,
+        str(clean_record["proof"]["url"]): proof,
+    }
+    if revocation is not None and clean_record.get("revocation_url"):
+        urls[str(clean_record["revocation_url"])] = revocation
+    calls: list[str] = []
+
+    def fake_http_json(
+        url: str,
+        method: str = "GET",
+        token: str = "",
+        payload: dict[str, object] | None = None,
+        headers_extra: dict[str, str] | None = None,
+        timeout: int = 10,
+    ) -> dict[str, object]:
+        del method, token, payload, headers_extra, timeout
+        calls.append(url)
+        if url not in urls:
+            raise agentcart.UpstreamError(f"unexpected registry URL: {url}")
+        return urls[url]
+
+    service.http_json = fake_http_json  # type: ignore[attr-defined]
+    return calls
+
+
 def skill_audit_packet(quote_id: str = "woo_quote_123") -> dict[str, object]:
     packet: dict[str, object] = {
         "schema": "agentcart.skill_audit_packet.v1",
@@ -998,6 +1033,7 @@ class AgentCartTests(unittest.TestCase):
             record = domain_proof_registry_record(manifest)
             record_hash = agentcart.registry_record_hash(record)
             service = make_service(tmp)
+            calls = install_domain_proof_http_json(service, record, manifest)
 
             result = service.submit_hosted_registry_request(
                 {
@@ -1018,12 +1054,17 @@ class AgentCartTests(unittest.TestCase):
             feed = service.hosted_registry_feed()
             self.assertEqual(feed["entry_count"], 1)
             self.assertEqual(agentcart.registry_record_hash(feed["entries"][0]), record_hash)
+            self.assertNotIn("manifest_snapshot", feed["entries"][0])
+            self.assertNotIn("proof_snapshot", feed["entries"][0])
+            self.assertIn(record["manifest_url"], calls)
+            self.assertIn(record["proof"]["url"], calls)
 
             registry = service.registry_document()
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
             self.assertIn("signed-tea-shop", entries)
             self.assertEqual(entries["signed-tea-shop"]["registry_status"]["state"], "verified")
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["manifest_source"], "url")
             self.assertIn("signed-tea-shop", service.adapters)
             self.assertEqual(registry["registry"]["hosted_store"]["entry_count"], 1)
 
@@ -1465,6 +1506,7 @@ class AgentCartTests(unittest.TestCase):
             record = domain_proof_registry_record(manifest)
             record_hash = agentcart.registry_record_hash(record)
             service = make_service(tmp)
+            install_domain_proof_http_json(service, record, manifest)
             service.submit_hosted_registry_request(
                 {
                     "operation": "upsert",
@@ -1501,6 +1543,7 @@ class AgentCartTests(unittest.TestCase):
             record = domain_proof_registry_record(manifest)
             record_hash = agentcart.registry_record_hash(record)
             service = make_service(tmp)
+            install_domain_proof_http_json(service, record, manifest)
 
             submitted = service.submit_hosted_registry_request(
                 {
@@ -1546,7 +1589,10 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(submitted["transparency_event_hash"], events[0]["event_hash"])
             self.assertEqual(refreshed["transparency_event_hash"], events[1]["event_hash"])
             self.assertEqual(revoked["transparency_event_hash"], events[2]["event_hash"])
-            self.assertEqual(events[0]["record_payload_hash"], agentcart.canonical_json_hash(record))
+            self.assertEqual(
+                events[0]["record_payload_hash"],
+                agentcart.canonical_json_hash(agentcart.registry_record_without_local_snapshots(record)),
+            )
             self.assertEqual(events[2]["publication_state"], "revoked")
             self.assertEqual(events[2]["reason"], "merchant_admin_revoke")
 
@@ -1568,6 +1614,7 @@ class AgentCartTests(unittest.TestCase):
                 }
             ).encode()
             service = make_service(tmp, hosted_registry_submit_token="registry-token")
+            install_domain_proof_http_json(service, record, manifest)
             server = agentcart.AgentCartServer(("127.0.0.1", 0), service)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -3124,6 +3171,38 @@ class AgentCartTests(unittest.TestCase):
             proof = body["payment_receipt"]["external_value_proof"]
             self.assertEqual(proof["provider"], "tempo_mpp")
             self.assertEqual(proof["state"], "succeeded")
+
+    def test_cli_value_proofs_do_not_claim_real_settlement_without_external_verifier(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                tempo_mpp_proof_url="https://pay.example/paid",
+                tempo_mpp_network="mainnet",
+                tempo_mpp_command="mppx",
+                agentcash_proof_url="https://x402.example/paid",
+                agentcash_command="agentcash",
+            )
+            quote = {"id": "quote-test", "currency": "EUR", "total_cents": 1480}
+            approval = {"id": "approval-test"}
+            original_run = agentcart.subprocess.run
+
+            def fake_run(command, check=False, capture_output=True, text=True, timeout=90):
+                del check, capture_output, text, timeout
+                return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"ok": True}), stderr="")
+
+            agentcart.subprocess.run = fake_run  # type: ignore[assignment]
+            try:
+                tempo = service.create_tempo_mpp_value_proof(quote, approval)
+                agentcash = service.create_agentcash_value_proof(quote, approval)
+            finally:
+                agentcart.subprocess.run = original_run  # type: ignore[assignment]
+
+            self.assertTrue(tempo["value_transfer"])
+            self.assertFalse(tempo["real_settlement"])
+            self.assertIn("external verifier", tempo["settlement_note"])
+            self.assertTrue(agentcash["value_transfer"])
+            self.assertFalse(agentcash["real_settlement"])
+            self.assertIn("external verifier", agentcash["settlement_note"])
 
     def test_non_demo_payment_provider_fails_closed_before_order_creation(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

@@ -268,7 +268,7 @@ final class AgentCart_ShopBridge {
         ]);
         register_setting('agentcart_shopbridge', self::PAYMENT_VERIFIER_URL_OPTION, [
             'type' => 'string',
-            'sanitize_callback' => 'esc_url_raw',
+            'sanitize_callback' => [__CLASS__, 'sanitize_payment_verifier_url_setting'],
             'default' => '',
         ]);
         register_setting('agentcart_shopbridge', self::PAYMENT_VERIFIER_TOKEN_OPTION, [
@@ -380,6 +380,10 @@ final class AgentCart_ShopBridge {
     public static function sanitize_currency_code_setting($value) {
         $currency = strtoupper(preg_replace('/[^A-Za-z]/', '', (string) $value));
         return strlen($currency) === 3 ? $currency : '';
+    }
+
+    public static function sanitize_payment_verifier_url_setting($value) {
+        return self::normalize_payment_verifier_url((string) $value);
     }
 
     public static function sanitize_substitution_policy_setting($value) {
@@ -2433,19 +2437,26 @@ final class AgentCart_ShopBridge {
         if (!$keys) {
             return [];
         }
+        $signer = sanitize_key((string) $signer);
         $matches = [];
         foreach ($keys as $key) {
-            if (hash_equals((string) ($key['id'] ?? ''), (string) $signer)) {
+            if (hash_equals((string) ($key['id'] ?? ''), $signer)) {
                 $matches[] = $key;
             }
         }
         if ($matches) {
             return $matches;
         }
-        if (preg_match('/^(sig_[a-f0-9]{16}|sig_rsa_[a-f0-9]{16}|legacy|wp-config)$/', (string) $signer)) {
-            return [];
+
+        $legacy_signers = self::signed_request_legacy_signer_labels();
+        if (count($keys) === 1 && in_array($signer, $legacy_signers, true)) {
+            return $keys;
         }
-        return $keys;
+        return [];
+    }
+
+    private static function signed_request_legacy_signer_labels() {
+        return ['agentcart', 'agentcart-service', 'agentcart-direct-skill'];
     }
 
     private static function signed_request_key_alg($key) {
@@ -6403,6 +6414,9 @@ final class AgentCart_ShopBridge {
         if ($receipt_contract_hash !== '' && !hash_equals($payment_contract_hash, $receipt_contract_hash)) {
             return new WP_Error('agentcart_payment_contract_mismatch', 'Payment receipt contract hash does not match the stored quote.', ['status' => 402]);
         }
+        if ($receipt_contract_hash === '') {
+            return new WP_Error('agentcart_payment_contract_required', 'Payment receipt must include payment_contract_hash.', ['status' => 402]);
+        }
 
         $verifier_url = self::payment_verifier_url();
         if ($verifier_url !== '') {
@@ -6475,19 +6489,19 @@ final class AgentCart_ShopBridge {
         if ($token !== '') {
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-        $response = wp_remote_post($verifier_url, [
-            'headers' => $headers,
-            'body' => wp_json_encode($payload),
-            'timeout' => 15,
-        ]);
+        $response = self::verifier_http_post($verifier_url, $payload, $headers, 15);
         if (is_wp_error($response)) {
-            return new WP_Error('agentcart_payment_verifier_failed', $response->get_error_message(), ['status' => 502]);
+            return new WP_Error(
+                'agentcart_payment_verifier_failed',
+                'External payment verifier request failed.',
+                ['status' => 502, 'detail' => ['error_code' => sanitize_key($response->get_error_code())]]
+            );
         }
         $status = intval(wp_remote_retrieve_response_code($response));
         $raw_body = wp_remote_retrieve_body($response);
         $decoded = json_decode($raw_body, true);
         if ($status < 200 || $status >= 300 || !is_array($decoded) || empty($decoded['ok'])) {
-            return new WP_Error('agentcart_payment_not_verified', 'External payment verifier rejected the receipt.', ['status' => 402, 'detail' => $decoded ?: $raw_body]);
+            return new WP_Error('agentcart_payment_not_verified', 'External payment verifier rejected the receipt.', ['status' => 402, 'detail' => self::verifier_error_detail($status, $decoded, $raw_body)]);
         }
         $expected_quote_hash = (string) ($quote['quote_hash'] ?? '');
         $verified_quote_hash = (string) ($decoded['quote_hash'] ?? '');
@@ -6517,7 +6531,10 @@ final class AgentCart_ShopBridge {
         ) {
             return new WP_Error('agentcart_payment_verifier_mismatch', 'External payment verifier response does not match the quote.', ['status' => 402]);
         }
-        if ($verified_contract_hash !== '' && !hash_equals($payment_contract_hash, $verified_contract_hash)) {
+        if ($verified_contract_hash === '') {
+            return new WP_Error('agentcart_payment_contract_required', 'External payment verifier must return payment_contract_hash.', ['status' => 402]);
+        }
+        if (!hash_equals($payment_contract_hash, $verified_contract_hash)) {
             return new WP_Error('agentcart_payment_contract_mismatch', 'External payment verifier returned the wrong payment contract hash.', ['status' => 402]);
         }
         if ($verified_rail === '' || $verified_rail !== $rail) {
@@ -6656,19 +6673,19 @@ final class AgentCart_ShopBridge {
         if ($token !== '') {
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-        $response = wp_remote_post($verifier_url, [
-            'headers' => $headers,
-            'body' => wp_json_encode($payload),
-            'timeout' => 20,
-        ]);
+        $response = self::verifier_http_post($verifier_url, $payload, $headers, 20);
         if (is_wp_error($response)) {
-            return new WP_Error('agentcart_refund_verifier_failed', $response->get_error_message(), ['status' => 502]);
+            return new WP_Error(
+                'agentcart_refund_verifier_failed',
+                'External refund verifier request failed.',
+                ['status' => 502, 'detail' => ['error_code' => sanitize_key($response->get_error_code())]]
+            );
         }
         $status = intval(wp_remote_retrieve_response_code($response));
         $raw_body = wp_remote_retrieve_body($response);
         $decoded = json_decode($raw_body, true);
         if ($status < 200 || $status >= 300 || !is_array($decoded) || empty($decoded['ok'])) {
-            return new WP_Error('agentcart_refund_not_verified', 'External payment verifier rejected the refund.', ['status' => 402, 'detail' => $decoded ?: $raw_body]);
+            return new WP_Error('agentcart_refund_not_verified', 'External payment verifier rejected the refund.', ['status' => 402, 'detail' => self::verifier_error_detail($status, $decoded, $raw_body)]);
         }
         $verified_amount = intval($decoded['amount_cents'] ?? -1);
         $verified_currency = strtoupper((string) ($decoded['currency'] ?? ''));
@@ -7783,12 +7800,69 @@ final class AgentCart_ShopBridge {
 
     private static function payment_verifier_url() {
         if (defined('AGENTCART_PAYMENT_VERIFIER_URL')) {
-            $value = trim((string) AGENTCART_PAYMENT_VERIFIER_URL);
+            $value = self::normalize_payment_verifier_url((string) AGENTCART_PAYMENT_VERIFIER_URL);
             if ($value !== '') {
                 return $value;
             }
         }
-        return trim((string) get_option(self::PAYMENT_VERIFIER_URL_OPTION, ''));
+        return self::normalize_payment_verifier_url((string) get_option(self::PAYMENT_VERIFIER_URL_OPTION, ''));
+    }
+
+    private static function normalize_payment_verifier_url($value) {
+        $url = esc_url_raw(trim((string) $value), ['http', 'https']);
+        if ($url === '') {
+            return '';
+        }
+        $parts = wp_parse_url($url);
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return '';
+        }
+        if (!in_array(strtolower((string) $parts['scheme']), ['http', 'https'], true)) {
+            return '';
+        }
+        if (!empty($parts['user']) || !empty($parts['pass'])) {
+            return '';
+        }
+        return $url;
+    }
+
+    private static function verifier_http_post($verifier_url, $payload, $headers, $timeout) {
+        $url = self::normalize_payment_verifier_url($verifier_url);
+        if ($url === '') {
+            return new WP_Error(
+                'agentcart_payment_verifier_url_invalid',
+                'Payment verifier URL must be a valid HTTP(S) URL without embedded credentials.',
+                ['status' => 400]
+            );
+        }
+        return wp_remote_post($url, [
+            'headers' => $headers,
+            'body' => wp_json_encode($payload),
+            'timeout' => intval($timeout),
+            'redirection' => 0,
+            'limit_response_size' => 1048576,
+        ]);
+    }
+
+    private static function verifier_error_detail($status, $decoded, $raw_body) {
+        $detail = [
+            'http_status' => intval($status),
+        ];
+        if (is_array($decoded)) {
+            foreach (['error', 'code', 'provider_error_class', 'provider_status', 'request_id', 'correlation_id'] as $field) {
+                if (isset($decoded[$field]) && is_scalar($decoded[$field])) {
+                    $detail[$field] = sanitize_text_field((string) $decoded[$field]);
+                }
+            }
+            if (isset($decoded['retryable'])) {
+                $detail['retryable'] = !empty($decoded['retryable']);
+            }
+            return $detail;
+        }
+        $body = (string) $raw_body;
+        $detail['raw_body_hash'] = hash('sha256', $body);
+        $detail['raw_body_bytes'] = strlen($body);
+        return $detail;
     }
 
     private static function payment_verifier_token() {
