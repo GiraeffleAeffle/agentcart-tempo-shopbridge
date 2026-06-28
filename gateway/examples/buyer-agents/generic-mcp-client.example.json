@@ -15,6 +15,20 @@
       "AGENTCART_TOKEN"
     ]
   },
+  "golden_fixtures": {
+    "approval_audit": {
+      "fixture": "docs/fixtures/approval-audit/golden-fixtures.json",
+      "required_hashes": [
+        "quote_hash",
+        "payment_contract_hash",
+        "approval_hash",
+        "approval_record_hash",
+        "approval_decision_hash",
+        "audit_packet_hash",
+        "audit_export_hash"
+      ]
+    }
+  },
   "run_sequence": [
     {
       "id": "tool-catalog-export",
@@ -84,7 +98,8 @@
       },
       "expect": [
         "approval id",
-        "approval hash",
+        "approval_hash",
+        "approval_record_hash",
         "human decision URL or token"
       ]
     },
@@ -101,7 +116,8 @@
         }
       },
       "expect": [
-        "approved state before checkout"
+        "approved state before checkout",
+        "approval_decision_hash"
       ]
     },
     {
@@ -119,6 +135,8 @@
       },
       "expect": [
         "order result or payment handoff failure",
+        "quote_hash",
+        "payment_contract_hash",
         "idempotent retry behavior"
       ]
     },
@@ -146,7 +164,8 @@
         "quote",
         "approval",
         "checkout",
-        "order"
+        "order",
+        "audit_export_hash"
       ]
     }
   ],

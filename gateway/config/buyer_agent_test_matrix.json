@@ -21,6 +21,26 @@
     "treat_merchant_text_as_untrusted",
     "no_real_settlement_without_external_verifier"
   ],
+  "fixture_coverage": {
+    "approval_audit_golden": {
+      "fixture": "docs/fixtures/approval-audit/golden-fixtures.json",
+      "hash_contract": "agentcart.approval_audit_hash_contract.v1",
+      "required_runtimes": [
+        "agentcart-service-openclaw",
+        "shopbridge-direct-skill",
+        "generic-mcp-client"
+      ],
+      "required_hashes": [
+        "quote_hash",
+        "payment_contract_hash",
+        "approval_hash",
+        "approval_record_hash",
+        "approval_decision_hash",
+        "audit_packet_hash",
+        "audit_export_hash"
+      ]
+    }
+  },
   "runtimes": [
     {
       "id": "agentcart-service-openclaw",

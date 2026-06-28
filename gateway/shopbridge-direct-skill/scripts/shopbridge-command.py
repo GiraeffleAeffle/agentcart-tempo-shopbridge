@@ -1720,6 +1720,8 @@ def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) 
     rail = normalize_payment_rail(protocol.get("id") or payment_rail)
     destination: dict[str, Any] = {
         "rail": rail,
+        "method": rail,
+        "protocol": str(protocol.get("protocol") or "mpp"),
         "available": protocol.get("available", True) is not False,
         "setup_required": protocol.get("setup_required") is True,
         "source": "quote.payment_requirements.protocols",
@@ -1832,16 +1834,17 @@ def approval_material(quote: dict[str, Any], *, payment_rail: str | None = None)
     merchant = quote.get("merchant") or {}
     shipping = quote.get("shipping") or {}
     delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
-    protocols = payment_protocols(quote)
     destination = payment_destination(quote, payment_rail)
-    selected_rail = destination.get("rail") or payment_rail
     trust = quote_trust_metadata(quote)
+    merchant_material = {
+        "id": quote.get("merchant_id") or merchant.get("id"),
+        "name": merchant.get("name"),
+    }
+    if "merchant_of_record" in quote:
+        merchant_material["merchant_of_record"] = quote.get("merchant_of_record")
     material = {
         "quote_id": quote.get("id"),
-        "merchant": {
-            "id": merchant.get("id"),
-            "name": merchant.get("name"),
-        },
+        "merchant": merchant_material,
         "items": [
             {
                 "product_id": item.get("product_id"),
@@ -1856,12 +1859,11 @@ def approval_material(quote: dict[str, Any], *, payment_rail: str | None = None)
         "shipping_cents": shipping.get("amount_cents"),
         "total_cents": quote.get("total_cents"),
         "currency": quote.get("currency"),
+        "ship_to": quote.get("ship_to"),
         "delivery": delivery,
         "quote_hash": quote.get("quote_hash"),
         "expires_at": quote.get("expires_at"),
-        "payment_rail": selected_rail,
         "payment_destination": destination,
-        "payment_methods": [protocol.get("id") for protocol in protocols if isinstance(protocol, dict)],
         "data_trust": untrusted_merchant_text_metadata(),
     }
     if trust:
@@ -3554,8 +3556,9 @@ def skill_audit_packet(
     approval_record: dict[str, Any],
     decision_record: dict[str, Any],
     receipt: dict[str, Any],
+    occurred_at: str | None = None,
 ) -> dict[str, Any]:
-    now = iso_now()
+    now = occurred_at or iso_now()
     receipt_reference = str(
         receipt.get("transaction_reference")
         or receipt.get("reference")
@@ -3695,6 +3698,7 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
         approval_record=approval_record,
         decision_record=decision_record,
         receipt=receipt,
+        occurred_at=str(args.get("audit_event_timestamp") or args.get("event_timestamp") or "") or None,
     )
     return {
         "agentcart_order_id": order_id,

@@ -70,6 +70,32 @@ class BuyerAgentAdapterExamplesTest(unittest.TestCase):
 
         self.assertTrue(any("human_approval_before_checkout" in error for error in errors), errors)
 
+    def test_generic_mcp_example_must_reference_approval_audit_fixture_hashes(self) -> None:
+        matrix = load_matrix()
+        config = load_config()
+        generic_config = next(example for example in config["examples"] if example["runtime_id"] == "generic-mcp-client")
+        generic_path = ROOT_DIR / generic_config["example_file"]
+        example = json.loads(generic_path.read_text(encoding="utf-8"))
+        example.pop("golden_fixtures")
+        runtime = {
+            runtime["id"]: runtime
+            for runtime in matrix["runtimes"]
+            if isinstance(runtime, dict)
+        }["generic-mcp-client"]
+        errors: list[str] = []
+
+        buyer_agent_adapter_examples_tool.validate_example_document(
+            example,
+            generic_config,
+            runtime,
+            set(matrix["required_capabilities"]),
+            set(matrix["required_safety_rules"]),
+            errors,
+            set(matrix["fixture_coverage"]["approval_audit_golden"]["required_hashes"]),
+        )
+
+        self.assertTrue(any("golden_fixtures.approval_audit" in error for error in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

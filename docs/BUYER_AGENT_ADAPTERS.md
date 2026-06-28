@@ -13,6 +13,11 @@ commands or tools, expected outputs, evidence artifacts, and safety rules. The
 gate in `scripts/check-buyer-agent-adapter-examples.py` cross-checks them
 against `gateway/config/buyer_agent_test_matrix.json`.
 
+The generic MCP example also references
+`docs/fixtures/approval-audit/golden-fixtures.json`, so non-OpenClaw clients are
+checked against the same approval, payment handoff, Audit Packet, import, and
+audit export hash contract as the service and Direct Skill paths.
+
 Run:
 
 ```sh

@@ -10,6 +10,10 @@ The machine-readable source is
 python3 scripts/check-buyer-agent-matrix.py
 ```
 
+The matrix also validates approval/audit golden-fixture coverage. The shared
+hash contract is `agentcart.approval_audit_hash_contract.v1`, with fixtures in
+`docs/fixtures/approval-audit/golden-fixtures.json`.
+
 Checked adapter examples for the runtime paths are documented in
 `docs/BUYER_AGENT_ADAPTERS.md` and validated with:
 
@@ -94,7 +98,9 @@ Required proof:
 
 This path proves that AgentCart does not depend on OpenClaw specifically. A
 client that can read tool schemas, call HTTP endpoints, preserve IDs/hashes, and
-render approval text to the human can integrate.
+render approval text to the human can integrate. Its checked example references
+the approval/audit golden fixture and the required quote, payment, approval,
+audit packet, and audit export hashes.
 
 ## Shared Capabilities
 

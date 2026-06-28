@@ -49,6 +49,22 @@ class BuyerAgentMatrixTest(unittest.TestCase):
 
         self.assertTrue(any("checkout_handoff" in error for error in errors), errors)
 
+    def test_missing_approval_audit_fixture_coverage_fails(self) -> None:
+        matrix = load_matrix()
+        matrix.pop("fixture_coverage")
+
+        errors = buyer_agent_matrix_tool.validate_matrix(matrix)
+
+        self.assertTrue(any("fixture_coverage" in error for error in errors), errors)
+
+    def test_incomplete_approval_audit_fixture_hashes_fail(self) -> None:
+        matrix = load_matrix()
+        matrix["fixture_coverage"]["approval_audit_golden"]["required_hashes"] = ["quote_hash"]
+
+        errors = buyer_agent_matrix_tool.validate_matrix(matrix)
+
+        self.assertTrue(any("approval_audit_golden.required_hashes" in error for error in errors), errors)
+
     def test_evidence_check_accepts_expected_files_for_one_runtime(self) -> None:
         matrix = load_matrix()
         first_runtime = matrix["runtimes"][0]
