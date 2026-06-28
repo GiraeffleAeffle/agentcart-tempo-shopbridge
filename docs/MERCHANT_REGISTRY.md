@@ -115,10 +115,15 @@ eligible merchants, but final bidding should not leak household demand broadly.
 9. Agent verifies the detached signature, merchant-domain proof, or future
    onchain proof over the registry record.
 10. Agent verifies that payment recipient/network in the manifest matches the
-   registry record.
+    registry record.
 11. Agent verifies that absolute catalog/quote endpoint URLs stay on the
     registered merchant domain.
-11. Agent requests private catalog/quote data from the merchant endpoint.
+12. Agent requests private catalog/quote data from the merchant endpoint.
+
+The shared trust contract for these checks is
+`agentcart.registry_trust_contract.v1`. Its reproducible fixture set lives in
+`docs/fixtures/registry/trust-fixtures.json` and is consumed by the gateway
+service, the ShopBridge Direct Skill, and the registry record CLI tool.
 
 ## Alpha Configuration
 
@@ -396,6 +401,9 @@ The gateway now:
   warnings, source errors, and operator action items;
 - persists authenticated registry monitor snapshots and new/resolved alert
   deltas, with an optional in-process scheduler;
+- keeps the shared registry trust fixtures in
+  `docs/fixtures/registry/trust-fixtures.json` so service, Direct Skill, and
+  registry tool verifier behavior stays aligned;
 - makes quote tournament exclude unverified external merchants by default.
 
 Once that interface is stable, the source of records can move from local JSON or

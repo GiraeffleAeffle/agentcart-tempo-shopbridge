@@ -561,7 +561,169 @@ def verify_registry_claim(record: dict[str, Any], manifest: dict[str, Any]) -> l
     claim_profile_ids = sorted(str(value) for value in claim.get("protocol_profile_ids", []) if value)
     if record_profile_ids and record_profile_ids != claim_profile_ids:
         errors.append("registry_claim_protocol_profile_ids_mismatch")
+    record_countries = sorted(str(value).upper() for value in record.get("ship_to_countries", []) if value)
+    claim_countries = sorted(str(value).upper() for value in claim.get("ship_to_countries", []) if value)
+    if record_countries and record_countries != claim_countries:
+        errors.append("registry_claim_ship_to_countries_mismatch")
+    record_protocols = sorted(str(value) for value in record.get("supported_protocols", []) if value)
+    claim_protocols = sorted(str(value) for value in claim.get("supported_protocols", []) if value)
+    if record_protocols and record_protocols != claim_protocols:
+        errors.append("registry_claim_supported_protocols_mismatch")
+    record_onchain_identity = registry_onchain_identity_payload(record)
+    claim_onchain_identity = registry_onchain_identity_payload(claim)
+    if record_onchain_identity and not claim_onchain_identity:
+        errors.append("registry_claim_onchain_identity_missing")
+    elif record_onchain_identity and sha256_hex(record_onchain_identity) != sha256_hex(claim_onchain_identity):
+        errors.append("registry_claim_onchain_identity_mismatch")
+    record_endpoints = record.get("endpoints") if isinstance(record.get("endpoints"), dict) else {}
+    claim_endpoints = claim.get("endpoints") if isinstance(claim.get("endpoints"), dict) else {}
+    for name, endpoint in record_endpoints.items():
+        supplied = claim_endpoints.get(name)
+        if endpoint and supplied and endpoint != supplied:
+            errors.append(f"registry_claim_endpoint_{name}_mismatch")
+        elif endpoint and not supplied:
+            errors.append(f"registry_claim_endpoint_{name}_missing")
     return errors
+
+
+def raw_registry_onchain_identity(value: dict[str, Any]) -> Any:
+    if "onchain_identity" in value:
+        return value.get("onchain_identity")
+    return value.get("erc8004_identity")
+
+
+def registry_onchain_identity_payload(value: dict[str, Any]) -> dict[str, str]:
+    raw = raw_registry_onchain_identity(value)
+    if not isinstance(raw, dict):
+        return {}
+    standard = str(raw.get("standard") or raw.get("type") or "").strip()
+    if not standard and "erc8004_identity" in value:
+        standard = "ERC-8004"
+    aliases = {
+        "chain": "chain_id",
+        "chainId": "chain_id",
+        "registry": "registry_address",
+        "registry_contract": "registry_address",
+        "contract": "registry_address",
+        "tx_hash": "registration_tx_hash",
+        "transaction_hash": "registration_tx_hash",
+        "uri": "registration_uri",
+    }
+    payload: dict[str, str] = {}
+    if standard:
+        payload["standard"] = standard
+    for source_key in (
+        "chain_id",
+        "chain",
+        "chainId",
+        "registry_address",
+        "registry",
+        "registry_contract",
+        "contract",
+        "service_id",
+        "agent_id",
+        "registration_uri",
+        "uri",
+        "registration_tx_hash",
+        "tx_hash",
+        "transaction_hash",
+        "attestation_hash",
+        "proof_url",
+    ):
+        target_key = aliases.get(source_key, source_key)
+        if target_key in payload:
+            continue
+        text = str(raw.get(source_key) or "").strip()
+        if text:
+            payload[target_key] = text
+    return payload
+
+
+def verify_registry_onchain_identity(record: dict[str, Any]) -> list[str]:
+    raw = raw_registry_onchain_identity(record)
+    if raw is None:
+        return []
+    if not isinstance(raw, dict):
+        return ["onchain_identity_must_be_object"]
+    errors: list[str] = []
+    payload = registry_onchain_identity_payload(record)
+    standard = payload.get("standard", "").lower().replace("_", "-")
+    if standard not in {"erc-8004", "erc8004", "eip-8004", "eip8004"}:
+        errors.append("onchain_identity_standard_unsupported")
+    if not any(
+        payload.get(field)
+        for field in (
+            "agent_id",
+            "service_id",
+            "registration_uri",
+            "registration_tx_hash",
+            "attestation_hash",
+            "registry_address",
+        )
+    ):
+        errors.append("onchain_identity_missing_anchor")
+    chain_id = payload.get("chain_id", "")
+    if chain_id and not re.fullmatch(r"(eip155:)?[0-9]{1,20}", chain_id):
+        errors.append("onchain_identity_chain_id_invalid")
+    registry_address = payload.get("registry_address", "")
+    if registry_address and not re.fullmatch(r"0x[0-9a-fA-F]{40}", registry_address):
+        errors.append("onchain_identity_registry_address_invalid")
+    for hash_field in ("registration_tx_hash", "attestation_hash"):
+        supplied_hash = payload.get(hash_field, "")
+        if supplied_hash.startswith("0x") and not re.fullmatch(r"0x[0-9a-fA-F]{64}", supplied_hash):
+            errors.append(f"onchain_identity_{hash_field}_invalid")
+    proof_url = payload.get("proof_url", "")
+    if proof_url:
+        parsed = parsed_url(proof_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            errors.append("onchain_identity_proof_url_invalid")
+        elif parsed.scheme != "https" and not local_registry_host(parsed.hostname or ""):
+            errors.append("onchain_identity_proof_url_requires_https")
+    return errors
+
+
+def manifest_payment_binding(manifest: dict[str, Any]) -> tuple[str, str]:
+    for profile in protocol_profiles(manifest):
+        profile_id = str(profile.get("id") or "")
+        payment_protocol_id = str(profile.get("payment_protocol_id") or "")
+        if profile_id in {"mpp-http-auth", "tempo-mpp"} or payment_protocol_id == "tempo-mpp":
+            network = str(profile.get("network") or "").strip()
+            recipient = str(profile.get("recipient") or "").strip()
+            if network or recipient:
+                return network, recipient
+    protocols = manifest.get("protocols") if isinstance(manifest.get("protocols"), list) else []
+    for protocol in protocols:
+        if isinstance(protocol, dict) and str(protocol.get("id") or "") == "tempo-mpp":
+            network = str(protocol.get("network") or "").strip()
+            recipient = str(protocol.get("recipient") or "").strip()
+            if network or recipient:
+                return network, recipient
+    payment = manifest.get("payment") if isinstance(manifest.get("payment"), dict) else {}
+    return str(payment.get("network") or "").strip(), str(payment.get("recipient") or "").strip()
+
+
+def verify_registry_payment_binding(record: dict[str, Any], manifest: dict[str, Any]) -> str | None:
+    manifest_network, manifest_recipient = manifest_payment_binding(manifest)
+    record_recipient = str(record.get("payment_recipient") or "").lower()
+    if record_recipient and not manifest_recipient:
+        return "payment_recipient_missing_in_manifest"
+    if record_recipient and manifest_recipient and record_recipient != manifest_recipient.lower():
+        return "payment_recipient_mismatch"
+    record_network = str(record.get("payment_network") or "").lower()
+    if record_network and manifest_network and record_network != manifest_network.lower():
+        return "payment_network_mismatch"
+    return None
+
+
+def verify_registry_shipping_scope(record: dict[str, Any], manifest: dict[str, Any]) -> str | None:
+    record_countries = {str(value).upper() for value in record.get("ship_to_countries", []) if value}
+    delivery = manifest.get("delivery") if isinstance(manifest.get("delivery"), dict) else {}
+    manifest_countries = {str(value).upper() for value in delivery.get("ship_to_countries", []) if value}
+    if record_countries and not manifest_countries:
+        return "shipping_scope_missing_in_manifest"
+    if record_countries and manifest_countries and not record_countries.issubset(manifest_countries):
+        return "shipping_scope_mismatch"
+    return None
 
 
 def protocol_profiles(document: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -838,6 +1000,7 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
     if record.get("revoked_at"):
         errors.append("record_revoked")
     errors.extend(verify_registry_updated_at(record, args))
+    errors.extend(verify_registry_onchain_identity(record))
     if parsed_manifest.scheme not in {"http", "https"} or not parsed_manifest.netloc:
         errors.append("manifest_url_invalid")
     elif parsed_manifest.scheme != "https" and not local_registry_host(parsed_manifest.hostname or ""):
@@ -881,6 +1044,12 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
     if isinstance(manifest, dict):
         errors.extend(verify_registry_claim(record, manifest))
         errors.extend(endpoint_host_errors(record, manifest))
+        payment_error = verify_registry_payment_binding(record, manifest)
+        if payment_error:
+            errors.append(payment_error)
+        shipping_error = verify_registry_shipping_scope(record, manifest)
+        if shipping_error:
+            errors.append(shipping_error)
         manifest_merchant = manifest.get("merchant") if isinstance(manifest.get("merchant"), dict) else {}
         if record.get("merchant_id") and manifest_merchant.get("id") and record.get("merchant_id") != manifest_merchant.get("id"):
             errors.append("merchant_id_mismatch")
