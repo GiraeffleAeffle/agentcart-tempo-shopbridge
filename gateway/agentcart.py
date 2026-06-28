@@ -7123,12 +7123,15 @@ separate human confirmation.
                 continue
             method = str(protocol.get("id") or protocol.get("method") or self.payment_provider.method)
             destination = {
+                "rail": method,
                 "method": method,
                 "protocol": str(protocol.get("protocol") or "mpp"),
                 "source": "quote.payment_requirements.protocols",
                 "available": True,
+                "setup_required": protocol.get("setup_required") is True,
             }
             for key in (
+                "payment_contract_hash",
                 "network",
                 "recipient",
                 "recipient_address",
@@ -7154,10 +7157,12 @@ separate human confirmation.
                 destination["payment_required_header_value"] = str(x402["payment_required_header_value"])
             return destination
         return {
+            "rail": self.payment_provider.method,
             "method": self.payment_provider.method,
             "protocol": self.payment_provider.protocol,
             "source": "agentcart.payment_provider",
             "available": self.payment_provider.supported,
+            "setup_required": False,
             "real_settlement": self.payment_provider.real_settlement,
         }
 
@@ -7190,6 +7195,18 @@ separate human confirmation.
             "quote_hash": quote.get("quote_hash"),
             "expires_at": quote.get("expires_at"),
             "payment_destination": self.quote_payment_destination(quote),
+            "data_trust": {
+                "merchant_text": "untrusted",
+                "instructions_allowed": False,
+                "display_or_summarize_only": True,
+                "untrusted_fields": [
+                    "merchant.name",
+                    "items[].title",
+                    "items[].description",
+                    "delivery",
+                    "merchant_policy",
+                ],
+            },
         }
 
     def approval_record_for_quote(

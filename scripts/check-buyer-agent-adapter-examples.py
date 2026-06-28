@@ -51,6 +51,7 @@ def validate_example_document(
     required_capabilities: set[str],
     required_safety_rules: set[str],
     errors: list[str],
+    approval_audit_required_hashes: set[str] | None = None,
 ) -> None:
     example_id = str(expected.get("id") or "")
     require(example.get("schema") == "agentcart.buyer_agent_adapter_example.v1", f"{example_id}: example schema must be agentcart.buyer_agent_adapter_example.v1", errors)
@@ -117,6 +118,23 @@ def validate_example_document(
         missing_evidence = set(required_evidence) - set(evidence)
         require(not missing_evidence, f"{example_id}: missing evidence outputs: {', '.join(sorted(missing_evidence))}", errors)
 
+    if str(example.get("runtime_id") or "") == "generic-mcp-client" and approval_audit_required_hashes:
+        golden_fixtures = example.get("golden_fixtures") if isinstance(example.get("golden_fixtures"), dict) else {}
+        approval_audit = golden_fixtures.get("approval_audit") if isinstance(golden_fixtures.get("approval_audit"), dict) else {}
+        require(bool(approval_audit), f"{example_id}: golden_fixtures.approval_audit is required", errors)
+        if approval_audit:
+            fixture = str(approval_audit.get("fixture") or "")
+            require(
+                fixture == "docs/fixtures/approval-audit/golden-fixtures.json",
+                f"{example_id}: approval_audit fixture must reference docs/fixtures/approval-audit/golden-fixtures.json",
+                errors,
+            )
+            required_hashes = approval_audit.get("required_hashes")
+            require(isinstance(required_hashes, list) and bool(required_hashes), f"{example_id}: approval_audit.required_hashes must be a non-empty list", errors)
+            if isinstance(required_hashes, list):
+                missing_hashes = approval_audit_required_hashes - set(required_hashes)
+                require(not missing_hashes, f"{example_id}: approval_audit.required_hashes missing: {', '.join(sorted(missing_hashes))}", errors)
+
 
 def validate_examples(config: dict[str, Any], matrix: dict[str, Any]) -> list[str]:
     errors: list[str] = []
@@ -134,6 +152,14 @@ def validate_examples(config: dict[str, Any], matrix: dict[str, Any]) -> list[st
     matrix_safety_rules = matrix.get("required_safety_rules")
     required_safety_rules = set(matrix_safety_rules) if isinstance(matrix_safety_rules, list) else set()
     require(bool(required_safety_rules), "matrix.required_safety_rules must be available", errors)
+
+    fixture_coverage = matrix.get("fixture_coverage") if isinstance(matrix.get("fixture_coverage"), dict) else {}
+    approval_audit = fixture_coverage.get("approval_audit_golden") if isinstance(fixture_coverage.get("approval_audit_golden"), dict) else {}
+    approval_audit_hashes = (
+        set(approval_audit.get("required_hashes"))
+        if isinstance(approval_audit.get("required_hashes"), list)
+        else set()
+    )
 
     examples = config.get("examples")
     require(isinstance(examples, list) and bool(examples), "examples must be a non-empty list", errors)
@@ -170,6 +196,7 @@ def validate_examples(config: dict[str, Any], matrix: dict[str, Any]) -> list[st
                     required_capabilities,
                     required_safety_rules,
                     errors,
+                    approval_audit_hashes,
                 )
 
     if isinstance(required_runtime_ids, list):

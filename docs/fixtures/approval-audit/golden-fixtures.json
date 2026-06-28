@@ -1,0 +1,157 @@
+{
+  "schema": "agentcart.approval_audit_golden_fixtures.v1",
+  "hash_contract": "agentcart.approval_audit_hash_contract.v1",
+  "description": "Golden fixtures for approval, payment handoff, skill audit packet import, and audit export hash preservation.",
+  "generated_at": "2026-06-28T13:07:00Z",
+  "final_quote": {
+    "id": "fixture_quote_approval_audit_001",
+    "state": "quoted",
+    "agent_id": "fixture-buyer-agent",
+    "reason": "Buyer asked for one pack of tea.",
+    "merchant_id": "fixture-tea-shop",
+    "merchant": {
+      "id": "fixture-tea-shop",
+      "name": "Fixture Tea Shop",
+      "merchant_of_record": {
+        "name": "Fixture Tea Shop GmbH",
+        "country": "DE",
+        "vat_id": "DE123456789",
+        "support_email": "support@fixture-shop.example"
+      },
+      "terms_url": "https://fixture-shop.example/terms",
+      "returns_url": "https://fixture-shop.example/returns"
+    },
+    "merchant_of_record": {
+      "name": "Fixture Tea Shop GmbH",
+      "country": "DE",
+      "vat_id": "DE123456789",
+      "support_email": "support@fixture-shop.example"
+    },
+    "items": [
+      {
+        "product_id": "tea_sencha_100g",
+        "sku": "TEA-SENCHA-100",
+        "title": "Fixture Sencha Tea 100g",
+        "quantity": 1,
+        "unit_price_cents": 990,
+        "line_total_cents": 990,
+        "currency": "EUR",
+        "category": "tea",
+        "vat_rate_bps": 700
+      }
+    ],
+    "ship_to": {
+      "country": "DE",
+      "postal_code": "10115",
+      "postcode": "10115"
+    },
+    "subtotal_cents": 990,
+    "shipping": {
+      "amount_cents": 490,
+      "currency": "EUR",
+      "method": "demo-standard",
+      "vat_rate_bps": 1900
+    },
+    "vat_lines": [
+      {
+        "vat_rate_bps": 700,
+        "net_cents": 925,
+        "vat_cents": 65
+      },
+      {
+        "vat_rate_bps": 1900,
+        "net_cents": 412,
+        "vat_cents": 78
+      }
+    ],
+    "total_cents": 1480,
+    "currency": "EUR",
+    "delivery_estimate": {
+      "min_days": 2,
+      "max_days": 4,
+      "label": "2-4 business days"
+    },
+    "delivery_window": {
+      "label": "2-4 business days",
+      "start": "2026-07-01",
+      "end": "2026-07-03",
+      "timezone": "Europe/Berlin"
+    },
+    "stock_reserved_until": "2026-06-28T13:15:00Z",
+    "expires_at": "2026-06-28T13:15:00Z",
+    "terms_url": "https://fixture-shop.example/terms",
+    "returns_url": "https://fixture-shop.example/returns",
+    "payment_requirements": {
+      "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "verification": {
+        "external_verifier_configured": true,
+        "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "protocols": [
+        {
+          "id": "stripe-card-mpp",
+          "protocol": "mpp",
+          "available": true,
+          "setup_required": false,
+          "network_id": "acct_fixture_shop",
+          "stripe_profile_id": "acct_fixture_shop",
+          "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    "quote_hash": "00bd48d6e839d6d76add56b7bb993e2ab0bf15f4a73346221cf017edf1a3aa1a"
+  },
+  "payment_receipt": {
+    "id": "skill_payrcpt_fixture_001",
+    "method": "stripe-card-mpp",
+    "status": "succeeded",
+    "amount_cents": 1480,
+    "currency": "EUR",
+    "quote_hash": "00bd48d6e839d6d76add56b7bb993e2ab0bf15f4a73346221cf017edf1a3aa1a",
+    "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "stripe_profile_id": "acct_fixture_shop",
+    "authorization": "fixture-card-auth-001",
+    "transaction_reference": "fixture-txn-001"
+  },
+  "decision": {
+    "service_approval_id": "approval_fixture_001",
+    "channel": "agent_chat",
+    "approver": "fixture-human",
+    "approved_at": "2026-06-28T13:05:00Z",
+    "audit_event_timestamp": "2026-06-28T13:06:00Z",
+    "imported_at": "2026-06-28T13:07:00Z",
+    "policy_result": {
+      "decision": "allow",
+      "matched_rules": [],
+      "reasons": [
+        "golden fixture allows checkout"
+      ]
+    }
+  },
+  "expected_hashes": {
+    "quote_hash": "00bd48d6e839d6d76add56b7bb993e2ab0bf15f4a73346221cf017edf1a3aa1a",
+    "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "approval_hash": "4a631dd4eb554335ced382c96168654788bcf859db0dfd8261d95ba7855f91ca",
+    "service_approval_record_hash": "fbacb6781804998ff99d952c8a505e6d433346d880bc0fdd1a27ce1f2a88d0a9",
+    "service_approval_decision_hash": "cb5ea949b6a74896a82d19e87decdf04d63bdeadbbccdeae4511f75350ea5b84",
+    "skill_approval_record_hash": "094c708989e55a76ba7a67b9447781df40e5ea0a51a847d5a40e6bae5006a9db",
+    "skill_approval_decision_hash": "edc32f101bf9b1d66004a870eb8d2fb968e38dbf76b27c9c05a26d1ce449824e",
+    "payment_handoff_hash": "8048acc42a8e6fbd3d717085b371444da8a0a8bc9e8a608f13fd20f8dab06d0a",
+    "audit_packet_hash": "0616b5a8519c4f002321c9d0ec38270071f26d63c086f4af9e4c3599d121f822",
+    "audit_export_hash": "6fbf9a2e7173ebf8405544fcebc9dc3c5e9299cb5a31442057b695fc1600a3c7"
+  },
+  "generic_mcp_required_hashes": [
+    "quote_hash",
+    "payment_contract_hash",
+    "approval_hash",
+    "approval_record_hash",
+    "approval_decision_hash",
+    "audit_packet_hash",
+    "audit_export_hash"
+  ],
+  "tamper_case": {
+    "field": "quote_hash",
+    "value": "tampered-quote-hash",
+    "expected_error": "audit_packet_hash is invalid"
+  }
+}

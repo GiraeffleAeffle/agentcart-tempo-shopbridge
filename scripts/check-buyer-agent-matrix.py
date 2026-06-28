@@ -34,6 +34,17 @@ REQUIRED_SAFETY_RULES = {
     "no_real_settlement_without_external_verifier",
 }
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+REQUIRED_APPROVAL_AUDIT_HASHES = {
+    "quote_hash",
+    "payment_contract_hash",
+    "approval_hash",
+    "approval_record_hash",
+    "approval_decision_hash",
+    "audit_packet_hash",
+    "audit_export_hash",
+}
+
 
 def load_json(path: pathlib.Path) -> dict[str, Any]:
     try:
@@ -48,6 +59,73 @@ def load_json(path: pathlib.Path) -> dict[str, Any]:
 def require(condition: bool, message: str, errors: list[str]) -> None:
     if not condition:
         errors.append(message)
+
+
+def resolve_repo_path(path_value: str) -> pathlib.Path:
+    path = pathlib.Path(path_value)
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+def validate_fixture_coverage(data: dict[str, Any], seen_runtime_ids: set[str]) -> list[str]:
+    errors: list[str] = []
+    coverage = data.get("fixture_coverage")
+    require(isinstance(coverage, dict), "fixture_coverage must be an object", errors)
+    if not isinstance(coverage, dict):
+        return errors
+
+    approval_audit = coverage.get("approval_audit_golden")
+    require(isinstance(approval_audit, dict), "fixture_coverage.approval_audit_golden must be an object", errors)
+    if not isinstance(approval_audit, dict):
+        return errors
+
+    require(
+        approval_audit.get("hash_contract") == "agentcart.approval_audit_hash_contract.v1",
+        "approval_audit_golden.hash_contract must be agentcart.approval_audit_hash_contract.v1",
+        errors,
+    )
+    fixture_path = str(approval_audit.get("fixture") or "")
+    require(fixture_path != "", "approval_audit_golden.fixture is required", errors)
+    fixture: dict[str, Any] = {}
+    if fixture_path:
+        path = resolve_repo_path(fixture_path)
+        require(path.exists(), f"approval_audit_golden.fixture does not exist: {fixture_path}", errors)
+        if path.exists():
+            fixture = load_json(path)
+            require(
+                fixture.get("schema") == "agentcart.approval_audit_golden_fixtures.v1",
+                "approval_audit_golden.fixture schema must be agentcart.approval_audit_golden_fixtures.v1",
+                errors,
+            )
+            require(
+                fixture.get("hash_contract") == approval_audit.get("hash_contract"),
+                "approval_audit_golden.fixture hash_contract must match matrix coverage",
+                errors,
+            )
+
+    required_runtimes = approval_audit.get("required_runtimes")
+    require(isinstance(required_runtimes, list) and bool(required_runtimes), "approval_audit_golden.required_runtimes must be a non-empty list", errors)
+    if isinstance(required_runtimes, list):
+        missing_runtimes = set(required_runtimes) - seen_runtime_ids
+        require(not missing_runtimes, f"approval_audit_golden references missing runtimes: {', '.join(sorted(missing_runtimes))}", errors)
+        missing_required_runtimes = REQUIRED_RUNTIME_IDS - set(required_runtimes)
+        require(
+            not missing_required_runtimes,
+            f"approval_audit_golden.required_runtimes must include: {', '.join(sorted(missing_required_runtimes))}",
+            errors,
+        )
+
+    required_hashes = approval_audit.get("required_hashes")
+    require(isinstance(required_hashes, list) and bool(required_hashes), "approval_audit_golden.required_hashes must be a non-empty list", errors)
+    if isinstance(required_hashes, list):
+        missing_hashes = REQUIRED_APPROVAL_AUDIT_HASHES - set(required_hashes)
+        require(not missing_hashes, f"approval_audit_golden.required_hashes missing: {', '.join(sorted(missing_hashes))}", errors)
+        fixture_hashes = set(fixture.get("generic_mcp_required_hashes", [])) if isinstance(fixture.get("generic_mcp_required_hashes"), list) else set()
+        require(
+            REQUIRED_APPROVAL_AUDIT_HASHES.issubset(fixture_hashes),
+            "approval_audit_golden.fixture generic_mcp_required_hashes must include required hashes",
+            errors,
+        )
+    return errors
 
 
 def validate_matrix(data: dict[str, Any]) -> list[str]:
@@ -108,6 +186,7 @@ def validate_matrix(data: dict[str, Any]) -> list[str]:
 
     missing_runtimes = REQUIRED_RUNTIME_IDS - seen_runtime_ids
     require(not missing_runtimes, f"missing required runtimes: {', '.join(sorted(missing_runtimes))}", errors)
+    errors.extend(validate_fixture_coverage(data, seen_runtime_ids))
 
     exit_criteria = data.get("pilot_exit_criteria")
     require(isinstance(exit_criteria, list) and len(exit_criteria) >= 4, "pilot_exit_criteria must contain at least four entries", errors)
