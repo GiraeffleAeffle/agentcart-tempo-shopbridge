@@ -12,6 +12,7 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIXTURE_DIR = ROOT / "docs" / "fixtures" / "verifier"
 PLUGIN = ROOT / "woocommerce-shopbridge" / "agentcart-shopbridge" / "agentcart-shopbridge.php"
+VERIFIER_CLIENT = PLUGIN.parent / "includes" / "trait-agentcart-shopbridge-verifier-client.php"
 STRIPE_VERIFIER = ROOT / "gateway" / "scripts" / "stripe-mpp-verifier.mjs"
 
 
@@ -302,8 +303,12 @@ def function_body(source: str, name: str) -> str:
     return source[start : index - 1]
 
 
+def plugin_contract_source() -> str:
+    return PLUGIN.read_text(encoding="utf-8") + "\n" + VERIFIER_CLIENT.read_text(encoding="utf-8")
+
+
 def verify_plugin_contract_fields() -> None:
-    source = PLUGIN.read_text(encoding="utf-8")
+    source = plugin_contract_source()
     payment_body = function_body(source, "call_payment_verifier")
     refund_body = function_body(source, "call_refund_verifier")
     for literal in [
