@@ -33,6 +33,112 @@ else
 fi
 wp plugin activate agentcart-shopbridge --allow-root
 
+reset_agentcart_demo_state() {
+  wp eval "$(cat <<'PHP'
+if (!class_exists('WooCommerce')) {
+    return;
+}
+
+$deleted_orders = 0;
+$order_statuses = array_keys(wc_get_order_statuses());
+$orders = wc_get_orders([
+    'limit' => -1,
+    'return' => 'objects',
+    'type' => 'shop_order',
+    'status' => $order_statuses,
+    'meta_query' => [
+        'relation' => 'OR',
+        [
+            'key' => '_agentcart_order_id',
+            'compare' => 'EXISTS',
+        ],
+        [
+            'key' => '_agentcart_sandbox_checkout_test',
+            'compare' => 'EXISTS',
+        ],
+    ],
+]);
+foreach ($orders as $order) {
+    if ($order instanceof WC_Order && $order->delete(true)) {
+        $deleted_orders++;
+    }
+}
+
+$reset_options = [
+    'agentcart_shopbridge_registry_public_check',
+    'agentcart_shopbridge_registry_connection_status',
+    'agentcart_shopbridge_registry_health_check',
+    'agentcart_shopbridge_registry_revoked_records',
+    'agentcart_shopbridge_sandbox_quote_check',
+    'agentcart_shopbridge_sandbox_checkout_test',
+    'agentcart_shopbridge_product_exposure_preview',
+    'agentcart_shopbridge_product_exposure_snapshot',
+    'agentcart_shopbridge_stock_holds',
+    'agentcart_shopbridge_signed_request_audit',
+];
+foreach ($reset_options as $option) {
+    delete_option($option);
+}
+
+global $wpdb;
+$prefixes = [
+    'agentcart_shopbridge_checkout_lock_',
+    'agentcart_shopbridge_quote_lock_',
+    'agentcart_shopbridge_refund_lock_',
+    'agentcart_shopbridge_cancellation_lock_',
+    '_transient_agentcart_shopbridge_quote_',
+    '_transient_timeout_agentcart_shopbridge_quote_',
+    '_transient_agentcart_shopbridge_rate_',
+    '_transient_timeout_agentcart_shopbridge_rate_',
+    '_transient_agentcart_shopbridge_signed_nonce_',
+    '_transient_timeout_agentcart_shopbridge_signed_nonce_',
+];
+foreach ($prefixes as $prefix) {
+    $wpdb->query(
+        $wpdb->prepare(
+            "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+            $wpdb->esc_like($prefix) . '%'
+        )
+    );
+}
+
+$demo_skus = [
+    'AGENT-TEA-HAZEL',
+    'AGENT-SHAVER-1',
+    'AGENT-DETERGENT-1',
+    'AGENT-COFFEE-1',
+];
+$reset_product_meta = [
+    '_agentcart_checkout_blocked',
+    '_agentcart_max_quantity',
+    '_agentcart_shipping_countries',
+    '_agentcart_perishable',
+    '_agentcart_deposit_possible',
+    '_agentcart_final_sale',
+    '_agentcart_substitution_sensitive',
+    '_agentcart_restricted_goods_allowed',
+];
+foreach ($demo_skus as $sku) {
+    $product_id = wc_get_product_id_by_sku($sku);
+    if (!$product_id) {
+        continue;
+    }
+    foreach ($reset_product_meta as $meta_key) {
+        delete_post_meta($product_id, $meta_key);
+    }
+    update_post_meta($product_id, '_agentcart_enabled', 'yes');
+}
+
+wp_cache_flush();
+printf("AgentCart demo reset cleared %d AgentCart-created orders and ephemeral ShopBridge state.\n", $deleted_orders);
+PHP
+)" --allow-root
+}
+
+if [ "${AGENTCART_DEMO_RESET:-0}" = "1" ]; then
+  reset_agentcart_demo_state
+fi
+
 wp option update blogname "AgentCart Demo Shop" --allow-root
 wp option update home "${WOO_PUBLIC_URL:-http://127.0.0.1:8098}" --allow-root
 wp option update siteurl "${WOO_PUBLIC_URL:-http://127.0.0.1:8098}" --allow-root
@@ -358,7 +464,7 @@ product_description() {
       printf '%s' '<p>A chocolate-hazelnut herbal tea refill for the household stock demo. The agent can read stock, VAT, shipping, delivery estimate, merchant identity, and checkout eligibility before asking for approval.</p><ul><li>100 g refill pack</li><li>Ships from the opt-in AgentCart demo merchant</li><li>Used for the favorite-tea purchase flow</li></ul>'
       ;;
     AGENT-SHAVER-1)
-      printf '%s' '<p>A compact travel shaver used to prove that AgentCart is not tea-specific. The same WooCommerce plugin exposes final quote terms and lets AgentCart create a paid order after household approval.</p><ul><li>USB-C style travel kit</li><li>Small package suitable for standard shipping</li><li>Personal-care category allowed by household policy</li></ul>'
+      printf '%s' '<p>A compact travel shaver used to prove that AgentCart works across ordinary product categories. The same WooCommerce plugin exposes final quote terms and lets AgentCart create a paid order after household approval.</p><ul><li>USB-C style travel kit</li><li>Small package suitable for standard shipping</li><li>Personal-care category allowed by household policy</li></ul>'
       ;;
     AGENT-DETERGENT-1)
       printf '%s' '<p>A household detergent refill for recurring stock automation demos. It shows how non-food household supplies can be discovered, quoted, approved, paid, ordered, and added to Vikunja.</p><ul><li>1.5 L refill pack</li><li>Reusable household supply SKU</li><li>Agent-readable stock and delivery estimate</li></ul>'
@@ -434,6 +540,34 @@ returns_page_id="$(ensure_page returns "Returns and Refunds" '<p>Demo returns pa
 wp option update show_on_front page --allow-root
 wp option update page_on_front "$home_page_id" --allow-root
 wp option update woocommerce_terms_page_id "$terms_page_id" --allow-root
+
+configure_shopbridge_demo_settings() {
+  local public_url="${WOO_PUBLIC_URL:-http://127.0.0.1:8098}"
+  wp option update agentcart_shopbridge_merchant_id "${AGENTCART_MERCHANT_ID:-woocommerce-demo-shop}" --allow-root
+  wp option update agentcart_shopbridge_token "${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}" --allow-root
+  wp option update agentcart_shopbridge_support_email "${WOO_ADMIN_EMAIL:-merchant@example.test}" --allow-root
+  wp option update agentcart_shopbridge_returns_url "${AGENTCART_RETURNS_URL:-${public_url}/returns}" --allow-root
+  wp option update agentcart_shopbridge_substitution_policy "${AGENTCART_SUBSTITUTION_POLICY:-approval_required}" --allow-root
+  wp option update agentcart_shopbridge_cancellation_window_minutes "${AGENTCART_CANCELLATION_WINDOW_MINUTES:-30}" --allow-root
+  wp option update agentcart_shopbridge_tempo_network "${AGENTCART_TEMPO_NETWORK:-testnet}" --allow-root
+  wp option update agentcart_shopbridge_tempo_recipient "${AGENTCART_TEMPO_RECIPIENT_ADDRESS:-}" --allow-root
+  wp option update agentcart_shopbridge_stripe_profile_id "${AGENTCART_STRIPE_PROFILE_ID:-}" --allow-root
+  wp option update agentcart_shopbridge_payment_verifier_url "${AGENTCART_PAYMENT_VERIFIER_URL:-}" --allow-root
+  wp option update agentcart_shopbridge_payment_verifier_token "${AGENTCART_PAYMENT_VERIFIER_TOKEN:-}" --allow-root
+  wp option update agentcart_shopbridge_checkout_mode "${AGENTCART_CHECKOUT_MODE:-trusted_token_or_verifier}" --allow-root
+  wp option update agentcart_shopbridge_signed_request_mode "${AGENTCART_SIGNED_REQUEST_MODE:-off}" --allow-root
+  wp option update agentcart_shopbridge_product_exposure_mode "${AGENTCART_PRODUCT_EXPOSURE_MODE:-manual}" --allow-root
+  wp option update agentcart_shopbridge_product_exposure_tag "${AGENTCART_PRODUCT_EXPOSURE_TAG:-agentcart-safe}" --allow-root
+  wp option update agentcart_shopbridge_product_exposure_categories "${AGENTCART_PRODUCT_EXPOSURE_CATEGORIES:-}" --allow-root
+  wp option update agentcart_shopbridge_product_blocked_categories "${AGENTCART_PRODUCT_BLOCKED_CATEGORIES:-}" --allow-root
+  wp option update agentcart_shopbridge_stock_hold_mode "${AGENTCART_STOCK_HOLD_MODE:-soft}" --allow-root
+  wp option update agentcart_shopbridge_stock_hold_minutes "${AGENTCART_STOCK_HOLD_MINUTES:-15}" --allow-root
+  wp option delete agentcart_shopbridge_registry_public_check --allow-root >/dev/null 2>&1 || true
+  wp option delete agentcart_shopbridge_registry_connection_status --allow-root >/dev/null 2>&1 || true
+  wp option delete agentcart_shopbridge_registry_health_check --allow-root >/dev/null 2>&1 || true
+}
+
+configure_shopbridge_demo_settings
 
 wp eval "$(cat <<'PHP'
 if (class_exists('WooCommerce')) {

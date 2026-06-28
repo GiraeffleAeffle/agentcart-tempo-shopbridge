@@ -63,6 +63,13 @@ demo products through the bundled `wpcli` service:
 docker-compose --profile woocommerce-demo run --rm woocommerce-seed
 ```
 
+To reset the homelab demo shop without dropping volumes, run the same seed
+service with reset mode enabled:
+
+```sh
+AGENTCART_DEMO_RESET=1 docker-compose --profile woocommerce-demo run --rm woocommerce-seed
+```
+
 WooCommerce admin defaults come from `.env`: `WOO_ADMIN_USER` and
 `WOO_ADMIN_PASSWORD`. AgentCart aftercare defaults for the demo shop are also
 set from `.env`: `AGENTCART_RETURNS_URL`, `AGENTCART_SUBSTITUTION_POLICY`, and

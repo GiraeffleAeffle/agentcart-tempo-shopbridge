@@ -548,8 +548,8 @@
       { name: "Merchant UX", value: 69, note: "settings, setup wizard, readiness, registry actions, registry health summary, product exposure diff checkpoints, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 83, note: "service path, packaged direct skill with HTTPS/public origin checks, origin-bound approvals, direct audit import, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
-      { name: "Woo Release", value: 66, note: "ZIP, package checks, semantic-release GitHub artifact workflow, frozen endpoint contract, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
-      { name: "Operations", value: 66, note: "smoke pipeline, deployed-runtime compile gate, live production-readiness smoke, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, merchant support diagnostics, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, evidence-required beta release gate, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
+      { name: "Woo Release", value: 67, note: "ZIP, package checks, semantic-release GitHub artifact workflow, frozen endpoint contract, demo reset command, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
+      { name: "Operations", value: 67, note: "smoke pipeline, demo reset/reseed command, deployed-runtime compile gate, live production-readiness smoke, live rate-limit abuse smoke, registry monitor snapshots, verifier logs/metrics/alerts, merchant support diagnostics, redacted commerce ops event delivery, delivery exception surfaces, pilot checklist validation, evidence-required beta release gate, buyer-agent matrix validation, prompt-injection corpus validation, quote reliability validation, and Woo compatibility validation exist; beta ops remain" },
       { name: "Pilot Launch", value: 41, note: "P0 external beta checklist, evidence-required beta release checker, production payment profile checker, live production setup smoke, and P1 buyer-agent matrix validators exist; live evidence collection remains" }
     ];
 
@@ -558,13 +558,13 @@
         code: "WOO",
         title: "Merchant bridge baseline",
         status: "done",
-        value: 96,
-        scope: "WooCommerce plugin exposes manifest, catalog, quote, checkout, order status, verifier metadata, a frozen alpha endpoint contract, and a checked compatibility matrix.",
-        remaining: "Run optional matrix entries before broad external beta, add the demo reset command, and keep compatibility stable while other gates harden around it.",
+        value: 98,
+        scope: "WooCommerce plugin exposes manifest, catalog, quote, checkout, order status, verifier metadata, a frozen alpha endpoint contract, a repeatable demo reset, and a checked compatibility matrix.",
+        remaining: "Run optional matrix entries before broad external beta and keep compatibility stable while other gates harden around it.",
         items: [
           { id: "WOO-001", priority: "P1", title: "Compatibility matrix", description: "Implemented alpha: plugin metadata/readme alignment, static compatibility gates, configurable WordPress/PHP demo images, a machine-readable matrix, docs, validator, and required PHP 8.2 latest-WP/latest-Woo smoke runner exist; optional PHP 8.1 runtime smoke remains manual before broad beta claims." },
           { id: "WOO-002", priority: "P2", title: "Adapter contract freeze", description: "Implemented alpha: manifest, catalog, quote, checkout, order-status, refund, and cancellation fields are pinned in a machine-readable contract with fixtures, docs, validator, compatibility-matrix linkage, and verify-pipeline coverage." },
-          { id: "WOO-003", priority: "P2", title: "Demo reset command", description: "Add one repeatable command to reseed demo products, taxes, shipping, registry state, and plugin settings." }
+          { id: "WOO-003", priority: "P2", title: "Demo reset command", description: "Implemented alpha: scripts/woocommerce-demo-reset.sh resets AgentCart-owned demo state, reseeds products, taxes, shipping, pages, registry metadata, and ShopBridge settings, then runs the live quote smoke by default; the same seed reset mode is available to homelab stacks." }
         ]
       },
       {
@@ -768,7 +768,7 @@
       open: "Open"
     };
 
-    const overallValue = 91;
+    const overallValue = 92;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

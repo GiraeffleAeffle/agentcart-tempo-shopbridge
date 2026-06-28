@@ -8,6 +8,8 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "woocommerce-shopbridge-smoke.py"
+RESET_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "woocommerce-demo-reset.sh"
+SEED_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "demo" / "woocommerce" / "seed-products.sh"
 SPEC = importlib.util.spec_from_file_location("woocommerce_shopbridge_smoke", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 smoke = importlib.util.module_from_spec(SPEC)
@@ -371,6 +373,19 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
         self.assertEqual([scenario["bucket"] for scenario in scenarios], ["quote", "refund"])
         self.assertEqual(scenarios[0]["method"], "POST")
         self.assertEqual(scenarios[1]["path"], "/wp-json/agentcart/v1/orders/0/refunds")
+
+    def test_demo_reset_wrapper_runs_seed_reset_and_optional_smoke(self) -> None:
+        reset_script = RESET_SCRIPT_PATH.read_text(encoding="utf-8")
+        seed_script = SEED_SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("AGENTCART_DEMO_RESET=1", reset_script)
+        self.assertIn("--no-smoke", reset_script)
+        self.assertIn("--hard", reset_script)
+        self.assertIn("woocommerce-shopbridge-smoke.py", reset_script)
+        self.assertIn("reset_agentcart_demo_state", seed_script)
+        self.assertIn("_agentcart_order_id", seed_script)
+        self.assertIn("agentcart_shopbridge_registry_public_check", seed_script)
+        self.assertIn("agentcart_shopbridge_product_exposure_snapshot", seed_script)
 
 
 if __name__ == "__main__":

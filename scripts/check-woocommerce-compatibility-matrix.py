@@ -16,6 +16,7 @@ DEFAULT_MATRIX = ROOT / "gateway" / "config" / "woocommerce_compatibility_matrix
 PLUGIN_FILE = ROOT / "woocommerce-shopbridge" / "agentcart-shopbridge" / "agentcart-shopbridge.php"
 README_FILE = ROOT / "woocommerce-shopbridge" / "agentcart-shopbridge" / "readme.txt"
 SMOKE_SCRIPT = ROOT / "scripts" / "woocommerce-demo-smoke.sh"
+RESET_SCRIPT = ROOT / "scripts" / "woocommerce-demo-reset.sh"
 
 
 def load_json(path: pathlib.Path) -> dict[str, Any]:
@@ -68,6 +69,8 @@ def validate_matrix(data: dict[str, Any]) -> list[str]:
         endpoint_contract = str(verification.get("endpoint_contract") or "")
         require(endpoint_contract == "gateway/config/shopbridge_endpoint_contract.json", "verification.endpoint_contract must point to gateway/config/shopbridge_endpoint_contract.json", errors)
         require((ROOT / endpoint_contract).exists(), "verification.endpoint_contract file must exist", errors)
+        require(str(verification.get("demo_reset_script") or "") == "scripts/woocommerce-demo-reset.sh", "verification.demo_reset_script must point to scripts/woocommerce-demo-reset.sh", errors)
+        require(RESET_SCRIPT.exists(), "verification.demo_reset_script file must exist", errors)
         static_gates = verification.get("static_gates")
         require(isinstance(static_gates, list) and "PHPCompatibilityWP" in static_gates, "verification.static_gates must include PHPCompatibilityWP", errors)
         require(isinstance(static_gates, list) and "WordPress Plugin Check" in static_gates, "verification.static_gates must include WordPress Plugin Check", errors)

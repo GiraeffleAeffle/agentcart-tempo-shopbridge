@@ -25,6 +25,20 @@ This starts the bundled WordPress/MariaDB demo, downloads WooCommerce if needed,
 seeds products, tax, shipping, terms, and ShopBridge settings, waits for the
 public AgentCart endpoints, then verifies a live WooCommerce-backed quote.
 
+To return an existing demo to a known state without dropping Docker volumes:
+
+```sh
+scripts/woocommerce-demo-reset.sh
+```
+
+This clears AgentCart-created demo orders, quote/lock/rate-limit transients,
+registry check snapshots, sandbox check results, saved catalog preview/snapshot
+state, stock holds, signing audit state, and per-product AgentCart overrides on
+the seeded SKUs. It then reseeds products, tax, shipping, terms, and ShopBridge
+settings before running the live quote smoke. Use `--no-smoke` when you only
+want to reseed, or `--hard` when you explicitly want to remove the demo Docker
+volumes before reseeding.
+
 The default runtime images are `wordpress:php8.2-apache` and
 `wordpress:cli-php8.2`. Override `WORDPRESS_IMAGE` and `WORDPRESS_CLI_IMAGE`
 when running compatibility matrix entries.
@@ -46,6 +60,12 @@ docker compose up -d wordpress db
 docker compose run --rm wpcli
 ```
 
+Manual reset with the same state cleanup:
+
+```sh
+AGENTCART_DEMO_RESET=1 docker compose run --rm wpcli
+```
+
 The seed script configures the demo shop with:
 
 - EUR pricing with tax calculation enabled;
@@ -53,6 +73,8 @@ The seed script configures the demo shop with:
 - VAT rates for those demo countries;
 - a taxable `Tracked parcel` flat-rate shipping method at `4.90 EUR`;
 - terms and returns pages used by the ShopBridge manifest;
+- ShopBridge demo options for merchant identity, token, product exposure,
+  stock holds, checkout mode, payment/verifier fields, and aftercare defaults;
 - AgentCart aftercare defaults for returns, substitution approval, and
   cancellation-request drafts;
 - demo tracking metadata for existing AgentCart-created Woo orders.

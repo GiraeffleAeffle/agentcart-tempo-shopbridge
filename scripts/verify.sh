@@ -91,6 +91,8 @@ else
   printf 'php not installed; skipping php -l\n'
 fi
 bash -n "$ROOT_DIR/scripts/woocommerce-demo-smoke.sh"
+bash -n "$ROOT_DIR/scripts/woocommerce-demo-reset.sh"
+bash -n "$ROOT_DIR/demo/woocommerce/seed-products.sh"
 python3 -m py_compile "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-official-gates.py"

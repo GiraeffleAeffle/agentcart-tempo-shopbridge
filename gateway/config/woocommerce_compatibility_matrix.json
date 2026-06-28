@@ -22,6 +22,7 @@
       "ShopBridge endpoint contract tests"
     ],
     "endpoint_contract": "gateway/config/shopbridge_endpoint_contract.json",
+    "demo_reset_script": "scripts/woocommerce-demo-reset.sh",
     "runtime_smoke_script": "scripts/woocommerce-demo-smoke.sh",
     "live_endpoint_smoke": "scripts/woocommerce-shopbridge-smoke.py"
   },

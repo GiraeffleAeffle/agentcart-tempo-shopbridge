@@ -47,6 +47,14 @@ class WooCommerceCompatibilityMatrixTest(unittest.TestCase):
 
         self.assertEqual(["wp-latest-php82-woo-latest"], [entry["id"] for entry in entries])
 
+    def test_demo_reset_script_is_required_by_matrix(self) -> None:
+        matrix = load_matrix()
+        matrix["verification"].pop("demo_reset_script", None)
+
+        errors = woocommerce_compatibility_matrix_tool.validate_matrix(matrix)
+
+        self.assertTrue(any("demo_reset_script" in error for error in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

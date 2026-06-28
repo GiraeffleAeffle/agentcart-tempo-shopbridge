@@ -12,6 +12,12 @@ python3 scripts/check-woocommerce-compatibility-matrix.py
 python3 scripts/check-shopbridge-endpoint-contract.py
 ```
 
+Reset and reseed the bundled demo without removing volumes:
+
+```sh
+scripts/woocommerce-demo-reset.sh
+```
+
 Run the required Docker runtime smoke:
 
 ```sh
@@ -51,6 +57,9 @@ Required runtime smoke:
   final quote, shipping, and VAT lines.
 - Endpoint contract: manifest, catalog, quote, order creation, order status,
   refund, and cancellation fields are pinned by fixtures before release.
+- Demo reset: `scripts/woocommerce-demo-reset.sh` clears AgentCart-owned demo
+  state, reseeds products/tax/shipping/ShopBridge settings, and reruns the live
+  quote smoke by default.
 
 Optional runtime smoke:
 
