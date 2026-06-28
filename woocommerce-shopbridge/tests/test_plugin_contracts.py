@@ -7,7 +7,10 @@ import unittest
 
 PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "agentcart-shopbridge" / "agentcart-shopbridge.php"
 PLUGIN_DIR = PLUGIN.parent
-SOURCE = PLUGIN.read_text()
+PLUGIN_SOURCE = PLUGIN.read_text()
+VERIFIER_CLIENT = PLUGIN_DIR / "includes" / "trait-agentcart-shopbridge-verifier-client.php"
+VERIFIER_CLIENT_SOURCE = VERIFIER_CLIENT.read_text() if VERIFIER_CLIENT.exists() else ""
+SOURCE = PLUGIN_SOURCE + "\n" + VERIFIER_CLIENT_SOURCE
 README_TXT = PLUGIN_DIR / "readme.txt"
 UNINSTALL = PLUGIN_DIR / "uninstall.php"
 
@@ -1534,6 +1537,19 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_payment_contract_required", verifier_body + payment_body)
         self.assertIn("'payment_contract_hash' => $payment_contract_hash", payment_body + verifier_body)
         self.assertIn("'payment_contract_hash' => self::payment_contract_hash", receipt_body)
+
+    def test_external_verifier_client_is_a_dedicated_module(self) -> None:
+        self.assertTrue(VERIFIER_CLIENT.exists(), "External verifier client should live in a dedicated module")
+        self.assertIn("trait AgentCart_ShopBridge_Verifier_Client", VERIFIER_CLIENT_SOURCE)
+        self.assertIn("require_once __DIR__ . '/includes/trait-agentcart-shopbridge-verifier-client.php';", PLUGIN_SOURCE)
+        self.assertIn("use AgentCart_ShopBridge_Verifier_Client;", PLUGIN_SOURCE)
+        for function_name in [
+            "call_payment_verifier",
+            "call_refund_verifier",
+            "verifier_http_post",
+            "verifier_error_detail",
+        ]:
+            self.assertIn(f"private static function {function_name}", VERIFIER_CLIENT_SOURCE)
 
     def test_verifier_http_calls_reject_redirects_and_redact_errors(self) -> None:
         helper_body = function_body("verifier_http_post")

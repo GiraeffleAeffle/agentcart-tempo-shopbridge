@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "woocommerce-shopbridge" / "agentcart-shopbridge" / "agentcart-shopbridge.php"
+VERIFIER_CLIENT = PLUGIN.parent / "includes" / "trait-agentcart-shopbridge-verifier-client.php"
 
 
 def fail(message: str) -> None:
@@ -175,9 +176,13 @@ def check_rate_limit_controls(source: str) -> None:
         fail("capability document must advertise registry rate limits")
 
 
+def plugin_review_source() -> str:
+    return PLUGIN.read_text(encoding="utf-8") + "\n" + VERIFIER_CLIENT.read_text(encoding="utf-8")
+
+
 def main() -> int:
     try:
-        source = PLUGIN.read_text(encoding="utf-8")
+        source = plugin_review_source()
         check_superglobal_unslash(source)
         check_custom_admin_actions(source)
         check_external_http_verifier_calls(source)
