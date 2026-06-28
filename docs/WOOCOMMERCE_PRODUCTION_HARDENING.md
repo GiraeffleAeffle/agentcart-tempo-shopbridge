@@ -20,9 +20,12 @@ merchant explicitly allows the product after confirming their compliance and
 human-review flow. Store-level
 aftercare policy defaults for returns, substitutions, and cancellation requests
 are configurable from the AgentCart settings page and bound into the quote hash.
-Production merchant onboarding still needs the controls below. The catalog diff
-lets merchants review added, removed, and changed agent-readable products before
-refreshing registry metadata or treating a preview as the current baseline.
+The settings page now includes Quick Start checks, sandbox quote/checkout tests,
+and a plain-language setup explainer that tells merchants what each required
+step does and what happens if they skip it. Production merchant onboarding still
+needs the controls below. The catalog diff lets merchants review added, removed,
+and changed agent-readable products before refreshing registry metadata or
+treating a preview as the current baseline.
 
 ## Merchant Admin Readiness
 

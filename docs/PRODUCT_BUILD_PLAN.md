@@ -231,8 +231,9 @@ checkout, refund, and delivery-exception audit events. These use the same
 webhook, Home Assistant, and SMTP delivery mechanics as registry alerts, but
 are configured independently through `AGENTCART_OPS_EVENT_*` variables and only
 send redacted ids, hashes, rail/status metadata, and delivery-exception state.
-The same setup guide is included in the public capability document for remote
-onboarding tools. The repo also includes an opt-in live smoke script for
+The same setup guide and plain-language merchant setup explainer are included in
+the public capability document for remote onboarding tools. The repo also
+includes an opt-in live smoke script for
 checking manifest/capability setup state, registry bundle/proof/revocation hash
 binding, catalog exposure, and WooCommerce quote totals against a seeded or
 staging shop, plus a one-command WooCommerce demo smoke wrapper that starts,

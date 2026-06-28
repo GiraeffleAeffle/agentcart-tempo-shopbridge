@@ -514,6 +514,7 @@ final class AgentCart_ShopBridge {
                 The plugin keeps registry proof values and product endpoints generated from WooCommerce settings.
             </p>
             <?php self::render_setup_wizard_panel($setup_guide, $readiness); ?>
+            <?php self::render_plain_language_setup_panel($setup_guide); ?>
             <?php self::render_setup_guide($setup_guide); ?>
 
             <h2 id="agentcart-readiness">Readiness</h2>
@@ -656,26 +657,26 @@ final class AgentCart_ShopBridge {
             <form id="agentcart-settings-form" method="post" action="options.php">
                 <?php settings_fields('agentcart_shopbridge'); ?>
                 <table class="form-table" role="presentation">
-                    <?php self::render_text_setting_row('Merchant id', self::MERCHANT_ID_OPTION, self::merchant_id(), 'AGENTCART_MERCHANT_ID', 'Stable public id for registry records, quote approvals, payment verification, and order audit. Use a domain-like or slug value such as shop.example or my-shop.'); ?>
-                    <?php self::render_text_setting_row('Merchant token', self::TOKEN_OPTION, self::merchant_token_value(), 'AGENTCART_SHOPBRIDGE_TOKEN', 'Shared secret for a trusted AgentCart gateway. Production public checkout should use a payment verifier.'); ?>
-                    <?php self::render_text_setting_row('Support email', self::SUPPORT_EMAIL_OPTION, $support_email, 'AGENTCART_SUPPORT_EMAIL', 'Published in the merchant-of-record block for customer support.'); ?>
-                    <?php self::render_text_setting_row('Returns policy URL', self::RETURNS_URL_OPTION, $returns_url, 'AGENTCART_RETURNS_URL', 'Published to buyer agents for refunds, returns, cancellation requests, and support handoff. Defaults to /returns when no override is set.'); ?>
-                    <?php self::render_text_setting_row('Registry connection URL', self::REGISTRY_CONNECTION_URL_OPTION, self::registry_connection_url(), 'AGENTCART_REGISTRY_CONNECTION_URL', 'Optional hosted registry ingestion endpoint. When configured, Registry Proof actions can submit the generated bundle or a revocation request without copy/paste.'); ?>
-                    <?php self::render_password_setting_row('Registry connection token', self::REGISTRY_CONNECTION_TOKEN_OPTION, self::registry_connection_token(), 'AGENTCART_REGISTRY_CONNECTION_TOKEN', 'Optional bearer token for the configured registry connection endpoint. Leave blank when the registry is public or uses domain-proof only.'); ?>
+                    <?php self::render_text_setting_row('Merchant id', self::MERCHANT_ID_OPTION, self::merchant_id(), 'AGENTCART_MERCHANT_ID', 'Stable shop name that agents show in search, approvals, registry records, and order audit logs. Use a domain or shop slug and keep it stable after launch.'); ?>
+                    <?php self::render_text_setting_row('Merchant token', self::TOKEN_OPTION, self::merchant_token_value(), 'AGENTCART_SHOPBRIDGE_TOKEN', 'Private key for local demos or a trusted private gateway. Public checkout should use the payment verifier instead of trusting this token alone.'); ?>
+                    <?php self::render_text_setting_row('Support email', self::SUPPORT_EMAIL_OPTION, $support_email, 'AGENTCART_SUPPORT_EMAIL', 'Customer support email shown to buyer agents and written into order records.'); ?>
+                    <?php self::render_text_setting_row('Returns policy URL', self::RETURNS_URL_OPTION, $returns_url, 'AGENTCART_RETURNS_URL', 'Public page that explains returns, refunds, cancellations, and support handoff for agent-created orders. Defaults to /returns when blank.'); ?>
+                    <?php self::render_text_setting_row('Registry connection URL', self::REGISTRY_CONNECTION_URL_OPTION, self::registry_connection_url(), 'AGENTCART_REGISTRY_CONNECTION_URL', 'Optional registry endpoint for publishing this shop. When configured, the buttons below can submit or revoke the generated shop record without copy and paste.'); ?>
+                    <?php self::render_password_setting_row('Registry connection token', self::REGISTRY_CONNECTION_TOKEN_OPTION, self::registry_connection_token(), 'AGENTCART_REGISTRY_CONNECTION_TOKEN', 'Optional registry access token. Leave blank when the registry accepts public domain-proof submissions.'); ?>
                     <?php self::render_aftercare_policy_setting_rows($substitution_policy, $cancellation_window_minutes); ?>
-                    <?php self::render_text_setting_row('Tempo network', self::TEMPO_NETWORK_OPTION, self::tempo_network(), 'AGENTCART_TEMPO_NETWORK', 'For local testnet development this is usually testnet.'); ?>
-                    <?php self::render_text_setting_row('Tempo recipient address', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Merchant or payment-provider recipient used by the payment verifier.'); ?>
-                    <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network/profile id for card/SPT MPP. Requires a verifier that can validate Stripe credentials and refunds.'); ?>
-                    <?php self::render_text_setting_row('x402 network', self::X402_NETWORK_OPTION, $x402_network, 'AGENTCART_X402_NETWORK', 'Optional x402 network identifier such as eip155:84532 or base-sepolia. Leave blank to avoid advertising x402.'); ?>
-                    <?php self::render_text_setting_row('x402 asset contract', self::X402_ASSET_OPTION, $x402_asset, 'AGENTCART_X402_ASSET', 'Optional x402 token contract/address. Required before x402-compatible quotes are advertised.'); ?>
-                    <?php self::render_text_setting_row('x402 asset symbol', self::X402_ASSET_SYMBOL_OPTION, $x402_asset_symbol, 'AGENTCART_X402_ASSET_SYMBOL', 'Human label for the configured x402 asset, for example USDC.'); ?>
+                    <?php self::render_text_setting_row('Tempo network', self::TEMPO_NETWORK_OPTION, self::tempo_network(), 'AGENTCART_TEMPO_NETWORK', 'Payment network the verifier should check. For local testnet development this is usually testnet.'); ?>
+                    <?php self::render_text_setting_row('Tempo recipient address', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Wallet or payment-provider address that should receive quote-bound machine payments for this shop.'); ?>
+                    <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network or profile id. Only advertise this when the verifier can confirm Stripe machine-payment credentials and refunds for the shop.'); ?>
+                    <?php self::render_text_setting_row('x402 network', self::X402_NETWORK_OPTION, $x402_network, 'AGENTCART_X402_NETWORK', 'Optional x402 network identifier such as eip155:84532 or base-sepolia. Leave blank unless this shop is ready to advertise x402 payments.'); ?>
+                    <?php self::render_text_setting_row('x402 asset contract', self::X402_ASSET_OPTION, $x402_asset, 'AGENTCART_X402_ASSET', 'Optional x402 token contract or address. Required before x402-compatible quote requirements are advertised.'); ?>
+                    <?php self::render_text_setting_row('x402 asset symbol', self::X402_ASSET_SYMBOL_OPTION, $x402_asset_symbol, 'AGENTCART_X402_ASSET_SYMBOL', 'Short label for the configured x402 asset, for example USDC.'); ?>
                     <?php self::render_text_setting_row('x402 asset currency', self::X402_ASSET_CURRENCY_OPTION, $x402_asset_currency, 'AGENTCART_X402_ASSET_CURRENCY', 'Three-letter currency represented by the x402 asset. Defaults to the WooCommerce store currency when blank.'); ?>
-                    <?php self::render_setting_row('number', 'x402 asset decimals', self::X402_ASSET_DECIMALS_OPTION, $x402_asset_decimals, 'AGENTCART_X402_ASSET_DECIMALS', 'Token decimals used to convert WooCommerce cents into x402 atomic units.'); ?>
-                    <?php self::render_text_setting_row('x402 payTo address', self::X402_PAY_TO_OPTION, $x402_pay_to, 'AGENTCART_X402_PAY_TO', 'Merchant or payment-provider wallet address that receives x402 exact payments.'); ?>
-                    <?php self::render_text_setting_row('x402 facilitator URL', self::X402_FACILITATOR_URL_OPTION, $x402_facilitator_url, 'AGENTCART_X402_FACILITATOR_URL', 'Optional facilitator URL documented for x402-capable clients. ShopBridge still relies on the payment verifier before creating orders.'); ?>
+                    <?php self::render_setting_row('number', 'x402 asset decimals', self::X402_ASSET_DECIMALS_OPTION, $x402_asset_decimals, 'AGENTCART_X402_ASSET_DECIMALS', 'Token decimals used to convert WooCommerce totals into x402 atomic units.'); ?>
+                    <?php self::render_text_setting_row('x402 payTo address', self::X402_PAY_TO_OPTION, $x402_pay_to, 'AGENTCART_X402_PAY_TO', 'Wallet or payment-provider address that receives x402 exact payments for this shop.'); ?>
+                    <?php self::render_text_setting_row('x402 facilitator URL', self::X402_FACILITATOR_URL_OPTION, $x402_facilitator_url, 'AGENTCART_X402_FACILITATOR_URL', 'Optional facilitator URL for x402-capable clients. ShopBridge still waits for the payment verifier before creating WooCommerce orders.'); ?>
                     <?php self::render_setting_row('number', 'x402 timeout seconds', self::X402_MAX_TIMEOUT_SECONDS_OPTION, $x402_max_timeout_seconds, 'AGENTCART_X402_MAX_TIMEOUT_SECONDS', 'Maximum x402 authorization window advertised in quote-bound payment requirements.'); ?>
-                    <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Endpoint that verifies quote-bound Tempo or Stripe MPP receipts before WooCommerce creates a paid order, and rail-bound refunds before recording a production refund.'); ?>
-                    <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional bearer token sent from this plugin to the verifier.'); ?>
+                    <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Service that confirms the exact quote was paid before WooCommerce marks the order paid, and confirms rail-bound refunds before production refunds are recorded.'); ?>
+                    <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional secret this plugin sends to the verifier so only this shop can ask it to approve payments and refunds.'); ?>
                     <?php self::render_checkout_mode_setting_row($checkout_mode); ?>
                     <?php self::render_signed_request_mode_setting_row($signed_request_mode); ?>
                     <?php self::render_password_setting_row('Active signed request secret', self::SIGNED_REQUEST_SECRET_OPTION, self::signed_request_secret(), 'AGENTCART_SIGNED_REQUEST_SECRET', 'Current HMAC secret for request-bound signatures. Saving this field creates one active signing key; use Credential Actions for rotation with a retirement window.'); ?>
@@ -3910,6 +3911,115 @@ final class AgentCart_ShopBridge {
         <?php
     }
 
+    private static function render_plain_language_setup_panel($setup_guide) {
+        $steps = self::merchant_setup_plain_language_steps($setup_guide);
+        ?>
+        <h3 id="agentcart-merchant-setup-explainer">Merchant setup in plain language</h3>
+        <p style="max-width: 760px;">
+            These are the shop-owner decisions behind the technical settings. ShopBridge reuses
+            normal WooCommerce products, tax, shipping, stock, fulfillment, and refunds; these
+            steps only decide what buyer agents may see and when they may create paid orders.
+        </p>
+        <table class="widefat striped" style="max-width: 980px; margin-bottom: 12px;">
+            <thead>
+                <tr>
+                    <th scope="col">Setup step</th>
+                    <th scope="col">What the merchant does</th>
+                    <th scope="col">If skipped</th>
+                    <th scope="col">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($steps as $step) : ?>
+                    <tr>
+                        <th scope="row">
+                            <a href="<?php echo esc_attr((string) ($step['settings_anchor'] ?? '#agentcart-readiness')); ?>"><?php echo esc_html((string) ($step['title'] ?? 'Setup step')); ?></a>
+                            <p class="description"><?php echo esc_html((string) ($step['why'] ?? '')); ?></p>
+                        </th>
+                        <td><?php echo esc_html((string) ($step['merchant_action'] ?? '')); ?></td>
+                        <td><?php echo esc_html((string) ($step['skipping_means'] ?? '')); ?></td>
+                        <td><?php self::render_admin_status_badge(($step['state'] ?? '') === 'complete', 'Complete', 'Needs setup'); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php
+    }
+
+    private static function merchant_setup_plain_language_steps($setup_guide = null) {
+        $setup_guide = is_array($setup_guide) ? $setup_guide : self::setup_guide();
+        $states = [];
+        foreach ((array) ($setup_guide['steps'] ?? []) as $step) {
+            if (!is_array($step)) {
+                continue;
+            }
+            $states[sanitize_key((string) ($step['id'] ?? ''))] = (string) ($step['state'] ?? 'needs_setup');
+        }
+
+        $steps = [
+            [
+                'id' => 'merchant_identity',
+                'title' => 'Name the shop and support contact',
+                'why' => 'Agents need a stable merchant name before showing the shop in search results, approvals, and order logs.',
+                'merchant_action' => 'Choose a stable merchant id and add the support email buyers should use after an order.',
+                'skipping_means' => 'Buyers cannot reliably tell which merchant accepted the order or where to ask for support.',
+                'settings_anchor' => '#agentcart-settings',
+                'required_for' => ['production'],
+            ],
+            [
+                'id' => 'products',
+                'title' => 'Choose which products agents may see',
+                'why' => 'The normal storefront can stay broader while the agent catalog only contains products safe for automated quoting.',
+                'merchant_action' => 'Use manual, tag, category, or all-product exposure, and keep blocked or restricted goods out of the agent catalog.',
+                'skipping_means' => 'No products appear to buyer agents, but the regular WooCommerce storefront still works.',
+                'settings_anchor' => '#agentcart-product-exposure',
+                'required_for' => ['demo', 'production'],
+            ],
+            [
+                'id' => 'tax_shipping',
+                'title' => 'Use WooCommerce tax and shipping rules',
+                'why' => 'Final quotes must include the same VAT, shipping methods, countries, and stock rules the merchant already uses.',
+                'merchant_action' => 'Set ship-to countries, tax rates, and shipping methods in WooCommerce; ShopBridge reads those rules instead of adding agent-only rates.',
+                'skipping_means' => 'Agent quotes may miss VAT or shipping, or offer delivery to places the shop cannot fulfill.',
+                'settings_anchor' => '#agentcart-readiness',
+                'required_for' => ['production'],
+            ],
+            [
+                'id' => 'payment_verifier',
+                'title' => 'Connect payment verification before real checkout',
+                'why' => 'WooCommerce should only mark an agent order paid after a verifier confirms the exact quote was paid.',
+                'merchant_action' => 'Paste the verifier URL and token, then configure the Tempo recipient, Stripe profile, or x402 pay-to details it should check.',
+                'skipping_means' => 'The shop can still test quotes, but public agents should not create paid orders from unverified receipts.',
+                'settings_anchor' => '#agentcart-settings',
+                'required_for' => ['production'],
+            ],
+            [
+                'id' => 'registry',
+                'title' => 'Publish the shop for agent discovery',
+                'why' => 'A registry lets buyer agents find the shop through a verified domain proof instead of trusting pasted URLs.',
+                'merchant_action' => 'Serve the manifest over HTTPS and use the registry actions to submit or refresh the generated shop record.',
+                'skipping_means' => 'Agents can use the direct manifest URL, but they cannot safely discover this shop from a shared registry.',
+                'settings_anchor' => '#agentcart-registry-proof',
+                'required_for' => ['production'],
+            ],
+            [
+                'id' => 'sandbox_test',
+                'title' => 'Run a test quote and checkout',
+                'why' => 'A test run proves one enabled product can move through quote, approval, payment check, order creation, and cleanup.',
+                'merchant_action' => 'Use the Quick Start buttons to run the quote check and guided checkout test before allowing real buyer agents.',
+                'skipping_means' => 'There is no local evidence that the current catalog, tax, shipping, payment, and order settings work together.',
+                'settings_anchor' => '#agentcart-endpoints',
+                'required_for' => ['demo', 'production'],
+            ],
+        ];
+
+        foreach ($steps as $index => $step) {
+            $steps[$index]['state'] = $states[$step['id']] ?? 'needs_setup';
+        }
+
+        return $steps;
+    }
+
     private static function sandbox_quote_check_result() {
         $result = get_option(self::SANDBOX_QUOTE_CHECK_OPTION, []);
         return is_array($result) ? $result : [];
@@ -5050,6 +5160,7 @@ final class AgentCart_ShopBridge {
 
     private static function capability_document() {
         $readiness = self::readiness();
+        $setup_guide = self::setup_guide($readiness);
         $public_discovery_ready = self::public_discovery_ready($readiness);
         return [
             'name' => 'AgentCart ShopBridge for WooCommerce',
@@ -5057,7 +5168,8 @@ final class AgentCart_ShopBridge {
             'merchant' => self::merchant(),
             'manifest_url' => home_url('/.well-known/agentcart.json'),
             'readiness' => $readiness,
-            'setup_guide' => self::setup_guide($readiness),
+            'setup_guide' => $setup_guide,
+            'merchant_setup_explainer' => self::merchant_setup_plain_language_steps($setup_guide),
             'protocols' => self::legacy_protocols(),
             'protocol_profiles' => self::protocol_profiles($readiness),
             'protocol_profile_ids' => self::protocol_profile_ids($readiness),

@@ -422,10 +422,10 @@
       <div class="panel score">
         <div>
           <h2>Overall Readiness</h2>
-          <div class="score-number"><strong id="overall-score">90</strong><span>%</span></div>
-          <div id="overall-progress" class="progress" style="--value: 90%"><span></span></div>
+          <div class="score-number"><strong id="overall-score">93</strong><span>%</span></div>
+          <div id="overall-progress" class="progress" style="--value: 93%"><span></span></div>
         </div>
-        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, evidence-required beta release gate, buyer-agent runtime matrix, prompt-injection corpus, and Woo compatibility matrix. The remaining work is mostly production hardening, real settlement operations, standards adapters, and merchant onboarding polish.</p>
+        <p class="small">The prototype has the right shape: WooCommerce plugin, manifest/catalog/quote/order endpoints, buyer approval, payment proof attachment, registry persistence and monitoring groundwork, protocol profiles, x402 shim, signed request gate with audit trail, local skill path, external beta checklist gate, evidence-required beta release gate, buyer-agent runtime matrix, prompt-injection corpus, Woo compatibility matrix, and merchant-facing onboarding guidance. The remaining work is mostly production hardening, real settlement operations, standards adapters, and live pilot evidence.</p>
       </div>
 
       <div class="panel">
@@ -545,7 +545,7 @@
       { name: "Core Commerce", value: 93, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview with saved catalog diffs, restricted-goods default blocking, soft holds, hard reservation adapter contract, frozen endpoint contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
       { name: "Trust And Registry", value: 91, note: "manifest profiles, domain proof, hosted live-proof ingestion, hosted record feed, compact feed proof pinning, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, strict HMAC/RSA signer matching, and audit trail" },
       { name: "Payments", value: 72, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, append-only replay journal, metrics, alert webhooks, fixtures, and CLI value-proof boundaries exist; managed rail ops still open" },
-      { name: "Merchant UX", value: 69, note: "settings, setup wizard, readiness, registry actions, registry health summary, product exposure diff checkpoints, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
+      { name: "Merchant UX", value: 74, note: "settings, setup wizard, plain-language setup explainer, readiness, registry actions, registry health summary, product exposure diff checkpoints, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 83, note: "service path, packaged direct skill with HTTPS/public origin checks, origin-bound approvals, direct audit import, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
       { name: "Woo Release", value: 67, note: "ZIP, package checks, semantic-release GitHub artifact workflow, frozen endpoint contract, demo reset command, compatibility matrix, review-risk checks, strict PHPCS/WPCS, and local Plugin Check runner pass; WordPress.org assets remain" },
@@ -693,13 +693,13 @@
         code: "ONB",
         title: "Merchant onboarding UX",
         status: "partial",
-        value: 88,
-        scope: "Settings page exposes Quick Start, progress, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote/approval/checkout tests, registry connection actions, and a registry-side health summary with monitor and freshness checks.",
-        remaining: "Add deeper WP admin walkthrough tests and merchant-facing copy cleanup.",
+        value: 94,
+        scope: "Settings page exposes Quick Start, progress, plain-language setup decisions, endpoint URLs, recipients, verifier, payment profiles, readiness checks, sandbox quote/approval/checkout tests, registry connection actions, and a registry-side health summary with monitor and freshness checks.",
+        remaining: "Add deeper WP admin walkthrough tests and optional screen-by-screen onboarding assets before broad pilots.",
         items: [
           { id: "ONB-001", priority: "P0", title: "Guided checkout test", description: "Implemented: one-click test quote, sandbox approval record, payment verification, order creation, cancellation, and quote/hold cleanup from the ShopBridge admin page." },
           { id: "ONB-002", priority: "P1", title: "Registry health in WordPress", description: "Implemented: WordPress admin now shows a registry health summary for hosted registry connection, domain proof, manifest freshness, current registry entry eligibility, monitor snapshots, and alert delivery." },
-          { id: "ONB-003", priority: "P2", title: "Plain-language setup", description: "Replace low-level settings text with merchant-facing copy that explains each required setup step and consequence." }
+          { id: "ONB-003", priority: "P2", title: "Plain-language setup", description: "Implemented: ShopBridge now renders a merchant-facing setup explainer with action, consequence, and status for identity, product exposure, Woo tax/shipping, payment verification, registry discovery, and sandbox checkout tests; the same structure is exposed in the capability document." }
         ]
       },
       {
@@ -768,7 +768,7 @@
       open: "Open"
     };
 
-    const overallValue = 92;
+    const overallValue = 93;
     document.getElementById("overall-score").textContent = overallValue;
     document.getElementById("overall-progress").style.setProperty("--value", `${overallValue}%`);
 

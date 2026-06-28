@@ -121,9 +121,20 @@ def validate_capability(capability: dict[str, Any]) -> None:
     setup_guide = capability.get("setup_guide")
     require(isinstance(setup_guide, dict), "capability.setup_guide must be present")
     require(isinstance(setup_guide.get("steps"), list) and setup_guide["steps"], "setup_guide.steps must be non-empty")
+    expected_step_ids = {"merchant_identity", "products", "tax_shipping", "payment_verifier", "registry", "sandbox_test"}
     step_ids = {str(step.get("id") or "") for step in setup_guide["steps"] if isinstance(step, dict)}
-    for expected in {"merchant_identity", "products", "tax_shipping", "payment_verifier", "registry", "sandbox_test"}:
+    for expected in expected_step_ids:
         require(expected in step_ids, f"setup_guide missing step: {expected}")
+    explainer = capability.get("merchant_setup_explainer")
+    require(isinstance(explainer, list) and explainer, "capability.merchant_setup_explainer must be a non-empty list")
+    explainer_ids = {str(step.get("id") or "") for step in explainer if isinstance(step, dict)}
+    for expected in expected_step_ids:
+        require(expected in explainer_ids, f"merchant_setup_explainer missing step: {expected}")
+    for step in explainer:
+        require(isinstance(step, dict), "merchant_setup_explainer entries must be objects")
+        step_id = str(step.get("id") or "")
+        for field in ["title", "merchant_action", "skipping_means", "settings_anchor", "state"]:
+            require(bool(step.get(field)), f"merchant_setup_explainer.{step_id} missing field: {field}")
     endpoints = capability.get("endpoints")
     require(isinstance(endpoints, dict), "capability.endpoints must be present")
     for endpoint in ["registry_bundle", "catalog", "quote"]:

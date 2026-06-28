@@ -583,10 +583,14 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         guide_body = function_body("setup_guide")
         step_body = function_body("setup_guide_step")
         capability_body = function_body("capability_document")
+        explainer_body = function_body("merchant_setup_plain_language_steps")
+        explainer_panel_body = function_body("render_plain_language_setup_panel")
 
         self.assertIn("render_setup_guide", render_body)
         self.assertIn("render_setup_wizard_panel", render_body)
+        self.assertIn("render_plain_language_setup_panel", render_body)
         self.assertIn("'setup_guide'", capability_body)
+        self.assertIn("'merchant_setup_explainer'", capability_body)
         for step_id in [
             "'merchant_identity'",
             "'products'",
@@ -602,6 +606,20 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'settings_anchor'", step_body)
         self.assertIn("#agentcart-settings", SOURCE)
         self.assertIn("#agentcart-product-exposure", SOURCE)
+        for phrase in [
+            "Name the shop and support contact",
+            "Choose which products agents may see",
+            "Use WooCommerce tax and shipping rules",
+            "Connect payment verification before real checkout",
+            "Publish the shop for agent discovery",
+            "Run a test quote and checkout",
+            "What the merchant does",
+            "If skipped",
+        ]:
+            self.assertIn(phrase, explainer_body + explainer_panel_body)
+        self.assertIn("ShopBridge reuses", explainer_panel_body)
+        self.assertIn("No products appear to buyer agents", explainer_body)
+        self.assertIn("direct manifest URL", explainer_body)
         self.assertNotIn("admin_url(", guide_body)
 
     def test_registry_health_summary_is_visible_in_admin(self) -> None:
