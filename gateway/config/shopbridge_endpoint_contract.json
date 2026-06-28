@@ -1,0 +1,805 @@
+{
+  "schema": "agentcart.shopbridge_endpoint_contract.v1",
+  "version": "0.1.0",
+  "status": "implemented_alpha",
+  "gate_id": "WOO-002",
+  "plugin": {
+    "slug": "agentcart-shopbridge",
+    "adapter": "agentcart.shopbridge.v1",
+    "platform": "woocommerce",
+    "manifest_is_capability_document": true
+  },
+  "scope": [
+    "merchant discovery",
+    "agent-readable catalog",
+    "final quote",
+    "quote-bound paid order creation",
+    "order status",
+    "refund aftercare",
+    "cancellation aftercare"
+  ],
+  "versioning_policy": {
+    "compatibility_level": "alpha_frozen",
+    "breaking_changes_require": [
+      "contract version bump",
+      "fixture update",
+      "validator update",
+      "direct skill compatibility review",
+      "WooCommerce smoke review"
+    ],
+    "additive_changes_allowed": true,
+    "field_removal_allowed_without_bump": false,
+    "meaning_change_allowed_without_bump": false
+  },
+  "endpoints": [
+    {
+      "id": "manifest",
+      "method": "GET",
+      "path": "/.well-known/agentcart.json",
+      "auth": "public_rate_limited_optional_signed_http",
+      "stability": "frozen_alpha",
+      "purpose": "Discover merchant identity, protocol profiles, readiness, public endpoints, registry proof, and payment verification metadata.",
+      "required_response_paths": [
+        "name",
+        "version",
+        "merchant.id",
+        "merchant.name",
+        "merchant.merchant_of_record.name",
+        "merchant.merchant_of_record.country",
+        "manifest_url",
+        "protocol_profiles[].id",
+        "protocol_profiles[].adapter",
+        "capabilities.catalog",
+        "capabilities.quote",
+        "capabilities.server_side_quote_binding",
+        "capabilities.idempotent_order_creation",
+        "capabilities.order_status_token",
+        "endpoints.catalog",
+        "endpoints.quote",
+        "endpoints.orders",
+        "endpoints.order_status",
+        "endpoints.refunds",
+        "endpoints.cancellations",
+        "discovery.registry_claim_hash",
+        "discovery.registry_bundle_url",
+        "payment_verification.mode",
+        "payment_verification.checkout_mode"
+      ],
+      "fixtures": {
+        "response": {
+          "name": "AgentCart ShopBridge for WooCommerce",
+          "version": "0.1.0",
+          "merchant": {
+            "id": "merchant.example",
+            "name": "Example Merchant",
+            "merchant_of_record": {
+              "name": "Example Merchant",
+              "country": "DE",
+              "vat_id": "DE123456789",
+              "support_email": "support@example.test"
+            },
+            "terms_url": "https://merchant.example/terms",
+            "returns_url": "https://merchant.example/returns",
+            "merchant_policy": {
+              "returns": "merchant_policy"
+            }
+          },
+          "manifest_url": "https://merchant.example/.well-known/agentcart.json",
+          "protocol_profiles": [
+            {
+              "id": "agentcart-shopbridge",
+              "type": "commerce",
+              "version": "0.1",
+              "status": "available",
+              "available": true,
+              "adapter": "agentcart.shopbridge.v1",
+              "endpoints": {
+                "catalog": "https://merchant.example/wp-json/agentcart/v1/catalog",
+                "quote": "https://merchant.example/wp-json/agentcart/v1/quote",
+                "orders": "https://merchant.example/wp-json/agentcart/v1/orders",
+                "order_status": "https://merchant.example/wp-json/agentcart/v1/orders/{id}/status"
+              }
+            }
+          ],
+          "capabilities": {
+            "catalog": true,
+            "quote": true,
+            "server_side_quote_binding": true,
+            "idempotent_order_creation": true,
+            "order_status_token": true
+          },
+          "endpoints": {
+            "catalog": "https://merchant.example/wp-json/agentcart/v1/catalog",
+            "quote": "https://merchant.example/wp-json/agentcart/v1/quote",
+            "orders": "https://merchant.example/wp-json/agentcart/v1/orders",
+            "order_status": "https://merchant.example/wp-json/agentcart/v1/orders/{id}/status",
+            "refunds": "https://merchant.example/wp-json/agentcart/v1/orders/{id}/refunds",
+            "cancellations": "https://merchant.example/wp-json/agentcart/v1/orders/{id}/cancellations"
+          },
+          "discovery": {
+            "registry_claim_hash": "sha256:example",
+            "registry_bundle_url": "https://merchant.example/.well-known/agentcart-registry-bundle.json"
+          },
+          "payment_verification": {
+            "mode": "external_verifier",
+            "checkout_mode": "external_verifier_only"
+          }
+        }
+      }
+    },
+    {
+      "id": "catalog",
+      "method": "GET",
+      "path": "/wp-json/agentcart/v1/catalog",
+      "auth": "public_rate_limited_optional_signed_http",
+      "stability": "frozen_alpha",
+      "purpose": "Expose merchant-selected WooCommerce products as untrusted data for agent discovery and quote requests.",
+      "query_parameters": [
+        "search",
+        "limit"
+      ],
+      "required_response_paths": [
+        "merchant.id",
+        "merchant.name",
+        "products[].product_id",
+        "products[].source_product_id",
+        "products[].merchant_id",
+        "products[].title",
+        "products[].description",
+        "products[].price_cents",
+        "products[].currency",
+        "products[].availability",
+        "products[].eligible_for_agent_checkout",
+        "products[].max_quantity",
+        "products[].agentcart_policy.max_quantity",
+        "products[].agentcart_policy.blocked",
+        "products[].agentcart_policy.restricted_goods_blocked_by_default",
+        "products[].commerce_policy"
+      ],
+      "fixtures": {
+        "response": {
+          "merchant": {
+            "id": "merchant.example",
+            "name": "Example Merchant"
+          },
+          "products": [
+            {
+              "id": "woo_101",
+              "product_id": "woo_101",
+              "source_product_id": 101,
+              "merchant_id": "merchant.example",
+              "sku": "TEA-101",
+              "title": "House Tea",
+              "description": "Merchant controlled product text.",
+              "category": "woocommerce.tea",
+              "category_slugs": [
+                "tea"
+              ],
+              "brand": "Example Merchant",
+              "unit_size": "100g",
+              "price_cents": 980,
+              "currency": "EUR",
+              "vat_rate_bps": 700,
+              "stock": 12,
+              "availability": "in_stock",
+              "shipping_regions": [
+                "DE"
+              ],
+              "eligible_for_agent_checkout": true,
+              "max_quantity": 3,
+              "restricted_goods": [],
+              "commerce_policy": {
+                "perishable": false,
+                "deposit": false,
+                "final_sale": false,
+                "substitution_sensitive": false,
+                "flags": []
+              },
+              "agentcart_policy": {
+                "max_quantity": 3,
+                "blocked": false,
+                "blocked_reasons": [],
+                "restricted_goods": [],
+                "restricted_goods_blocked_by_default": true,
+                "restricted_goods_allowed_by_merchant": false,
+                "commerce_policy": {
+                  "perishable": false,
+                  "deposit": false,
+                  "final_sale": false,
+                  "substitution_sensitive": false,
+                  "flags": []
+                },
+                "requires_human_review": false
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quote",
+      "method": "POST",
+      "path": "/wp-json/agentcart/v1/quote",
+      "auth": "public_rate_limited_optional_signed_http",
+      "stability": "frozen_alpha",
+      "purpose": "Create a final WooCommerce-backed quote that binds item totals, tax, shipping, recipient country, stock hold, expiry, and payment requirements.",
+      "required_request_paths": [
+        "items[].product_id",
+        "items[].quantity",
+        "ship_to.country",
+        "ship_to.postcode"
+      ],
+      "required_response_paths": [
+        "id",
+        "merchant.id",
+        "merchant_of_record.name",
+        "items[].product_id",
+        "items[].quantity",
+        "items[].unit_price_cents",
+        "items[].line_total_cents",
+        "items[].currency",
+        "ship_to.country",
+        "subtotal_cents",
+        "shipping.amount_cents",
+        "shipping.currency",
+        "shipping.source",
+        "vat_lines",
+        "total_cents",
+        "currency",
+        "delivery_estimate.min_days",
+        "delivery_estimate.max_days",
+        "delivery_window",
+        "stock_reservation.state",
+        "expires_at",
+        "quote_hash",
+        "payment_requirements.amount_cents",
+        "payment_requirements.currency",
+        "payment_requirements.quote_hash",
+        "payment_requirements.quote_total.shipping_cents",
+        "payment_requirements.payment_contract_hash",
+        "payment_requirements.verification_contract.payment_contract_hash",
+        "payment_requirements.verification_contract.amount.amount_cents",
+        "payment_requirements.verification_contract.amount.shipping_cents",
+        "payment_requirements.verification_contract.settlement.fx_policy",
+        "payment_requirements.idempotency.required",
+        "refund_policy"
+      ],
+      "fixtures": {
+        "request": {
+          "items": [
+            {
+              "product_id": "woo_101",
+              "quantity": 1
+            }
+          ],
+          "ship_to": {
+            "country": "DE",
+            "postcode": "10115",
+            "city": "Berlin",
+            "address_1": "Demo Street 1"
+          }
+        },
+        "response": {
+          "id": "woo_quote_00000000-0000-4000-8000-000000000001",
+          "merchant": {
+            "id": "merchant.example",
+            "name": "Example Merchant"
+          },
+          "merchant_of_record": {
+            "name": "Example Merchant",
+            "country": "DE"
+          },
+          "items": [
+            {
+              "product_id": "woo_101",
+              "source_product_id": 101,
+              "sku": "TEA-101",
+              "title": "House Tea",
+              "quantity": 1,
+              "unit_price_cents": 980,
+              "line_total_cents": 980,
+              "currency": "EUR",
+              "category": "woocommerce.tea",
+              "category_slugs": [
+                "tea"
+              ],
+              "vat_rate_bps": 700,
+              "restricted_goods": [],
+              "commerce_policy": {
+                "perishable": false,
+                "flags": []
+              },
+              "agentcart_policy": {
+                "max_quantity": 3,
+                "blocked": false
+              }
+            }
+          ],
+          "ship_to": {
+            "country": "DE",
+            "postcode": "10115",
+            "city": "Berlin"
+          },
+          "delivery_requirements": {
+            "ship_to_country": "DE",
+            "supported_countries": [
+              "DE"
+            ]
+          },
+          "subtotal_cents": 980,
+          "shipping": {
+            "amount_cents": 490,
+            "currency": "EUR",
+            "method": "flat_rate:1",
+            "label": "Standard shipping",
+            "source": "woocommerce_cart"
+          },
+          "vat_lines": [
+            {
+              "rate_bps": 700,
+              "taxable_gross_cents": 1470,
+              "vat_cents": 96,
+              "currency": "EUR",
+              "included_in_price": true,
+              "source": "woocommerce_cart"
+            }
+          ],
+          "total_cents": 1470,
+          "currency": "EUR",
+          "delivery_estimate": {
+            "min_days": 2,
+            "max_days": 4,
+            "label": "2-4 business days"
+          },
+          "delivery_window": {
+            "earliest_date": "2026-06-30",
+            "latest_date": "2026-07-02",
+            "label": "2-4 business days",
+            "source": "merchant_estimate"
+          },
+          "stock_reserved_until": "2026-06-28T12:15:00Z",
+          "stock_reservation": {
+            "state": "soft_reserved",
+            "mode": "soft"
+          },
+          "expires_at": "2026-06-28T12:15:00Z",
+          "terms_url": "https://merchant.example/terms",
+          "returns_url": "https://merchant.example/returns",
+          "merchant_policy": {
+            "returns": "merchant_policy"
+          },
+          "quote_hash": "sha256:quote",
+          "payment_requirements": {
+            "amount_cents": 1470,
+            "currency": "EUR",
+            "quote_hash": "sha256:quote",
+            "quote_total": {
+              "amount_cents": 1470,
+              "currency": "EUR",
+              "subtotal_cents": 980,
+              "shipping_cents": 490,
+              "vat_lines": [
+                {
+                  "rate_bps": 700,
+                  "vat_cents": 96
+                }
+              ],
+              "includes": [
+                "items",
+                "shipping",
+                "tax"
+              ]
+            },
+            "checkout_endpoint": "https://merchant.example/wp-json/agentcart/v1/orders",
+            "verification_contract": {
+              "schema": "agentcart.payment_verification_contract.v1",
+              "merchant_id": "merchant.example",
+              "merchant_quote_id": "woo_quote_00000000-0000-4000-8000-000000000001",
+              "quote_hash": "sha256:quote",
+              "rail": "tempo-mpp",
+              "amount": {
+                "amount_cents": 1470,
+                "currency": "EUR",
+                "subtotal_cents": 980,
+                "shipping_cents": 490,
+                "vat_lines": [
+                  {
+                    "rate_bps": 700,
+                    "taxable_gross_cents": 1470,
+                    "vat_cents": 96,
+                    "currency": "EUR",
+                    "included_in_price": true,
+                    "source": "woocommerce_cart"
+                  }
+                ],
+                "includes": [
+                  "items",
+                  "shipping",
+                  "tax"
+                ]
+              },
+              "checkout_endpoint": "https://merchant.example/wp-json/agentcart/v1/orders",
+              "expires_at": "2026-06-28T12:15:00Z",
+              "stock_reserved_until": "2026-06-28T12:15:00Z",
+              "terms_url": "https://merchant.example/terms",
+              "returns_url": "https://merchant.example/returns",
+              "settlement": {
+                "network": "tempo-testnet",
+                "recipient": "0x0000000000000000000000000000000000000001",
+                "asset": {
+                  "denomination": "pathUSD"
+                },
+                "fx_policy": "external_verifier_binds_quote_currency_to_settlement_asset"
+              },
+              "payment_contract_hash": "sha256:payment-contract"
+            },
+            "verification_contracts": [
+              {
+                "schema": "agentcart.payment_verification_contract.v1",
+                "merchant_id": "merchant.example",
+                "merchant_quote_id": "woo_quote_00000000-0000-4000-8000-000000000001",
+                "quote_hash": "sha256:quote",
+                "rail": "tempo-mpp",
+                "amount": {
+                  "amount_cents": 1470,
+                  "currency": "EUR",
+                  "subtotal_cents": 980,
+                  "shipping_cents": 490,
+                  "vat_lines": [
+                    {
+                      "rate_bps": 700,
+                      "taxable_gross_cents": 1470,
+                      "vat_cents": 96,
+                      "currency": "EUR",
+                      "included_in_price": true,
+                      "source": "woocommerce_cart"
+                    }
+                  ],
+                  "includes": [
+                    "items",
+                    "shipping",
+                    "tax"
+                  ]
+                },
+                "checkout_endpoint": "https://merchant.example/wp-json/agentcart/v1/orders",
+                "expires_at": "2026-06-28T12:15:00Z",
+                "stock_reserved_until": "2026-06-28T12:15:00Z",
+                "terms_url": "https://merchant.example/terms",
+                "returns_url": "https://merchant.example/returns",
+                "settlement": {
+                  "network": "tempo-testnet",
+                  "recipient": "0x0000000000000000000000000000000000000001",
+                  "asset": {
+                    "denomination": "pathUSD"
+                  },
+                  "fx_policy": "external_verifier_binds_quote_currency_to_settlement_asset"
+                },
+                "payment_contract_hash": "sha256:payment-contract"
+              }
+            ],
+            "payment_contract_hash": "sha256:payment-contract",
+            "idempotency": {
+              "required": true,
+              "accepted_fields": [
+                "agentcart_order_id",
+                "idempotency_key",
+                "Idempotency-Key"
+              ],
+              "replay_state": "idempotent_replay"
+            }
+          },
+          "refund_policy": {
+            "returns_url": "https://merchant.example/returns",
+            "refund_endpoint_template": "https://merchant.example/wp-json/agentcart/v1/orders/{id}/refunds",
+            "requires_merchant_token": true,
+            "demo_mode_records_woo_refund_only": false,
+            "production_requires_rail_refund_verification": true,
+            "merchant_policy": {}
+          }
+        }
+      }
+    },
+    {
+      "id": "order_create",
+      "method": "POST",
+      "path": "/wp-json/agentcart/v1/orders",
+      "auth": "merchant_token_or_external_verifier_optional_signed_http",
+      "stability": "frozen_alpha",
+      "purpose": "Create a paid WooCommerce order only after quote hash, idempotency, approval metadata, stock, money drift, and payment verification checks pass.",
+      "required_request_paths": [
+        "agentcart_order_id",
+        "merchant_quote_id",
+        "quote_hash",
+        "idempotency_key",
+        "approval.approval_hash",
+        "payment_receipt.id",
+        "payment_receipt.quote_hash",
+        "payment_receipt.payment_contract_hash"
+      ],
+      "required_response_paths": [
+        "platform",
+        "state",
+        "id",
+        "number",
+        "status",
+        "payment_method",
+        "status_url",
+        "status_token",
+        "fulfillment",
+        "approval_hash",
+        "aftercare_state.order_lifecycle_state",
+        "payment_verification.mode",
+        "payment_verification.state",
+        "items",
+        "merchant_policy",
+        "cancellation_policy",
+        "refund_policy",
+        "cancellations",
+        "refunds"
+      ],
+      "fixtures": {
+        "request": {
+          "agentcart_order_id": "agentcart_order_001",
+          "merchant_quote_id": "woo_quote_00000000-0000-4000-8000-000000000001",
+          "quote_hash": "sha256:quote",
+          "idempotency_key": "agentcart_order_001",
+          "approval": {
+            "approval_id": "approval_001",
+            "approval_hash": "sha256:approval"
+          },
+          "payment_receipt": {
+            "id": "pay_001",
+            "rail": "tempo-mpp",
+            "quote_hash": "sha256:quote",
+            "payment_contract_hash": "sha256:payment-contract"
+          }
+        },
+        "response": {
+          "platform": "woocommerce-agentcart-plugin",
+          "state": "created",
+          "id": "123",
+          "number": "123",
+          "status": "processing",
+          "payment_method": "tempo_mpp",
+          "status_url": "https://merchant.example/wp-json/agentcart/v1/orders/123/status",
+          "status_token": "status-token",
+          "fulfillment": {
+            "state": "processing"
+          },
+          "approval_hash": "sha256:approval",
+          "aftercare_state": {
+            "order_lifecycle_state": "cancellable",
+            "refund_state": "refund_available"
+          },
+          "payment_verification": {
+            "mode": "external_verifier",
+            "state": "verified",
+            "real_settlement": true
+          },
+          "items": [],
+          "merchant_policy": {},
+          "cancellation_policy": {},
+          "refund_policy": {},
+          "cancellations": [],
+          "refunds": []
+        }
+      }
+    },
+    {
+      "id": "order_status",
+      "method": "GET",
+      "path": "/wp-json/agentcart/v1/orders/{id}/status",
+      "auth": "status_token_or_merchant_token_or_signed_http",
+      "stability": "frozen_alpha",
+      "purpose": "Expose order lifecycle, payment status, fulfillment, aftercare, refunds, and cancellations without requiring wp-admin access.",
+      "required_response_paths": [
+        "platform",
+        "id",
+        "number",
+        "status",
+        "created_at",
+        "payment_status",
+        "payment_method",
+        "fulfillment",
+        "aftercare_state.order_lifecycle_state",
+        "items",
+        "merchant_policy",
+        "cancellation_policy",
+        "refund_policy",
+        "cancellations",
+        "refunds",
+        "updated_at"
+      ],
+      "fixtures": {
+        "response": {
+          "platform": "woocommerce-agentcart-plugin",
+          "id": "123",
+          "number": "123",
+          "status": "processing",
+          "created_at": "2026-06-28T12:00:00+00:00",
+          "payment_status": "paid",
+          "payment_method": "tempo_mpp",
+          "fulfillment": {
+            "state": "processing",
+            "tracking_status": "not_shipped"
+          },
+          "aftercare_state": {
+            "order_lifecycle_state": "cancellable",
+            "refund_state": "refund_available"
+          },
+          "items": [],
+          "merchant_policy": {},
+          "cancellation_policy": {},
+          "refund_policy": {},
+          "cancellations": [],
+          "refunds": [],
+          "updated_at": "2026-06-28T12:00:00+00:00"
+        }
+      }
+    },
+    {
+      "id": "refund",
+      "method": "POST",
+      "path": "/wp-json/agentcart/v1/orders/{id}/refunds",
+      "auth": "merchant_token_or_signed_http",
+      "stability": "frozen_alpha",
+      "purpose": "Record a merchant-approved refund with verifier evidence; it must not claim real money movement unless rail verification proves it.",
+      "required_request_paths": [
+        "refund_idempotency_key",
+        "reason"
+      ],
+      "required_response_paths": [
+        "platform",
+        "state",
+        "order_id",
+        "refund_id",
+        "amount_cents",
+        "currency",
+        "rail",
+        "idempotency_key",
+        "real_refund_verified",
+        "verification_state",
+        "verification_mode",
+        "aftercare_state.order_lifecycle_state",
+        "refunds"
+      ],
+      "fixtures": {
+        "request": {
+          "refund_idempotency_key": "refund_001",
+          "reason": "merchant approved refund"
+        },
+        "response": {
+          "platform": "woocommerce-agentcart-plugin",
+          "state": "rail_refund_verified",
+          "order_id": "123",
+          "refund_id": "456",
+          "amount_cents": 1470,
+          "currency": "EUR",
+          "rail": "tempo-mpp",
+          "idempotency_key": "refund_001",
+          "requested_reference": "refund_001",
+          "refund_reference": "rail_refund_001",
+          "real_refund_verified": true,
+          "verification_state": "verified",
+          "verification_mode": "external_verifier",
+          "aftercare_state": {
+            "order_lifecycle_state": "refunded"
+          },
+          "refunds": []
+        }
+      }
+    },
+    {
+      "id": "cancellation",
+      "method": "POST",
+      "path": "/wp-json/agentcart/v1/orders/{id}/cancellations",
+      "auth": "merchant_token_or_signed_http",
+      "stability": "frozen_alpha",
+      "purpose": "Record a merchant-approved cancellation and expose whether a separate rail-verified refund is still required.",
+      "required_request_paths": [
+        "cancellation_idempotency_key",
+        "reason"
+      ],
+      "required_response_paths": [
+        "platform",
+        "state",
+        "order_id",
+        "order_status",
+        "cancellation.id",
+        "cancellation.refund_required",
+        "refund_required",
+        "real_refund_verified",
+        "aftercare_state.order_lifecycle_state",
+        "refund_policy",
+        "cancellation_policy",
+        "cancellations"
+      ],
+      "fixtures": {
+        "request": {
+          "cancellation_idempotency_key": "cancel_001",
+          "reason": "buyer requested cancellation before fulfillment"
+        },
+        "response": {
+          "platform": "woocommerce-agentcart-plugin",
+          "state": "cancellation_recorded",
+          "order_id": "123",
+          "order_status": "cancelled",
+          "cancellation": {
+            "id": "cancel_001",
+            "refund_required": true
+          },
+          "refund_required": true,
+          "real_refund_verified": false,
+          "aftercare_state": {
+            "order_lifecycle_state": "cancelled_refund_required"
+          },
+          "refund_policy": {},
+          "cancellation_policy": {},
+          "cancellations": []
+        }
+      }
+    }
+  ],
+  "invariants": [
+    {
+      "id": "quote_hash_binds_money_and_recipient",
+      "description": "quote_hash is computed over quote id, merchant id, items, ship_to, subtotal, shipping, vat_lines, total, currency, expiry, stock reservation, terms, returns, merchant policy, and payment profile."
+    },
+    {
+      "id": "payment_contract_hash_binds_quote_total_and_rail",
+      "description": "payment_contract_hash binds rail, amount, currency, quote_hash, payment recipient/profile, and verifier mode before checkout."
+    },
+    {
+      "id": "checkout_requires_quote_hash_and_idempotency",
+      "description": "order creation requires a stored merchant quote, matching quote_hash, idempotency key, and replay-compatible request hash."
+    },
+    {
+      "id": "checkout_revalidates_stock_shipping_tax_and_price",
+      "description": "checkout recreates the Woo cart from the stored quote and returns structured recovery errors when stock, shipping, tax, or price drift."
+    },
+    {
+      "id": "order_status_requires_token_or_signed_request",
+      "description": "order status requires the per-order status token, merchant token, or configured signed HTTP verification."
+    },
+    {
+      "id": "refund_and_cancellation_are_aftercare_not_silent_payment_claims",
+      "description": "refund/cancellation responses expose structured aftercare state and never claim money moved unless verifier evidence is marked real_refund_verified."
+    }
+  ],
+  "runtime_checks": [
+    {
+      "id": "live_shopbridge_smoke",
+      "path": "scripts/woocommerce-shopbridge-smoke.py",
+      "covers": [
+        "manifest",
+        "catalog",
+        "quote"
+      ],
+      "symbols": [
+        "validate_manifest",
+        "validate_quote",
+        "validate_registry_bundle"
+      ]
+    },
+    {
+      "id": "static_plugin_contract_tests",
+      "path": "woocommerce-shopbridge/tests/test_plugin_contracts.py",
+      "covers": [
+        "order_create",
+        "order_status",
+        "refund",
+        "cancellation"
+      ],
+      "symbols": [
+        "test_checkout_consumes_merchant_quote_under_quote_lock",
+        "test_checkout_mode_can_require_external_verifier_before_token_fallback",
+        "test_refund_endpoint_requires_idempotency_key"
+      ]
+    }
+  ],
+  "documentation": [
+    "docs/SHOPBRIDGE_ENDPOINT_CONTRACT.md",
+    "docs/WOOCOMMERCE_COMPATIBILITY.md",
+    "docs/BUYER_SETUP.md"
+  ]
+}

@@ -29,6 +29,7 @@ py311_files=(
   household-os/household_os.py
   scripts/build-release-manifest.py
   scripts/check-buyer-agent-adapter-examples.py
+  scripts/check-shopbridge-endpoint-contract.py
   scripts/check-wordpress-plugin-package.py
   scripts/check-wordpress-plugin-review.py
   scripts/check-wordpress-official-gates.py
@@ -96,6 +97,8 @@ python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
 python3 "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
 AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND="${AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND:-$ROOT_DIR/scripts/run-wordpress-plugin-check.sh}" \
   python3 "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
+python3 "$ROOT_DIR/scripts/check-shopbridge-endpoint-contract.py" \
+  --contract "$ROOT_DIR/gateway/config/shopbridge_endpoint_contract.json" >/dev/null
 python3 "$ROOT_DIR/scripts/check-woocommerce-compatibility-matrix.py" \
   --matrix "$ROOT_DIR/gateway/config/woocommerce_compatibility_matrix.json" >/dev/null
 python3 -m unittest discover -s "$ROOT_DIR/woocommerce-shopbridge/tests"

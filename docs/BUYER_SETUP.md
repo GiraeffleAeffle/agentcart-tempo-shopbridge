@@ -21,11 +21,14 @@ data; see `docs/PROMPT_INJECTION_CORPUS.md` for the current safety corpus.
 For external beta validation across several buyer-agent runtimes, use
 `docs/BUYER_AGENT_TEST_MATRIX.md`. Checked adapter examples for OpenClaw-style
 service use, Codex-style direct skill use, and generic MCP-style clients live in
-`docs/BUYER_AGENT_ADAPTERS.md`. The matrix is validated by:
+`docs/BUYER_AGENT_ADAPTERS.md`. The merchant endpoint contract that those
+adapters rely on is tracked in `docs/SHOPBRIDGE_ENDPOINT_CONTRACT.md`. The
+matrix and endpoint contract are validated by:
 
 ```sh
 python3 scripts/check-buyer-agent-matrix.py
 python3 scripts/check-buyer-agent-adapter-examples.py
+python3 scripts/check-shopbridge-endpoint-contract.py
 ```
 
 ## Skill-Only Setup

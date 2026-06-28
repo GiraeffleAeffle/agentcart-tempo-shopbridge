@@ -21,6 +21,7 @@
       "WordPress Plugin Check",
       "ShopBridge endpoint contract tests"
     ],
+    "endpoint_contract": "gateway/config/shopbridge_endpoint_contract.json",
     "runtime_smoke_script": "scripts/woocommerce-demo-smoke.sh",
     "live_endpoint_smoke": "scripts/woocommerce-shopbridge-smoke.py"
   },

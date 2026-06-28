@@ -65,6 +65,9 @@ def validate_matrix(data: dict[str, Any]) -> list[str]:
     if isinstance(verification, dict):
         require(str(verification.get("runtime_smoke_script") or "") == "scripts/woocommerce-demo-smoke.sh", "verification.runtime_smoke_script must point to scripts/woocommerce-demo-smoke.sh", errors)
         require(str(verification.get("live_endpoint_smoke") or "") == "scripts/woocommerce-shopbridge-smoke.py", "verification.live_endpoint_smoke must point to scripts/woocommerce-shopbridge-smoke.py", errors)
+        endpoint_contract = str(verification.get("endpoint_contract") or "")
+        require(endpoint_contract == "gateway/config/shopbridge_endpoint_contract.json", "verification.endpoint_contract must point to gateway/config/shopbridge_endpoint_contract.json", errors)
+        require((ROOT / endpoint_contract).exists(), "verification.endpoint_contract file must exist", errors)
         static_gates = verification.get("static_gates")
         require(isinstance(static_gates, list) and "PHPCompatibilityWP" in static_gates, "verification.static_gates must include PHPCompatibilityWP", errors)
         require(isinstance(static_gates, list) and "WordPress Plugin Check" in static_gates, "verification.static_gates must include WordPress Plugin Check", errors)
