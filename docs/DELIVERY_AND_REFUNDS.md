@@ -123,7 +123,10 @@ cancellable -> fulfillment_locked
 
 Order, status, refund, and cancellation responses expose `aftercare_state` so
 buyer agents do not infer lifecycle state from prose. The current contract
-includes:
+is named `agentcart.aftercare_state_contract.v1`; its canonical fixture set
+lives in `docs/fixtures/aftercare/state-fixtures.json` and is checked against
+the AgentCart service, Direct Skill, and ShopBridge plugin contract surface. The
+contract includes:
 
 - `order_lifecycle_state`: `active`, `cancellable`, `fulfillment_locked`,
   `cancelled_refund_required`, `cancelled_refunded`,
@@ -133,7 +136,7 @@ includes:
   `fulfillment_locked`, `cancelled_refund_required`, `cancelled_refunded`,
   `cancelled_no_refund_due`, `terminal`, or `not_available`;
 - `refund_state`: `refund_available`, `refund_required_after_cancellation`,
-  `partially_refunded`, `refunded`, `no_refund_remaining`, or
+  `partially_refunded`, `refunded`, `refund_failed`, `no_refund_remaining`, or
   `unpaid_no_refund_due`;
 - `refund_progress`: total order amount, refunded amount, remaining refundable
   amount, and booleans for partial, full, and post-cancellation refund state;

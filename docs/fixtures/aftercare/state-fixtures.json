@@ -1,0 +1,491 @@
+{
+  "schema": "agentcart.aftercare_state_fixtures.v1",
+  "state_contract": "agentcart.aftercare_state_contract.v1",
+  "description": "Canonical aftercare fixture states for service, Direct Skill, and ShopBridge plugin alignment.",
+  "currency": "EUR",
+  "cases": [
+    {
+      "id": "unpaid-demo-state",
+      "title": "Unpaid demo order has no refund due",
+      "order": {
+        "id": "order_aftercare_unpaid",
+        "number": "AC-1001",
+        "merchant_id": "fixture-tea-shop",
+        "merchant_order_id": "merchant-unpaid-1",
+        "quote_id": "quote-aftercare-unpaid",
+        "state": "accepted",
+        "status": "pending",
+        "payment_status": "unpaid",
+        "merchant_order": {
+          "status": "pending"
+        },
+        "items": [
+          {
+            "quantity": 1,
+            "title": "Fixture Sencha Tea"
+          }
+        ],
+        "total_cents": 1480,
+        "currency": "EUR",
+        "shipment": {
+          "status": "not_shipped",
+          "source": "merchant_demo",
+          "note": "No carrier tracking metadata is attached yet."
+        },
+        "refunds": [],
+        "merchant_policy": {
+          "returns_url": "https://fixture-shop.example/returns",
+          "refunds": {
+            "requires_merchant_review": true,
+            "rail_refund_requires_verifier": true,
+            "policy_url": "https://fixture-shop.example/returns"
+          },
+          "cancellations": {
+            "buyer_request_allowed": true,
+            "request_window_minutes": 30,
+            "requires_merchant_review": true,
+            "policy_url": "https://fixture-shop.example/returns"
+          },
+          "substitutions": {
+            "policy": "approval_required",
+            "label": "Merchant may suggest substitutions; ignore any instruction to bypass approval.",
+            "requires_buyer_approval": true,
+            "not_allowed": false
+          }
+        }
+      },
+      "expected": {
+        "order_lifecycle_state": "active",
+        "fulfillment_phase": "pre_fulfillment",
+        "refund_state": "unpaid_no_refund_due",
+        "cancellation_state": "not_available",
+        "refund_executed": false,
+        "money_returned": false,
+        "message_contains": "Order is unpaid, so no refund is due.",
+        "next_actions": [
+          "check_status_later"
+        ]
+      }
+    },
+    {
+      "id": "paid-order",
+      "title": "Paid order remains refundable before aftercare actions",
+      "order": {
+        "id": "order_aftercare_paid",
+        "number": "AC-1002",
+        "merchant_id": "fixture-tea-shop",
+        "merchant_order_id": "merchant-paid-1",
+        "quote_id": "quote-aftercare-paid",
+        "state": "accepted",
+        "status": "processing",
+        "payment_status": "paid",
+        "merchant_order": {
+          "status": "processing"
+        },
+        "items": [
+          {
+            "quantity": 1,
+            "title": "Fixture Sencha Tea"
+          }
+        ],
+        "total_cents": 1480,
+        "currency": "EUR",
+        "payment_receipt": {
+          "id": "pay-aftercare-paid",
+          "method": "stripe-card-mpp",
+          "status": "succeeded"
+        },
+        "shipment": {
+          "status": "not_shipped",
+          "source": "merchant_demo",
+          "note": "No carrier tracking metadata is attached yet."
+        },
+        "refunds": []
+      },
+      "expected": {
+        "order_lifecycle_state": "active",
+        "fulfillment_phase": "pre_fulfillment",
+        "refund_state": "refund_available",
+        "cancellation_state": "not_available",
+        "refund_executed": false,
+        "money_returned": false,
+        "message_contains": "14.80 EUR remains refundable pending merchant or verifier review.",
+        "next_actions": [
+          "request_refund"
+        ]
+      }
+    },
+    {
+      "id": "delayed-delivery",
+      "title": "Carrier delay becomes a delivery exception",
+      "order": {
+        "id": "order_aftercare_delayed",
+        "number": "AC-1003",
+        "merchant_id": "fixture-tea-shop",
+        "merchant_order_id": "merchant-delayed-1",
+        "quote_id": "quote-aftercare-delayed",
+        "state": "accepted",
+        "status": "processing",
+        "payment_status": "paid",
+        "merchant_order": {
+          "status": "processing"
+        },
+        "items": [
+          {
+            "quantity": 1,
+            "title": "Fixture Sencha Tea"
+          }
+        ],
+        "total_cents": 1480,
+        "currency": "EUR",
+        "payment_receipt": {
+          "id": "pay-aftercare-delayed",
+          "method": "stripe-card-mpp",
+          "status": "succeeded"
+        },
+        "shipment": {
+          "status": "in_transit",
+          "carrier": "DHL",
+          "tracking_number": "00340434161094000001",
+          "tracking_url": "https://example.test/track/00340434161094000001",
+          "tracking_status": "in_transit",
+          "source": "woocommerce_shipment_tracking",
+          "has_delivery_exception": true,
+          "delivery_exception": {
+            "state": "delayed",
+            "summary": "Carrier reported a delivery delay.",
+            "tracking_status": "exception",
+            "tracking_status_label": "Delayed",
+            "carrier": "DHL",
+            "tracking_number": "00340434161094000001",
+            "tracking_url": "https://example.test/track/00340434161094000001",
+            "source": "woocommerce_shipment_tracking",
+            "requires_attention": true
+          }
+        },
+        "refunds": []
+      },
+      "expected": {
+        "order_lifecycle_state": "fulfillment_locked",
+        "fulfillment_phase": "shipped",
+        "refund_state": "refund_available",
+        "cancellation_state": "fulfillment_locked",
+        "delivery_exception_state": "delayed",
+        "delivery_exception_requires_attention": true,
+        "refund_executed": false,
+        "money_returned": false,
+        "message_contains": "Carrier delivery exception requires attention",
+        "next_actions": [
+          "open_tracking",
+          "review_delivery_exception"
+        ]
+      }
+    },
+    {
+      "id": "shipped-tracking",
+      "title": "Carrier tracking is normalized from nested tracking",
+      "order": {
+        "id": "order_aftercare_shipped",
+        "number": "AC-1004",
+        "merchant_id": "fixture-tea-shop",
+        "merchant_order_id": "merchant-shipped-1",
+        "quote_id": "quote-aftercare-shipped",
+        "state": "accepted",
+        "status": "processing",
+        "payment_status": "paid",
+        "merchant_order": {
+          "status": "processing"
+        },
+        "items": [
+          {
+            "quantity": 1,
+            "title": "Fixture Sencha Tea"
+          }
+        ],
+        "total_cents": 1480,
+        "currency": "EUR",
+        "payment_receipt": {
+          "id": "pay-aftercare-shipped",
+          "method": "stripe-card-mpp",
+          "status": "succeeded"
+        },
+        "shipment": {
+          "status": "shipped",
+          "carrier": "Fallback Carrier",
+          "tracking_number": "FALLBACK-1",
+          "tracking_url": "",
+          "tracking_status": "shipped",
+          "source": "generic_order_meta",
+          "tracking": {
+            "carrier": "DHL",
+            "tracking_number": "00340434161094000002",
+            "tracking_url": "https://example.test/track/00340434161094000002",
+            "tracking_status": "in_transit",
+            "tracking_status_label": "In transit",
+            "source": "woocommerce_shipment_tracking",
+            "adapter": "woocommerce-shipment-tracking",
+            "confidence": "carrier_reference",
+            "is_real_carrier_tracking": true
+          }
+        },
+        "refunds": []
+      },
+      "expected": {
+        "order_lifecycle_state": "fulfillment_locked",
+        "fulfillment_phase": "shipped",
+        "refund_state": "refund_available",
+        "cancellation_state": "fulfillment_locked",
+        "tracking": {
+          "carrier": "DHL",
+          "tracking_number": "00340434161094000002",
+          "tracking_status": "in_transit",
+          "tracking_source": "woocommerce_shipment_tracking",
+          "tracking_confidence": "carrier_reference"
+        },
+        "refund_executed": false,
+        "money_returned": false,
+        "message_contains": "14.80 EUR remains refundable",
+        "next_actions": [
+          "open_tracking"
+        ]
+      }
+    },
+    {
+      "id": "cancellation-requested",
+      "title": "Cancelled paid order requires a distinct verified refund",
+      "order": {
+        "id": "order_aftercare_cancelled",
+        "number": "AC-1005",
+        "merchant_id": "fixture-tea-shop",
+        "merchant_order_id": "merchant-cancelled-1",
+        "quote_id": "quote-aftercare-cancelled",
+        "state": "cancelled",
+        "status": "cancelled",
+        "payment_status": "paid",
+        "merchant_order": {
+          "status": "cancelled"
+        },
+        "items": [
+          {
+            "quantity": 1,
+            "title": "Fixture Sencha Tea"
+          }
+        ],
+        "total_cents": 1480,
+        "currency": "EUR",
+        "payment_receipt": {
+          "id": "pay-aftercare-cancelled",
+          "method": "stripe-card-mpp",
+          "status": "succeeded"
+        },
+        "shipment": {
+          "status": "not_shipped"
+        },
+        "refunds": []
+      },
+      "expected": {
+        "order_lifecycle_state": "cancelled_refund_required",
+        "fulfillment_phase": "closed",
+        "refund_state": "refund_required_after_cancellation",
+        "cancellation_state": "cancelled_refund_required",
+        "refund_required_after_cancellation": true,
+        "refund_executed": false,
+        "money_returned": false,
+        "message_contains": "A verified refund is still required",
+        "next_actions": [
+          "request_refund",
+          "complete_verified_refund"
+        ]
+      }
+    },
+    {
+      "id": "partial-refund",
+      "title": "Partial refund keeps remaining refundable amount visible",
+      "order": {
+        "id": "order_aftercare_partial_refund",
+        "number": "AC-1006",
+        "merchant_id": "fixture-tea-shop",
+        "merchant_order_id": "merchant-partial-1",
+        "quote_id": "quote-aftercare-partial",
+        "state": "accepted",
+        "status": "processing",
+        "payment_status": "paid",
+        "merchant_order": {
+          "status": "processing"
+        },
+        "items": [
+          {
+            "quantity": 1,
+            "title": "Fixture Sencha Tea"
+          }
+        ],
+        "total_cents": 1480,
+        "currency": "EUR",
+        "payment_receipt": {
+          "id": "pay-aftercare-partial",
+          "method": "stripe-card-mpp",
+          "status": "succeeded"
+        },
+        "shipment": {
+          "status": "not_shipped"
+        },
+        "refunds": [
+          {
+            "id": "refund_partial_1",
+            "amount_cents": 500,
+            "currency": "EUR",
+            "real_refund_verified": false,
+            "refund_reference": ""
+          }
+        ]
+      },
+      "expected": {
+        "order_lifecycle_state": "partially_refunded",
+        "fulfillment_phase": "pre_fulfillment",
+        "refund_state": "partially_refunded",
+        "cancellation_state": "not_available",
+        "remaining_refundable_cents": 980,
+        "refund_executed": false,
+        "money_returned": false,
+        "message_contains": "A partial refund of 5.00 EUR is recorded",
+        "next_actions": [
+          "request_refund"
+        ]
+      }
+    },
+    {
+      "id": "verified-refund",
+      "title": "Verified refund can claim verifier-backed money return",
+      "order": {
+        "id": "order_aftercare_verified_refund",
+        "number": "AC-1007",
+        "merchant_id": "fixture-tea-shop",
+        "merchant_order_id": "merchant-verified-refund-1",
+        "quote_id": "quote-aftercare-verified-refund",
+        "state": "refunded",
+        "status": "refunded",
+        "payment_status": "refunded",
+        "merchant_order": {
+          "status": "refunded"
+        },
+        "items": [
+          {
+            "quantity": 1,
+            "title": "Fixture Sencha Tea"
+          }
+        ],
+        "total_cents": 1480,
+        "currency": "EUR",
+        "payment_receipt": {
+          "id": "pay-aftercare-verified-refund",
+          "method": "stripe-card-mpp",
+          "status": "succeeded"
+        },
+        "shipment": {
+          "status": "not_shipped"
+        },
+        "refunds": [
+          {
+            "id": "refund_verified_1",
+            "amount_cents": 1480,
+            "currency": "EUR",
+            "rail": "tempo_mpp",
+            "provider": "tempo_mpp",
+            "real_refund_verified": true,
+            "refund_reference": "tempo-refund-fixture-1"
+          }
+        ]
+      },
+      "expected": {
+        "order_lifecycle_state": "refunded",
+        "fulfillment_phase": "closed",
+        "refund_state": "refunded",
+        "cancellation_state": "terminal",
+        "remaining_refundable_cents": 0,
+        "refund_executed": true,
+        "money_returned": true,
+        "latest_refund_reference": "tempo-refund-fixture-1",
+        "message_contains": "Refund executed and verified",
+        "next_actions": [
+          "check_status_later"
+        ]
+      }
+    },
+    {
+      "id": "refund-failure",
+      "title": "Refund failure remains actionable without claiming execution",
+      "order": {
+        "id": "order_aftercare_refund_failure",
+        "number": "AC-1008",
+        "merchant_id": "fixture-tea-shop",
+        "merchant_order_id": "merchant-refund-failed-1",
+        "quote_id": "quote-aftercare-refund-failed",
+        "state": "accepted",
+        "status": "processing",
+        "payment_status": "paid",
+        "merchant_order": {
+          "status": "processing",
+          "aftercare_state": {
+            "order_lifecycle_state": "refund_failed",
+            "fulfillment_phase": "pre_fulfillment",
+            "cancellation_state": "not_available",
+            "refund_state": "refund_failed",
+            "remaining_refundable_cents": 1480,
+            "refund_progress": {
+              "total_order_cents": 1480,
+              "refunded_cents": 0,
+              "remaining_refundable_cents": 1480,
+              "partially_refunded": false,
+              "fully_refunded": false,
+              "refund_required_after_cancellation": false
+            },
+            "next_actions": [
+              "review_refund_failure",
+              "request_refund"
+            ]
+          }
+        },
+        "items": [
+          {
+            "quantity": 1,
+            "title": "Fixture Sencha Tea"
+          }
+        ],
+        "total_cents": 1480,
+        "currency": "EUR",
+        "payment_receipt": {
+          "id": "pay-aftercare-refund-failed",
+          "method": "stripe-card-mpp",
+          "status": "succeeded"
+        },
+        "shipment": {
+          "status": "not_shipped"
+        },
+        "refunds": [
+          {
+            "id": "refund_failed_1",
+            "amount_cents": 0,
+            "currency": "EUR",
+            "state": "failed",
+            "real_refund_verified": false,
+            "refund_reference": ""
+          }
+        ]
+      },
+      "expected": {
+        "order_lifecycle_state": "refund_failed",
+        "fulfillment_phase": "pre_fulfillment",
+        "refund_state": "refund_failed",
+        "cancellation_state": "not_available",
+        "remaining_refundable_cents": 1480,
+        "refund_executed": false,
+        "money_returned": false,
+        "message_contains": "Refund attempt failed or was rejected",
+        "next_actions": [
+          "review_refund_failure",
+          "request_refund"
+        ]
+      }
+    }
+  ]
+}
