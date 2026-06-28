@@ -9,6 +9,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from typing import Any
 
 
@@ -54,13 +55,16 @@ def http_json(
     *,
     method: str = "GET",
     payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
     timeout: int = 30,
 ) -> dict[str, Any]:
     data = json.dumps(payload).encode() if payload is not None else None
-    headers = {"Accept": "application/json", "User-Agent": SMOKE_USER_AGENT}
+    request_headers = {"Accept": "application/json", "User-Agent": SMOKE_USER_AGENT}
+    if headers:
+        request_headers.update({key: value for key, value in headers.items() if value})
     if data is not None:
-        headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(f"{base_url.rstrip('/')}{path}", data=data, headers=headers, method=method)
+        request_headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(f"{base_url.rstrip('/')}{path}", data=data, headers=request_headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode()
@@ -357,6 +361,247 @@ def validate_quote(quote: dict[str, Any], *, args: argparse.Namespace, product: 
     require(isinstance(quote.get("delivery_window"), dict), "quote.delivery_window must be present")
 
 
+def payment_contract_hash_from_quote(quote: dict[str, Any]) -> str:
+    requirements = quote.get("payment_requirements")
+    require(isinstance(requirements, dict), "quote.payment_requirements must be present")
+    candidates: list[Any] = [
+        requirements.get("payment_contract_hash"),
+    ]
+    verification_contract = requirements.get("verification_contract")
+    if isinstance(verification_contract, dict):
+        candidates.append(verification_contract.get("payment_contract_hash"))
+    verification_contracts = requirements.get("verification_contracts")
+    if isinstance(verification_contracts, list):
+        for contract in verification_contracts:
+            if isinstance(contract, dict):
+                candidates.append(contract.get("payment_contract_hash"))
+    for candidate in candidates:
+        if candidate:
+            return str(candidate)
+    raise SmokeError("quote.payment_requirements must expose payment_contract_hash")
+
+
+def payment_rail_from_quote(quote: dict[str, Any]) -> str:
+    requirements = quote.get("payment_requirements")
+    protocols = requirements.get("protocols") if isinstance(requirements, dict) else None
+    if isinstance(protocols, list):
+        for protocol in protocols:
+            if isinstance(protocol, dict) and protocol.get("id"):
+                return str(protocol["id"])
+    return "tempo-mpp"
+
+
+def merchant_headers(args: argparse.Namespace) -> dict[str, str]:
+    token = str(getattr(args, "merchant_token", "") or "").strip()
+    require(bool(token), "--merchant-token or AGENTCART_WOO_SMOKE_MERCHANT_TOKEN is required for the endpoint harness")
+    return {"X-AgentCart-Merchant-Token": token}
+
+
+def checkout_payload(
+    quote: dict[str, Any],
+    args: argparse.Namespace,
+    *,
+    idempotency_key: str,
+    receipt_id: str,
+    merchant_quote_id: str | None = None,
+    quote_hash: str | None = None,
+) -> dict[str, Any]:
+    merchant_quote_id = merchant_quote_id or str(quote.get("id") or "")
+    quote_hash = quote_hash if quote_hash is not None else str(quote.get("quote_hash") or "")
+    require(bool(merchant_quote_id), "quote.id is required for checkout")
+    require(bool(quote_hash), "quote.quote_hash is required for checkout")
+    payment_contract_hash = payment_contract_hash_from_quote(quote)
+    return {
+        "agentcart_order_id": idempotency_key,
+        "idempotency_key": idempotency_key,
+        "merchant_quote_id": merchant_quote_id,
+        "quote_hash": quote_hash,
+        "payment_receipt": {
+            "id": receipt_id,
+            "rail": payment_rail_from_quote(quote),
+            "provider": "agentcart-demo-harness",
+            "status": "verified",
+            "amount_cents": int(quote.get("total_cents") or 0),
+            "currency": str(quote.get("currency") or getattr(args, "currency", "EUR")),
+            "quote_hash": str(quote.get("quote_hash") or ""),
+            "payment_contract_hash": payment_contract_hash,
+        },
+        "approval": {
+            "approval_id": "approval_" + idempotency_key,
+            "approval_hash": hashlib.sha256(("approval|" + idempotency_key).encode()).hexdigest(),
+        },
+    }
+
+
+def error_code(error: HttpJsonError) -> str:
+    if isinstance(error.detail, dict):
+        return str(error.detail.get("code") or "")
+    return ""
+
+
+def expect_http_error(
+    base_url: str,
+    path: str,
+    *,
+    method: str,
+    payload: dict[str, Any] | None,
+    headers: dict[str, str] | None,
+    expected_status: int,
+    expected_code: str,
+) -> dict[str, Any]:
+    try:
+        http_json(base_url, path, method=method, payload=payload, headers=headers)
+    except HttpJsonError as exc:
+        require(exc.status == expected_status, f"{method} {path} expected HTTP {expected_status}, got {exc.status}")
+        require(error_code(exc) == expected_code, f"{method} {path} expected error code {expected_code}, got {error_code(exc)}")
+        return {
+            "status": exc.status,
+            "code": expected_code,
+            "detail": exc.detail,
+        }
+    raise SmokeError(f"{method} {path} unexpectedly succeeded; expected {expected_code}")
+
+
+def validate_order_response(order: dict[str, Any]) -> None:
+    require(order.get("platform") == "woocommerce-agentcart-plugin", "checkout response platform mismatch")
+    require(bool(order.get("id")), "checkout response id is required")
+    require(str(order.get("status") or "") in {"processing", "completed", "on-hold"}, "checkout response status must be an active WooCommerce status")
+    require(bool(order.get("status_token")), "checkout response status_token is required")
+    require(isinstance(order.get("payment_verification"), dict), "checkout response payment_verification is required")
+    require(isinstance(order.get("aftercare_state"), dict), "checkout response aftercare_state is required")
+
+
+def validate_order_status(status: dict[str, Any], *, order: dict[str, Any]) -> None:
+    require(status.get("platform") == "woocommerce-agentcart-plugin", "order status platform mismatch")
+    require(str(status.get("id") or "") == str(order.get("id") or ""), "order status id must match checkout response")
+    require(str(status.get("payment_status") or "") == "paid", "order status payment_status must be paid")
+    require(isinstance(status.get("aftercare_state"), dict), "order status aftercare_state is required")
+
+
+def validate_refund_response(refund: dict[str, Any], *, require_real_refund_verifier_evidence: bool = False) -> None:
+    require(refund.get("platform") == "woocommerce-agentcart-plugin", "refund response platform mismatch")
+    require(bool(refund.get("refund_id")), "refund response refund_id is required")
+    require(bool(refund.get("idempotency_key")), "refund response idempotency_key is required")
+    verification = refund.get("verification")
+    require(isinstance(verification, dict), "refund response verification evidence is required")
+    real_refund_verified = bool(refund.get("real_refund_verified"))
+    verification_real = bool(verification.get("real_refund_verified"))
+    if require_real_refund_verifier_evidence:
+        require(real_refund_verified and verification_real, "refund response must include real verifier evidence")
+    elif not real_refund_verified:
+        require(str(verification.get("mode") or refund.get("verification_mode") or ""), "demo refund response must include verification mode")
+        require(bool(verification.get("note")), "demo refund response must explain that no real refund was verified")
+    require(isinstance(refund.get("aftercare_state"), dict), "refund response aftercare_state is required")
+
+
+def validate_cancellation_response(cancellation: dict[str, Any]) -> None:
+    require(cancellation.get("platform") == "woocommerce-agentcart-plugin", "cancellation response platform mismatch")
+    require(bool(cancellation.get("order_id")), "cancellation response order_id is required")
+    require(cancellation.get("real_refund_verified") is False, "cancellation endpoint must not claim real refund verification")
+    event = cancellation.get("cancellation")
+    require(isinstance(event, dict), "cancellation response cancellation event is required")
+    require(event.get("real_refund_verified") is False, "cancellation event must not claim real refund verification")
+    require(isinstance(cancellation.get("aftercare_state"), dict), "cancellation response aftercare_state is required")
+
+
+def run_endpoint_harness(base_url: str, quote: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    headers = merchant_headers(args)
+    run_id = uuid.uuid4().hex[:12]
+    expired = expect_http_error(
+        base_url,
+        "/wp-json/agentcart/v1/orders",
+        method="POST",
+        headers=headers,
+        payload=checkout_payload(
+            quote,
+            args,
+            idempotency_key=f"agentcart-expired-{run_id}",
+            receipt_id=f"receipt-expired-{run_id}",
+            merchant_quote_id=f"woo_quote_missing_{run_id}",
+        ),
+        expected_status=409,
+        expected_code="agentcart_quote_expired",
+    )
+    mismatch = expect_http_error(
+        base_url,
+        "/wp-json/agentcart/v1/orders",
+        method="POST",
+        headers=headers,
+        payload=checkout_payload(
+            quote,
+            args,
+            idempotency_key=f"agentcart-mismatch-{run_id}",
+            receipt_id=f"receipt-mismatch-{run_id}",
+            quote_hash="bad-quote-hash",
+        ),
+        expected_status=409,
+        expected_code="agentcart_quote_mismatch",
+    )
+    order = http_json(
+        base_url,
+        "/wp-json/agentcart/v1/orders",
+        method="POST",
+        headers=headers,
+        payload=checkout_payload(
+            quote,
+            args,
+            idempotency_key=f"agentcart-checkout-{run_id}",
+            receipt_id=f"receipt-checkout-{run_id}",
+        ),
+    )
+    validate_order_response(order)
+    status_headers = {"X-AgentCart-Order-Token": str(order.get("status_token") or "")}
+    status = http_json(base_url, f"/wp-json/agentcart/v1/orders/{order['id']}/status", headers=status_headers)
+    validate_order_status(status, order=order)
+    refund_idempotency = expect_http_error(
+        base_url,
+        f"/wp-json/agentcart/v1/orders/{order['id']}/refunds",
+        method="POST",
+        headers=headers,
+        payload={"amount_cents": int(quote.get("total_cents") or 0), "reason": "Endpoint harness missing idempotency probe"},
+        expected_status=400,
+        expected_code="agentcart_refund_idempotency_key_required",
+    )
+    cancellation = http_json(
+        base_url,
+        f"/wp-json/agentcart/v1/orders/{order['id']}/cancellations",
+        method="POST",
+        headers=headers,
+        payload={
+            "cancellation_idempotency_key": f"cancel-{run_id}",
+            "requested_reference": f"cancel-{run_id}",
+            "reason": "Endpoint integration harness cancellation probe",
+        },
+    )
+    validate_cancellation_response(cancellation)
+    refund = http_json(
+        base_url,
+        f"/wp-json/agentcart/v1/orders/{order['id']}/refunds",
+        method="POST",
+        headers=headers,
+        payload={
+            "refund_idempotency_key": f"refund-{run_id}",
+            "requested_reference": f"refund-{run_id}",
+            "amount_cents": int(quote.get("total_cents") or 0),
+            "reason": "Endpoint integration harness refund probe",
+            "rail": payment_rail_from_quote(quote),
+        },
+    )
+    validate_refund_response(
+        refund,
+        require_real_refund_verifier_evidence=bool(getattr(args, "require_real_refund_verifier_evidence", False)),
+    )
+    return {
+        "expired_quote_rejection": expired,
+        "quote_hash_mismatch_rejection": mismatch,
+        "checkout": order,
+        "status": status,
+        "refund_idempotency_rejection": refund_idempotency,
+        "cancellation": cancellation,
+        "refund": refund,
+    }
+
+
 def validate_rate_limit_error(error: HttpJsonError, *, expected_bucket: str) -> dict[str, Any]:
     require(error.status == 429, f"expected HTTP 429 rate limit response, got {error.status}")
     require(isinstance(error.detail, dict), "rate limit response must be a JSON object")
@@ -471,6 +716,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     payload = quote_payload(product, args)
     quote = http_json(base_url, "/wp-json/agentcart/v1/quote", method="POST", payload=payload)
     validate_quote(quote, args=args, product=product)
+    endpoint_harness = None
+    if args.endpoint_harness:
+        endpoint_harness = run_endpoint_harness(base_url, quote, args)
     rate_limit_abuse = []
     if args.abuse_rate_limits:
         rate_limit_abuse = run_rate_limit_abuse_checks(base_url, capability, args)
@@ -492,6 +740,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "registry": registry,
         "rate_limit_abuse": rate_limit_abuse,
+        "endpoint_harness": endpoint_harness,
         "production_setup": production_setup,
         "setup_next_step": (capability.get("setup_guide") or {}).get("next_step"),
     }
@@ -513,6 +762,26 @@ def parser() -> argparse.ArgumentParser:
     parser.add_argument("--expect-shipping-cents", type=int, default=None)
     parser.add_argument("--require-shipping", action="store_true")
     parser.add_argument("--require-vat-lines", action="store_true")
+    parser.add_argument(
+        "--endpoint-harness",
+        action="store_true",
+        default=os.getenv("AGENTCART_WOO_SMOKE_ENDPOINT_HARNESS", "").strip() == "1",
+        help="Run the full mutable endpoint harness after quote validation.",
+    )
+    parser.add_argument(
+        "--merchant-token",
+        default=os.getenv(
+            "AGENTCART_WOO_SMOKE_MERCHANT_TOKEN",
+            os.getenv("AGENTCART_SHOPBRIDGE_TOKEN", "agentcart-woo-demo-token"),
+        ),
+        help="Merchant token used by the mutable checkout, refund, and cancellation harness.",
+    )
+    parser.add_argument(
+        "--require-real-refund-verifier-evidence",
+        action="store_true",
+        default=os.getenv("AGENTCART_WOO_SMOKE_REQUIRE_REAL_REFUND_VERIFIER_EVIDENCE", "").strip() == "1",
+        help="Require refund responses to include real external-verifier evidence.",
+    )
     parser.add_argument(
         "--require-production-ready",
         action="store_true",

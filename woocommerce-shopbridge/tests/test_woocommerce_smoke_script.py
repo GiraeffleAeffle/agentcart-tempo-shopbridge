@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "woocommerce-shopbridge-smoke.py"
+INTEGRATION_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "woocommerce-demo-integration.sh"
 RESET_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "woocommerce-demo-reset.sh"
 SEED_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "demo" / "woocommerce" / "seed-products.sh"
+ROOT_PACKAGE_PATH = Path(__file__).resolve().parents[2] / "package.json"
+DEMO_README_PATH = Path(__file__).resolve().parents[2] / "demo" / "woocommerce" / "README.md"
 SPEC = importlib.util.spec_from_file_location("woocommerce_shopbridge_smoke", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 smoke = importlib.util.module_from_spec(SPEC)
@@ -25,9 +29,11 @@ def args(**overrides):
         "city": "Berlin",
         "address": "Demo Street 1",
         "currency": "EUR",
+        "merchant_token": "agentcart-woo-demo-token",
         "expect_shipping_cents": None,
         "require_shipping": True,
         "require_vat_lines": True,
+        "require_real_refund_verifier_evidence": False,
         "rounding_tolerance_cents": 1,
     }
     values.update(overrides)
@@ -252,12 +258,76 @@ def sample_quote(**overrides):
         "total_cents": 1480,
         "currency": "EUR",
         "quote_hash": "quote-hash",
-        "payment_requirements": {"protocols": [{"id": "stripe-card-mpp"}]},
+        "payment_requirements": {
+            "protocols": [{"id": "tempo-mpp"}],
+            "payment_contract_hash": "payment-contract-hash",
+            "verification_contract": {"payment_contract_hash": "payment-contract-hash"},
+        },
         "merchant_policy": {"returns_url": "https://shop.test/returns"},
         "delivery_window": {"label": "2-4 business days"},
     }
     quote.update(overrides)
     return quote
+
+
+def sample_order_response():
+    return {
+        "platform": "woocommerce-agentcart-plugin",
+        "state": "created",
+        "id": "123",
+        "status": "processing",
+        "status_token": "status-token",
+        "payment_verification": {"mode": "trusted_agentcart_token", "real_settlement_verified": False},
+        "aftercare_state": {"refund_progress": "not_refunded"},
+    }
+
+
+def sample_order_status():
+    return {
+        "platform": "woocommerce-agentcart-plugin",
+        "id": "123",
+        "status": "processing",
+        "payment_status": "paid",
+        "aftercare_state": {"refund_progress": "not_refunded"},
+    }
+
+
+def sample_refund_response():
+    return {
+        "platform": "woocommerce-agentcart-plugin",
+        "state": "refund_recorded",
+        "order_id": "123",
+        "refund_id": "456",
+        "amount_cents": 1480,
+        "currency": "EUR",
+        "idempotency_key": "refund-key",
+        "real_refund_verified": False,
+        "verification_mode": "trusted_agentcart_token",
+        "verification": {
+            "mode": "trusted_agentcart_token",
+            "real_refund_verified": False,
+            "note": "WooCommerce refund record only.",
+        },
+        "aftercare_state": {"refund_progress": "refunded"},
+    }
+
+
+def sample_cancellation_response():
+    return {
+        "platform": "woocommerce-agentcart-plugin",
+        "state": "cancellation_recorded",
+        "order_id": "123",
+        "order_status": "cancelled",
+        "refund_required": True,
+        "real_refund_verified": False,
+        "cancellation": {
+            "id": "cancel_123",
+            "real_refund_verified": False,
+            "refund_required": True,
+            "note": "No payment refund was executed by this cancellation endpoint.",
+        },
+        "aftercare_state": {"cancellation_state": "cancelled_refund_required"},
+    }
 
 
 class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
@@ -331,6 +401,92 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
                 args=args(require_vat_lines=True),
                 product=sample_catalog_product(),
             )
+
+    def test_checkout_payload_binds_quote_total_hash_and_payment_contract(self) -> None:
+        payload = smoke.checkout_payload(
+            sample_quote(),
+            args(),
+            idempotency_key="checkout-key",
+            receipt_id="receipt-123",
+        )
+
+        self.assertEqual(payload["merchant_quote_id"], "woo_quote_123")
+        self.assertEqual(payload["quote_hash"], "quote-hash")
+        self.assertEqual(payload["idempotency_key"], "checkout-key")
+        self.assertEqual(payload["payment_receipt"]["id"], "receipt-123")
+        self.assertEqual(payload["payment_receipt"]["amount_cents"], 1480)
+        self.assertEqual(payload["payment_receipt"]["currency"], "EUR")
+        self.assertEqual(payload["payment_receipt"]["quote_hash"], "quote-hash")
+        self.assertEqual(payload["payment_receipt"]["payment_contract_hash"], "payment-contract-hash")
+
+    def test_endpoint_harness_exercises_checkout_status_refund_cancellation_paths(self) -> None:
+        calls = []
+        original = smoke.http_json
+
+        def fake_http_json(base_url, path, *, method="GET", payload=None, timeout=30, headers=None):
+            calls.append((path, method, payload, headers))
+            if path == "/wp-json/agentcart/v1/orders":
+                if str(payload.get("merchant_quote_id", "")).startswith("woo_quote_missing_"):
+                    raise smoke.HttpJsonError(
+                        "HTTP 409",
+                        status=409,
+                        method=method,
+                        path=path,
+                        detail={"code": "agentcart_quote_expired", "data": {"status": 409}},
+                    )
+                if payload.get("quote_hash") == "bad-quote-hash":
+                    raise smoke.HttpJsonError(
+                        "HTTP 409",
+                        status=409,
+                        method=method,
+                        path=path,
+                        detail={"code": "agentcart_quote_mismatch", "data": {"status": 409}},
+                    )
+                return sample_order_response()
+            if path == "/wp-json/agentcart/v1/orders/123/status":
+                return sample_order_status()
+            if path == "/wp-json/agentcart/v1/orders/123/cancellations":
+                return sample_cancellation_response()
+            if path == "/wp-json/agentcart/v1/orders/123/refunds":
+                if "refund_idempotency_key" not in payload:
+                    raise smoke.HttpJsonError(
+                        "HTTP 400",
+                        status=400,
+                        method=method,
+                        path=path,
+                        detail={"code": "agentcart_refund_idempotency_key_required", "data": {"status": 400}},
+                    )
+                return sample_refund_response()
+            raise AssertionError(f"unexpected harness call: {method} {path}")
+
+        smoke.http_json = fake_http_json
+        try:
+            result = smoke.run_endpoint_harness("http://shop", sample_quote(), args())
+        finally:
+            smoke.http_json = original
+
+        self.assertEqual(result["checkout"]["id"], "123")
+        self.assertEqual(result["status"]["payment_status"], "paid")
+        self.assertEqual(result["refund"]["real_refund_verified"], False)
+        self.assertEqual(result["cancellation"]["real_refund_verified"], False)
+        self.assertEqual(
+            [(path, method) for path, method, _payload, _headers in calls],
+            [
+                ("/wp-json/agentcart/v1/orders", "POST"),
+                ("/wp-json/agentcart/v1/orders", "POST"),
+                ("/wp-json/agentcart/v1/orders", "POST"),
+                ("/wp-json/agentcart/v1/orders/123/status", "GET"),
+                ("/wp-json/agentcart/v1/orders/123/refunds", "POST"),
+                ("/wp-json/agentcart/v1/orders/123/cancellations", "POST"),
+                ("/wp-json/agentcart/v1/orders/123/refunds", "POST"),
+            ],
+        )
+
+    def test_refund_validator_can_require_real_verifier_evidence(self) -> None:
+        smoke.validate_refund_response(sample_refund_response(), require_real_refund_verifier_evidence=False)
+
+        with self.assertRaises(smoke.SmokeError):
+            smoke.validate_refund_response(sample_refund_response(), require_real_refund_verifier_evidence=True)
 
     def test_rate_limit_error_validator_requires_retry_metadata(self) -> None:
         error = smoke.HttpJsonError(
@@ -423,6 +579,15 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
         self.assertEqual([scenario["bucket"] for scenario in scenarios], ["quote", "refund"])
         self.assertEqual(scenarios[0]["method"], "POST")
         self.assertEqual(scenarios[1]["path"], "/wp-json/agentcart/v1/orders/0/refunds")
+
+    def test_demo_integration_harness_has_documented_separate_command(self) -> None:
+        package = json.loads(ROOT_PACKAGE_PATH.read_text(encoding="utf-8"))
+        readme = DEMO_README_PATH.read_text(encoding="utf-8")
+
+        self.assertTrue(INTEGRATION_SCRIPT_PATH.exists(), "integration harness wrapper should exist")
+        self.assertEqual(package["scripts"]["verify:woo-integration"], "bash scripts/woocommerce-demo-integration.sh")
+        self.assertIn("npm run verify:woo-integration", readme)
+        self.assertIn("--endpoint-harness", INTEGRATION_SCRIPT_PATH.read_text(encoding="utf-8"))
 
     def test_demo_reset_wrapper_runs_seed_reset_and_optional_smoke(self) -> None:
         reset_script = RESET_SCRIPT_PATH.read_text(encoding="utf-8")
