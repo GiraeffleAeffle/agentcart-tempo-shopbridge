@@ -1,0 +1,300 @@
+{
+  "base": {
+    "manifest": {
+      "delivery": {
+        "ship_to_countries": [
+          "DE",
+          "AT",
+          "NL"
+        ]
+      },
+      "discovery": {
+        "registry_claim": {
+          "domain": "fixture-shop.example",
+          "endpoints": {
+            "catalog": "https://fixture-shop.example/wp-json/agentcart/v1/catalog",
+            "orders": "https://fixture-shop.example/wp-json/agentcart/v1/orders",
+            "quote": "https://fixture-shop.example/wp-json/agentcart/v1/quote"
+          },
+          "manifest_url": "https://fixture-shop.example/.well-known/agentcart.json",
+          "merchant_id": "fixture-tea-shop",
+          "name": "Fixture Tea Shop",
+          "onchain_identity": {
+            "agent_id": "agentcart:fixture-tea-shop",
+            "chain_id": "eip155:8453",
+            "registration_tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+            "registration_uri": "https://fixture-shop.example/.well-known/agentcart.json",
+            "registry_address": "0x2222222222222222222222222222222222222222",
+            "standard": "ERC-8004"
+          },
+          "payment_network": "testnet",
+          "payment_recipient": "0x1111111111111111111111111111111111111111",
+          "proof_url": "https://fixture-shop.example/.well-known/agentcart-registry-proof.json",
+          "protocol_profile_ids": [
+            "agentcart-shopbridge",
+            "mpp-http-auth",
+            "erc8004-ready"
+          ],
+          "revocation_url": "https://fixture-shop.example/.well-known/agentcart-registry-revocations.json",
+          "ship_to_countries": [
+            "DE",
+            "AT"
+          ],
+          "supported_protocols": [
+            "agentcart-shopbridge",
+            "tempo-mpp"
+          ]
+        },
+        "registry_claim_hash": "8e6cf1b0208de5dd4958195685fab936e09e64f32eb3863b691896d022294d4a",
+        "registry_claim_hash_alg": "sha-256",
+        "registry_proof": {
+          "type": "https-well-known",
+          "url": "https://fixture-shop.example/.well-known/agentcart-registry-proof.json"
+        },
+        "revocation_url": "https://fixture-shop.example/.well-known/agentcart-registry-revocations.json",
+        "suggested_registry_record": {
+          "domain": "fixture-shop.example",
+          "endpoints": {
+            "catalog": "https://fixture-shop.example/wp-json/agentcart/v1/catalog",
+            "orders": "https://fixture-shop.example/wp-json/agentcart/v1/orders",
+            "quote": "https://fixture-shop.example/wp-json/agentcart/v1/quote"
+          },
+          "manifest_url": "https://fixture-shop.example/.well-known/agentcart.json",
+          "merchant_id": "fixture-tea-shop",
+          "name": "Fixture Tea Shop",
+          "onchain_identity": {
+            "agent_id": "agentcart:fixture-tea-shop",
+            "chain_id": "eip155:8453",
+            "registration_tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+            "registration_uri": "https://fixture-shop.example/.well-known/agentcart.json",
+            "registry_address": "0x2222222222222222222222222222222222222222",
+            "standard": "ERC-8004"
+          },
+          "payment_network": "testnet",
+          "payment_recipient": "0x1111111111111111111111111111111111111111",
+          "proof": {
+            "type": "https-well-known",
+            "url": "https://fixture-shop.example/.well-known/agentcart-registry-proof.json"
+          },
+          "proof_url": "https://fixture-shop.example/.well-known/agentcart-registry-proof.json",
+          "protocol_profile_ids": [
+            "agentcart-shopbridge",
+            "mpp-http-auth",
+            "erc8004-ready"
+          ],
+          "registry_claim_hash": "8e6cf1b0208de5dd4958195685fab936e09e64f32eb3863b691896d022294d4a",
+          "registry_claim_hash_alg": "sha-256",
+          "revocation_url": "https://fixture-shop.example/.well-known/agentcart-registry-revocations.json",
+          "revoked_at": null,
+          "ship_to_countries": [
+            "DE",
+            "AT"
+          ],
+          "signature": "",
+          "signature_alg": "https-domain-proof",
+          "supported_protocols": [
+            "agentcart-shopbridge",
+            "tempo-mpp"
+          ],
+          "updated_at": "2026-06-01T00:00:00Z"
+        }
+      },
+      "endpoints": {
+        "catalog": "https://fixture-shop.example/wp-json/agentcart/v1/catalog",
+        "orders": "https://fixture-shop.example/wp-json/agentcart/v1/orders",
+        "quote": "https://fixture-shop.example/wp-json/agentcart/v1/quote"
+      },
+      "manifest_url": "https://fixture-shop.example/.well-known/agentcart.json",
+      "merchant": {
+        "domain": "fixture-shop.example",
+        "id": "fixture-tea-shop",
+        "name": "Fixture Tea Shop"
+      },
+      "protocol_profiles": [
+        {
+          "id": "agentcart-shopbridge",
+          "version": "1.0"
+        },
+        {
+          "id": "mpp-http-auth",
+          "network": "testnet",
+          "payment_protocol_id": "tempo-mpp",
+          "recipient": "0x1111111111111111111111111111111111111111"
+        },
+        {
+          "id": "erc8004-ready",
+          "standard": "ERC-8004"
+        }
+      ],
+      "schema": "agentcart-shopbridge-manifest-v1"
+    },
+    "proof": {
+      "domain": "fixture-shop.example",
+      "manifest_url": "https://fixture-shop.example/.well-known/agentcart.json",
+      "merchant_id": "fixture-tea-shop",
+      "payment_network": "testnet",
+      "payment_recipient": "0x1111111111111111111111111111111111111111",
+      "record_hash": "e62a7ac838db39bee5df09c2394c961c6d0809e8132fad344a868bc788745478",
+      "registry_claim_hash": "8e6cf1b0208de5dd4958195685fab936e09e64f32eb3863b691896d022294d4a",
+      "revocation_url": "https://fixture-shop.example/.well-known/agentcart-registry-revocations.json",
+      "updated_at": "2026-06-01T00:00:00Z"
+    },
+    "record": {
+      "domain": "fixture-shop.example",
+      "endpoints": {
+        "catalog": "https://fixture-shop.example/wp-json/agentcart/v1/catalog",
+        "orders": "https://fixture-shop.example/wp-json/agentcart/v1/orders",
+        "quote": "https://fixture-shop.example/wp-json/agentcart/v1/quote"
+      },
+      "manifest_url": "https://fixture-shop.example/.well-known/agentcart.json",
+      "merchant_id": "fixture-tea-shop",
+      "name": "Fixture Tea Shop",
+      "onchain_identity": {
+        "agent_id": "agentcart:fixture-tea-shop",
+        "chain_id": "eip155:8453",
+        "registration_tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "registration_uri": "https://fixture-shop.example/.well-known/agentcart.json",
+        "registry_address": "0x2222222222222222222222222222222222222222",
+        "standard": "ERC-8004"
+      },
+      "payment_network": "testnet",
+      "payment_recipient": "0x1111111111111111111111111111111111111111",
+      "proof": {
+        "type": "https-well-known",
+        "url": "https://fixture-shop.example/.well-known/agentcart-registry-proof.json"
+      },
+      "proof_url": "https://fixture-shop.example/.well-known/agentcart-registry-proof.json",
+      "protocol_profile_ids": [
+        "agentcart-shopbridge",
+        "mpp-http-auth",
+        "erc8004-ready"
+      ],
+      "registry_claim_hash": "8e6cf1b0208de5dd4958195685fab936e09e64f32eb3863b691896d022294d4a",
+      "registry_claim_hash_alg": "sha-256",
+      "revocation_url": "https://fixture-shop.example/.well-known/agentcart-registry-revocations.json",
+      "revoked_at": null,
+      "ship_to_countries": [
+        "DE",
+        "AT"
+      ],
+      "signature": "",
+      "signature_alg": "https-domain-proof",
+      "supported_protocols": [
+        "agentcart-shopbridge",
+        "tempo-mpp"
+      ],
+      "updated_at": "2026-06-01T00:00:00Z"
+    },
+    "revocation": {
+      "domain": "fixture-shop.example",
+      "merchant_id": "fixture-tea-shop",
+      "revocations": [],
+      "type": "agentcart-registry-revocations",
+      "updated_at": "2026-06-01T00:00:00Z"
+    }
+  },
+  "cases": [
+    {
+      "expected": {
+        "errors": [],
+        "ok": true
+      },
+      "id": "verified-domain-proof"
+    },
+    {
+      "expected": {
+        "errors": [
+          "registry_claim_hash_mismatch"
+        ],
+        "ok": false
+      },
+      "id": "registry-claim-hash-mismatch",
+      "set": {
+        "record.registry_claim_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "expected": {
+        "errors": [
+          "endpoint_quote_domain_mismatch"
+        ],
+        "ok": false
+      },
+      "id": "endpoint-domain-mismatch",
+      "set": {
+        "manifest.endpoints.quote": "https://evil.example/wp-json/agentcart/v1/quote"
+      }
+    },
+    {
+      "expected": {
+        "errors": [
+          "payment_recipient_mismatch"
+        ],
+        "ok": false
+      },
+      "id": "payment-recipient-mismatch",
+      "set": {
+        "manifest.protocol_profiles.1.recipient": "0x9999999999999999999999999999999999999999"
+      }
+    },
+    {
+      "expected": {
+        "errors": [
+          "record_stale"
+        ],
+        "ok": false
+      },
+      "id": "stale-record",
+      "max_age_days": 180,
+      "set": {
+        "record.updated_at": "2000-01-01T00:00:00Z"
+      }
+    },
+    {
+      "expected": {
+        "errors": [
+          "record_revoked_by_revocation_document"
+        ],
+        "ok": false
+      },
+      "id": "revoked-record",
+      "set": {
+        "revocation.revocations": [
+          {
+            "reason": "fixture-revoked",
+            "record_hash": "e62a7ac838db39bee5df09c2394c961c6d0809e8132fad344a868bc788745478",
+            "revoked_at": "2026-06-02T00:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "expected": {
+        "errors": [
+          "registry_claim_onchain_identity_mismatch"
+        ],
+        "ok": false
+      },
+      "id": "claim-onchain-identity-mismatch",
+      "set": {
+        "manifest.discovery.registry_claim.onchain_identity.agent_id": "agentcart:other-shop"
+      }
+    },
+    {
+      "expected": {
+        "errors": [
+          "onchain_identity_standard_unsupported"
+        ],
+        "ok": false
+      },
+      "id": "invalid-onchain-identity",
+      "set": {
+        "record.onchain_identity.standard": "unknown-standard"
+      }
+    }
+  ],
+  "description": "Shared registry trust fixtures consumed by the service, Direct Skill, and registry record tool.",
+  "max_age_days": 36500,
+  "schema": "agentcart.registry_trust_fixtures.v1",
+  "trust_contract": "agentcart.registry_trust_contract.v1"
+}

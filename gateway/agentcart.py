@@ -2984,10 +2984,18 @@ class AgentCartService:
                 raise UpstreamError(f"merchant registry file is invalid JSON: {self.config.merchant_registry_path}") from exc
             records.extend(registry_records_from_document(raw))
         elif self.config.merchant_registry_url:
+            self.validate_merchant_registry_url(self.config.merchant_registry_url)
             raw = self.http_json(self.config.merchant_registry_url, method="GET", token="", timeout=10)
             records.extend(registry_records_from_document(raw))
         records.extend(self.hosted_registry_records())
         return records
+
+    def validate_merchant_registry_url(self, url: str) -> None:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise UpstreamError("merchant_registry_url_invalid")
+        if parsed.scheme != "https" and not self.is_local_registry_host(parsed.hostname or ""):
+            raise UpstreamError("merchant_registry_url_requires_https")
 
     def registry_source_entries(self) -> list[dict[str, Any]]:
         entries = []
