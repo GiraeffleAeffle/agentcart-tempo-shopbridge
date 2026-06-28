@@ -11,6 +11,7 @@
   },
   "scripts": {
     "verify": "bash scripts/verify.sh",
+    "verify:woo-integration": "bash scripts/woocommerce-demo-integration.sh",
     "release": "semantic-release",
     "release:dry-run": "semantic-release --dry-run --no-ci",
     "release:config-check": "node -e \"const c=require('./release.config.cjs'); if (!Array.isArray(c.plugins) || !c.plugins.length) process.exit(1); console.log('release config ok')\"",

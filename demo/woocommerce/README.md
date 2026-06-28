@@ -39,6 +39,20 @@ settings before running the live quote smoke. Use `--no-smoke` when you only
 want to reseed, or `--hard` when you explicitly want to remove the demo Docker
 volumes before reseeding.
 
+To run the full mutable ShopBridge endpoint integration harness:
+
+```sh
+npm run verify:woo-integration
+```
+
+This resets the local WordPress/WooCommerce stack, then exercises the manifest,
+catalog, WooCommerce-backed quote, checkout, status-token status read, refund,
+cancellation, and rate-limit surfaces through HTTP. Use
+`scripts/woocommerce-demo-integration.sh --skip-rate-limits` for a faster local
+iteration, or set `AGENTCART_WOO_SMOKE_REQUIRE_REAL_REFUND_VERIFIER_EVIDENCE=1`
+when running against a production-shaped verifier that should return real refund
+evidence.
+
 The default runtime images are `wordpress:php8.2-apache` and
 `wordpress:cli-php8.2`. Override `WORDPRESS_IMAGE` and `WORDPRESS_CLI_IMAGE`
 when running compatibility matrix entries.
