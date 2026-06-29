@@ -15,6 +15,21 @@ GitHub issue bodies are mirrored in `docs/issues/production/`.
 | Add Production Verifier Store Adapter Decision And Prototype | https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/7 |
 | Pilot Evidence Runner | https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/8 |
 
+## Pilot Execution Readiness Batch
+
+Status: created as GitHub issues. These slices move the repo from structural
+readiness checks to supervised external-beta operation.
+
+GitHub issue bodies are mirrored in `docs/issues/pilot-execution/`.
+
+| Slice | GitHub issue |
+| --- | --- |
+| Pilot execution playbook and dry-run evidence package | https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/17 |
+| Provider verifier operations readiness pack | https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/18 |
+| WooCommerce merchant-variance pilot harness | https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/19 |
+| Non-maintainer merchant setup walkthrough | https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/20 |
+| External beta go/no-go release decision | https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/21 |
+
 ## Slice 1: Extract Merchant-Side External Verifier Client
 
 **Type:** AFK

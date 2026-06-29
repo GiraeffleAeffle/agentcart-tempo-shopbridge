@@ -173,6 +173,10 @@ Start a new evidence folder with:
 python3 scripts/collect-pilot-evidence.py --write-sample pilot-evidence/example-shop
 ```
 
+Use `docs/PILOT_EXECUTION_PLAYBOOK.md` before the first staging merchant run.
+It includes the no-credential dry run, the real-pilot evidence command, and the
+rules for replacing generated placeholders with real artifacts.
+
 The full gate includes a Python 3.11 compile check for runtime files. If local
 `python3.11` is unavailable, it uses Docker `python:3.11-slim` when Docker is
 available. The gateway Docker smoke image also uses Python 3.11. This protects
