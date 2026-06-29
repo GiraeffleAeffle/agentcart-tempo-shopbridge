@@ -1224,6 +1224,7 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
     refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
     item_policy = aftercare_item_policy_summary(order, refund_policy)
     merchant_policy = aftercare_merchant_policy(order, refund_policy, args)
+    merchant_policy["data_trust"] = untrusted_merchant_text_metadata()
     cancellation = compact_cancellation_policy(cancellation_policy, merchant_policy)
     support = support_contact(order, args)
     if not support.get("returns_url") and merchant_policy.get("returns_url"):
@@ -1278,6 +1279,20 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
     cancellation_request = cancellation_request_draft(order, args, support, cancellation) if args.get("cancellation_reason") else None
     compact_state = compact_aftercare_state(aftercare_state)
     messages = buyer_aftercare_messages(compact_state, refunds, currency)
+    if compact_state.get("refund_required_after_cancellation"):
+        next_actions.append(
+            {
+                "id": "complete_verified_refund",
+                "label": "Complete a verifier-backed refund through the merchant or trusted gateway",
+            }
+        )
+    if compact_state.get("refund_state") == "refund_failed":
+        next_actions.append(
+            {
+                "id": "review_refund_failure",
+                "label": "Review failed refund evidence with the merchant or verifier",
+            }
+        )
     return {
         "order": {
             "id": str(order.get("id") or order.get("order_id") or ""),
@@ -1315,6 +1330,7 @@ def compact_aftercare(order: dict[str, Any], args: dict[str, Any]) -> dict[str, 
         "buyer_aftercare_messages": messages,
         "cancellation": cancellation,
         "support": support,
+        "data_trust": untrusted_merchant_text_metadata(),
         "payment_proof": {
             "rail": str(payment.get("rail") or ""),
             "transaction_reference": transaction_reference,
@@ -1396,6 +1412,7 @@ def compact_aftercare_state(aftercare_state: dict[str, Any]) -> dict[str, Any]:
         "delivery_exception_state": str(state.get("delivery_exception_state") or "none"),
         "delivery_exception_requires_attention": bool(state.get("delivery_exception_requires_attention")),
         "delivery_exception": state.get("delivery_exception") if isinstance(state.get("delivery_exception"), dict) else None,
+        "data_trust": state.get("data_trust") if isinstance(state.get("data_trust"), dict) else untrusted_merchant_text_metadata(),
         "blocking_reasons": [str(reason) for reason in blocking_reasons],
         "next_actions": [str(action) for action in next_actions],
     }
@@ -1466,6 +1483,8 @@ def buyer_aftercare_messages(aftercare_state: dict[str, Any], refunds: list[Any]
         messages["refund"] = "Order is unpaid, so no refund is due."
     elif refund_state == "no_refund_remaining":
         messages["refund"] = "No refundable amount remains."
+    elif refund_state == "refund_failed":
+        messages["refund"] = "Refund attempt failed or was rejected; merchant or verifier review is required."
 
     if state.get("delivery_exception_requires_attention"):
         summary = str(delivery_exception.get("summary") or delivery_exception.get("state") or "Carrier reported a delivery exception.")
@@ -1521,6 +1540,7 @@ def aftercare_item_policy_summary(order: dict[str, Any], refund_policy: dict[str
                 else "Standard merchant refund policy applies."
             )
         ),
+        "data_trust": untrusted_merchant_text_metadata(),
     }
 
 
@@ -3268,7 +3288,7 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
     quote = args["quote"]
     approval = approval_packet(quote, payment_rail=args.get("payment_rail"))
     expires_at = parse_time(quote.get("expires_at"))
-    now = dt.datetime.now(dt.timezone.utc)
+    now = utcnow()
     payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
     verification = payment.get("verification") if isinstance(payment.get("verification"), dict) else {}
     protocols = payment_protocols(quote)

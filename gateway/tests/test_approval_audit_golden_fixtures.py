@@ -103,14 +103,19 @@ class ApprovalAuditGoldenFixtureTests(unittest.TestCase):
         quote = copy.deepcopy(contract["final_quote"])
         expected = contract["expected_hashes"]
 
-        handoff = shopbridge_direct.command_payment_handoff(
-            {
-                "quote": quote,
-                "payment_rail": "stripe-card-mpp",
-                "approved": True,
-                "approval_hash": expected["approval_hash"],
-            }
-        )
+        with mock.patch.object(
+            shopbridge_direct,
+            "utcnow",
+            return_value=shopbridge_direct.parse_time(contract["generated_at"]),
+        ):
+            handoff = shopbridge_direct.command_payment_handoff(
+                {
+                    "quote": quote,
+                    "payment_rail": "stripe-card-mpp",
+                    "approved": True,
+                    "approval_hash": expected["approval_hash"],
+                }
+            )
         checkout = skill_checkout_payload(contract)
 
         self.assertEqual(handoff["payment_handoff_hash"], expected["payment_handoff_hash"])

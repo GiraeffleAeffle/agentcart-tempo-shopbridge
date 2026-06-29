@@ -8635,8 +8635,10 @@ separate human confirmation.
             next_actions.append("contact_merchant")
         if cancellation_state == "cancellable_before_fulfillment":
             next_actions.append("request_cancellation")
-        if refund_state in {"refund_available", "partially_refunded", "refund_required_after_cancellation"}:
+        if refund_state in {"refund_available", "partially_refunded", "refund_required_after_cancellation", "refund_failed"}:
             next_actions.append("request_refund")
+        if refund_state == "refund_failed":
+            next_actions.append("review_refund_failure")
         if refund_required_after_cancellation:
             next_actions.append("complete_verified_refund")
         next_actions.append("export_audit")
@@ -8672,6 +8674,7 @@ separate human confirmation.
             "delivery_exception_state": delivery_exception_state,
             "delivery_exception_requires_attention": delivery_exception_requires_attention,
             "delivery_exception": delivery_exception or None,
+            "data_trust": untrusted_merchant_text_metadata(identity_verified=True),
             "next_actions": next_actions,
             "merchant_aftercare_state": merchant_aftercare or None,
         }
@@ -8750,6 +8753,8 @@ separate human confirmation.
             messages["refund"] = "Order is unpaid, so no refund is due."
         elif refund_state == "no_refund_remaining":
             messages["refund"] = "No refundable amount remains."
+        elif refund_state == "refund_failed":
+            messages["refund"] = "Refund attempt failed or was rejected; merchant or verifier review is required."
 
         if aftercare.get("delivery_exception_requires_attention"):
             summary = str(delivery_exception.get("summary") or delivery_exception.get("state") or "Carrier reported a delivery exception.")

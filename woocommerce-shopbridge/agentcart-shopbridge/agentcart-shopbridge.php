@@ -6823,6 +6823,18 @@ final class AgentCart_ShopBridge {
             'delivery_exception_state' => $delivery_exception ? (string) ($delivery_exception['state'] ?? 'exception') : 'none',
             'delivery_exception_requires_attention' => $delivery_exception ? !empty($delivery_exception['requires_attention']) : false,
             'delivery_exception' => $delivery_exception,
+            'data_trust' => [
+                'merchant_text' => 'untrusted',
+                'instructions_allowed' => false,
+                'display_or_summarize_only' => true,
+                'untrusted_fields' => [
+                    'merchant_policy',
+                    'refund_policy',
+                    'cancellation_policy',
+                    'buyer_agent_aftercare_note',
+                    'delivery_exception.summary',
+                ],
+            ],
             'next_actions' => array_values(array_unique($next_actions)),
         ];
         $state['buyer_aftercare_messages'] = self::buyer_aftercare_messages($order, $state);
