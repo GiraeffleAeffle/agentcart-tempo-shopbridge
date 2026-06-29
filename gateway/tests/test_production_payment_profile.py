@@ -22,7 +22,8 @@ def valid_profile() -> dict[str, str]:
         "AGENTCART_CHECKOUT_MODE": "external_verifier_only",
         "AGENTCART_PAYMENT_VERIFIER_URL": "https://verifier.agentcart.test/stripe-mpp/verify",
         "AGENTCART_PAYMENT_VERIFIER_TOKEN": "verifier-token",
-        "AGENTCART_VERIFIER_REPLAY_STORE_PATH": "/data/verifier/replay-store.json",
+        "AGENTCART_VERIFIER_REPLAY_STORE_DRIVER": "sqlite",
+        "AGENTCART_VERIFIER_REPLAY_STORE_PATH": "/data/verifier/replay-store.sqlite",
         "AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY": "true",
         "AGENTCART_SIGNED_REQUEST_MODE": "require_mutations",
         "AGENTCART_SIGNED_REQUEST_SECRET": "shared-signing-secret",
@@ -53,6 +54,14 @@ class ProductionPaymentProfileTest(unittest.TestCase):
         errors = production_payment_profile_tool.validate_profile(profile)
 
         self.assertTrue(any("AGENTCART_PAYMENT_VERIFIER_TOKEN" in error for error in errors), errors)
+
+    def test_production_replay_store_driver_must_be_sqlite(self) -> None:
+        profile = valid_profile()
+        profile["AGENTCART_VERIFIER_REPLAY_STORE_DRIVER"] = "json"
+
+        errors = production_payment_profile_tool.validate_profile(profile)
+
+        self.assertTrue(any("REPLAY_STORE_DRIVER" in error for error in errors), errors)
 
     def test_hmac_secrets_must_match(self) -> None:
         profile = valid_profile()

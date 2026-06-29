@@ -11,7 +11,7 @@
     "mpp:account:view": "mppx account view --network testnet --account agentcart-test",
     "mpp:pay": "mppx http://127.0.0.1:4250/paid --network testnet --account agentcart-test --include",
     "stripe:mpp:verifier": "node scripts/stripe-mpp-verifier.mjs",
-    "stripe:mpp:check": "node --check scripts/stripe-mpp-verifier.mjs",
+    "stripe:mpp:check": "node --check scripts/stripe-mpp-verifier.mjs && node --check scripts/verifier-sqlite-replay-store.mjs",
     "stripe:link:smoke": "bash scripts/stripe-link-mpp-smoke.sh"
   },
   "dependencies": {
