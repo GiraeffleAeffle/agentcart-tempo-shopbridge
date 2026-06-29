@@ -52,9 +52,48 @@
       "notes": "Manual runtime check for the declared PHP minimum when the official image is available."
     }
   ],
+  "merchant_variance_profiles": [
+    {
+      "id": "baseline-eu-tax-shipping",
+      "name": "Baseline EU taxable parcel shop",
+      "runtime_entry": "wp-latest-php82-woo-latest",
+      "required_for_beta": true,
+      "seed_profile": "baseline-eu-tax-shipping",
+      "expected_shipping_cents": 490,
+      "evidence_id": "woocommerce_baseline_eu_tax_shipping_result",
+      "expected_result_path": "pilot/pilot-merchant-onboarding/woocommerce_baseline_eu_tax_shipping_result.md",
+      "command": "python3 scripts/check-woocommerce-compatibility-matrix.py --run-smoke --merchant-variance-profile baseline-eu-tax-shipping",
+      "stresses": {
+        "tax": "EU VAT calculated from the shipping destination with prices including tax.",
+        "shipping": "Taxable flat-rate tracked parcel shipping for Germany and nearby EU countries.",
+        "stock": "Managed stock with soft quote stock holds and checkout-time stock revalidation.",
+        "plugins": "WooCommerce latest stable plus the AgentCart ShopBridge plugin with no extra merchant policy plugins.",
+        "checkout": "Quote-bound AgentCart checkout using the exposed tea SKU and standard sandbox approval flow."
+      }
+    },
+    {
+      "id": "restricted-stock-policy",
+      "name": "Restricted stock and policy edge shop",
+      "runtime_entry": "wp-latest-php82-woo-latest",
+      "required_for_beta": true,
+      "seed_profile": "restricted-stock-policy",
+      "expected_shipping_cents": 490,
+      "evidence_id": "woocommerce_restricted_stock_policy_result",
+      "expected_result_path": "pilot/pilot-merchant-onboarding/woocommerce_restricted_stock_policy_result.md",
+      "command": "python3 scripts/check-woocommerce-compatibility-matrix.py --run-smoke --merchant-variance-profile restricted-stock-policy",
+      "stresses": {
+        "tax": "Same EU VAT rules as the baseline while product policies narrow the eligible checkout set.",
+        "shipping": "Product-level country restrictions layered on top of the taxable tracked parcel zone.",
+        "stock": "Low managed stock, per-product max quantity limits, and soft stock holds during quote and checkout.",
+        "plugins": "WooCommerce latest stable plus ShopBridge product exposure, restricted-goods, and aftercare metadata.",
+        "checkout": "Happy-path checkout remains available for a capped tea SKU while blocked and restricted SKUs stay ineligible."
+      }
+    }
+  ],
   "release_claims": [
     "Plugin metadata and readme declare WordPress 6.4+ and PHP 8.1+.",
     "The required runtime smoke uses latest WordPress, latest stable WooCommerce, and PHP 8.2.",
-    "PHP 8.1 compatibility is statically gated through PHPCompatibilityWP and can be runtime-smoked with the optional matrix entry."
+    "PHP 8.1 compatibility is statically gated through PHPCompatibilityWP and can be runtime-smoked with the optional matrix entry.",
+    "External beta requires two WooCommerce merchant variance smoke profiles: baseline EU tax/shipping and restricted stock/policy."
   ]
 }

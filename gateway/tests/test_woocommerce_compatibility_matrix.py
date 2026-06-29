@@ -47,6 +47,47 @@ class WooCommerceCompatibilityMatrixTest(unittest.TestCase):
 
         self.assertEqual(["wp-latest-php82-woo-latest"], [entry["id"] for entry in entries])
 
+    def test_required_merchant_variance_profiles_are_defined(self) -> None:
+        matrix = load_matrix()
+
+        profiles = [
+            profile
+            for profile in matrix["merchant_variance_profiles"]
+            if isinstance(profile, dict) and profile.get("required_for_beta") is True
+        ]
+
+        self.assertEqual(
+            ["baseline-eu-tax-shipping", "restricted-stock-policy"],
+            [profile["id"] for profile in profiles],
+        )
+        for profile in profiles:
+            self.assertEqual(
+                f"pilot/pilot-merchant-onboarding/{profile['evidence_id']}.md",
+                profile["expected_result_path"],
+            )
+            self.assertIn(f"--merchant-variance-profile {profile['id']}", profile["command"])
+            for stress in ("tax", "shipping", "stock", "plugins", "checkout"):
+                self.assertTrue(profile["stresses"][stress])
+
+    def test_merchant_variance_profiles_require_stress_descriptions(self) -> None:
+        matrix = load_matrix()
+        matrix["merchant_variance_profiles"][0]["stresses"].pop("tax")
+
+        errors = woocommerce_compatibility_matrix_tool.validate_matrix(matrix)
+
+        self.assertTrue(any("stresses.tax" in error for error in errors), errors)
+
+    def test_merchant_variance_profile_is_selected_by_id(self) -> None:
+        matrix = load_matrix()
+
+        profiles = woocommerce_compatibility_matrix_tool.selected_merchant_variance_profiles(
+            matrix,
+            profile_id="restricted-stock-policy",
+            include_optional=False,
+        )
+
+        self.assertEqual(["restricted-stock-policy"], [profile["id"] for profile in profiles])
+
     def test_demo_reset_script_is_required_by_matrix(self) -> None:
         matrix = load_matrix()
         matrix["verification"].pop("demo_reset_script", None)

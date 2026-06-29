@@ -25,6 +25,7 @@ Environment:
   WORDPRESS_CLI_IMAGE                   default: wordpress:cli-php8.2
   AGENTCART_WOO_SMOKE_BASE_URL          overrides smoke base URL
   AGENTCART_WOO_SMOKE_EXPECT_SHIPPING_CENTS default: 490
+  AGENTCART_WOO_VARIANCE_PROFILE        default: baseline-eu-tax-shipping
   AGENTCART_WOO_SMOKE_DOWN_VOLUMES      set to 1 with --down for fresh matrix runs
 EOF
 }

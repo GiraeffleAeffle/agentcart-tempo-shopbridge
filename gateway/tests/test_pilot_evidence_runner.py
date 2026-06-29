@@ -103,8 +103,27 @@ class PilotEvidenceRunnerTest(unittest.TestCase):
         )
         self.assertTrue(
             any(
+                item["owner_id"] == "pilot-merchant-onboarding"
+                and item["evidence_id"] == "woocommerce_baseline_eu_tax_shipping_result"
+                and item["path"].endswith(
+                    "pilot/pilot-merchant-onboarding/woocommerce_baseline_eu_tax_shipping_result.md"
+                )
+                for item in pilot_gate["missing_evidence"]
+            ),
+            pilot_gate["missing_evidence"],
+        )
+        self.assertTrue(
+            any(
                 "missing evidence for pilot_gate pilot-merchant-onboarding: "
                 "plugin_zip_install_screenshot_or_log -> " in error
+                for error in pilot_gate["errors"]
+            ),
+            pilot_gate["errors"],
+        )
+        self.assertTrue(
+            any(
+                "missing evidence for pilot_gate pilot-merchant-onboarding: "
+                "woocommerce_restricted_stock_policy_result -> " in error
                 for error in pilot_gate["errors"]
             ),
             pilot_gate["errors"],
