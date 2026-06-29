@@ -37,6 +37,9 @@ python3 scripts/check-beta-release-readiness.py \
 `AGENTCART_BUYER_AGENT_EVIDENCE_DIR`, and `AGENTCART_PAYMENT_ENV_FILE` only
 when you want `verify.sh` to run the evidence-required external beta gate.
 
+For removing a pilot merchant, revoking discovery, or rolling back a bad
+plugin/gateway release, use `docs/MERCHANT_ROLLBACK_RUNBOOK.md`.
+
 ## Pilot Scope
 
 Minimum scope before calling a beta useful:
@@ -155,7 +158,7 @@ Required evidence:
 
 - previous plugin ZIP;
 - release manifest;
-- rollback command or runbook;
+- rollback command or `docs/MERCHANT_ROLLBACK_RUNBOOK.md` incident evidence;
 - registry revocation URL.
 
 Exit criteria:

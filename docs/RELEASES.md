@@ -242,7 +242,9 @@ AgentCart service:
 
 ## Rollback
 
-Keep the previous release ZIPs and release manifest before upgrading.
+Keep the previous release ZIPs and release manifest before upgrading. For a
+merchant or pilot incident, follow `docs/MERCHANT_ROLLBACK_RUNBOOK.md`; this
+section is the artifact-level quick reference.
 
 Rollback WooCommerce:
 
