@@ -71,6 +71,7 @@ services:
       WOO_ADMIN_PASSWORD: ${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}
       WOO_ADMIN_EMAIL: ${WOO_ADMIN_EMAIL:-merchant@example.test}
       AGENTCART_SHOPBRIDGE_TOKEN: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}
+      AGENTCART_WOO_VARIANCE_PROFILE: ${AGENTCART_WOO_VARIANCE_PROFILE:-baseline-eu-tax-shipping}
     volumes:
       - woo_wp:/var/www/html
       - ../../woocommerce-shopbridge/agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro

@@ -40,6 +40,59 @@ python3 scripts/check-woocommerce-compatibility-matrix.py \
   --include-optional
 ```
 
+## Merchant Variance Profiles
+
+External beta needs two materially different WooCommerce merchant profiles. The
+profile smoke commands below are Docker-backed and intentionally separate from
+the fast source-level checks in `./scripts/verify.sh`.
+
+Run the baseline EU tax/shipping profile:
+
+```sh
+python3 scripts/check-woocommerce-compatibility-matrix.py \
+  --run-smoke \
+  --merchant-variance-profile baseline-eu-tax-shipping
+```
+
+Expected pilot evidence:
+`pilot/pilot-merchant-onboarding/woocommerce_baseline_eu_tax_shipping_result.md`.
+
+This profile stresses:
+
+- tax: EU VAT calculated from shipping destination with prices including tax;
+- shipping: taxable `Tracked parcel` flat-rate shipping for Germany and nearby
+  EU countries;
+- stock: managed stock with soft quote stock holds and checkout-time
+  revalidation;
+- plugins: WooCommerce latest stable plus ShopBridge with no extra merchant
+  policy plugins;
+- checkout: quote-bound AgentCart checkout against the standard eligible tea
+  SKU.
+
+Run the restricted stock/policy profile:
+
+```sh
+python3 scripts/check-woocommerce-compatibility-matrix.py \
+  --run-smoke \
+  --merchant-variance-profile restricted-stock-policy
+```
+
+Expected pilot evidence:
+`pilot/pilot-merchant-onboarding/woocommerce_restricted_stock_policy_result.md`.
+
+This profile stresses:
+
+- tax: the same EU VAT rules while product policies narrow the eligible
+  checkout set;
+- shipping: product-level country restrictions layered on top of the taxable
+  tracked parcel zone;
+- stock: low managed stock, per-product max quantity limits, and soft stock
+  holds during quote and checkout;
+- plugins: ShopBridge product exposure, restricted-goods, and aftercare
+  metadata on top of WooCommerce latest stable;
+- checkout: a capped tea SKU remains eligible for the smoke quote while blocked
+  and restricted SKUs stay ineligible.
+
 ## Release Baseline
 
 Declared plugin metadata:

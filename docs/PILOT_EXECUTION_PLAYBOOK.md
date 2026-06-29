@@ -53,7 +53,7 @@ commands, transcripts, screenshots, hashes, URLs, or operator notes.
 
 | Evidence section | Operator action that produces it |
 | --- | --- |
-| `pilot/pilot-merchant-onboarding/*` | Install the ShopBridge ZIP on the staging WooCommerce shop, configure merchant identity/support/payment settings, export the exposed catalog preview, run sandbox quote/checkout checks, run the live WooCommerce smoke, and record the registry bundle or hosted registry URL. |
+| `pilot/pilot-merchant-onboarding/*` | Install the ShopBridge ZIP on the staging WooCommerce shop, configure merchant identity/support/payment settings, export the exposed catalog preview, run sandbox quote/checkout checks, run the live WooCommerce smoke, run both WooCommerce merchant variance profiles from `docs/WOOCOMMERCE_COMPATIBILITY.md`, and record the registry bundle or hosted registry URL. |
 | `pilot/pilot-buyer-agent-setup/*` | Run the buyer-agent test matrix and one complete discovery, quote, approval, checkout handoff, aftercare, and audit export/import path for each required runtime. |
 | `pilot/pilot-payment-mode/*` | Record the payment-mode decision, verifier health and metrics snapshots, SQLite replay backup/restore drill, verifier alert delivery result, provider error review, production payment profile check, refund policy, and sample payment contract hash. Use `docs/VERIFIER_OPERATIONS_READINESS.md` for the operations evidence. |
 | `pilot/pilot-support-channel/*` | Record monitored support contact, response SLA, diagnostic collection steps, and the named incident owner for the pilot window. |
@@ -101,7 +101,11 @@ AGENTCART_PILOT_EVIDENCE_REPORT_OUT=pilot-evidence-report.json \
 ```
 
 Set `AGENTCART_WOO_COMPATIBILITY_SMOKE=1` when the decision needs the
-Docker-backed WooCommerce compatibility smoke included in the same report.
+Docker-backed WooCommerce compatibility smoke included in the same report. Run
+the two merchant variance smoke commands separately and attach their transcripts
+as `pilot/pilot-merchant-onboarding/woocommerce_baseline_eu_tax_shipping_result.md`
+and
+`pilot/pilot-merchant-onboarding/woocommerce_restricted_stock_policy_result.md`.
 
 ## Exit Package
 

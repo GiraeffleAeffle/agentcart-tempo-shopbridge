@@ -509,6 +509,111 @@ ensure_product AGENT-SHAVER-1 "Travel Electric Shaver" "24.90" 4 personal-care "
 ensure_product AGENT-DETERGENT-1 "Laundry Detergent Refill" "8.40" 9 household "Household detergent refill with agent-readable checkout." "1.5 L" "laundry-detergent-refill.png"
 ensure_product AGENT-COFFEE-1 "Morning Coffee Beans" "13.50" 8 coffee "Whole bean coffee for recurring household stock." "250 g" "morning-coffee-beans.png"
 
+apply_merchant_variance_profile() {
+  wp eval "$(cat <<'PHP'
+if (!class_exists('WooCommerce')) {
+    return;
+}
+
+$profile = getenv('AGENTCART_WOO_VARIANCE_PROFILE') ?: 'baseline-eu-tax-shipping';
+$demo_skus = [
+    'AGENT-TEA-HAZEL',
+    'AGENT-SHAVER-1',
+    'AGENT-DETERGENT-1',
+    'AGENT-COFFEE-1',
+];
+$profile_policy_terms = ['medical', 'agentcart-restricted-policy'];
+$existing_profile_policy_term_ids = [];
+foreach ($profile_policy_terms as $term_name) {
+    $term = term_exists($term_name, 'product_tag');
+    if (is_array($term) && isset($term['term_id'])) {
+        $existing_profile_policy_term_ids[] = (int) $term['term_id'];
+    } elseif (is_int($term)) {
+        $existing_profile_policy_term_ids[] = $term;
+    }
+}
+
+function agentcart_demo_product_id($sku) {
+    return wc_get_product_id_by_sku($sku);
+}
+
+function agentcart_demo_update_product_meta($sku, $meta) {
+    $product_id = agentcart_demo_product_id($sku);
+    if (!$product_id) {
+        return;
+    }
+    foreach ($meta as $key => $value) {
+        if ($value === null) {
+            delete_post_meta($product_id, $key);
+        } else {
+            update_post_meta($product_id, $key, $value);
+        }
+    }
+}
+
+function agentcart_demo_update_stock($sku, $quantity) {
+    $product_id = agentcart_demo_product_id($sku);
+    $product = $product_id ? wc_get_product($product_id) : null;
+    if (!$product) {
+        return;
+    }
+    $product->set_manage_stock(true);
+    $product->set_stock_quantity((int) $quantity);
+    $product->set_stock_status((int) $quantity > 0 ? 'instock' : 'outofstock');
+    $product->save();
+}
+
+foreach ($demo_skus as $sku) {
+    $product_id = agentcart_demo_product_id($sku);
+    if (!$product_id || !$existing_profile_policy_term_ids) {
+        continue;
+    }
+    wp_remove_object_terms($product_id, $existing_profile_policy_term_ids, 'product_tag');
+}
+
+update_option('agentcart_shopbridge_stock_hold_mode', 'soft');
+update_option('agentcart_shopbridge_stock_hold_minutes', 15);
+
+if ($profile === 'baseline-eu-tax-shipping') {
+    printf("Applied AgentCart WooCommerce merchant variance profile: %s\n", $profile);
+    return;
+}
+
+if ($profile === 'restricted-stock-policy') {
+    update_option('agentcart_shopbridge_stock_hold_minutes', 5);
+    agentcart_demo_update_product_meta('AGENT-TEA-HAZEL', [
+        '_agentcart_max_quantity' => '1',
+        '_agentcart_shipping_countries' => 'DE,AT',
+    ]);
+    agentcart_demo_update_stock('AGENT-TEA-HAZEL', 2);
+
+    agentcart_demo_update_product_meta('AGENT-SHAVER-1', [
+        '_agentcart_checkout_blocked' => 'yes',
+        '_agentcart_restricted_goods_allowed' => 'no',
+        '_agentcart_shipping_countries' => 'DE',
+    ]);
+    agentcart_demo_update_stock('AGENT-SHAVER-1', 1);
+    $shaver_id = agentcart_demo_product_id('AGENT-SHAVER-1');
+    if ($shaver_id) {
+        wp_set_object_terms($shaver_id, $profile_policy_terms, 'product_tag', true);
+    }
+
+    agentcart_demo_update_product_meta('AGENT-DETERGENT-1', [
+        '_agentcart_max_quantity' => '2',
+        '_agentcart_shipping_countries' => 'DE,AT,NL',
+    ]);
+    agentcart_demo_update_stock('AGENT-DETERGENT-1', 3);
+    printf("Applied AgentCart WooCommerce merchant variance profile: %s\n", $profile);
+    return;
+}
+
+throw new RuntimeException('Unsupported AgentCart WooCommerce merchant variance profile: ' . $profile);
+PHP
+)" --allow-root
+}
+
+apply_merchant_variance_profile
+
 ensure_page() {
   local slug="$1"
   local title="$2"
