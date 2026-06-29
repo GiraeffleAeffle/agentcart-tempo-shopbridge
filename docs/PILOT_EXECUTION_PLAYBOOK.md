@@ -53,7 +53,7 @@ commands, transcripts, screenshots, hashes, URLs, or operator notes.
 
 | Evidence section | Operator action that produces it |
 | --- | --- |
-| `pilot/pilot-merchant-onboarding/*` | Install the ShopBridge ZIP on the staging WooCommerce shop, configure merchant identity/support/payment settings, export the exposed catalog preview, run sandbox quote/checkout checks, run the live WooCommerce smoke, run both WooCommerce merchant variance profiles from `docs/WOOCOMMERCE_COMPATIBILITY.md`, and record the registry bundle or hosted registry URL. |
+| `pilot/pilot-merchant-onboarding/*` | Install the ShopBridge ZIP on the staging WooCommerce shop, configure merchant identity/support/payment settings, export the exposed catalog preview, run sandbox quote/checkout checks, run the live WooCommerce smoke, run both WooCommerce merchant variance profiles from `docs/WOOCOMMERCE_COMPATIBILITY.md`, run the non-maintainer walkthrough from `docs/MERCHANT_SETUP_WALKTHROUGH.md`, and record the registry bundle or hosted registry URL. |
 | `pilot/pilot-buyer-agent-setup/*` | Run the buyer-agent test matrix and one complete discovery, quote, approval, checkout handoff, aftercare, and audit export/import path for each required runtime. |
 | `pilot/pilot-payment-mode/*` | Record the payment-mode decision, verifier health and metrics snapshots, SQLite replay backup/restore drill, verifier alert delivery result, provider error review, production payment profile check, refund policy, and sample payment contract hash. Use `docs/VERIFIER_OPERATIONS_READINESS.md` for the operations evidence. |
 | `pilot/pilot-support-channel/*` | Record monitored support contact, response SLA, diagnostic collection steps, and the named incident owner for the pilot window. |
@@ -117,6 +117,7 @@ Before asking for the go/no-go decision, the operator should have:
   `verifier_metrics_snapshot.md`, `sqlite_replay_backup_restore_drill.md`,
   `verifier_alert_delivery_result.md`, and `provider_error_review.md`;
 - WooCommerce merchant-variance evidence from issue #19;
-- non-maintainer setup walkthrough notes from issue #20;
+- non-maintainer setup walkthrough notes from issue #20 at
+  `pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md`;
 - rollback owner, support owner, and observation window recorded in the
   decision record.
