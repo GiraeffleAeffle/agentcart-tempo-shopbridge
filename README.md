@@ -300,6 +300,7 @@ notify services.
 - `docs/BUYER_AGENT_TEST_MATRIX.md`
 - `docs/PROMPT_INJECTION_CORPUS.md`
 - `docs/PILOT_BETA_CHECKLIST.md`
+- `docs/MERCHANT_SETUP_WALKTHROUGH.md`
 
 These documents are roadmap/specification notes. They define the concrete work
 required to move from production-candidate alpha to live merchant pilots.

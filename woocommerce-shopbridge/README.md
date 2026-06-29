@@ -41,6 +41,40 @@ To rebuild the ZIP from source:
 ./scripts/package-woocommerce-plugin.sh
 ```
 
+### Staging Walkthrough Path
+
+For external beta readiness, ask a non-maintainer to run the protocol in
+`docs/MERCHANT_SETUP_WALKTHROUGH.md` and record the result as:
+
+```text
+pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md
+```
+
+The operator should be able to complete this path from WordPress admin and the
+docs above:
+
+1. Install the ZIP and open `WooCommerce -> AgentCart`.
+2. Fill merchant id, support email, returns URL, terms URL, checkout mode, and
+   verifier or trusted-token settings.
+3. Configure WooCommerce tax, shipping, allowed countries, and at least one
+   in-stock simple staging product.
+4. Choose product exposure mode and expose only the intended staging product.
+5. Use the AgentCart setup checklist, product exposure preview, sandbox quote
+   check, and sandbox checkout test.
+6. Refresh registry metadata and save the registry bundle URL or hosted
+   registry submission result.
+7. Run the live smoke against the staging shop:
+
+```sh
+python3 scripts/woocommerce-shopbridge-smoke.py \
+  --base-url https://staging-shop.example \
+  --require-shipping \
+  --require-vat-lines
+```
+
+Any place where the operator needs repo-maintainer help is a setup blocker and
+must be recorded in the walkthrough notes with a follow-up issue severity.
+
 ### Manual Install
 
 Copy `woocommerce-shopbridge/agentcart-shopbridge` into:

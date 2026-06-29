@@ -43,6 +43,7 @@ pilot/pilot-merchant-onboarding/live_woocommerce_smoke_result.md
 pilot/pilot-merchant-onboarding/woocommerce_compatibility_matrix_result.md
 pilot/pilot-merchant-onboarding/woocommerce_baseline_eu_tax_shipping_result.md
 pilot/pilot-merchant-onboarding/woocommerce_restricted_stock_policy_result.md
+pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md
 pilot/pilot-buyer-agent-setup/buyer_agent_test_matrix_result.md
 pilot/pilot-payment-mode/production_payment_profile_check_result.md
 pilot/pilot-payment-mode/verifier_metrics_snapshot.md

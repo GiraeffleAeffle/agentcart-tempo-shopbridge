@@ -114,6 +114,17 @@ class PilotEvidenceRunnerTest(unittest.TestCase):
         )
         self.assertTrue(
             any(
+                item["owner_id"] == "pilot-merchant-onboarding"
+                and item["evidence_id"] == "non_maintainer_setup_walkthrough_notes"
+                and item["path"].endswith(
+                    "pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md"
+                )
+                for item in pilot_gate["missing_evidence"]
+            ),
+            pilot_gate["missing_evidence"],
+        )
+        self.assertTrue(
+            any(
                 "missing evidence for pilot_gate pilot-merchant-onboarding: "
                 "plugin_zip_install_screenshot_or_log -> " in error
                 for error in pilot_gate["errors"]
@@ -124,6 +135,14 @@ class PilotEvidenceRunnerTest(unittest.TestCase):
             any(
                 "missing evidence for pilot_gate pilot-merchant-onboarding: "
                 "woocommerce_restricted_stock_policy_result -> " in error
+                for error in pilot_gate["errors"]
+            ),
+            pilot_gate["errors"],
+        )
+        self.assertTrue(
+            any(
+                "missing evidence for pilot_gate pilot-merchant-onboarding: "
+                "non_maintainer_setup_walkthrough_notes -> " in error
                 for error in pilot_gate["errors"]
             ),
             pilot_gate["errors"],
@@ -162,9 +181,17 @@ class PilotEvidenceRunnerTest(unittest.TestCase):
             )
 
             readme = (sample_root / "README.md").read_text(encoding="utf-8")
+            walkthrough = (
+                sample_root
+                / "pilot"
+                / "pilot-merchant-onboarding"
+                / "non_maintainer_setup_walkthrough_notes.md"
+            ).read_text(encoding="utf-8")
 
         self.assertEqual("agentcart.pilot_evidence_sample.v1", sample["schema"])
         self.assertEqual("passed", report["status"])
+        self.assertIn("## Maintainer Help Log", walkthrough)
+        self.assertIn("| Severity | Title | Follow-up issue | Notes |", walkthrough)
         self.assertIn("buyer-agents/agentcart-service-openclaw/merchant_discovery_transcript.md", readme)
         self.assertIn("buyer-agents/agentcart-service-openclaw/quote_comparison_transcript.md", readme)
         self.assertIn("buyer-agents/shopbridge-direct-skill/merchant_discovery_transcript.md", readme)
