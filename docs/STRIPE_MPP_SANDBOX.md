@@ -14,6 +14,7 @@ STRIPE_SANDBOX_SECRET_KEY=sk_test_...
 STRIPE_PROFILE_ID=profile_test_...
 MPP_SECRET_KEY=replace-with-random-32-byte-base64
 AGENTCART_PAYMENT_VERIFIER_TOKEN=replace-with-random-hex-token
+AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=json
 AGENTCART_VERIFIER_REPLAY_STORE_PATH=/tmp/agentcart-stripe-mpp-replay.json
 AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true
 AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS=5000
@@ -83,10 +84,11 @@ verifier calls Stripe refunds against the original PaymentIntent reference.
 The refund `requested_reference` is passed to Stripe as the idempotency key and
 stored in the replay store after a successful refund response.
 
-`/health` reports the replay store kind, whether durable replay is required,
-whether a durable replay store is configured, lock mode, bucket counts, and any
-replay-store read error. It also reports the optional replay journal path,
-writeability, required flag, entry count, and last journal error. Set
+`/health` reports the replay store driver/kind, whether durable replay is
+required, whether a durable replay store is configured, lock mode, bucket
+counts, and any replay-store read error. It also reports the optional replay
+journal path, writeability, required flag, entry count, and last journal error.
+Set
 `AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true` for production-shaped runs so
 health fails closed unless `AGENTCART_VERIFIER_REPLAY_STORE_PATH` or
 `STRIPE_MPP_REPLAY_STORE_PATH` is set. Set
@@ -101,6 +103,32 @@ idempotent retries, and replay conflicts. It hashes the rail reference instead
 of writing the raw transaction or refund reference. Stripe provider failures
 return structured `provider_error_class`, `provider_status`, `provider_code`,
 `request_id`, and `retryable` fields for operator triage.
+
+The selected production pilot replay store is SQLite, recorded in
+`docs/adr/0006-sqlite-verifier-replay-store-for-pilot.md`. Use it with:
+
+```sh
+AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=sqlite
+AGENTCART_VERIFIER_REPLAY_STORE_PATH=/data/verifier/replay-store.sqlite
+AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true
+```
+
+SQLite replay storage enforces transactional uniqueness for payment
+transaction references, refund requested references, and refund references. The
+prototype and concurrency smoke are:
+
+```sh
+node gateway/scripts/verifier-sqlite-replay-store.mjs diagnostics \
+  --db /data/verifier/replay-store.sqlite
+bash gateway/scripts/verifier-sqlite-replay-smoke.sh
+```
+
+Keep the JSON/lockfile store for local sandbox demos or old evidence folders.
+For production-shaped pilots, cut over during a maintenance window, keep the old
+JSON replay file read-only for audit, start the verifier with the SQLite driver,
+and confirm `/health` reports `replay_store_driver=sqlite`,
+`replay_store_kind=sqlite`, `replay_store_durable=true`, and no
+`replay_store_error`.
 
 `/metrics` returns in-memory JSON metrics for the running verifier process:
 success rate, status counts, operation and rail buckets, rejection reasons,

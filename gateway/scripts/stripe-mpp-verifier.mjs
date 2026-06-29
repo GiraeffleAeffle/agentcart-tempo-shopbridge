@@ -7,6 +7,11 @@ import path from "node:path";
 import Stripe from "stripe";
 import { Challenge, Receipt } from "mppx";
 import { Mppx, stripe as mppStripe } from "mppx/server";
+import {
+  claimSQLiteReplayReference,
+  sqliteReplayStoreDiagnostics,
+  sqliteReplayStoreWriteProbe,
+} from "./verifier-sqlite-replay-store.mjs";
 
 const host = process.env.STRIPE_MPP_VERIFIER_BIND || "127.0.0.1";
 const port = Number(process.env.STRIPE_MPP_VERIFIER_PORT || "4260");
@@ -23,6 +28,7 @@ const replayStorePath = (
   process.env.STRIPE_MPP_REPLAY_STORE_PATH ||
   ""
 ).trim();
+const replayStoreDriver = normalizeReplayStoreDriver(process.env.AGENTCART_VERIFIER_REPLAY_STORE_DRIVER || "");
 const replayStoreLockTimeoutMs = Number(process.env.AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS || "5000");
 const requireDurableReplayStore = envFlag(process.env.AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY);
 const replayJournalPath = (
@@ -54,6 +60,13 @@ const verifierAlertState = { lastSentByFingerprint: new Map() };
 
 function envFlag(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
+
+function normalizeReplayStoreDriver(value) {
+  const driver = String(value || "").trim().toLowerCase();
+  if (["sqlite", "sqlite3"].includes(driver)) return "sqlite";
+  if (["json", "file", "lockfile"].includes(driver)) return "json";
+  return "json";
 }
 
 function normalizeSeverity(value) {
@@ -534,6 +547,7 @@ function readiness() {
     payment_method_types: paymentMethodTypes,
     token_required: verifierToken !== "",
     replay_store: replay.label,
+    replay_store_driver: replayStoreDriver,
     replay_store_kind: replay.kind,
     replay_store_required: requireDurableReplayStore,
     replay_store_durable: replay.durable,
@@ -698,6 +712,9 @@ function saveReplayStore(store) {
 }
 
 function replayStoreWriteProbe() {
+  if (replayStoreDriver === "sqlite") {
+    return sqliteReplayStoreWriteProbe(replayStorePath, { busyTimeoutMs: replayStoreLockTimeoutMs });
+  }
   if (!replayStorePath) return { ok: true, durable: false };
   const directory = path.dirname(replayStorePath);
   try {
@@ -897,6 +914,9 @@ async function withReplayStoreMutation(mutator) {
 }
 
 function replayStoreDiagnostics() {
+  if (replayStoreDriver === "sqlite") {
+    return sqliteReplayStoreDiagnostics(replayStorePath, { busyTimeoutMs: replayStoreLockTimeoutMs });
+  }
   const diagnostics = {
     label: replayStoreLabel(),
     kind: replayStorePath ? "file" : "memory",
@@ -929,52 +949,43 @@ async function claimReplayReference(bucket, reference, metadata = {}) {
   }
   const normalizedMetadata = normalizeReplayMetadata(metadata);
   const requestHash = replayRequestHash(bucket, key, normalizedMetadata);
-  const result = await withReplayStoreMutation((store) => {
-    if (!store[bucket] || typeof store[bucket] !== "object") store[bucket] = {};
-    const existing = store[bucket][key];
-    if (existing) {
-      const existingHash =
-        typeof existing.request_hash === "string" && existing.request_hash
-          ? existing.request_hash
-          : replayRequestHash(bucket, key, replayComparableMetadata(existing));
-      if (existingHash === requestHash) {
-        existing.request_hash = existingHash;
-        existing.last_seen_at = new Date().toISOString();
-        existing.replay_count = Number(existing.replay_count || 0) + 1;
-        return {
-          ok: true,
-          idempotentReplay: true,
-          existing,
-          requestHash,
-        };
-      }
-      return {
-        ok: false,
-        save: false,
-        existingRequestHash: existingHash,
-        response: jsonResponse(
-          {
-            ok: false,
-            error: `${bucket.slice(0, -1).replace("_", " ")} reference has already been used for different payment fields.`,
-            replay_conflict: true,
-            replay_bucket: bucket,
-            replay_reference: key,
-            first_seen_at: existing.first_seen_at || null,
-            existing_request_hash: existingHash,
+  const result =
+    replayStoreDriver === "sqlite"
+      ? sqliteReplayClaimResult(bucket, key, normalizedMetadata, requestHash)
+      : await withReplayStoreMutation((store) => {
+          if (!store[bucket] || typeof store[bucket] !== "object") store[bucket] = {};
+          const existing = store[bucket][key];
+          if (existing) {
+            const existingHash =
+              typeof existing.request_hash === "string" && existing.request_hash
+                ? existing.request_hash
+                : replayRequestHash(bucket, key, replayComparableMetadata(existing));
+            if (existingHash === requestHash) {
+              existing.request_hash = existingHash;
+              existing.last_seen_at = new Date().toISOString();
+              existing.replay_count = Number(existing.replay_count || 0) + 1;
+              return {
+                ok: true,
+                idempotentReplay: true,
+                existing,
+                requestHash,
+              };
+            }
+            return {
+              ok: false,
+              save: false,
+              existingRequestHash: existingHash,
+              response: replayConflictResponse(bucket, key, existing, existingHash, requestHash),
+            };
+          }
+          store[bucket][key] = {
+            ...normalizedMetadata,
+            first_seen_at: new Date().toISOString(),
             request_hash: requestHash,
-          },
-          409,
-        ),
-      };
-    }
-    store[bucket][key] = {
-      ...normalizedMetadata,
-      first_seen_at: new Date().toISOString(),
-      request_hash: requestHash,
-      replay_count: 0,
-    };
-    return { ok: true, requestHash };
-  });
+            replay_count: 0,
+          };
+          return { ok: true, requestHash };
+        });
   const journal = recordReplayJournalClaim({ bucket, reference: key, metadata: normalizedMetadata, requestHash, result });
   if (!journal.ok && requireReplayJournal) {
     return {
@@ -990,6 +1001,58 @@ async function claimReplayReference(bucket, reference, metadata = {}) {
     };
   }
   return result;
+}
+
+function replayConflictResponse(bucket, reference, existing, existingHash, requestHash) {
+  return jsonResponse(
+    {
+      ok: false,
+      error: `${bucket.slice(0, -1).replace("_", " ")} reference has already been used for different payment fields.`,
+      replay_conflict: true,
+      replay_bucket: bucket,
+      replay_reference: reference,
+      first_seen_at: existing.first_seen_at || null,
+      existing_request_hash: existingHash,
+      request_hash: requestHash,
+    },
+    409,
+  );
+}
+
+function sqliteReplayClaimResult(bucket, reference, metadata, requestHash) {
+  const claim = claimSQLiteReplayReference({
+    dbPath: replayStorePath,
+    bucket,
+    reference,
+    metadata,
+    requestHash,
+    busyTimeoutMs: replayStoreLockTimeoutMs,
+  });
+  if (claim.ok) {
+    return {
+      ok: true,
+      idempotentReplay: claim.idempotentReplay || undefined,
+      existing: {
+        ...(claim.existing?.metadata || {}),
+        first_seen_at: claim.existing?.first_seen_at,
+        request_hash: claim.existing?.request_hash,
+        replay_count: claim.existing?.replay_count,
+      },
+      requestHash,
+    };
+  }
+  const existing = {
+    ...(claim.existing?.metadata || {}),
+    first_seen_at: claim.existing?.first_seen_at,
+    request_hash: claim.existing?.request_hash,
+    replay_count: claim.existing?.replay_count,
+  };
+  return {
+    ok: false,
+    existing,
+    existingRequestHash: claim.existingRequestHash,
+    response: replayConflictResponse(bucket, reference, existing, claim.existingRequestHash, requestHash),
+  };
 }
 
 function expectedFromPayload(payload) {

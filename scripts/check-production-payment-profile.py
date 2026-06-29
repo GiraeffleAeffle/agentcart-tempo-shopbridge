@@ -86,6 +86,9 @@ def validate_profile(values: dict[str, str], *, allow_placeholders: bool = False
         errors.append("AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY must be true")
     if not configured(values, "AGENTCART_VERIFIER_REPLAY_STORE_PATH", allow_placeholders=allow_placeholders):
         errors.append("AGENTCART_VERIFIER_REPLAY_STORE_PATH must be configured")
+    replay_driver = values.get("AGENTCART_VERIFIER_REPLAY_STORE_DRIVER", "").strip().lower()
+    if replay_driver != "sqlite":
+        errors.append("AGENTCART_VERIFIER_REPLAY_STORE_DRIVER must be sqlite for production payment profiles")
 
     signed_mode = values.get("AGENTCART_SIGNED_REQUEST_MODE", "").strip()
     if signed_mode not in SIGNED_REQUEST_PRODUCTION_MODES:

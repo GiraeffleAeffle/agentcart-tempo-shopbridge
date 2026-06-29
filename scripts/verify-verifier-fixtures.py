@@ -14,6 +14,8 @@ FIXTURE_DIR = ROOT / "docs" / "fixtures" / "verifier"
 PLUGIN = ROOT / "woocommerce-shopbridge" / "agentcart-shopbridge" / "agentcart-shopbridge.php"
 VERIFIER_CLIENT = PLUGIN.parent / "includes" / "trait-agentcart-shopbridge-verifier-client.php"
 STRIPE_VERIFIER = ROOT / "gateway" / "scripts" / "stripe-mpp-verifier.mjs"
+SQLITE_REPLAY_STORE = ROOT / "gateway" / "scripts" / "verifier-sqlite-replay-store.mjs"
+SQLITE_REPLAY_SMOKE = ROOT / "gateway" / "scripts" / "verifier-sqlite-replay-smoke.sh"
 
 
 def load_fixture(name: str) -> dict[str, Any]:
@@ -368,6 +370,7 @@ def verify_stripe_verifier_replay_fields() -> None:
     source = STRIPE_VERIFIER.read_text(encoding="utf-8")
     for literal in [
         "AGENTCART_VERIFIER_REPLAY_STORE_PATH",
+        "AGENTCART_VERIFIER_REPLAY_STORE_DRIVER",
         "STRIPE_MPP_REPLAY_STORE_PATH",
         "AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS",
         "AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY",
@@ -377,6 +380,7 @@ def verify_stripe_verifier_replay_fields() -> None:
         "requireDurableReplayStore",
         "requireReplayJournal",
         "replay_store_required",
+        "replay_store_driver",
         "replay_store_durable",
         "replay_store_error",
         "replay_journal_required",
@@ -399,6 +403,10 @@ def verify_stripe_verifier_replay_fields() -> None:
         "replay_store_counts",
         "replayStoreLockPath",
         "replayStoreWriteProbe",
+        "claimSQLiteReplayReference",
+        "sqliteReplayStoreDiagnostics",
+        "sqliteReplayStoreWriteProbe",
+        "replayStoreDriver === \"sqlite\"",
         "replayRequestHash",
         "replayComparableMetadata",
         "idempotent_replay",
@@ -449,6 +457,31 @@ def verify_stripe_verifier_replay_fields() -> None:
         source.count("await claimReplayReference(") >= 4,
         "stripe verifier replay claims must be awaited so file locking is effective",
     )
+    sqlite_source = SQLITE_REPLAY_STORE.read_text(encoding="utf-8")
+    for literal in [
+        "agentcart.verifierReplay.sqlite.v1",
+        "BEGIN IMMEDIATE",
+        "PRIMARY KEY (bucket, reference_hash)",
+        "payments",
+        "refund_requests",
+        "refunds",
+        "sqlite-immediate-transaction",
+        "claimSQLiteReplayReference",
+        "sqliteReplayStoreDiagnostics",
+        "replayReferenceHash",
+        "replayRequestHash",
+    ]:
+        require(literal in sqlite_source, f"sqlite replay store missing contract literal: {literal}")
+    smoke_source = SQLITE_REPLAY_SMOKE.read_text(encoding="utf-8")
+    for literal in [
+        "verifier-sqlite-replay-store.mjs",
+        "Promise.all",
+        "payments",
+        "refund_requests",
+        "refunds",
+        "sqlite-immediate-transaction",
+    ]:
+        require(literal in smoke_source, f"sqlite replay smoke missing contract literal: {literal}")
 
 
 def main() -> int:

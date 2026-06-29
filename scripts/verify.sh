@@ -130,13 +130,16 @@ section "Stripe MPP verifier syntax"
 (
   cd "$ROOT_DIR/gateway"
   npm run stripe:mpp:check
+  node --check scripts/verifier-sqlite-replay-store.mjs
   bash -n scripts/stripe-link-mpp-smoke.sh
   bash -n scripts/verifier-replay-smoke.sh
+  bash -n scripts/verifier-sqlite-replay-smoke.sh
 )
 
 section "Verifier contract fixtures"
 python3 "$ROOT_DIR/scripts/verify-verifier-fixtures.py" >/dev/null
 bash "$ROOT_DIR/gateway/scripts/verifier-replay-smoke.sh"
+bash "$ROOT_DIR/gateway/scripts/verifier-sqlite-replay-smoke.sh"
 
 section "Pilot readiness checklist"
 python3 "$ROOT_DIR/scripts/check-pilot-readiness.py" \
