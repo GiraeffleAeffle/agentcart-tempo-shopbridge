@@ -23,19 +23,35 @@ python3 scripts/check-pilot-readiness.py \
 ```
 
 For an external beta/release decision, use the stricter gate. It requires pilot
-evidence, buyer-agent runtime evidence, and a production-shaped payment profile:
+evidence, buyer-agent runtime evidence, a production-shaped payment profile, and
+the WooCommerce compatibility matrix. It also writes a JSON report that can be
+attached to the release decision:
 
 ```sh
-python3 scripts/check-beta-release-readiness.py \
-  --pilot-evidence-dir pilot-evidence/example-shop \
-  --buyer-agent-evidence-dir pilot-evidence/buyer-agents \
-  --payment-env-file deploy/home-server/.env
+python3 scripts/collect-pilot-evidence.py \
+  --pilot-evidence-dir pilot-evidence/example-shop/pilot \
+  --buyer-agent-evidence-dir pilot-evidence/example-shop/buyer-agents \
+  --payment-env-file deploy/home-server/.env \
+  --report-out pilot-evidence-report.json
 ```
+
+Generate a sample evidence folder first when setting up a new pilot:
+
+```sh
+python3 scripts/collect-pilot-evidence.py --write-sample pilot-evidence/example-shop
+```
+
+The checked-in folder guide at `docs/examples/pilot-evidence/README.md`
+documents the expected transcript names and evidence path layout.
 
 `./scripts/verify.sh` runs the schema checks by default. Set
 `AGENTCART_BETA_RELEASE_GATE=1` plus `AGENTCART_PILOT_EVIDENCE_DIR`,
 `AGENTCART_BUYER_AGENT_EVIDENCE_DIR`, and `AGENTCART_PAYMENT_ENV_FILE` only
 when you want `verify.sh` to run the evidence-required external beta gate.
+Set `AGENTCART_PILOT_EVIDENCE_REPORT_OUT` to save the same JSON report from
+`verify.sh`. Set `AGENTCART_WOO_COMPATIBILITY_SMOKE=1` to run the Docker-backed
+WooCommerce compatibility smoke as part of that gate, optionally narrowed with
+`AGENTCART_WOO_COMPATIBILITY_ENTRY`.
 
 For removing a pilot merchant, revoking discovery, or rolling back a bad
 plugin/gateway release, use `docs/MERCHANT_ROLLBACK_RUNBOOK.md`.

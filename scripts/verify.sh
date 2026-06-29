@@ -37,6 +37,7 @@ py311_files=(
   scripts/check-buyer-agent-matrix.py
   scripts/check-ap2-mandate-mapping.py
   scripts/check-beta-release-readiness.py
+  scripts/collect-pilot-evidence.py
   scripts/check-ucp-a2a-profiles.py
   scripts/check-pilot-readiness.py
   scripts/check-production-payment-profile.py
@@ -156,10 +157,24 @@ if [ "${AGENTCART_BETA_RELEASE_GATE:-0}" = "1" ]; then
   : "${AGENTCART_PILOT_EVIDENCE_DIR:?set AGENTCART_PILOT_EVIDENCE_DIR for external beta release checks}"
   : "${AGENTCART_BUYER_AGENT_EVIDENCE_DIR:?set AGENTCART_BUYER_AGENT_EVIDENCE_DIR for external beta release checks}"
   : "${AGENTCART_PAYMENT_ENV_FILE:?set AGENTCART_PAYMENT_ENV_FILE for external beta release checks}"
-  python3 "$ROOT_DIR/scripts/check-beta-release-readiness.py" \
+  evidence_args=()
+  if [ -n "${AGENTCART_PILOT_EVIDENCE_REPORT_OUT:-}" ]; then
+    evidence_args+=(--report-out "$AGENTCART_PILOT_EVIDENCE_REPORT_OUT")
+  fi
+  if [ "${AGENTCART_WOO_COMPATIBILITY_SMOKE:-0}" = "1" ]; then
+    evidence_args+=(--run-woocommerce-smoke)
+  fi
+  if [ "${AGENTCART_WOO_COMPATIBILITY_INCLUDE_OPTIONAL:-0}" = "1" ]; then
+    evidence_args+=(--include-optional-woocommerce)
+  fi
+  if [ -n "${AGENTCART_WOO_COMPATIBILITY_ENTRY:-}" ]; then
+    evidence_args+=(--woocommerce-entry "$AGENTCART_WOO_COMPATIBILITY_ENTRY")
+  fi
+  python3 "$ROOT_DIR/scripts/collect-pilot-evidence.py" \
     --pilot-evidence-dir "$AGENTCART_PILOT_EVIDENCE_DIR" \
     --buyer-agent-evidence-dir "$AGENTCART_BUYER_AGENT_EVIDENCE_DIR" \
-    --payment-env-file "$AGENTCART_PAYMENT_ENV_FILE" >/dev/null
+    --payment-env-file "$AGENTCART_PAYMENT_ENV_FILE" \
+    "${evidence_args[@]}" >/dev/null
 else
   printf 'AGENTCART_BETA_RELEASE_GATE=1 not set; skipping evidence-required external beta gate\n'
 fi
