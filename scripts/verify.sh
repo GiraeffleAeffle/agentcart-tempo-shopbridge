@@ -41,6 +41,7 @@ py311_files=(
   scripts/check-ucp-a2a-profiles.py
   scripts/check-pilot-readiness.py
   scripts/check-production-payment-profile.py
+  scripts/check-verifier-ops-pack.py
   scripts/check-prompt-injection-corpus.py
   scripts/check-quote-reliability-matrix.py
   scripts/check-repo-positioning.py
@@ -152,6 +153,9 @@ python3 "$ROOT_DIR/scripts/check-production-payment-profile.py" \
   --env-file "$ROOT_DIR/deploy/home-server/.env.example" \
   --env-file "$ROOT_DIR/deploy/home-server/.env.production-payment.example" \
   --allow-placeholders >/dev/null
+
+section "Verifier operations readiness pack"
+python3 "$ROOT_DIR/scripts/check-verifier-ops-pack.py" >/dev/null
 
 section "Pilot evidence dry run"
 bash "$ROOT_DIR/scripts/pilot-evidence-dry-run.sh" >/dev/null

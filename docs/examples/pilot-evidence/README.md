@@ -43,6 +43,10 @@ pilot/pilot-merchant-onboarding/live_woocommerce_smoke_result.md
 pilot/pilot-merchant-onboarding/woocommerce_compatibility_matrix_result.md
 pilot/pilot-buyer-agent-setup/buyer_agent_test_matrix_result.md
 pilot/pilot-payment-mode/production_payment_profile_check_result.md
+pilot/pilot-payment-mode/verifier_metrics_snapshot.md
+pilot/pilot-payment-mode/sqlite_replay_backup_restore_drill.md
+pilot/pilot-payment-mode/verifier_alert_delivery_result.md
+pilot/pilot-payment-mode/provider_error_review.md
 pilot/pilot-safety-privacy/prompt_injection_corpus_result.md
 ```
 

@@ -55,7 +55,7 @@ commands, transcripts, screenshots, hashes, URLs, or operator notes.
 | --- | --- |
 | `pilot/pilot-merchant-onboarding/*` | Install the ShopBridge ZIP on the staging WooCommerce shop, configure merchant identity/support/payment settings, export the exposed catalog preview, run sandbox quote/checkout checks, run the live WooCommerce smoke, and record the registry bundle or hosted registry URL. |
 | `pilot/pilot-buyer-agent-setup/*` | Run the buyer-agent test matrix and one complete discovery, quote, approval, checkout handoff, aftercare, and audit export/import path for each required runtime. |
-| `pilot/pilot-payment-mode/*` | Record the payment-mode decision, verifier health or fixture result, production payment profile check, refund policy, and sample payment contract hash. |
+| `pilot/pilot-payment-mode/*` | Record the payment-mode decision, verifier health and metrics snapshots, SQLite replay backup/restore drill, verifier alert delivery result, provider error review, production payment profile check, refund policy, and sample payment contract hash. Use `docs/VERIFIER_OPERATIONS_READINESS.md` for the operations evidence. |
 | `pilot/pilot-support-channel/*` | Record monitored support contact, response SLA, diagnostic collection steps, and the named incident owner for the pilot window. |
 | `pilot/pilot-rollback/*` | Record the previous plugin ZIP, release manifest, rollback or revocation command evidence, and registry revocation URL. |
 | `pilot/pilot-safety-privacy/*` | Record the privacy notice, redacted ops event sample, rate-limit smoke, prompt-injection corpus result, and prompt-injection review notes. |
@@ -109,7 +109,9 @@ Before asking for the go/no-go decision, the operator should have:
 
 - the populated evidence folder;
 - `pilot-evidence-report.json` with `status: "passed"`;
-- verifier operations evidence from issue #18;
+- verifier operations evidence from issue #18, including
+  `verifier_metrics_snapshot.md`, `sqlite_replay_backup_restore_drill.md`,
+  `verifier_alert_delivery_result.md`, and `provider_error_review.md`;
 - WooCommerce merchant-variance evidence from issue #19;
 - non-maintainer setup walkthrough notes from issue #20;
 - rollback owner, support owner, and observation window recorded in the
