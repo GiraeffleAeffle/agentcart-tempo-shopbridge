@@ -74,6 +74,10 @@
       "required_evidence": [
         "payment_mode_decision_record",
         "verifier_health_or_fixture_result",
+        "verifier_metrics_snapshot",
+        "sqlite_replay_backup_restore_drill",
+        "verifier_alert_delivery_result",
+        "provider_error_review",
         "production_payment_profile_check_result",
         "refund_policy_statement",
         "sample_payment_contract_hash"

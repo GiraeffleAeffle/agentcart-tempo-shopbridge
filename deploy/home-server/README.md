@@ -99,6 +99,14 @@ payloads include ids, hashes, rail/status metadata, and delivery-exception
 state; they do not include payment credentials, raw request bodies, or delivery
 addresses.
 
+## Verifier Operations
+
+For supervised external beta, use
+`../../docs/VERIFIER_OPERATIONS_READINESS.md` before enabling public checkout.
+It names the required Stripe/card verifier `/health` and `/metrics` evidence,
+SQLite replay-store backup/restore drill, provider-error review, and alert
+thresholds for the pilot operator.
+
 ## Files Expected In Repo Root
 
 ```text

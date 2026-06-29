@@ -56,6 +56,9 @@ Set `AGENTCART_PILOT_EVIDENCE_REPORT_OUT` to save the same JSON report from
 WooCommerce compatibility smoke as part of that gate, optionally narrowed with
 `AGENTCART_WOO_COMPATIBILITY_ENTRY`.
 
+For verifier health, metrics, alert, provider-error, and SQLite replay
+backup/restore evidence, use `docs/VERIFIER_OPERATIONS_READINESS.md`.
+
 For removing a pilot merchant, revoking discovery, or rolling back a bad
 plugin/gateway release, use `docs/MERCHANT_ROLLBACK_RUNBOOK.md`.
 
@@ -138,6 +141,10 @@ Required evidence:
 
 - payment mode decision record;
 - verifier health or fixture result;
+- verifier metrics snapshot;
+- SQLite replay backup/restore drill;
+- verifier alert delivery result;
+- provider error review;
 - production payment profile check result;
 - refund policy statement;
 - sample payment contract hash.
