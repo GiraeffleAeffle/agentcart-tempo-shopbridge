@@ -10,6 +10,8 @@ python3 scripts/collect-pilot-evidence.py --write-sample pilot-evidence/example-
 
 Then replace every generated `TODO` with real transcripts, command output,
 screenshot references, hashes, URLs, or decision records.
+The operator workflow and replacement rules live in
+`docs/PILOT_EXECUTION_PLAYBOOK.md`.
 
 ## Release Decision Command
 

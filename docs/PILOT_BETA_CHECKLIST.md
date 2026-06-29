@@ -43,6 +43,9 @@ python3 scripts/collect-pilot-evidence.py --write-sample pilot-evidence/example-
 
 The checked-in folder guide at `docs/examples/pilot-evidence/README.md`
 documents the expected transcript names and evidence path layout.
+Use `docs/PILOT_EXECUTION_PLAYBOOK.md` for the dry-run command, real-pilot
+operator workflow, and rules for replacing sample placeholders with real
+staging evidence.
 
 `./scripts/verify.sh` runs the schema checks by default. Set
 `AGENTCART_BETA_RELEASE_GATE=1` plus `AGENTCART_PILOT_EVIDENCE_DIR`,

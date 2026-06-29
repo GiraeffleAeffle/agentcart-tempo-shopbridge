@@ -94,6 +94,7 @@ fi
 bash -n "$ROOT_DIR/scripts/woocommerce-demo-smoke.sh"
 bash -n "$ROOT_DIR/scripts/woocommerce-demo-reset.sh"
 bash -n "$ROOT_DIR/scripts/woocommerce-demo-integration.sh"
+bash -n "$ROOT_DIR/scripts/pilot-evidence-dry-run.sh"
 bash -n "$ROOT_DIR/demo/woocommerce/seed-products.sh"
 python3 -m py_compile "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
@@ -151,6 +152,9 @@ python3 "$ROOT_DIR/scripts/check-production-payment-profile.py" \
   --env-file "$ROOT_DIR/deploy/home-server/.env.example" \
   --env-file "$ROOT_DIR/deploy/home-server/.env.production-payment.example" \
   --allow-placeholders >/dev/null
+
+section "Pilot evidence dry run"
+bash "$ROOT_DIR/scripts/pilot-evidence-dry-run.sh" >/dev/null
 
 section "External beta release evidence gate"
 if [ "${AGENTCART_BETA_RELEASE_GATE:-0}" = "1" ]; then
