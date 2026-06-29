@@ -30,6 +30,22 @@ python3 scripts/check-buyer-agent-matrix.py \
   --require-evidence
 ```
 
+For a release decision, prefer the combined pilot evidence runner so buyer-agent
+runtime evidence is checked together with pilot gates, payment profile, and
+WooCommerce compatibility:
+
+```sh
+python3 scripts/collect-pilot-evidence.py \
+  --pilot-evidence-dir pilot-evidence/example-shop/pilot \
+  --buyer-agent-evidence-dir pilot-evidence/example-shop/buyer-agents \
+  --payment-env-file deploy/home-server/.env \
+  --report-out pilot-evidence-report.json
+```
+
+Use `python3 scripts/collect-pilot-evidence.py --write-sample
+pilot-evidence/example-shop` to generate placeholder files for every required
+runtime transcript and evidence artifact.
+
 ## Required Runtime Paths
 
 ### agentcart-service-openclaw

@@ -135,11 +135,16 @@ enable the beta gate:
 
 ```sh
 AGENTCART_BETA_RELEASE_GATE=1 \
-AGENTCART_PILOT_EVIDENCE_DIR=pilot-evidence/example-shop \
-AGENTCART_BUYER_AGENT_EVIDENCE_DIR=pilot-evidence/buyer-agents \
+AGENTCART_PILOT_EVIDENCE_DIR=pilot-evidence/example-shop/pilot \
+AGENTCART_BUYER_AGENT_EVIDENCE_DIR=pilot-evidence/example-shop/buyer-agents \
 AGENTCART_PAYMENT_ENV_FILE=deploy/home-server/.env \
+AGENTCART_PILOT_EVIDENCE_REPORT_OUT=pilot-evidence-report.json \
 ./scripts/verify.sh
 ```
+
+Set `AGENTCART_WOO_COMPATIBILITY_SMOKE=1` to include the Docker-backed
+WooCommerce compatibility smoke in that release evidence report. Use
+`AGENTCART_WOO_COMPATIBILITY_ENTRY=<matrix-id>` to run one matrix entry.
 
 For a running WooCommerce merchant, add the live smoke target. Production-ready
 mode fails if the ShopBridge setup guide still has production-required blockers:
@@ -155,10 +160,17 @@ AGENTCART_WOO_SMOKE_REQUIRE_PRODUCTION_READY=1 \
 You can also run the stricter gate directly:
 
 ```sh
-python3 scripts/check-beta-release-readiness.py \
-  --pilot-evidence-dir pilot-evidence/example-shop \
-  --buyer-agent-evidence-dir pilot-evidence/buyer-agents \
-  --payment-env-file deploy/home-server/.env
+python3 scripts/collect-pilot-evidence.py \
+  --pilot-evidence-dir pilot-evidence/example-shop/pilot \
+  --buyer-agent-evidence-dir pilot-evidence/example-shop/buyer-agents \
+  --payment-env-file deploy/home-server/.env \
+  --report-out pilot-evidence-report.json
+```
+
+Start a new evidence folder with:
+
+```sh
+python3 scripts/collect-pilot-evidence.py --write-sample pilot-evidence/example-shop
 ```
 
 The full gate includes a Python 3.11 compile check for runtime files. If local
