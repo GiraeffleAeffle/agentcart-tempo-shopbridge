@@ -1729,6 +1729,90 @@ class AgentCartTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=5)
 
+    def test_hosted_registry_revocation_http_updates_feed_proof_and_transparency(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            record_hash = agentcart.registry_record_hash(record)
+            service = make_service(tmp, hosted_registry_submit_token="registry-token")
+            install_domain_proof_http_json(service, record, manifest)
+            server = agentcart.AgentCartServer(("127.0.0.1", 0), service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+
+            def post_registry(payload: dict[str, object], expected_status: int) -> dict[str, object]:
+                request = urllib.request.Request(
+                    f"{base_url}/v1/registry/records",
+                    data=json.dumps(payload).encode(),
+                    headers={
+                        "Authorization": "Bearer registry-token",
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    self.assertEqual(response.status, expected_status)
+                    return json.loads(response.read())
+
+            try:
+                submitted = post_registry(
+                    {
+                        "schema": "agentcart.shopbridge.registry_connection_request.v1",
+                        "operation": "upsert",
+                        "registry_record": record,
+                        "record_hash": record_hash,
+                        "idempotency_key": "submit-signed-tea-shop",
+                    },
+                    expected_status=201,
+                )
+                self.assertTrue(submitted["published"])
+
+                revoked = post_registry(
+                    {
+                        "schema": "agentcart.shopbridge.registry_connection_request.v1",
+                        "operation": "revoke",
+                        "record_hash": record_hash,
+                        "merchant_id": "signed-tea-shop",
+                        "domain": "signed.example",
+                        "reason": "pilot_rollback",
+                        "idempotency_key": "revoke-signed-tea-shop",
+                    },
+                    expected_status=200,
+                )
+                self.assertEqual(revoked["operation"], "revoke")
+                self.assertEqual(revoked["publication_state"], "revoked")
+                self.assertFalse(revoked["published"])
+
+                with urllib.request.urlopen(f"{base_url}/v1/registry/records", timeout=5) as response:
+                    feed = json.loads(response.read())
+                self.assertEqual(feed["entry_count"], 0)
+                self.assertEqual(feed["revocation_count"], 1)
+                self.assertEqual(feed["revocations"][0]["record_hash"], record_hash)
+
+                with urllib.request.urlopen(f"{base_url}/v1/registry/feed-proof", timeout=5) as response:
+                    proof = json.loads(response.read())
+                self.assertEqual(proof["entry_count"], 0)
+                self.assertEqual(proof["revocation_count"], 1)
+                self.assertEqual(proof["record_hashes"], [])
+                self.assertEqual(proof["revocation_record_hashes"], [record_hash])
+                self.assertEqual(proof["payload_hash"], agentcart.canonical_json_hash(proof["payload"]))
+                self.assertTrue(proof["transparency"]["chain_valid"])
+
+                with urllib.request.urlopen(f"{base_url}/v1/registry/transparency", timeout=5) as response:
+                    transparency = json.loads(response.read())
+                self.assertEqual(transparency["event_count"], 2)
+                self.assertTrue(transparency["verification"]["chain_valid"])
+                self.assertEqual([event["operation"] for event in transparency["events"]], ["submit", "revoke"])
+                self.assertEqual(transparency["events"][1]["publication_state"], "revoked")
+                self.assertEqual(transparency["events"][1]["reason"], "pilot_rollback")
+                self.assertEqual(transparency["log_head_hash"], revoked["transparency_log_head_hash"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
     def test_domain_proof_registry_record_verifies_with_empty_revocation_document(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = pathlib.Path(raw_tmp)
