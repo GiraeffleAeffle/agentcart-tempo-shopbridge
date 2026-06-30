@@ -95,6 +95,7 @@ final class AgentCart_ShopBridge {
     const PRODUCT_FINAL_SALE_META = '_agentcart_final_sale';
     const PRODUCT_SUBSTITUTION_SENSITIVE_META = '_agentcart_substitution_sensitive';
     const PRODUCT_RESTRICTED_GOODS_ALLOWED_META = '_agentcart_restricted_goods_allowed';
+    const PRODUCT_UNIT_SIZE_META = '_agentcart_unit_size';
     const STOCK_HOLD_MODE_OPTION = 'agentcart_shopbridge_stock_hold_mode';
     const STOCK_HOLD_MINUTES_OPTION = 'agentcart_shopbridge_stock_hold_minutes';
     const STOCK_HOLDS_OPTION = 'agentcart_shopbridge_stock_holds';
@@ -1985,6 +1986,13 @@ final class AgentCart_ShopBridge {
                 'desc_tip' => true,
                 'type' => 'text',
             ]);
+            woocommerce_wp_text_input([
+                'id' => self::PRODUCT_UNIT_SIZE_META,
+                'label' => __('AgentCart unit size', 'agentcart-shopbridge'),
+                'description' => __('Optional buyer-facing package size such as 100 g, 1.5 L, or 1 unit. Leave empty to derive from WooCommerce weight.', 'agentcart-shopbridge'),
+                'desc_tip' => true,
+                'type' => 'text',
+            ]);
         }
     }
 
@@ -2006,6 +2014,8 @@ final class AgentCart_ShopBridge {
         $raw_shipping_countries = isset($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META]) ? wp_unslash($_POST[self::PRODUCT_SHIPPING_COUNTRIES_META]) : '';
         $shipping_countries = self::sanitize_country_list_setting($raw_shipping_countries);
         $product->update_meta_data(self::PRODUCT_SHIPPING_COUNTRIES_META, $shipping_countries);
+        $unit_size = isset($_POST[self::PRODUCT_UNIT_SIZE_META]) ? sanitize_text_field(wp_unslash($_POST[self::PRODUCT_UNIT_SIZE_META])) : '';
+        $product->update_meta_data(self::PRODUCT_UNIT_SIZE_META, $unit_size);
         // phpcs:enable WordPress.Security.NonceVerification.Missing
     }
 
@@ -5266,6 +5276,7 @@ final class AgentCart_ShopBridge {
                 'explicit_substitution_sensitive_override' => true,
                 'item_policy_preserved_on_order' => true,
                 'product_shipping_country_meta_key' => self::PRODUCT_SHIPPING_COUNTRIES_META,
+                'product_unit_size_meta_key' => self::PRODUCT_UNIT_SIZE_META,
                 'shipping_country_overrides_rechecked_on_order' => true,
                 'stock_hold_mode' => self::stock_hold_mode(),
                 'stock_hold_minutes' => self::stock_hold_minutes(),
@@ -9667,6 +9678,11 @@ final class AgentCart_ShopBridge {
     }
 
     private static function package_size_for_product(WC_Product $product) {
+        $explicit_unit_size = trim(wp_strip_all_tags((string) $product->get_meta(self::PRODUCT_UNIT_SIZE_META, true)));
+        $explicit_package_size = self::package_size_from_label($explicit_unit_size, 'agentcart_unit_size_meta');
+        if ($explicit_package_size !== null) {
+            return $explicit_package_size;
+        }
         $weight = trim((string) $product->get_weight());
         $weight_unit = strtolower((string) get_option('woocommerce_weight_unit', 'kg'));
         if ($weight !== '' && floatval($weight) > 0) {
@@ -9689,6 +9705,50 @@ final class AgentCart_ShopBridge {
             'normalized_quantity' => 1,
             'normalized_unit' => 'unit',
             'source' => 'woocommerce_default_unit',
+        ];
+    }
+
+    private static function package_size_from_label($label, $source) {
+        if (!is_string($label) || $label === '') {
+            return null;
+        }
+        if (!preg_match('/^\s*([0-9]+(?:[\.,][0-9]+)?)\s*([A-Za-z]+)\s*$/', $label, $matches)) {
+            return null;
+        }
+        $quantity = floatval(str_replace(',', '.', $matches[1]));
+        if ($quantity <= 0) {
+            return null;
+        }
+        $unit = strtolower($matches[2]);
+        $unit_aliases = [
+            'gram' => 'g',
+            'grams' => 'g',
+            'kilogram' => 'kg',
+            'kilograms' => 'kg',
+            'liter' => 'l',
+            'liters' => 'l',
+            'litre' => 'l',
+            'litres' => 'l',
+            'milliliter' => 'ml',
+            'milliliters' => 'ml',
+            'millilitre' => 'ml',
+            'millilitres' => 'ml',
+            'unit' => 'unit',
+            'units' => 'unit',
+            'piece' => 'unit',
+            'pieces' => 'unit',
+            'pcs' => 'unit',
+            'ea' => 'unit',
+        ];
+        $unit = $unit_aliases[$unit] ?? $unit;
+        $normalized = self::normalize_package_quantity($quantity, $unit);
+        return [
+            'label' => self::format_quantity($quantity) . ' ' . $unit,
+            'quantity' => $quantity,
+            'unit' => $unit,
+            'normalized_quantity' => $normalized['quantity'],
+            'normalized_unit' => $normalized['unit'],
+            'source' => $source,
         ];
     }
 
