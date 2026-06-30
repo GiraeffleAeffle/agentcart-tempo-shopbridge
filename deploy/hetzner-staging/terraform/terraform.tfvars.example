@@ -1,0 +1,7 @@
+server_name         = "agentcart-woo-staging"
+server_type         = "cx23"
+location            = "fsn1"
+image               = "ubuntu-24.04"
+ssh_key_name        = "agentcart-staging"
+ssh_public_key_path = "../../../.secrets/agentcart_staging_ed25519.pub"
+ssh_source_ips      = ["0.0.0.0/0", "::/0"]

@@ -1,0 +1,99 @@
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: ${STAGING_DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${STAGING_DB_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+
+  wordpress:
+    image: wordpress:php8.2-apache
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${STAGING_DB_PASSWORD}
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_CONFIG_EXTRA: |
+        define('AGENTCART_SHOPBRIDGE_TOKEN', getenv('AGENTCART_SHOPBRIDGE_TOKEN') ?: '');
+        define('AGENTCART_MERCHANT_ID', getenv('AGENTCART_MERCHANT_ID') ?: 'agentcart-staging-shop');
+        define('AGENTCART_TEMPO_NETWORK', getenv('AGENTCART_TEMPO_NETWORK') ?: 'testnet');
+        define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', getenv('AGENTCART_TEMPO_RECIPIENT_ADDRESS') ?: '');
+        define('AGENTCART_STRIPE_PROFILE_ID', getenv('AGENTCART_STRIPE_PROFILE_ID') ?: '');
+        define('AGENTCART_PAYMENT_VERIFIER_URL', getenv('AGENTCART_PAYMENT_VERIFIER_URL') ?: '');
+        define('AGENTCART_PAYMENT_VERIFIER_TOKEN', getenv('AGENTCART_PAYMENT_VERIFIER_TOKEN') ?: '');
+        define('AGENTCART_CHECKOUT_MODE', getenv('AGENTCART_CHECKOUT_MODE') ?: 'trusted_token_or_verifier');
+        define('AGENTCART_SIGNED_REQUEST_MODE', getenv('AGENTCART_SIGNED_REQUEST_MODE') ?: 'off');
+        define('AGENTCART_SIGNED_REQUEST_SECRET', getenv('AGENTCART_SIGNED_REQUEST_SECRET') ?: '');
+        define('AGENTCART_SUPPORT_EMAIL', getenv('AGENTCART_SUPPORT_EMAIL') ?: '');
+        define('AGENTCART_RETURNS_URL', getenv('AGENTCART_RETURNS_URL') ?: '');
+        define('AGENTCART_SUBSTITUTION_POLICY', getenv('AGENTCART_SUBSTITUTION_POLICY') ?: 'approval_required');
+        define('AGENTCART_CANCELLATION_WINDOW_MINUTES', getenv('AGENTCART_CANCELLATION_WINDOW_MINUTES') ?: 30);
+      AGENTCART_SHOPBRIDGE_TOKEN: ${STAGING_SHOPBRIDGE_TOKEN}
+      AGENTCART_MERCHANT_ID: ${STAGING_MERCHANT_ID}
+      AGENTCART_SUPPORT_EMAIL: ${STAGING_WOO_ADMIN_EMAIL}
+      AGENTCART_RETURNS_URL: https://${STAGING_DOMAIN}/returns
+      AGENTCART_SUBSTITUTION_POLICY: approval_required
+      AGENTCART_CANCELLATION_WINDOW_MINUTES: "30"
+      AGENTCART_TEMPO_NETWORK: testnet
+      AGENTCART_TEMPO_RECIPIENT_ADDRESS: ""
+      AGENTCART_STRIPE_PROFILE_ID: ""
+      AGENTCART_PAYMENT_VERIFIER_URL: ""
+      AGENTCART_PAYMENT_VERIFIER_TOKEN: ""
+      AGENTCART_CHECKOUT_MODE: trusted_token_or_verifier
+      AGENTCART_SIGNED_REQUEST_MODE: off
+      AGENTCART_SIGNED_REQUEST_SECRET: ""
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+
+  wpcli:
+    image: wordpress:cli-php8.2
+    user: "0:0"
+    depends_on:
+      - wordpress
+      - db
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${STAGING_DB_PASSWORD}
+      WORDPRESS_DB_NAME: wordpress
+      WOO_PUBLIC_URL: https://${STAGING_DOMAIN}
+      WOO_ADMIN_USER: ${STAGING_WOO_ADMIN_USER}
+      WOO_ADMIN_PASSWORD: ${STAGING_WOO_ADMIN_PASSWORD}
+      WOO_ADMIN_EMAIL: ${STAGING_WOO_ADMIN_EMAIL}
+      AGENTCART_SHOPBRIDGE_TOKEN: ${STAGING_SHOPBRIDGE_TOKEN}
+      AGENTCART_MERCHANT_ID: ${STAGING_MERCHANT_ID}
+      AGENTCART_RETURNS_URL: https://${STAGING_DOMAIN}/returns
+      AGENTCART_WOO_VARIANCE_PROFILE: baseline-eu-tax-shipping
+      AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO: "1"
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+      - ./seed-products.sh:/seed-products.sh:ro
+    entrypoint: ["bash", "/seed-products.sh"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - wordpress
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db_data:
+  wordpress_data:
+  caddy_data:
+  caddy_config:

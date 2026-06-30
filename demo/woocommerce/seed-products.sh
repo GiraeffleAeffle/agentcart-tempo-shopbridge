@@ -21,6 +21,12 @@ for _ in $(seq 1 60); do
 done
 
 wp core is-installed --allow-root
+if wp user get "${WOO_ADMIN_USER:-merchant}" --allow-root >/dev/null 2>&1; then
+  wp user update "${WOO_ADMIN_USER:-merchant}" \
+    --user_pass="${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}" \
+    --user_email="${WOO_ADMIN_EMAIL:-merchant@example.test}" \
+    --allow-root >/dev/null
+fi
 if wp plugin is-installed woocommerce --allow-root; then
   wp plugin activate woocommerce --allow-root
 else
@@ -691,5 +697,9 @@ PHP
 )" --allow-root
 
 echo "AgentCart WooCommerce demo shop is ready."
-echo "Admin: ${WOO_ADMIN_USER:-merchant} / ${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}"
-echo "ShopBridge token: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}"
+if [ "${AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO:-0}" = "1" ]; then
+  echo "Admin credentials and ShopBridge token are stored in deployment secrets."
+else
+  echo "Admin: ${WOO_ADMIN_USER:-merchant} / ${WOO_ADMIN_PASSWORD:-agentcart-demo-admin}"
+  echo "ShopBridge token: ${AGENTCART_SHOPBRIDGE_TOKEN:-agentcart-woo-demo-token}"
+fi

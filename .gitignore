@@ -13,3 +13,8 @@ gateway/data/
 *.zip
 dist/*
 !dist/
+.secrets/
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars

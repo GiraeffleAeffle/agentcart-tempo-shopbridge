@@ -1,0 +1,121 @@
+- name: Deploy AgentCart WooCommerce staging shop
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    app_dir: /opt/agentcart-woocommerce-staging
+    staging_secrets_file: "{{ playbook_dir }}/../../../.secrets/agentcart-staging.yml"
+    plugin_src: "{{ playbook_dir }}/../../../woocommerce-shopbridge/agentcart-shopbridge"
+    seed_src: "{{ playbook_dir }}/../../../demo/woocommerce/seed-products.sh"
+
+  pre_tasks:
+    - name: Load local staging secrets
+      ansible.builtin.include_vars:
+        file: "{{ staging_secrets_file }}"
+      no_log: true
+
+    - name: Validate local staging secrets
+      ansible.builtin.assert:
+        that:
+          - staging.domain | length > 0
+          - staging.woo_admin_password | length > 0
+          - staging.db_password | length > 0
+          - staging.shopbridge_token | length > 0
+        fail_msg: "Run deploy/hetzner-staging/scripts/generate-staging-secrets.sh first."
+      no_log: true
+
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - docker.io
+          - docker-compose-v2
+          - git
+          - openssl
+          - ufw
+        state: present
+        update_cache: true
+
+    - name: Enable Docker
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Configure host firewall defaults
+      ansible.builtin.command: ufw default deny incoming
+      changed_when: "'Default incoming policy changed' in ufw_default_incoming.stdout"
+      register: ufw_default_incoming
+
+    - name: Allow SSH and web traffic
+      ansible.builtin.command: "ufw allow {{ item }}/tcp"
+      register: ufw_allow
+      changed_when: "'Rule added' in ufw_allow.stdout"
+      loop:
+        - "22"
+        - "80"
+        - "443"
+
+    - name: Enable host firewall
+      ansible.builtin.command: ufw --force enable
+      register: ufw_enable
+      changed_when: "'Firewall is active and enabled' in ufw_enable.stdout"
+
+    - name: Create app directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/agentcart-shopbridge"
+
+    - name: Copy ShopBridge plugin
+      ansible.builtin.copy:
+        src: "{{ plugin_src }}/"
+        dest: "{{ app_dir }}/agentcart-shopbridge/"
+        mode: preserve
+
+    - name: Copy seed script
+      ansible.builtin.copy:
+        src: "{{ seed_src }}"
+        dest: "{{ app_dir }}/seed-products.sh"
+        mode: "0755"
+
+    - name: Render Caddyfile
+      ansible.builtin.template:
+        src: Caddyfile.j2
+        dest: "{{ app_dir }}/Caddyfile"
+        mode: "0644"
+
+    - name: Render Docker Compose file
+      ansible.builtin.template:
+        src: docker-compose.yml.j2
+        dest: "{{ app_dir }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Render environment file
+      ansible.builtin.template:
+        src: staging.env.j2
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+      no_log: true
+
+    - name: Start WordPress staging stack
+      ansible.builtin.command:
+        cmd: docker compose up -d db wordpress caddy
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Seed WooCommerce and ShopBridge
+      ansible.builtin.command:
+        cmd: docker compose run --rm wpcli
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Show staging URL
+      ansible.builtin.debug:
+        msg: "WooCommerce staging is deployed at https://{{ staging.domain }}/wp-admin/"
