@@ -148,6 +148,9 @@ fi
 wp option update blogname "AgentCart Demo Shop" --allow-root
 wp option update home "${WOO_PUBLIC_URL:-http://127.0.0.1:8098}" --allow-root
 wp option update siteurl "${WOO_PUBLIC_URL:-http://127.0.0.1:8098}" --allow-root
+wp option update blog_public 0 --allow-root
+wp option update woocommerce_demo_store yes --allow-root
+wp option update woocommerce_demo_store_notice "Demo/staging shop only. No real orders, payments, delivery, or merchant obligations. Use only for AgentCart testing." --allow-root
 wp option update woocommerce_store_address "Demo Street 1" --allow-root
 wp option update woocommerce_default_country "DE:BB" --allow-root
 wp option update woocommerce_currency "EUR" --allow-root
@@ -161,7 +164,7 @@ wp option update woocommerce_ship_to_countries "specific" --allow-root
 wp option update woocommerce_specific_ship_to_countries "$AGENTCART_DEMO_COUNTRIES_JSON" --format=json --allow-root
 wp option update woocommerce_coming_soon "no" --allow-root
 wp option update woocommerce_cod_settings \
-  '{"enabled":"yes","title":"Manual demo checkout","description":"Browser-only fallback for the fake shop. AgentCart orders use household approval and Tempo MPP proof instead of this checkout.","instructions":"For local demos, use the AgentCart household-agent flow for payment proof."}' \
+  '{"enabled":"no","title":"Staging checkout disabled","description":"This public staging shop does not accept real browser orders or payments. AgentCart API tests use synthetic verified receipts only.","instructions":"No real payment or delivery will happen from this staging shop."}' \
   --format=json \
   --allow-root
 wp rewrite structure '/%postname%/' --allow-root
