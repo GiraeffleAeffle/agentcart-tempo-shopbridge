@@ -31,6 +31,11 @@ Generate the staging application secrets:
 deploy/hetzner-staging/scripts/generate-staging-secrets.sh
 ```
 
+The generated secrets include a non-real Tempo testnet recipient and an
+internal verifier bearer token. Staging uses these to exercise quote-bound
+public checkout with replay protection; the verifier still reports Tempo demo
+payments as not real settlement evidence.
+
 ## Provision Server
 
 Run Terraform through Docker so no local Terraform installation is required:
@@ -102,6 +107,11 @@ python3 scripts/woocommerce-shopbridge-smoke.py \
   --require-shipping \
   --require-vat-lines
 ```
+
+The public buyer-skill checkout path is configured for
+`external_verifier_only` mode. The WordPress container calls the internal
+`verifier` service at `http://verifier:4260/agentcart/verify`; the verifier is
+not exposed through Caddy.
 
 This is internal rehearsal evidence only. It does not replace the
 non-maintainer walkthrough evidence required by

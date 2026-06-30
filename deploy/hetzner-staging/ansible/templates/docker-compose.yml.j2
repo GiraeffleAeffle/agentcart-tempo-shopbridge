@@ -15,6 +15,7 @@ services:
     restart: unless-stopped
     depends_on:
       - db
+      - verifier
     environment:
       WORDPRESS_DB_HOST: db:3306
       WORDPRESS_DB_USER: wordpress
@@ -42,16 +43,41 @@ services:
       AGENTCART_SUBSTITUTION_POLICY: approval_required
       AGENTCART_CANCELLATION_WINDOW_MINUTES: "30"
       AGENTCART_TEMPO_NETWORK: testnet
-      AGENTCART_TEMPO_RECIPIENT_ADDRESS: ""
+      AGENTCART_TEMPO_RECIPIENT_ADDRESS: ${STAGING_TEMPO_RECIPIENT_ADDRESS}
       AGENTCART_STRIPE_PROFILE_ID: ""
-      AGENTCART_PAYMENT_VERIFIER_URL: ""
-      AGENTCART_PAYMENT_VERIFIER_TOKEN: ""
-      AGENTCART_CHECKOUT_MODE: trusted_token_or_verifier
+      AGENTCART_PAYMENT_VERIFIER_URL: http://verifier:4260/agentcart/verify
+      AGENTCART_PAYMENT_VERIFIER_TOKEN: ${STAGING_PAYMENT_VERIFIER_TOKEN}
+      AGENTCART_CHECKOUT_MODE: external_verifier_only
       AGENTCART_SIGNED_REQUEST_MODE: off
       AGENTCART_SIGNED_REQUEST_SECRET: ""
     volumes:
       - wordpress_data:/var/www/html
       - ./agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+
+  verifier:
+    image: node:22-alpine
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      STRIPE_MPP_VERIFIER_BIND: 0.0.0.0
+      STRIPE_MPP_VERIFIER_PORT: "4260"
+      STRIPE_SANDBOX_SECRET_KEY: ${STAGING_STRIPE_SANDBOX_SECRET_KEY}
+      STRIPE_PROFILE_ID: ${STAGING_STRIPE_PROFILE_ID}
+      MPP_SECRET_KEY: ${STAGING_MPP_SECRET_KEY}
+      AGENTCART_PAYMENT_VERIFIER_TOKEN: ${STAGING_PAYMENT_VERIFIER_TOKEN}
+      AGENTCART_VERIFIER_REPLAY_STORE_PATH: /data/replay-store.json
+      AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH: /data/replay-journal.jsonl
+      AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY: "1"
+      AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL: "1"
+    command: sh -c "npm ci --omit=dev --cache /tmp/npm-cache && node scripts/stripe-mpp-verifier.mjs"
+    volumes:
+      - ./verifier:/app
+      - verifier_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4260/health | grep '\"ok\": true'"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
 
   wpcli:
     image: wordpress:cli-php8.2
@@ -73,6 +99,11 @@ services:
       AGENTCART_RETURNS_URL: https://${STAGING_DOMAIN}/returns
       AGENTCART_WOO_VARIANCE_PROFILE: baseline-eu-tax-shipping
       AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO: "1"
+      AGENTCART_TEMPO_NETWORK: testnet
+      AGENTCART_TEMPO_RECIPIENT_ADDRESS: ${STAGING_TEMPO_RECIPIENT_ADDRESS}
+      AGENTCART_PAYMENT_VERIFIER_URL: http://verifier:4260/agentcart/verify
+      AGENTCART_PAYMENT_VERIFIER_TOKEN: ${STAGING_PAYMENT_VERIFIER_TOKEN}
+      AGENTCART_CHECKOUT_MODE: external_verifier_only
     volumes:
       - wordpress_data:/var/www/html
       - ./agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
@@ -97,3 +128,4 @@ volumes:
   wordpress_data:
   caddy_data:
   caddy_config:
+  verifier_data:
