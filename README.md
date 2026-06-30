@@ -39,6 +39,8 @@ For final quote expiry, stock, price, shipping, and tax drift handling, see
 `docs/QUOTE_RELIABILITY.md`.
 For standards alignment across x402/MPP, ERC-8004, ERC-8128, ERC-8183, AP2,
 ACP, UCP, MCP, and A2A, see `docs/STANDARDS_ALIGNMENT.md`.
+For the smart-contract-facing merchant registry adapter boundary, see
+`docs/ONCHAIN_MERCHANT_REGISTRY_ADAPTER.md`.
 For the checked AP2-style approval/payment mandate adapter boundary, see
 `docs/AP2_MANDATE_MAPPING.md`.
 For the checked UCP/A2A profile mapping boundary, see

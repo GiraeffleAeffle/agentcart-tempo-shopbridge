@@ -10,3 +10,9 @@ recipient drift, stale records, revocation documents, onchain identity drift,
 and invalid onchain identity metadata. Verifiers should reject each negative
 case before catalog or quote calls and expose machine-readable
 `verification.errors`.
+
+`onchain-adapter-contract.json` defines the smart-contract-facing projection of
+the same trust contract. It keeps the onchain record limited to merchant
+identity, manifest integrity, payment binding, freshness, and revocation data,
+while product catalogs, prices, private quotes, buyer intent, and order payloads
+remain offchain.
