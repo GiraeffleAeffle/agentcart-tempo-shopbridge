@@ -427,7 +427,7 @@ ensure_product() {
   local stock="$4"
   local category_slug="$5"
   local short_description="$6"
-  local weight="${7:-unit}"
+  local unit_size="${7:-1 unit}"
   local image_file="${8:-}"
   local category_id
   category_id="$(wp term get product_cat "$category_slug" --by=slug --field=term_id --allow-root)"
@@ -444,7 +444,7 @@ ensure_product() {
       --sku="$sku" \
       --manage_stock=true \
       --stock_quantity="$stock" \
-      --weight="$weight" \
+      --weight="$unit_size" \
       --short_description="$short_description" \
       --description="$description" \
       --categories="[{\"id\":${category_id}}]" \
@@ -457,13 +457,14 @@ ensure_product() {
       --regular_price="$price" \
       --manage_stock=true \
       --stock_quantity="$stock" \
-      --weight="$weight" \
+      --weight="$unit_size" \
       --short_description="$short_description" \
       --description="$description" \
       --categories="[{\"id\":${category_id}}]" \
       --allow-root >/dev/null
   fi
   wp post meta update "$product_id" _agentcart_enabled yes --allow-root >/dev/null
+  wp post meta update "$product_id" _agentcart_unit_size "$unit_size" --allow-root >/dev/null
   ensure_featured_image "$product_id" "$image_file" "$name"
 }
 

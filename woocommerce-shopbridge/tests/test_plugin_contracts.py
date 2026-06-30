@@ -1145,6 +1145,8 @@ class ShopBridgePluginContractTests(unittest.TestCase):
 
         self.assertIn("package_size_for_product", product_body)
         self.assertIn("'package_size'", product_body)
+        self.assertIn("PRODUCT_UNIT_SIZE_META", package_body)
+        self.assertIn("package_size_from_label", package_body)
         self.assertIn("'normalized_quantity'", package_body)
         self.assertIn("'normalized_unit'", package_body)
         self.assertIn("woocommerce_weight_unit", package_body)
