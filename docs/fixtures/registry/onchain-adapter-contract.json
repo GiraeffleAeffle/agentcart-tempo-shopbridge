@@ -1,0 +1,139 @@
+{
+  "schema": "agentcart.onchain_registry_adapter_contract.v1",
+  "status": "design-contract",
+  "target_standard": "ERC-8004-style identity registry",
+  "source_trust_contract": "agentcart.registry_trust_contract.v1",
+  "purpose": "Define the compact merchant identity and integrity projection that can be sourced from a smart contract registry while keeping products, prices, quotes, and household demand offchain.",
+  "required_onchain_fields": [
+    "record_hash",
+    "record_hash_alg",
+    "merchant_id",
+    "domain",
+    "manifest_url",
+    "registry_claim_hash_alg",
+    "registry_claim_hash",
+    "payment_network",
+    "payment_recipient",
+    "updated_at",
+    "revocation_url"
+  ],
+  "optional_onchain_fields": [
+    "chain_id",
+    "registry_address",
+    "agent_id",
+    "registration_uri",
+    "registration_tx_hash",
+    "attestation_hash",
+    "protocol_profile_ids",
+    "supported_protocols",
+    "ship_to_countries"
+  ],
+  "offchain_only_fields": [
+    "products",
+    "catalog",
+    "stock",
+    "prices",
+    "quotes",
+    "delivery_estimates",
+    "buyer_intent",
+    "household_location",
+    "shopping_tasks",
+    "approval_records",
+    "payment_receipts",
+    "order_status"
+  ],
+  "sample": {
+    "source_record_fixture": "docs/fixtures/registry/trust-fixtures.json#/base/record",
+    "onchain_record": {
+      "record_hash": "e62a7ac838db39bee5df09c2394c961c6d0809e8132fad344a868bc788745478",
+      "record_hash_alg": "sha-256",
+      "merchant_id": "fixture-tea-shop",
+      "domain": "fixture-shop.example",
+      "manifest_url": "https://fixture-shop.example/.well-known/agentcart.json",
+      "registry_claim_hash_alg": "sha-256",
+      "registry_claim_hash": "8e6cf1b0208de5dd4958195685fab936e09e64f32eb3863b691896d022294d4a",
+      "payment_network": "testnet",
+      "payment_recipient": "0x1111111111111111111111111111111111111111",
+      "updated_at": "2026-06-01T00:00:00Z",
+      "revocation_url": "https://fixture-shop.example/.well-known/agentcart-registry-revocations.json",
+      "chain_id": "eip155:8453",
+      "registry_address": "0x2222222222222222222222222222222222222222",
+      "agent_id": "agentcart:fixture-tea-shop",
+      "registration_uri": "https://fixture-shop.example/.well-known/agentcart.json",
+      "registration_tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "protocol_profile_ids": [
+        "agentcart-shopbridge",
+        "mpp-http-auth",
+        "erc8004-ready"
+      ],
+      "supported_protocols": [
+        "agentcart-shopbridge",
+        "tempo-mpp"
+      ],
+      "ship_to_countries": [
+        "DE",
+        "AT"
+      ]
+    }
+  },
+  "agent_verification_steps": [
+    "read_record_from_smart_contract_or_trusted_indexer",
+    "reject_missing_required_onchain_fields",
+    "verify_record_hash_against_canonical_registry_record_when_full_record_is_available",
+    "fetch_manifest_from_manifest_url",
+    "verify_manifest_domain_matches_registered_domain",
+    "verify_manifest_registry_claim_hash_matches_registry_claim_hash",
+    "verify_revocation_url_and_revocation_document",
+    "verify_payment_network_and_recipient_match_manifest_payment_profiles",
+    "verify_catalog_quote_order_endpoints_stay_on_registered_domain",
+    "run_private_quote_requests_and_buyer_side_ranking"
+  ],
+  "indexer_cache": {
+    "role": "read_optimized_cache_and_monitor",
+    "source_of_truth": "smart_contract",
+    "allowed_cache_fields": [
+      "onchain_record",
+      "verification_state",
+      "verification_errors",
+      "manifest_url",
+      "manifest_last_checked_at",
+      "revocation_last_checked_at",
+      "transparency_head"
+    ],
+    "forbidden_cache_fields": [
+      "household_queries",
+      "buyer_addresses",
+      "private_quotes",
+      "approval_decisions",
+      "payment_receipts",
+      "order_payloads"
+    ]
+  },
+  "staking_hooks": [
+    {
+      "id": "merchant_registration_bond",
+      "actor": "merchant",
+      "required_for_pilot": false,
+      "purpose": "Optional anti-spam bond for public listings once permissionless registration is enabled."
+    },
+    {
+      "id": "validator_attestation_stake",
+      "actor": "validator",
+      "required_for_pilot": false,
+      "purpose": "Future stake-backed validation that manifest, domain proof, revocation, and payment binding checks were performed."
+    },
+    {
+      "id": "curator_challenge_bond",
+      "actor": "challenger",
+      "required_for_pilot": false,
+      "purpose": "Future bond for challenging stale, fraudulent, or policy-ineligible merchant records."
+    }
+  ],
+  "non_goals": [
+    "Sponsored ranking",
+    "Onchain product catalogs",
+    "Onchain final quote auctions",
+    "Publishing household demand",
+    "Blocking early pilot merchants on stake requirements"
+  ]
+}

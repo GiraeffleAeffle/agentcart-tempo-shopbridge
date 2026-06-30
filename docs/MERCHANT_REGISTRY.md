@@ -83,6 +83,12 @@ Keep off-chain:
 - household location
 - shopping tasks
 
+The executable adapter contract for this boundary lives at
+`docs/fixtures/registry/onchain-adapter-contract.json`, with a prose explainer in
+`docs/ONCHAIN_MERCHANT_REGISTRY_ADAPTER.md`. The gateway-hosted registry remains
+an alpha indexer/cache and monitor for this shape; it should not become the
+final source of truth for public discovery.
+
 ## Ranking Rules
 
 The registry should not rank by advertising spend. Ranking belongs to the
