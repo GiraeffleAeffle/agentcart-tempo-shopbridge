@@ -213,6 +213,15 @@ settlement and refund claims require the external verifier response to bind
 amount, currency or FX policy, merchant recipient/profile, quote hash, payment
 contract hash, and a non-replayed transaction or refund reference.
 
+For Tempo charge-flow settlement, configure the verifier with
+`AGENTCART_TEMPO_SETTLEMENT_MODE=verify` and the matching token/asset settings.
+The verifier must wait for the Tempo transaction receipt and require an ERC-20
+`Transfer` from the proof payer to the merchant recipient for the exact quote
+amount before returning `real_settlement_verified=true`. With settlement mode
+disabled, the verifier may accept a demo proof for staging, but it must return
+`real_settlement_verified=false` and must not make a refund eligible for live
+rail execution.
+
 For Tempo charge-flow refunds, configure the verifier with
 `AGENTCART_TEMPO_REFUND_MODE=live`,
 `AGENTCART_TEMPO_REFUND_PRIVATE_KEY`, and the matching token/asset settings.

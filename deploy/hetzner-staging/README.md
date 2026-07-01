@@ -192,17 +192,26 @@ checkout accepts a quote-bound Tempo testnet value-transfer proof. It is still
 not a production settlement claim unless the recipient is a distinct merchant
 wallet and the refund wallet is configured for live testnet transfers.
 
-To test a real Tempo/pathUSD refund on testnet, configure the USD staging
-secrets with a merchant-controlled recipient and refund wallet:
+To test real Tempo/pathUSD settlement and refund on testnet, configure the USD
+staging secrets with a merchant-controlled recipient, on-chain settlement
+verification, and the matching refund wallet:
 
 ```yaml
 staging:
   tempo_recipient_address: "0x..."
+  tempo_settlement_mode: "verify"
+  tempo_settlement_asset: "pathUSD"
+  tempo_settlement_token_address: "0x20c0000000000000000000000000000000000000"
   tempo_refund_mode: "live"
   tempo_refund_private_key: "0x..."
   tempo_refund_asset: "pathUSD"
   tempo_refund_token_address: "0x20c0000000000000000000000000000000000000"
 ```
+
+With settlement mode `verify`, the verifier waits for the Tempo transaction
+receipt and requires an ERC-20 `Transfer` from the proof payer to
+`tempo_recipient_address` for the exact quote amount before it returns
+`real_settlement_verified=true`.
 
 The refund private key must belong to the original
 `tempo_recipient_address`; the verifier rejects mismatches and only marks a
