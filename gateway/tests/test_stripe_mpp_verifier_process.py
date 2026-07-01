@@ -24,6 +24,10 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.port = free_port()
+        self.process = None
+        self.start_process()
+
+    def start_process(self, env_overrides: dict | None = None) -> None:
         env = os.environ.copy()
         env.update(
             {
@@ -37,6 +41,8 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
                 "AGENTCART_TEMPO_REFUND_MODE": "disabled",
             }
         )
+        if env_overrides:
+            env.update(env_overrides)
         self.process = subprocess.Popen(
             ["node", "scripts/stripe-mpp-verifier.mjs"],
             cwd=ROOT,
@@ -47,7 +53,9 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
         )
         self.wait_for_health()
 
-    def tearDown(self) -> None:
+    def stop_process(self) -> None:
+        if self.process is None:
+            return
         self.process.terminate()
         try:
             self.process.wait(timeout=5)
@@ -56,6 +64,15 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
             self.process.wait(timeout=5)
         if self.process.stdout:
             self.process.stdout.close()
+        self.process = None
+
+    def restart_process(self, env_overrides: dict | None = None) -> None:
+        self.stop_process()
+        self.port = free_port()
+        self.start_process(env_overrides)
+
+    def tearDown(self) -> None:
+        self.stop_process()
         self.temp_dir.cleanup()
 
     def wait_for_health(self) -> None:
@@ -144,6 +161,46 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
         self.assertEqual(status, 400, body)
         self.assertEqual(body["provider_error_class"], "tempo_refund_adapter_missing")
         self.assertIn("Tempo refund adapter is not configured", body["error"])
+
+    def test_tempo_settlement_verify_mode_rejects_non_transaction_hash(self) -> None:
+        self.restart_process({"AGENTCART_TEMPO_SETTLEMENT_MODE": "verify"})
+        payload = {
+            "operation": "payment",
+            "quote_hash": "a" * 64,
+            "payment_contract_hash": "b" * 64,
+            "payment_receipt": {
+                "method": "tempo-mpp",
+                "rail": "tempo-mpp",
+                "amount_cents": 1490,
+                "currency": "USD",
+                "quote_hash": "a" * 64,
+                "payment_contract_hash": "b" * 64,
+                "external_value_proof": {
+                    "provider": "tempo_mpp",
+                    "state": "succeeded",
+                    "amount": "14.90",
+                    "network": "testnet",
+                    "recipient": "0x1111111111111111111111111111111111111111",
+                    "payer_address": "0x2222222222222222222222222222222222222222",
+                    "transaction_reference": "not-a-transaction-hash",
+                },
+            },
+            "expected": {
+                "amount_cents": 1490,
+                "currency": "USD",
+                "merchant_id": "agentcart-usd-staging-shop",
+                "rail": "tempo-mpp",
+                "payment_contract_hash": "b" * 64,
+                "tempo_network": "testnet",
+                "tempo_recipient": "0x1111111111111111111111111111111111111111",
+            },
+        }
+
+        status, body = self.post_verify(payload)
+
+        self.assertEqual(status, 400, body)
+        self.assertEqual(body["provider_error_class"], "tempo_settlement_reference_invalid")
+        self.assertIn("transaction reference must be an EVM transaction hash", body["error"])
 
 
 if __name__ == "__main__":

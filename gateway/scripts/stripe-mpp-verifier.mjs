@@ -59,6 +59,15 @@ const tempoRefundTokenAddress = (process.env.AGENTCART_TEMPO_REFUND_TOKEN_ADDRES
 const tempoRefundAsset = (process.env.AGENTCART_TEMPO_REFUND_ASSET || "").trim();
 const tempoRefundDecimals = Number(process.env.AGENTCART_TEMPO_REFUND_DECIMALS || "6");
 const tempoRefundConfirmations = Math.max(1, Number(process.env.AGENTCART_TEMPO_REFUND_CONFIRMATIONS || "1"));
+const tempoSettlementMode = (process.env.AGENTCART_TEMPO_SETTLEMENT_MODE || "disabled").trim().toLowerCase();
+const tempoSettlementRpcUrl = (process.env.AGENTCART_TEMPO_SETTLEMENT_RPC_URL || "").trim();
+const tempoSettlementTokenAddress = (process.env.AGENTCART_TEMPO_SETTLEMENT_TOKEN_ADDRESS || "").trim();
+const tempoSettlementAsset = (process.env.AGENTCART_TEMPO_SETTLEMENT_ASSET || "").trim();
+const tempoSettlementDecimals = Number(process.env.AGENTCART_TEMPO_SETTLEMENT_DECIMALS || "6");
+const tempoSettlementConfirmations = Math.max(
+  1,
+  Number(process.env.AGENTCART_TEMPO_SETTLEMENT_CONFIRMATIONS || "1"),
+);
 
 const tempoTokenDefaults = {
   mainnet: {
@@ -89,6 +98,7 @@ const erc20TransferAbi = [
     outputs: [{ name: "success", type: "bool" }],
   },
 ];
+const erc20TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 const stripeClient = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: "2026-02-25.preview" })
@@ -606,6 +616,7 @@ function readiness() {
       min_severity: verifierAlertMinSeverity,
       throttle_seconds: verifierAlertThrottleSeconds,
     },
+    tempo_settlement: tempoSettlementReadiness(),
     tempo_refunds: tempoRefundReadiness(),
     missing,
   };
@@ -1287,6 +1298,27 @@ function tempoRefundDefaults(network) {
   return tempoTokenDefaults[tempoNetworkName(network)] || tempoTokenDefaults.testnet;
 }
 
+function tempoSettlementDefaults(network) {
+  return tempoTokenDefaults[tempoNetworkName(network)] || tempoTokenDefaults.testnet;
+}
+
+function normalizeTransactionHash(value) {
+  const hash = String(value || "").trim();
+  return /^0x[a-fA-F0-9]{64}$/.test(hash) ? hash.toLowerCase() : "";
+}
+
+function addressFromTopic(topic) {
+  const value = String(topic || "").trim();
+  if (!/^0x[a-fA-F0-9]{64}$/.test(value)) return "";
+  return normalizeEvmAddress(`0x${value.slice(-40)}`);
+}
+
+function uint256FromHex(value) {
+  const hex = String(value || "").trim();
+  if (!/^0x[a-fA-F0-9]+$/.test(hex)) return null;
+  return BigInt(hex);
+}
+
 function tempoRefundWalletAddress() {
   const privateKey = normalizePrivateKey(tempoRefundPrivateKey);
   if (!privateKey) return "";
@@ -1318,6 +1350,180 @@ function tempoRefundReadiness() {
     decimals: tempoRefundDecimals,
     confirmations: tempoRefundConfirmations,
     rpc_url_configured: Boolean(tempoRefundRpcUrl),
+  };
+}
+
+function tempoSettlementReadiness() {
+  const mode = ["disabled", "verify"].includes(tempoSettlementMode) ? tempoSettlementMode : "invalid";
+  const tokenAddress = normalizeEvmAddress(tempoSettlementTokenAddress);
+  const configured =
+    mode === "verify" &&
+    Number.isSafeInteger(tempoSettlementDecimals) &&
+    tempoSettlementDecimals >= 0 &&
+    tempoSettlementDecimals <= 18 &&
+    (!tempoSettlementTokenAddress || Boolean(tokenAddress));
+  return {
+    mode,
+    configured,
+    token_address_override: tokenAddress || null,
+    asset_override: tempoSettlementAsset || null,
+    decimals: tempoSettlementDecimals,
+    confirmations: tempoSettlementConfirmations,
+    rpc_url_configured: Boolean(tempoSettlementRpcUrl),
+  };
+}
+
+function requireTempoSettlementVerifyConfig(network, proofTokenAddress = "") {
+  if (tempoSettlementMode !== "verify") {
+    throw Object.assign(new Error("Tempo settlement verification is not enabled."), {
+      status: 400,
+      code: "tempo_settlement_verifier_disabled",
+    });
+  }
+  if (!Number.isSafeInteger(tempoSettlementDecimals) || tempoSettlementDecimals < 0 || tempoSettlementDecimals > 18) {
+    throw Object.assign(new Error("Tempo settlement token decimals must be between 0 and 18."), {
+      status: 503,
+      code: "tempo_settlement_decimals_invalid",
+    });
+  }
+  const chain = tempoChainForNetwork(network);
+  const defaults = tempoSettlementDefaults(network);
+  const tokenAddress = normalizeEvmAddress(tempoSettlementTokenAddress || defaults.tokenAddress);
+  if (!tokenAddress) {
+    throw Object.assign(new Error("Tempo settlement token address is missing or invalid."), {
+      status: 503,
+      code: "tempo_settlement_token_invalid",
+    });
+  }
+  if (proofTokenAddress && proofTokenAddress !== tokenAddress) {
+    throw Object.assign(new Error("Tempo proof token address does not match verifier configuration."), {
+      status: 400,
+      code: "tempo_settlement_token_mismatch",
+    });
+  }
+  return {
+    asset: tempoSettlementAsset || defaults.asset,
+    chain,
+    confirmations: tempoSettlementConfirmations,
+    decimals: tempoSettlementDecimals,
+    network: tempoNetworkName(network),
+    rpcUrl: tempoSettlementRpcUrl || chain.rpcUrls.default.http[0],
+    tokenAddress,
+  };
+}
+
+function tempoSettlementErrorResponse(error) {
+  const status = Number(error.status || 400);
+  return jsonResponse(
+    {
+      ok: false,
+      error: error.message || "Tempo settlement verification failed.",
+      provider: "tempo",
+      provider_error_class: error.code || "tempo_settlement_error",
+      provider_message: error.providerMessage || null,
+      retryable: Boolean(error.retryable || status >= 500),
+    },
+    status,
+  );
+}
+
+async function verifyTempoSettlementTransfer({
+  amountCents,
+  network,
+  payerAddress,
+  proofTokenAddress,
+  recipient,
+  transactionReference,
+}) {
+  const resolvedNetwork = tempoNetworkName(network || "testnet") || "testnet";
+  const defaults = tempoSettlementDefaults(resolvedNetwork);
+  if (tempoSettlementMode !== "verify") {
+    return {
+      verified: false,
+      mode: "disabled",
+      asset: tempoSettlementAsset || defaults.asset,
+      network: resolvedNetwork,
+      tokenAddress: normalizeEvmAddress(tempoSettlementTokenAddress || defaults.tokenAddress),
+    };
+  }
+
+  const hash = normalizeTransactionHash(transactionReference);
+  if (!hash) {
+    throw Object.assign(new Error("Tempo proof transaction reference must be an EVM transaction hash."), {
+      status: 400,
+      code: "tempo_settlement_reference_invalid",
+    });
+  }
+  if (!recipient) {
+    throw Object.assign(new Error("Tempo settlement recipient is required for on-chain verification."), {
+      status: 400,
+      code: "tempo_settlement_recipient_missing",
+    });
+  }
+  if (!payerAddress) {
+    throw Object.assign(new Error("Tempo settlement payer address is required for on-chain verification."), {
+      status: 400,
+      code: "tempo_settlement_payer_missing",
+    });
+  }
+
+  const config = requireTempoSettlementVerifyConfig(resolvedNetwork, proofTokenAddress);
+  const expectedAmount = parseUnits(centsToDecimal(amountCents), config.decimals);
+  const publicClient = createPublicClient({ chain: config.chain, transport: viemHttp(config.rpcUrl) });
+  let receipt;
+  try {
+    receipt = await publicClient.waitForTransactionReceipt({
+      confirmations: config.confirmations,
+      hash,
+    });
+  } catch (error) {
+    throw Object.assign(new Error("Tempo settlement transaction lookup failed."), {
+      status: 502,
+      code: error?.name || "tempo_settlement_lookup_failed",
+      providerMessage: error?.shortMessage || error?.message || null,
+      retryable: true,
+    });
+  }
+  if (receipt.status !== "success") {
+    throw Object.assign(new Error("Tempo settlement transaction did not succeed."), {
+      status: 400,
+      code: "tempo_settlement_transaction_failed",
+    });
+  }
+
+  const transferLog = receipt.logs.find((log) => {
+    const from = addressFromTopic(log.topics?.[1]);
+    const to = addressFromTopic(log.topics?.[2]);
+    const amount = uint256FromHex(log.data);
+    return (
+      normalizeEvmAddress(log.address) === config.tokenAddress &&
+      String(log.topics?.[0] || "").toLowerCase() === erc20TransferTopic &&
+      from === payerAddress &&
+      to === recipient &&
+      amount === expectedAmount
+    );
+  });
+  if (!transferLog) {
+    throw Object.assign(new Error("Tempo settlement transaction does not contain the expected token transfer."), {
+      status: 400,
+      code: "tempo_settlement_transfer_missing",
+    });
+  }
+
+  return {
+    verified: true,
+    mode: "onchain_erc20_transfer",
+    asset: config.asset,
+    amount: centsToDecimal(amountCents),
+    blockHash: receipt.blockHash,
+    blockNumber: receipt.blockNumber?.toString(),
+    confirmations: config.confirmations,
+    from: payerAddress,
+    network: config.network,
+    recipient,
+    rawAmount: expectedAmount.toString(),
+    tokenAddress: config.tokenAddress,
+    transactionHash: hash,
   };
 }
 
@@ -1553,11 +1759,11 @@ async function verifyTempoFxPayment(receipt, expected) {
       400,
     );
   }
-  const network = String(proof.network || body.network || proofReceipt.network || expected.tempoNetwork || "");
-  if (expected.tempoNetwork && network && network !== expected.tempoNetwork) {
+  const network = tempoNetworkName(proof.network || body.network || proofReceipt.network || expected.tempoNetwork || "");
+  if (expected.tempoNetwork && network && network !== tempoNetworkName(expected.tempoNetwork)) {
     return jsonResponse({ ok: false, error: "Tempo proof network does not match merchant configuration." }, 400);
   }
-  const recipient = String(body.recipient || proof.recipient || "").trim().toLowerCase();
+  const recipient = normalizeEvmAddress(body.recipient || proof.recipient || proofReceipt.recipient || receipt.recipient);
   if (expected.tempoRecipient && recipient && recipient !== expected.tempoRecipient) {
     return jsonResponse({ ok: false, error: "Tempo proof recipient does not match merchant configuration." }, 400);
   }
@@ -1573,6 +1779,31 @@ async function verifyTempoFxPayment(receipt, expected) {
   if (!transactionReference) {
     return jsonResponse({ ok: false, error: "Tempo proof transaction reference is required." }, 400);
   }
+  const proofTokenAddress = normalizeEvmAddress(
+    proof.token_address ||
+      body.token_address ||
+      proofReceipt.token_address ||
+      proof.token ||
+      body.token ||
+      proofReceipt.token ||
+      proof.asset ||
+      body.asset ||
+      proofReceipt.asset ||
+      receipt.asset,
+  );
+  let settlement;
+  try {
+    settlement = await verifyTempoSettlementTransfer({
+      amountCents: expected.amountCents,
+      network: expected.tempoNetwork || network,
+      payerAddress: payer.payerAddress,
+      proofTokenAddress,
+      recipient: expected.tempoRecipient || recipient,
+      transactionReference,
+    });
+  } catch (error) {
+    return tempoSettlementErrorResponse(error);
+  }
   const replayClaim = await claimReplayReference("payments", transactionReference, {
     provider: "tempo_mpp",
     rail: "tempo-mpp",
@@ -1583,9 +1814,13 @@ async function verifyTempoFxPayment(receipt, expected) {
     network: expected.tempoNetwork || network,
     recipient: expected.tempoRecipient || recipient,
     payer_address: payer.payerAddress || undefined,
+    asset: settlement.asset,
+    token_address: settlement.tokenAddress || undefined,
+    settlement_reference: settlement.transactionHash || undefined,
+    real_settlement_verified: settlement.verified === true,
   });
   if (!replayClaim.ok) return replayClaim.response;
-  return jsonResponse({
+  const bodyOut = {
     ok: true,
     idempotent_replay: replayClaim.idempotentReplay || undefined,
     provider: "tempo_mpp",
@@ -1598,18 +1833,38 @@ async function verifyTempoFxPayment(receipt, expected) {
     recipient: expected.tempoRecipient || recipient,
     payer_address: payer.payerAddress || undefined,
     payer_source: payer.payerSource || undefined,
+    asset: settlement.asset,
+    token_address: settlement.tokenAddress || undefined,
     transaction_reference: transactionReference,
+    settlement_reference: settlement.transactionHash || undefined,
     replay_reference: transactionReference,
     replay_request_hash: replayClaim.requestHash,
-    real_settlement_verified: false,
-    fx: {
+    real_settlement_verified: settlement.verified === true,
+    settlement_verification:
+      settlement.verified === true
+        ? {
+            mode: settlement.mode,
+            asset: settlement.asset,
+            token_address: settlement.tokenAddress,
+            amount: settlement.amount,
+            raw_amount: settlement.rawAmount,
+            transaction_hash: settlement.transactionHash,
+            block_hash: settlement.blockHash,
+            block_number: settlement.blockNumber,
+            confirmations: settlement.confirmations,
+          }
+        : undefined,
+  };
+  if (settlement.verified !== true) {
+    bodyOut.fx = {
       mode: "demo_fixed_1_1",
       quote_currency: expected.currency.toUpperCase(),
-      settlement_asset: "pathUSD",
+      settlement_asset: settlement.asset || "pathUSD",
       settlement_amount: centsToDecimal(expected.amountCents),
-      note: "Hackathon demo verifier: numeric 1:1 EUR-to-pathUSD testnet binding, not production FX settlement.",
-    },
-  });
+      note: "Demo verifier: numeric 1:1 quote-to-pathUSD testnet binding, not production FX settlement.",
+    };
+  }
+  return jsonResponse(bodyOut);
 }
 
 function refundExpectedFromPayload(payload, refund, expected) {
