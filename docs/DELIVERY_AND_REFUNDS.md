@@ -184,6 +184,16 @@ For Tempo/stablecoin:
 - bind refund transfer to original order/quote;
 - return refund transaction reference;
 - handle FX and network fee disclosure.
+- keep the first Tempo staging shop USD/pathUSD unless an explicit FX verifier
+  proves the EUR quote conversion; do not claim EUR refunds from pathUSD-only
+  evidence.
+
+The checked-in Tempo refund verifier fixtures are
+`docs/fixtures/verifier/refund-request.tempo-mpp.json` and
+`docs/fixtures/verifier/refund-success.tempo-mpp.json`. They require the refund
+recipient to match the original payer address and require the verifier response
+to bind original transaction reference, merchant recipient, asset, network,
+quote hash, and replay reference before `real_refund_verified=true`.
 
 For demo mode:
 

@@ -1,0 +1,79 @@
+{
+  "schema": "agentcart.payment_rail_research.v1",
+  "as_of": "2026-07-01",
+  "mppx": {
+    "previous_repo_version": "0.7.0",
+    "checked_in_version": "0.8.1",
+    "latest_version": "0.8.1",
+    "latest_checked_at": "2026-07-01",
+    "one_time_tempo_refund_api": false,
+    "notes": [
+      "Latest mppx contains hardening and x402/EVM surface changes, but no one-time Tempo refund API for WooCommerce order refunds.",
+      "Tempo session-channel close receipts can report refundedToPayer for unused channel deposits; that is not the same as refunding a completed one-time shop order."
+    ]
+  },
+  "stripe_link_cli": {
+    "latest_version": "0.8.2",
+    "latest_checked_at": "2026-07-01",
+    "scope": "Buyer-side Stripe Shared Payment Token CLI; not a merchant-side Tempo refund executor."
+  },
+  "recommended_first_staging_shop": {
+    "id": "tempo-usd-staging",
+    "rail": "tempo-mpp",
+    "shop_currency": "USD",
+    "settlement_asset": "pathUSD",
+    "reason": "Tempo's current test path is USD-stablecoin oriented; a USD WooCommerce shop avoids claiming EUR settlement from a pathUSD proof."
+  },
+  "eur_stablecoin_candidates": [
+    {
+      "id": "x402-eurc",
+      "protocol": "x402",
+      "token": "EURC",
+      "settlement_currency": "EUR",
+      "preferred_role": "First EUR x402 candidate when the selected facilitator supports EURC on the target EVM network.",
+      "authorization_shape": "EIP-3009 where supported; otherwise Permit2/generic ERC-20 flow.",
+      "requires": [
+        "Facilitator support for the selected chain and EURC token address.",
+        "Quote-bound verifier evidence for amount, token, network, payTo, quote hash, payment contract hash, and transaction reference.",
+        "A rail-specific refund verifier that proves the EURC refund transfer back to the approved recipient."
+      ],
+      "sources": [
+        "https://docs.cdp.coinbase.com/x402/network-support",
+        "https://docs.x402.org/core-concepts/network-and-token-support",
+        "https://docs.x402.org/faq"
+      ]
+    },
+    {
+      "id": "x402-eure",
+      "protocol": "x402",
+      "token": "EURe",
+      "issuer": "Monerium",
+      "settlement_currency": "EUR",
+      "preferred_role": "EU-regulated EUR settlement candidate when x402 facilitator/token support is available or custom facilitator support is added.",
+      "authorization_shape": "ERC-20 with ERC-2612 Permit/ERC-1271; use Permit2 or a custom x402 facilitator when EIP-3009 is unavailable.",
+      "networks": [
+        "Ethereum",
+        "Polygon",
+        "Gnosis",
+        "Arbitrum",
+        "Base",
+        "Linea"
+      ],
+      "requires": [
+        "Monerium onboarding/accounting path for merchant settlement and redemption.",
+        "Facilitator or custom verifier support for EURe on the selected network.",
+        "A rail-specific refund verifier that proves the EURe refund transfer back to the approved recipient."
+      ],
+      "sources": [
+        "https://monerium.com/eure/",
+        "https://monerium.com/partners/",
+        "https://docs.cdp.coinbase.com/x402/network-support"
+      ]
+    }
+  ],
+  "non_goals": [
+    "Do not claim EUR settlement or EUR refund execution from a Tempo pathUSD proof.",
+    "Do not mark WooCommerce refunds real from mppx CLI success alone.",
+    "Do not treat Stripe Link CLI updates as Tempo refund support."
+  ]
+}

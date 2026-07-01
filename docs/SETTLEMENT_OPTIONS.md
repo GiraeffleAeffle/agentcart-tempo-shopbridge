@@ -15,13 +15,18 @@ settled or authorized the exact quote.
 
 Useful for machine-payment demonstrations and stablecoin-native merchants.
 
-- Quote currency: usually merchant storefront currency, for example EUR.
+- Quote currency for the first real staging shop: USD.
 - Tempo proof asset: network-specific stablecoin, for example pathUSD on
   testnet.
+- EUR caveat: a pathUSD proof is not EUR settlement. EUR storefronts require a
+  quote-bound FX verifier or a separate EUR rail before marking orders paid.
 - Production requirement: bind FX rate, spread, expiry, recipient, and quote
   hash before marking a WooCommerce order paid.
 - Merchant requirement: wallet/custodial recipient and operational handling for
   stablecoin settlement.
+- Refund requirement: prove a transfer back to the original payer or explicitly
+  approved refund recipient, bound to the original transaction reference,
+  network, asset, quote hash, and replay state.
 
 ### Stripe/Card MPP
 
@@ -54,6 +59,15 @@ Ideal future option for EU merchants.
 - Verifier still must bind amount, recipient, quote hash, payment contract hash,
   expiry, and replay protection.
 - Merchant onboarding must explain payouts, refunds, disputes, and compliance.
+
+The current EUR stablecoin candidates are tracked in
+`docs/fixtures/verifier/euro-stablecoin-rail-plan.json`:
+
+- `x402-eurc`: first EUR candidate when a facilitator supports EURC on the
+  target EVM network and the verifier can prove payment/refund transfers.
+- `x402-eure`: Monerium EURe candidate for regulated EUR settlement, likely
+  requiring Permit2, ERC-2612, or custom facilitator support before it is a
+  plug-in x402 rail.
 
 ## Verifier Contract
 
@@ -147,3 +161,5 @@ Successful refund response:
 - Reject verifier responses that do not explicitly say `ok: true`.
 - Never mark the WooCommerce order paid from a client-supplied receipt alone.
 - Never claim EUR settlement when the proof is a USD-stablecoin testnet proof.
+- Never claim a Tempo refund from `mppx` CLI success alone; the verifier must
+  return a real refund reference for the rail transfer.

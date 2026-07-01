@@ -1,0 +1,81 @@
+{
+  "operation": "payment",
+  "quote": {
+    "id": "woo_quote_tempo_usd_fixture_001",
+    "merchant": {
+      "id": "woocommerce-usd-test-shop",
+      "name": "AgentCart USD Test Shop"
+    },
+    "items": [
+      {
+        "product_id": "woo_usd_101",
+        "title": "AgentCart Test Mug",
+        "quantity": 1,
+        "line_total_cents": 1999
+      }
+    ],
+    "subtotal_cents": 1999,
+    "shipping": {
+      "amount_cents": 500,
+      "country": "US",
+      "method_id": "flat_rate:usd"
+    },
+    "tax": {
+      "total_cents": 0,
+      "lines": []
+    },
+    "total_cents": 2499,
+    "currency": "USD",
+    "expires_at": "2026-07-01T12:45:00+00:00",
+    "quote_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "payment_requirements": {
+      "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "verification": {
+        "mode": "external_verifier",
+        "external_verifier_configured": true,
+        "refunds_use_same_verifier": true,
+        "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "protocols": [
+        {
+          "id": "tempo-mpp",
+          "available": true,
+          "network": "testnet",
+          "tempo_network": "testnet",
+          "recipient": "0x1111111111111111111111111111111111111111",
+          "asset": "pathUSD",
+          "settlement_currency": "USD",
+          "settlement_note": "Tempo/pathUSD fixture is USD-denominated; EUR quotes require a separate quote-bound FX verifier."
+        }
+      ]
+    }
+  },
+  "quote_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "payment_receipt": {
+    "method": "tempo-mpp",
+    "amount_cents": 2499,
+    "currency": "USD",
+    "quote_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "network": "testnet",
+    "tempo_network": "testnet",
+    "recipient": "0x1111111111111111111111111111111111111111",
+    "asset": "pathUSD",
+    "payer_address": "0x2222222222222222222222222222222222222222",
+    "transaction_reference": "tempo_testnet_charge_fixture_001"
+  },
+  "agentcart_order_id": "skill_tempo_usd_fixture_001",
+  "expected": {
+    "amount_cents": 2499,
+    "currency": "USD",
+    "merchant_id": "woocommerce-usd-test-shop",
+    "rail": "tempo-mpp",
+    "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tempo_network": "testnet",
+    "tempo_recipient": "0x1111111111111111111111111111111111111111",
+    "asset": "pathUSD",
+    "settlement_currency": "USD",
+    "stripe_profile_id": ""
+  }
+}

@@ -1,6 +1,7 @@
 # AgentCart MPP Compatibility Notes
 
-Source checked: https://mpp.dev/llms-full.txt on 2026-06-18.
+Source checked: https://mpp.dev/llms-full.txt on 2026-06-18. Latest package
+research was refreshed on 2026-07-01.
 
 The MPP MCP server is registered locally for future Codex sessions:
 
@@ -11,6 +12,20 @@ codex mcp add mpp --url https://mpp.dev/api/mcp
 The installed Codex CLI uses `--url` for streamable HTTP MCP servers. The
 docs show `--transport http`, but that flag is not accepted by this local CLI
 version.
+
+Latest package check on 2026-07-01:
+
+- repo-pinned `mppx` before this upgrade: `0.7.0`;
+- checked-in/latest `mppx`: `0.8.1`;
+- latest `@stripe/link-cli`: `0.8.2`.
+
+The `mppx` update is useful for hardening and newer x402/EVM surfaces, but it
+does not add a one-time Tempo refund API for completed WooCommerce orders.
+Tempo session-channel close receipts can report unused deposit refunds; that is
+not the same as refunding a completed shop order. WooCommerce refunds still need
+a rail-specific verifier that creates or verifies the refund transfer and binds
+it to the original order, quote hash, asset, network, recipient, and replay
+state.
 
 ## What Matches MPP
 
@@ -103,6 +118,12 @@ In the bundled local demo:
 - The attached Tempo proof is a USD-stablecoin testnet proof, currently pathUSD.
 - This does not prove EUR settlement of the WooCommerce order.
 
+For the first real Tempo staging shop, use a USD WooCommerce currency profile.
+That keeps the shop currency, Tempo/pathUSD proof, and refund fixture aligned
+without pretending that a USD stablecoin rail settled a EUR order. EUR storefront
+testing should wait for either a quote-bound FX verifier or an EUR-stablecoin
+rail.
+
 For production with a German/EU WooCommerce shop, one of these must be true:
 
 - the merchant accepts USD-stablecoin settlement and handles accounting/FX;
@@ -110,6 +131,17 @@ For production with a German/EU WooCommerce shop, one of these must be true:
   USD-stablecoin amount before payment;
 - the merchant uses a non-stablecoin MPP method such as Stripe/card settlement;
 - an EUR stablecoin or custom MPP payment method is supported and configured.
+
+For EUR stablecoins, x402/EVM is the more promising path than Tempo/pathUSD:
+
+- x402 can model EVM token payments by CAIP-2 network id and token address.
+- EURC is the first EUR candidate when the selected facilitator supports it,
+  ideally through EIP-3009 or otherwise a Permit2/generic ERC-20 flow.
+- Monerium EURe is a regulated EUR token on networks including Base, Gnosis,
+  Polygon, Arbitrum, Ethereum, and Linea, but it likely needs Permit2, ERC-2612,
+  or custom facilitator support rather than assuming native x402 EIP-3009.
+- The rail decision is pinned in
+  `docs/fixtures/verifier/euro-stablecoin-rail-plan.json`.
 
 ## What Is AgentCart-Specific
 

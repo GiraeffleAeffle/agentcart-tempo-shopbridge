@@ -16,6 +16,7 @@ VERIFIER_CLIENT = PLUGIN.parent / "includes" / "trait-agentcart-shopbridge-verif
 STRIPE_VERIFIER = ROOT / "gateway" / "scripts" / "stripe-mpp-verifier.mjs"
 SQLITE_REPLAY_STORE = ROOT / "gateway" / "scripts" / "verifier-sqlite-replay-store.mjs"
 SQLITE_REPLAY_SMOKE = ROOT / "gateway" / "scripts" / "verifier-sqlite-replay-smoke.sh"
+SUPPORTED_RAILS = {"stripe-card-mpp", "tempo-mpp"}
 
 
 def load_fixture(name: str) -> dict[str, Any]:
@@ -63,9 +64,12 @@ def require_positive_int(data: dict[str, Any], dotted: str) -> int:
     return value
 
 
-def require_rail(data: dict[str, Any], dotted: str) -> str:
+def require_rail(data: dict[str, Any], dotted: str, *, expected: str | None = None) -> str:
     rail = require_non_empty_string(data, dotted)
-    require(rail == "stripe-card-mpp", f"{dotted} must be stripe-card-mpp")
+    if expected is not None:
+        require(rail == expected, f"{dotted} must be {expected}")
+    else:
+        require(rail in SUPPORTED_RAILS, f"{dotted} must be one of {', '.join(sorted(SUPPORTED_RAILS))}")
     return rail
 
 
@@ -73,7 +77,7 @@ def require_quote_hash(value: str, label: str) -> None:
     require(bool(re.fullmatch(r"[0-9a-f]{64}", value)), f"{label} must be a lowercase SHA-256 hex string")
 
 
-def stripe_protocol(quote: dict[str, Any]) -> dict[str, Any]:
+def verifier_protocol(quote: dict[str, Any], rail: str) -> dict[str, Any]:
     payment = quote.get("payment_requirements")
     require(isinstance(payment, dict), "quote.payment_requirements must be an object")
     verification = payment.get("verification")
@@ -85,9 +89,9 @@ def stripe_protocol(quote: dict[str, Any]) -> dict[str, Any]:
     protocols = payment.get("protocols")
     require(isinstance(protocols, list), "quote.payment_requirements.protocols must be an array")
     for protocol in protocols:
-        if isinstance(protocol, dict) and protocol.get("id") == "stripe-card-mpp":
+        if isinstance(protocol, dict) and protocol.get("id") == rail:
             return protocol
-    raise AssertionError("quote.payment_requirements.protocols must include stripe-card-mpp")
+    raise AssertionError(f"quote.payment_requirements.protocols must include {rail}")
 
 
 def verify_payment_request(payload: dict[str, Any]) -> None:
@@ -114,15 +118,13 @@ def verify_payment_request(payload: dict[str, Any]) -> None:
     currency = require_non_empty_string(payload, "expected.currency").upper()
     require(quote.get("currency") == currency, "payment request expected currency must match quote currency")
     require(receipt.get("currency") == currency, "payment receipt currency must match quote currency")
-    require_rail(payload, "expected.rail")
+    rail = require_rail(payload, "expected.rail")
     require(
         path_value(payload, "expected.payment_contract_hash") == payment_contract_hash,
         "payment expected payment_contract_hash must match request payment_contract_hash",
     )
-    require_rail(payload, "payment_receipt.method")
-    profile = require_non_empty_string(payload, "expected.stripe_profile_id")
-    require(receipt.get("stripe_profile_id") == profile, "payment receipt Stripe profile must match expected profile")
-    protocol = stripe_protocol(quote)
+    require_rail(payload, "payment_receipt.method", expected=rail)
+    protocol = verifier_protocol(quote, rail)
     require(
         path_value(payload, "quote.payment_requirements.payment_contract_hash") == payment_contract_hash,
         "quote payment requirements payment_contract_hash must match request payment_contract_hash",
@@ -131,15 +133,32 @@ def verify_payment_request(payload: dict[str, Any]) -> None:
         path_value(payload, "quote.payment_requirements.verification.payment_contract_hash") == payment_contract_hash,
         "quote verification payment_contract_hash must match request payment_contract_hash",
     )
-    require(protocol.get("stripe_profile_id") == profile, "quote Stripe profile must match expected profile")
-    require(protocol.get("network_id") == profile, "quote Stripe network id must match expected profile")
+    if rail == "stripe-card-mpp":
+        profile = require_non_empty_string(payload, "expected.stripe_profile_id")
+        require(receipt.get("stripe_profile_id") == profile, "payment receipt Stripe profile must match expected profile")
+        require(protocol.get("stripe_profile_id") == profile, "quote Stripe profile must match expected profile")
+        require(protocol.get("network_id") == profile, "quote Stripe network id must match expected profile")
+    elif rail == "tempo-mpp":
+        require(currency == "USD", "Tempo MPP fixture currency must be USD unless an explicit FX verifier fixture is added")
+        network = require_non_empty_string(payload, "expected.tempo_network")
+        recipient = require_non_empty_string(payload, "expected.tempo_recipient")
+        asset = require_non_empty_string(payload, "expected.asset")
+        require(receipt.get("network") == network, "payment receipt Tempo network must match expected network")
+        require(receipt.get("tempo_network") == network, "payment receipt tempo_network must match expected network")
+        require(receipt.get("recipient") == recipient, "payment receipt Tempo recipient must match expected recipient")
+        require(receipt.get("asset") == asset, "payment receipt Tempo asset must match expected asset")
+        require(protocol.get("network") == network, "quote Tempo network must match expected network")
+        require(protocol.get("tempo_network") == network, "quote tempo_network must match expected network")
+        require(protocol.get("recipient") == recipient, "quote Tempo recipient must match expected recipient")
+        require(protocol.get("asset") == asset, "quote Tempo asset must match expected asset")
+        require_non_empty_string(payload, "payment_receipt.payer_address")
     require_non_empty_string(payload, "agentcart_order_id")
     require_non_empty_string(payload, "expected.merchant_id")
 
 
 def verify_payment_success(payload: dict[str, Any], request: dict[str, Any]) -> None:
     require(payload.get("ok") is True, "payment success ok must be true")
-    require_rail(payload, "rail")
+    rail = require_rail(payload, "rail", expected=path_value(request, "expected.rail"))
     require(payload.get("amount_cents") == path_value(request, "expected.amount_cents"), "payment amount mismatch")
     require(payload.get("currency") == path_value(request, "expected.currency"), "payment currency mismatch")
     require(payload.get("quote_hash") == path_value(request, "quote_hash"), "payment quote_hash mismatch")
@@ -147,7 +166,15 @@ def verify_payment_success(payload: dict[str, Any], request: dict[str, Any]) -> 
         payload.get("payment_contract_hash") == path_value(request, "payment_contract_hash"),
         "payment contract hash mismatch",
     )
-    require(payload.get("stripe_profile_id") == path_value(request, "expected.stripe_profile_id"), "payment profile mismatch")
+    if rail == "stripe-card-mpp":
+        require(payload.get("stripe_profile_id") == path_value(request, "expected.stripe_profile_id"), "payment profile mismatch")
+    elif rail == "tempo-mpp":
+        require(payload.get("provider") == "tempo", "Tempo payment success provider must be tempo")
+        require(payload.get("currency") == "USD", "Tempo payment success currency must be USD")
+        require(payload.get("network") == path_value(request, "expected.tempo_network"), "Tempo payment network mismatch")
+        require(payload.get("recipient") == path_value(request, "expected.tempo_recipient"), "Tempo payment recipient mismatch")
+        require(payload.get("asset") == path_value(request, "expected.asset"), "Tempo payment asset mismatch")
+        require_non_empty_string(payload, "payer_address")
     reference = require_non_empty_string(payload, "transaction_reference")
     require(payload.get("replay_reference") == reference, "payment replay_reference must match transaction_reference")
     require_quote_hash(require_non_empty_string(payload, "replay_request_hash"), "payment replay_request_hash")
@@ -170,14 +197,26 @@ def verify_refund_request(payload: dict[str, Any], payment_request: dict[str, An
     require(reference == payment_success.get("transaction_reference"), "refund original reference must match payment reference")
     require(path_value(payload, "order.transaction_reference") == reference, "refund order transaction reference mismatch")
     require(path_value(payload, "order.payment_verification.transaction_reference") == reference, "refund payment verification reference mismatch")
-    require_rail(payload, "refund.rail")
+    rail = require_rail(payload, "refund.rail", expected=path_value(payment_request, "expected.rail"))
+    require(path_value(payload, "order.payment_verification.rail") == rail, "refund payment verification rail mismatch")
     require_non_empty_string(payload, "refund.requested_reference")
-    require(path_value(payload, "expected.stripe_profile_id") == path_value(payment_request, "expected.stripe_profile_id"), "refund profile mismatch")
+    if rail == "stripe-card-mpp":
+        require(path_value(payload, "expected.stripe_profile_id") == path_value(payment_request, "expected.stripe_profile_id"), "refund profile mismatch")
+    elif rail == "tempo-mpp":
+        require(currency == "USD", "Tempo MPP refund fixture currency must be USD")
+        require(path_value(payload, "order.payment_verification.real_settlement_verified") is True, "Tempo refund must start from real settlement evidence")
+        require(path_value(payload, "expected.tempo_network") == path_value(payment_request, "expected.tempo_network"), "refund Tempo network mismatch")
+        require(path_value(payload, "expected.tempo_recipient") == path_value(payment_request, "expected.tempo_recipient"), "refund Tempo recipient mismatch")
+        require(path_value(payload, "expected.asset") == path_value(payment_request, "expected.asset"), "refund Tempo asset mismatch")
+        refund_recipient = require_non_empty_string(payload, "expected.refund_recipient")
+        require(path_value(payload, "refund.recipient") == refund_recipient, "refund recipient mismatch")
+        require(path_value(payload, "refund.asset") == path_value(payment_request, "expected.asset"), "refund asset mismatch")
+        require(path_value(payload, "order.payment_verification.payer_address") == refund_recipient, "refund recipient must match original payer address")
 
 
 def verify_refund_success(payload: dict[str, Any], request: dict[str, Any]) -> None:
     require(payload.get("ok") is True, "refund success ok must be true")
-    require_rail(payload, "rail")
+    rail = require_rail(payload, "rail", expected=path_value(request, "refund.rail"))
     require(payload.get("amount_cents") == path_value(request, "expected.amount_cents"), "refund amount mismatch")
     require(payload.get("currency") == path_value(request, "expected.currency"), "refund currency mismatch")
     require(payload.get("quote_hash") == path_value(request, "expected.quote_hash"), "refund quote_hash mismatch")
@@ -188,7 +227,49 @@ def verify_refund_success(payload: dict[str, Any], request: dict[str, Any]) -> N
     reference = require_non_empty_string(payload, "refund_reference")
     require(payload.get("replay_reference") == reference, "refund replay_reference must match refund_reference")
     require_quote_hash(require_non_empty_string(payload, "replay_request_hash"), "refund replay_request_hash")
+    if rail == "tempo-mpp":
+        require(payload.get("provider") == "tempo", "Tempo refund success provider must be tempo")
+        require(payload.get("currency") == "USD", "Tempo refund success currency must be USD")
+        require(payload.get("network") == path_value(request, "expected.tempo_network"), "Tempo refund network mismatch")
+        require(payload.get("original_recipient") == path_value(request, "expected.tempo_recipient"), "Tempo refund original recipient mismatch")
+        require(payload.get("refund_recipient") == path_value(request, "expected.refund_recipient"), "Tempo refund recipient mismatch")
+        require(payload.get("asset") == path_value(request, "expected.asset"), "Tempo refund asset mismatch")
     require(payload.get("real_refund_verified") is True, "refund success must represent real refund verification")
+
+
+def verify_payment_fixture_set(rail: str) -> None:
+    payment_request = load_fixture(f"payment-request.{rail}.json")
+    payment_success = load_fixture(f"payment-success.{rail}.json")
+    refund_request = load_fixture(f"refund-request.{rail}.json")
+    refund_success = load_fixture(f"refund-success.{rail}.json")
+    verify_payment_request(payment_request)
+    verify_payment_success(payment_success, payment_request)
+    verify_refund_request(refund_request, payment_request, payment_success)
+    verify_refund_success(refund_success, refund_request)
+
+
+def verify_euro_stablecoin_rail_plan() -> None:
+    plan = load_fixture("euro-stablecoin-rail-plan.json")
+    require(plan.get("schema") == "agentcart.payment_rail_research.v1", "EUR rail plan schema mismatch")
+    require(plan.get("as_of") == "2026-07-01", "EUR rail plan as_of must pin the research date")
+    require(path_value(plan, "mppx.previous_repo_version") == "0.7.0", "EUR rail plan must record previous repo mppx version")
+    require(path_value(plan, "mppx.checked_in_version") == "0.8.1", "EUR rail plan must record checked-in mppx version")
+    require(path_value(plan, "mppx.latest_version") == "0.8.1", "EUR rail plan must record latest checked mppx version")
+    require(path_value(plan, "mppx.one_time_tempo_refund_api") is False, "mppx must not be recorded as having one-time Tempo refunds")
+    require(path_value(plan, "stripe_link_cli.latest_version") == "0.8.2", "EUR rail plan must record latest checked Stripe Link CLI version")
+    require(path_value(plan, "recommended_first_staging_shop.rail") == "tempo-mpp", "first staging shop must use Tempo rail")
+    require(path_value(plan, "recommended_first_staging_shop.shop_currency") == "USD", "Tempo staging shop must be USD")
+    candidates = path_value(plan, "eur_stablecoin_candidates")
+    require(isinstance(candidates, list) and len(candidates) >= 2, "EUR rail plan must include at least two EUR stablecoin candidates")
+    by_id = {candidate.get("id"): candidate for candidate in candidates if isinstance(candidate, dict)}
+    for candidate_id, token in [("x402-eurc", "EURC"), ("x402-eure", "EURe")]:
+        candidate = by_id.get(candidate_id)
+        require(isinstance(candidate, dict), f"EUR rail plan missing {candidate_id}")
+        require(candidate.get("protocol") == "x402", f"{candidate_id} must use x402")
+        require(candidate.get("token") == token, f"{candidate_id} token mismatch")
+        require(candidate.get("settlement_currency") == "EUR", f"{candidate_id} must settle EUR")
+        require(isinstance(candidate.get("requires"), list) and candidate["requires"], f"{candidate_id} must list requirements")
+        require(isinstance(candidate.get("sources"), list) and candidate["sources"], f"{candidate_id} must cite sources")
 
 
 def mutated_negative_payload(case: dict[str, Any]) -> dict[str, Any]:
@@ -486,14 +567,9 @@ def verify_stripe_verifier_replay_fields() -> None:
 
 def main() -> int:
     try:
-        payment_request = load_fixture("payment-request.stripe-card-mpp.json")
-        payment_success = load_fixture("payment-success.stripe-card-mpp.json")
-        refund_request = load_fixture("refund-request.stripe-card-mpp.json")
-        refund_success = load_fixture("refund-success.stripe-card-mpp.json")
-        verify_payment_request(payment_request)
-        verify_payment_success(payment_success, payment_request)
-        verify_refund_request(refund_request, payment_request, payment_success)
-        verify_refund_success(refund_success, refund_request)
+        for rail in sorted(SUPPORTED_RAILS):
+            verify_payment_fixture_set(rail)
+        verify_euro_stablecoin_rail_plan()
         verify_negative_fixtures()
         verify_plugin_contract_fields()
         verify_stripe_verifier_replay_fields()
