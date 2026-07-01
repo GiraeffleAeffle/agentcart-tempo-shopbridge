@@ -9,6 +9,10 @@ services:
       MARIADB_ROOT_PASSWORD: ${STAGING_DB_ROOT_PASSWORD}
     volumes:
       - db_data:/var/lib/mysql
+    networks:
+      default:
+        aliases:
+          - agentcart-usd-db
 
   wordpress:
     image: wordpress:php8.2-apache
@@ -17,19 +21,19 @@ services:
       - db
       - verifier
     environment:
-      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_HOST: agentcart-usd-db:3306
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: ${STAGING_DB_PASSWORD}
       WORDPRESS_DB_NAME: wordpress
       WORDPRESS_CONFIG_EXTRA: |
         define('AGENTCART_SHOPBRIDGE_TOKEN', getenv('AGENTCART_SHOPBRIDGE_TOKEN') ?: '');
-        define('AGENTCART_MERCHANT_ID', getenv('AGENTCART_MERCHANT_ID') ?: 'agentcart-staging-shop');
+        define('AGENTCART_MERCHANT_ID', getenv('AGENTCART_MERCHANT_ID') ?: 'agentcart-usd-staging-shop');
         define('AGENTCART_TEMPO_NETWORK', getenv('AGENTCART_TEMPO_NETWORK') ?: 'testnet');
         define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', getenv('AGENTCART_TEMPO_RECIPIENT_ADDRESS') ?: '');
         define('AGENTCART_STRIPE_PROFILE_ID', getenv('AGENTCART_STRIPE_PROFILE_ID') ?: '');
         define('AGENTCART_PAYMENT_VERIFIER_URL', getenv('AGENTCART_PAYMENT_VERIFIER_URL') ?: '');
         define('AGENTCART_PAYMENT_VERIFIER_TOKEN', getenv('AGENTCART_PAYMENT_VERIFIER_TOKEN') ?: '');
-        define('AGENTCART_CHECKOUT_MODE', getenv('AGENTCART_CHECKOUT_MODE') ?: 'trusted_token_or_verifier');
+        define('AGENTCART_CHECKOUT_MODE', getenv('AGENTCART_CHECKOUT_MODE') ?: 'external_verifier_only');
         define('AGENTCART_SIGNED_REQUEST_MODE', getenv('AGENTCART_SIGNED_REQUEST_MODE') ?: 'off');
         define('AGENTCART_SIGNED_REQUEST_SECRET', getenv('AGENTCART_SIGNED_REQUEST_SECRET') ?: '');
         define('AGENTCART_SUPPORT_EMAIL', getenv('AGENTCART_SUPPORT_EMAIL') ?: '');
@@ -45,7 +49,7 @@ services:
       AGENTCART_TEMPO_NETWORK: testnet
       AGENTCART_TEMPO_RECIPIENT_ADDRESS: ${STAGING_TEMPO_RECIPIENT_ADDRESS}
       AGENTCART_STRIPE_PROFILE_ID: ""
-      AGENTCART_PAYMENT_VERIFIER_URL: http://verifier:4260/agentcart/verify
+      AGENTCART_PAYMENT_VERIFIER_URL: http://agentcart-usd-verifier:4260/agentcart/verify
       AGENTCART_PAYMENT_VERIFIER_TOKEN: ${STAGING_PAYMENT_VERIFIER_TOKEN}
       AGENTCART_CHECKOUT_MODE: external_verifier_only
       AGENTCART_SIGNED_REQUEST_MODE: off
@@ -53,6 +57,9 @@ services:
     volumes:
       - wordpress_data:/var/www/html
       - ./agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
+    networks:
+      default:
+      caddy_proxy:
 
   verifier:
     image: node:22-alpine
@@ -73,6 +80,10 @@ services:
     volumes:
       - ./verifier:/app
       - verifier_data:/data
+    networks:
+      default:
+        aliases:
+          - agentcart-usd-verifier
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4260/health | grep '\"ok\": true'"]
       interval: 15s
@@ -86,7 +97,7 @@ services:
       - wordpress
       - db
     environment:
-      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_HOST: agentcart-usd-db:3306
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: ${STAGING_DB_PASSWORD}
       WORDPRESS_DB_NAME: wordpress
@@ -94,8 +105,8 @@ services:
       WOO_ADMIN_USER: ${STAGING_WOO_ADMIN_USER}
       WOO_ADMIN_PASSWORD: ${STAGING_WOO_ADMIN_PASSWORD}
       WOO_ADMIN_EMAIL: ${STAGING_WOO_ADMIN_EMAIL}
-      AGENTCART_WOO_MARKET_PROFILE: ${STAGING_WOO_MARKET_PROFILE:-eur}
-      AGENTCART_WOO_SHOP_TITLE: ${STAGING_WOO_SHOP_TITLE:-AgentCart Staging Shop}
+      AGENTCART_WOO_MARKET_PROFILE: ${STAGING_WOO_MARKET_PROFILE:-tempo-usd-staging}
+      AGENTCART_WOO_SHOP_TITLE: ${STAGING_WOO_SHOP_TITLE:-AgentCart USD Test Shop}
       AGENTCART_SHOPBRIDGE_TOKEN: ${STAGING_SHOPBRIDGE_TOKEN}
       AGENTCART_MERCHANT_ID: ${STAGING_MERCHANT_ID}
       AGENTCART_RETURNS_URL: https://${STAGING_DOMAIN}/returns
@@ -103,7 +114,7 @@ services:
       AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO: "1"
       AGENTCART_TEMPO_NETWORK: testnet
       AGENTCART_TEMPO_RECIPIENT_ADDRESS: ${STAGING_TEMPO_RECIPIENT_ADDRESS}
-      AGENTCART_PAYMENT_VERIFIER_URL: http://verifier:4260/agentcart/verify
+      AGENTCART_PAYMENT_VERIFIER_URL: http://agentcart-usd-verifier:4260/agentcart/verify
       AGENTCART_PAYMENT_VERIFIER_TOKEN: ${STAGING_PAYMENT_VERIFIER_TOKEN}
       AGENTCART_CHECKOUT_MODE: external_verifier_only
     volumes:
@@ -112,22 +123,12 @@ services:
       - ./seed-products.sh:/seed-products.sh:ro
     entrypoint: ["bash", "/seed-products.sh"]
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    depends_on:
-      - wordpress
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+networks:
+  caddy_proxy:
+    external: true
+    name: {{ caddy_proxy_network }}
 
 volumes:
   db_data:
   wordpress_data:
-  caddy_data:
-  caddy_config:
   verifier_data:
