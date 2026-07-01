@@ -17,7 +17,7 @@
   "dependencies": {
     "mppx": "^0.8.1",
     "stripe": "^22.2.1",
-    "viem": "^2.54.1"
+    "viem": "2.52.2"
   },
   "overrides": {
     "ws": "^8.21.0"
