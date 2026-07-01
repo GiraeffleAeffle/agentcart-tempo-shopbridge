@@ -767,6 +767,29 @@ def validate_refund_response(refund: dict[str, Any], *, require_real_refund_veri
     require(isinstance(refund.get("aftercare_state"), dict), "refund response aftercare_state is required")
 
 
+def validate_full_quote_refund_closes_refund_progress(refund: dict[str, Any], quote: dict[str, Any]) -> None:
+    quote_total_cents = int(quote.get("total_cents") or 0)
+    require(quote_total_cents > 0, "quote.total_cents must be positive before refund progress validation")
+    require(
+        int(refund.get("amount_cents") or 0) == quote_total_cents,
+        "full quote refund amount must match quote.total_cents",
+    )
+    aftercare = refund.get("aftercare_state")
+    require(isinstance(aftercare, dict), "refund response aftercare_state is required")
+    progress = aftercare.get("refund_progress")
+    require(isinstance(progress, dict), "refund response aftercare_state.refund_progress is required")
+    require(
+        int(progress.get("refunded_cents") or 0) >= quote_total_cents,
+        "full quote refund must record at least quote.total_cents as refunded",
+    )
+    require(
+        int(progress.get("remaining_refundable_cents") or 0) == 0,
+        "full quote refund must leave no remaining refundable cents",
+    )
+    require(bool(progress.get("fully_refunded")), "full quote refund must mark refund_progress.fully_refunded")
+    require(not bool(progress.get("partially_refunded")), "full quote refund must not remain partially refunded")
+
+
 def validate_cancellation_response(cancellation: dict[str, Any]) -> None:
     require(cancellation.get("platform") == "woocommerce-agentcart-plugin", "cancellation response platform mismatch")
     require(bool(cancellation.get("order_id")), "cancellation response order_id is required")
@@ -920,6 +943,7 @@ def run_endpoint_harness(base_url: str, quote: dict[str, Any], args: argparse.Na
             refund,
             require_real_refund_verifier_evidence=bool(getattr(args, "require_real_refund_verifier_evidence", False)),
         )
+        validate_full_quote_refund_closes_refund_progress(refund, quote)
     except HttpJsonError as exc:
         refund = expected_tempo_refund_rejection(exc, quote, args)
         if refund is None:

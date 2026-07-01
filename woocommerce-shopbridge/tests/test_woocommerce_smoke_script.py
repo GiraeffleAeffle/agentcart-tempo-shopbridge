@@ -298,8 +298,19 @@ def sample_order_status():
     }
 
 
-def sample_refund_response():
-    return {
+def sample_refund_response(**overrides):
+    aftercare_state = overrides.pop(
+        "aftercare_state",
+        {
+            "refund_progress": {
+                "refunded_cents": 1480,
+                "remaining_refundable_cents": 0,
+                "fully_refunded": True,
+                "partially_refunded": False,
+            }
+        },
+    )
+    response = {
         "platform": "woocommerce-agentcart-plugin",
         "state": "refund_recorded",
         "order_id": "123",
@@ -314,8 +325,10 @@ def sample_refund_response():
             "real_refund_verified": False,
             "note": "WooCommerce refund record only.",
         },
-        "aftercare_state": {"refund_progress": "refunded"},
+        "aftercare_state": aftercare_state,
     }
+    response.update(overrides)
+    return response
 
 
 def sample_cancellation_response():
@@ -660,6 +673,23 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
         with self.assertRaises(smoke.SmokeError):
             smoke.validate_refund_response(sample_refund_response(), require_real_refund_verifier_evidence=True)
 
+    def test_full_quote_refund_validator_requires_closed_refund_progress(self) -> None:
+        smoke.validate_full_quote_refund_closes_refund_progress(sample_refund_response(), sample_quote())
+
+        partial_refund = sample_refund_response(
+            aftercare_state={
+                "refund_progress": {
+                    "refunded_cents": 1480,
+                    "remaining_refundable_cents": 44,
+                    "fully_refunded": False,
+                    "partially_refunded": True,
+                }
+            }
+        )
+
+        with self.assertRaises(smoke.SmokeError):
+            smoke.validate_full_quote_refund_closes_refund_progress(partial_refund, sample_quote())
+
     def test_rate_limit_error_validator_requires_retry_metadata(self) -> None:
         error = smoke.HttpJsonError(
             "HTTP 429",
@@ -777,6 +807,13 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
         self.assertIn("agentcart.shopbridge.catalog_snapshot.v1", seed_script)
         self.assertIn("AGENTCART_WOO_CALC_TAXES=\"${AGENTCART_WOO_CALC_TAXES:-yes}\"", seed_script)
         self.assertIn("agentcart_upsert_tax_rate('US', 8.875)", seed_script)
+
+    def test_shopbridge_checkout_preserves_verified_quote_totals(self) -> None:
+        plugin = (
+            Path(__file__).resolve().parents[2] / "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php"
+        ).read_text()
+        self.assertIn("$order->calculate_totals(false);", plugin)
+        self.assertIn("Do not let WooCommerce recalculate tax on top of it during order creation.", plugin)
 
 
 if __name__ == "__main__":
