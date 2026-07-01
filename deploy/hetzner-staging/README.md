@@ -167,6 +167,30 @@ without pretending that real money moved. Refunds are expected to return a
 `tempo_refund_adapter_missing` rejection until a real Tempo refund adapter is
 implemented; do not treat that harness result as `real_refund_verified=true`.
 
+To exercise a real `mppx` testnet payment proof instead of the synthetic proof,
+the USD staging shop must advertise a syntactically valid Tempo/EVM recipient
+address that you control for testnet. For fresh secrets, set
+`AGENTCART_TEMPO_RECIPIENT_ADDRESS` before running the generator. For an
+existing deployment, update `STAGING_TEMPO_RECIPIENT_ADDRESS` in
+`/opt/agentcart-woocommerce-usd/.env` and recreate the WordPress container.
+
+Then create and fund a local mppx testnet account:
+
+```sh
+cd gateway
+npm run mpp:account:create
+npm run mpp:account:fund
+cd ..
+scripts/woocommerce-usd-mppx-settlement-smoke.sh
+```
+
+This starts the local AgentCart MPP paid resource, pays it with `mppx`, submits
+the resulting `payment-receipt` proof to the USD staging checkout, and then
+cleans up the local paid-resource process. A successful run proves the staging
+checkout accepts a quote-bound Tempo testnet value-transfer proof. It is still
+not a production settlement claim, and refunds remain blocked until the Tempo
+refund adapter exists.
+
 The USD shop is for Tempo/pathUSD flow validation. Do not use it to claim EUR
 settlement, EUR refunds, or production merchant readiness. The verifier still
 needs the real Tempo refund adapter before `real_refund_verified=true` is a
