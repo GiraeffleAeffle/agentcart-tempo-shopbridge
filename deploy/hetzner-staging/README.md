@@ -163,9 +163,10 @@ scripts/woocommerce-usd-staging-smoke.sh --endpoint-harness
 
 The USD endpoint harness uses a quote-bound demo Tempo proof so checkout,
 status, cancellation, idempotency, and verifier replay behavior can be tested
-without pretending that real money moved. Refunds are expected to return a
-`tempo_refund_adapter_missing` rejection until a real Tempo refund adapter is
-implemented; do not treat that harness result as `real_refund_verified=true`.
+without pretending that real money moved. Refunds return a
+`tempo_refund_adapter_missing` rejection while
+`STAGING_TEMPO_REFUND_MODE=disabled`; do not treat that harness result as
+`real_refund_verified=true`.
 
 To exercise a real `mppx` testnet payment proof instead of the synthetic proof,
 the USD staging shop must advertise a syntactically valid Tempo/EVM recipient
@@ -188,13 +189,28 @@ This starts the local AgentCart MPP paid resource, pays it with `mppx`, submits
 the resulting `payment-receipt` proof to the USD staging checkout, and then
 cleans up the local paid-resource process. A successful run proves the staging
 checkout accepts a quote-bound Tempo testnet value-transfer proof. It is still
-not a production settlement claim, and refunds remain blocked until the Tempo
-refund adapter exists.
+not a production settlement claim unless the recipient is a distinct merchant
+wallet and the refund wallet is configured for live testnet transfers.
+
+To test a real Tempo/pathUSD refund on testnet, configure the USD staging
+secrets with a merchant-controlled recipient and refund wallet:
+
+```yaml
+staging:
+  tempo_recipient_address: "0x..."
+  tempo_refund_mode: "live"
+  tempo_refund_private_key: "0x..."
+  tempo_refund_asset: "pathUSD"
+  tempo_refund_token_address: "0x20c0000000000000000000000000000000000000"
+```
+
+The refund private key must belong to the original
+`tempo_recipient_address`; the verifier rejects mismatches and only marks a
+refund as `real_refund_verified=true` after a successful on-chain transfer
+receipt.
 
 The USD shop is for Tempo/pathUSD flow validation. Do not use it to claim EUR
-settlement, EUR refunds, or production merchant readiness. The verifier still
-needs the real Tempo refund adapter before `real_refund_verified=true` is a
-production claim.
+settlement, EUR refunds, or production merchant readiness.
 
 This is internal rehearsal evidence only. It does not replace the
 non-maintainer walkthrough evidence required by

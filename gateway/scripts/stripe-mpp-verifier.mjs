@@ -4,6 +4,9 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
+import { createPublicClient, createWalletClient, http as viemHttp, parseUnits } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { tempo as tempoMainnet, tempoModerato } from "viem/tempo/chains";
 import Stripe from "stripe";
 import { Challenge, Receipt } from "mppx";
 import { Mppx, stripe as mppStripe } from "mppx/server";
@@ -49,6 +52,43 @@ const verifierAlertThrottleSeconds = Math.max(
   0,
   Number(process.env.AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS || "300"),
 );
+const tempoRefundMode = (process.env.AGENTCART_TEMPO_REFUND_MODE || "disabled").trim().toLowerCase();
+const tempoRefundPrivateKey = (process.env.AGENTCART_TEMPO_REFUND_PRIVATE_KEY || "").trim();
+const tempoRefundRpcUrl = (process.env.AGENTCART_TEMPO_REFUND_RPC_URL || "").trim();
+const tempoRefundTokenAddress = (process.env.AGENTCART_TEMPO_REFUND_TOKEN_ADDRESS || "").trim();
+const tempoRefundAsset = (process.env.AGENTCART_TEMPO_REFUND_ASSET || "").trim();
+const tempoRefundDecimals = Number(process.env.AGENTCART_TEMPO_REFUND_DECIMALS || "6");
+const tempoRefundConfirmations = Math.max(1, Number(process.env.AGENTCART_TEMPO_REFUND_CONFIRMATIONS || "1"));
+
+const tempoTokenDefaults = {
+  mainnet: {
+    asset: "USDC.e",
+    tokenAddress: "0x20C000000000000000000000b9537d11c60E8b50",
+  },
+  testnet: {
+    asset: "pathUSD",
+    tokenAddress: "0x20c0000000000000000000000000000000000000",
+  },
+};
+const erc20TransferAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "balance", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "transfer",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "success", type: "bool" }],
+  },
+];
 
 const stripeClient = stripeSecretKey
   ? new Stripe(stripeSecretKey, { apiVersion: "2026-02-25.preview" })
@@ -566,6 +606,7 @@ function readiness() {
       min_severity: verifierAlertMinSeverity,
       throttle_seconds: verifierAlertThrottleSeconds,
     },
+    tempo_refunds: tempoRefundReadiness(),
     missing,
   };
 }
@@ -1195,6 +1236,11 @@ function normalizeEvmAddress(value) {
   return /^0x[a-fA-F0-9]{40}$/.test(address) ? address.toLowerCase() : "";
 }
 
+function normalizePrivateKey(value) {
+  const key = String(value || "").trim();
+  return /^0x[a-fA-F0-9]{64}$/.test(key) ? key : "";
+}
+
 function addressFromPayerSource(value) {
   const source = String(value || "").trim();
   const match = /^did:pkh:eip155:(0|[1-9]\d*):(0x[a-fA-F0-9]{40})$/.exec(source);
@@ -1221,6 +1267,111 @@ function tempoPayerFromProof(proof, body, proofReceipt) {
     payerAddress,
     payerSource,
   };
+}
+
+function tempoNetworkName(value) {
+  const network = String(value || "").trim().toLowerCase();
+  if (["mainnet", "tempo-mainnet", String(tempoMainnet.id)].includes(network)) return "mainnet";
+  if (["testnet", "moderato", "tempo-testnet", String(tempoModerato.id)].includes(network)) return "testnet";
+  return network;
+}
+
+function tempoChainForNetwork(value) {
+  const network = tempoNetworkName(value);
+  if (network === "mainnet") return tempoMainnet;
+  if (network === "testnet") return tempoModerato;
+  throw Object.assign(new Error(`Unsupported Tempo network: ${value || "missing"}`), { status: 400 });
+}
+
+function tempoRefundDefaults(network) {
+  return tempoTokenDefaults[tempoNetworkName(network)] || tempoTokenDefaults.testnet;
+}
+
+function tempoRefundWalletAddress() {
+  const privateKey = normalizePrivateKey(tempoRefundPrivateKey);
+  if (!privateKey) return "";
+  try {
+    return privateKeyToAccount(privateKey).address.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function tempoRefundReadiness() {
+  const mode = ["disabled", "live"].includes(tempoRefundMode) ? tempoRefundMode : "invalid";
+  const walletAddress = tempoRefundWalletAddress();
+  const tokenAddress = normalizeEvmAddress(tempoRefundTokenAddress);
+  const configured =
+    mode === "live" &&
+    Boolean(walletAddress) &&
+    Number.isSafeInteger(tempoRefundDecimals) &&
+    tempoRefundDecimals >= 0 &&
+    tempoRefundDecimals <= 18 &&
+    (!tempoRefundTokenAddress || Boolean(tokenAddress));
+  return {
+    mode,
+    configured,
+    wallet_configured: Boolean(walletAddress),
+    wallet_address: walletAddress || null,
+    token_address_override: tokenAddress || null,
+    asset_override: tempoRefundAsset || null,
+    decimals: tempoRefundDecimals,
+    confirmations: tempoRefundConfirmations,
+    rpc_url_configured: Boolean(tempoRefundRpcUrl),
+  };
+}
+
+function requireTempoRefundLiveConfig(network) {
+  if (tempoRefundMode !== "live") {
+    throw Object.assign(new Error("Tempo refund adapter is not configured for live transfers."), {
+      status: 400,
+      code: "tempo_refund_adapter_missing",
+    });
+  }
+  const privateKey = normalizePrivateKey(tempoRefundPrivateKey);
+  if (!privateKey) {
+    throw Object.assign(new Error("Tempo refund adapter private key is missing or invalid."), {
+      status: 503,
+      code: "tempo_refund_wallet_missing",
+    });
+  }
+  if (!Number.isSafeInteger(tempoRefundDecimals) || tempoRefundDecimals < 0 || tempoRefundDecimals > 18) {
+    throw Object.assign(new Error("Tempo refund token decimals must be between 0 and 18."), {
+      status: 503,
+      code: "tempo_refund_decimals_invalid",
+    });
+  }
+  const chain = tempoChainForNetwork(network);
+  const defaults = tempoRefundDefaults(network);
+  const tokenAddress = normalizeEvmAddress(tempoRefundTokenAddress || defaults.tokenAddress);
+  if (!tokenAddress) {
+    throw Object.assign(new Error("Tempo refund token address is missing or invalid."), {
+      status: 503,
+      code: "tempo_refund_token_invalid",
+    });
+  }
+  const account = privateKeyToAccount(privateKey);
+  return {
+    account,
+    asset: tempoRefundAsset || defaults.asset,
+    chain,
+    network: tempoNetworkName(network),
+    rpcUrl: tempoRefundRpcUrl || chain.rpcUrls.default.http[0],
+    tokenAddress,
+  };
+}
+
+function tempoRefundErrorResponse(error) {
+  return jsonResponse(
+    {
+      ok: false,
+      error: error.message || "Tempo refund failed.",
+      provider: "tempo",
+      provider_error_class: error.code || "tempo_refund_error",
+      retryable: false,
+    },
+    Number(error.status || 400),
+  );
 }
 
 function chargeOptions(expected) {
@@ -1461,10 +1612,248 @@ async function verifyTempoFxPayment(receipt, expected) {
   });
 }
 
+function refundExpectedFromPayload(payload, refund, expected) {
+  const order = payload.order && typeof payload.order === "object" ? payload.order : {};
+  const verification =
+    order.payment_verification && typeof order.payment_verification === "object" ? order.payment_verification : {};
+  const quoteHash = String(expected.quote_hash || payload.quote_hash || order.quote_hash || "");
+  const originalReference = String(
+    expected.original_transaction_reference ||
+      payload.original_transaction_reference ||
+      order.transaction_reference ||
+      verification.transaction_reference ||
+      "",
+  ).trim();
+  const network = String(expected.tempo_network || verification.tempo_network || verification.network || "testnet").trim();
+  const originalRecipient = normalizeEvmAddress(
+    expected.tempo_recipient || verification.recipient || verification.tempo_recipient || "",
+  );
+  const payerAddress = normalizeEvmAddress(verification.payer_address || "");
+  const refundRecipient = normalizeEvmAddress(refund.recipient || refund.refund_recipient || expected.refund_recipient);
+  const asset = String(refund.asset || expected.asset || verification.asset || tempoRefundDefaults(network).asset).trim();
+  return {
+    asset,
+    network,
+    originalRecipient,
+    originalReference,
+    payerAddress,
+    quoteHash,
+    refundRecipient,
+    verification,
+  };
+}
+
+async function verifyTempoRefund(payload, refund, expected, amountCents, currency, requestedReference) {
+  const refundExpected = refundExpectedFromPayload(payload, refund, expected);
+  if (currency !== "USD") {
+    return jsonResponse({ ok: false, error: "Tempo refunds currently require USD-denominated amounts." }, 400);
+  }
+  if (!refundExpected.quoteHash) {
+    return jsonResponse({ ok: false, error: "expected.quote_hash is required." }, 400);
+  }
+  if (!refundExpected.originalReference) {
+    return jsonResponse({ ok: false, error: "original transaction reference is required." }, 400);
+  }
+  if (!refundExpected.refundRecipient) {
+    return jsonResponse({ ok: false, error: "refund.recipient must be the original Tempo payer address." }, 400);
+  }
+  if (!refundExpected.payerAddress) {
+    return jsonResponse({ ok: false, error: "Tempo refund requires the original payer address." }, 400);
+  }
+  if (refundExpected.payerAddress && refundExpected.refundRecipient !== refundExpected.payerAddress) {
+    return jsonResponse({ ok: false, error: "Tempo refund recipient must match the original payer address." }, 400);
+  }
+  let config;
+  try {
+    config = requireTempoRefundLiveConfig(refundExpected.network);
+  } catch (error) {
+    return tempoRefundErrorResponse(error);
+  }
+  if (refundExpected.originalRecipient && config.account.address.toLowerCase() !== refundExpected.originalRecipient) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo refund wallet does not match the original payment recipient.",
+        provider: "tempo",
+        wallet_address: config.account.address.toLowerCase(),
+        original_recipient: refundExpected.originalRecipient,
+      },
+      503,
+    );
+  }
+  if (refundExpected.verification.real_settlement_verified !== true) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo refund requires real settlement evidence on the original payment.",
+        provider: "tempo",
+      },
+      400,
+    );
+  }
+  if (refundExpected.asset && refundExpected.asset !== config.asset) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo refund asset does not match verifier configuration.",
+        provider: "tempo",
+        expected_asset: config.asset,
+        actual_asset: refundExpected.asset,
+      },
+      400,
+    );
+  }
+
+  const amount = parseUnits(centsToDecimal(amountCents), tempoRefundDecimals);
+  const publicClient = createPublicClient({ chain: config.chain, transport: viemHttp(config.rpcUrl) });
+  let balance;
+  try {
+    balance = await publicClient.readContract({
+      address: config.tokenAddress,
+      abi: erc20TransferAbi,
+      functionName: "balanceOf",
+      args: [config.account.address],
+    });
+  } catch (error) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo refund wallet balance check failed.",
+        provider: "tempo",
+        provider_error_class: error?.name || "tempo_refund_balance_check_failed",
+        provider_message: error?.shortMessage || error?.message || null,
+        retryable: true,
+      },
+      502,
+    );
+  }
+  if (balance < amount) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo refund wallet balance is insufficient.",
+        provider: "tempo",
+        retryable: true,
+      },
+      402,
+    );
+  }
+
+  const requestClaim = await claimReplayReference("refund_requests", requestedReference, {
+    provider: "tempo",
+    rail: "tempo-mpp",
+    amount_cents: amountCents,
+    currency,
+    quote_hash: refundExpected.quoteHash,
+    original_transaction_reference: refundExpected.originalReference,
+    refund_recipient: refundExpected.refundRecipient,
+    asset: config.asset,
+    token_address: config.tokenAddress,
+    network: config.network,
+  });
+  if (!requestClaim.ok) return requestClaim.response;
+  if (requestClaim.idempotentReplay) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo refund request was already reserved; use the order refund idempotency endpoint result or operator review.",
+        provider: "tempo",
+        replay_reference: requestedReference,
+        replay_request_hash: requestClaim.requestHash,
+      },
+      409,
+    );
+  }
+
+  let transactionHash;
+  let receipt;
+  try {
+    const walletClient = createWalletClient({
+      account: config.account,
+      chain: config.chain,
+      transport: viemHttp(config.rpcUrl),
+    });
+    transactionHash = await walletClient.writeContract({
+      address: config.tokenAddress,
+      abi: erc20TransferAbi,
+      functionName: "transfer",
+      args: [refundExpected.refundRecipient, amount],
+    });
+    receipt = await publicClient.waitForTransactionReceipt({
+      hash: transactionHash,
+      confirmations: tempoRefundConfirmations,
+    });
+  } catch (error) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo refund transfer failed after idempotency reservation.",
+        provider: "tempo",
+        provider_error_class: error?.name || "tempo_refund_transfer_failed",
+        provider_message: error?.shortMessage || error?.message || null,
+        retryable: false,
+        replay_reference: requestedReference,
+        replay_request_hash: requestClaim.requestHash,
+      },
+      502,
+    );
+  }
+  if (receipt.status !== "success") {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "Tempo refund transaction did not succeed.",
+        provider: "tempo",
+        refund_reference: transactionHash,
+        refund_status: receipt.status,
+        replay_reference: requestedReference,
+        replay_request_hash: requestClaim.requestHash,
+      },
+      502,
+    );
+  }
+
+  const refundClaim = await claimReplayReference("refunds", transactionHash, {
+    provider: "tempo",
+    rail: "tempo-mpp",
+    amount_cents: amountCents,
+    currency,
+    quote_hash: refundExpected.quoteHash,
+    original_transaction_reference: refundExpected.originalReference,
+    requested_reference: requestedReference,
+    refund_recipient: refundExpected.refundRecipient,
+    asset: config.asset,
+    token_address: config.tokenAddress,
+    network: config.network,
+  });
+  if (!refundClaim.ok) return refundClaim.response;
+  return jsonResponse({
+    ok: true,
+    idempotent_replay: refundClaim.idempotentReplay || undefined,
+    provider: "tempo",
+    rail: "tempo-mpp",
+    amount_cents: amountCents,
+    currency,
+    quote_hash: refundExpected.quoteHash,
+    original_transaction_reference: refundExpected.originalReference,
+    network: config.network,
+    original_recipient: refundExpected.originalRecipient || config.account.address.toLowerCase(),
+    refund_recipient: refundExpected.refundRecipient,
+    asset: config.asset,
+    token_address: config.tokenAddress,
+    refund_reference: transactionHash,
+    replay_reference: transactionHash,
+    replay_request_hash: refundClaim.requestHash,
+    refund_status: "succeeded",
+    block_hash: receipt.blockHash,
+    block_number: receipt.blockNumber?.toString(),
+    real_refund_verified: true,
+  });
+}
+
 async function verifyRefund(payload) {
   const ready = requireReady();
   if (ready) return ready;
-  if (!stripeClient) return jsonResponse({ ok: false, error: "Stripe client is not configured." }, 503);
   const expected = payload.expected && typeof payload.expected === "object" ? payload.expected : {};
   const refund = payload.refund && typeof payload.refund === "object" ? payload.refund : {};
   const amountCents = Number(expected.amount_cents ?? refund.amount_cents);
@@ -1478,9 +1867,20 @@ async function verifyRefund(payload) {
       "",
   );
   const rail = normalizeRail(refund.rail || payload.rail || "stripe-card-mpp");
+  if (rail === "tempo-mpp") {
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      return jsonResponse({ ok: false, error: "refund.amount_cents must be a positive integer." }, 400);
+    }
+    const requestedReference = String(refund.requested_reference || payload.requested_reference || "").trim();
+    if (!requestedReference) {
+      return jsonResponse({ ok: false, error: "refund.requested_reference is required." }, 400);
+    }
+    return verifyTempoRefund(payload, refund, expected, amountCents, currency, requestedReference);
+  }
   if (rail !== "stripe-card-mpp") {
     return jsonResponse({ ok: false, error: `Unsupported refund rail: ${rail}` }, 400);
   }
+  if (!stripeClient) return jsonResponse({ ok: false, error: "Stripe client is not configured." }, 503);
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
     return jsonResponse({ ok: false, error: "refund.amount_cents must be a positive integer." }, 400);
   }
