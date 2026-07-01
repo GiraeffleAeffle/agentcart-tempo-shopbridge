@@ -5953,7 +5953,7 @@ final class AgentCart_ShopBridge {
             }
 
             $previous_status = $order->get_status();
-            $refund_required = $order->is_paid() && self::cents((float) $order->get_remaining_refund_amount()) > 0;
+            $refund_required = self::order_has_verified_payment($order) && self::cents((float) $order->get_remaining_refund_amount()) > 0;
             $event = [
                 'id' => 'cancel_' . wp_generate_uuid4(),
                 'state' => $refund_required ? 'order_cancelled_refund_required' : 'order_cancelled',
@@ -6662,6 +6662,21 @@ final class AgentCart_ShopBridge {
         return is_array($decoded) ? $decoded : null;
     }
 
+    private static function order_has_verified_payment(WC_Order $order) {
+        if ($order->is_paid()) {
+            return true;
+        }
+        $payment_verification = self::stored_payment_verification($order);
+        if (!is_array($payment_verification)) {
+            return false;
+        }
+        $state = sanitize_key((string) ($payment_verification['state'] ?? ''));
+        if (in_array($state, ['verified', 'succeeded', 'paid', 'settled'], true)) {
+            return true;
+        }
+        return sanitize_text_field((string) ($payment_verification['transaction_reference'] ?? '')) !== '';
+    }
+
     private static function stored_refund_events(WC_Order $order) {
         $raw = $order->get_meta('_agentcart_refunds', true);
         $decoded = is_string($raw) ? json_decode($raw, true) : null;
@@ -6718,7 +6733,7 @@ final class AgentCart_ShopBridge {
             'eligibility' => $eligibility,
             'merchant_policy' => $merchant_policy,
             'does_not_execute_refund' => true,
-            'paid_order_requires_separate_refund' => $order->is_paid() && self::cents((float) $order->get_remaining_refund_amount()) > 0,
+            'paid_order_requires_separate_refund' => self::order_has_verified_payment($order) && self::cents((float) $order->get_remaining_refund_amount()) > 0,
             'refund_endpoint' => rest_url(self::API_NAMESPACE . '/orders/' . $order->get_id() . '/refunds'),
         ];
     }
@@ -6735,7 +6750,7 @@ final class AgentCart_ShopBridge {
         $remaining_refundable_cents = self::cents((float) $order->get_remaining_refund_amount());
         $refunded_cents = self::cents((float) $order->get_total_refunded());
         $total_order_cents = self::cents((float) $order->get_total());
-        $paid = $order->is_paid();
+        $paid = self::order_has_verified_payment($order);
         $is_cancelled = $order->has_status('cancelled');
         $fully_refunded = ($order->has_status('refunded') || $refunded_cents > 0) && $remaining_refundable_cents <= 0;
         $partially_refunded = $refunded_cents > 0 && $remaining_refundable_cents > 0;
@@ -7000,7 +7015,7 @@ final class AgentCart_ShopBridge {
             'fulfillment_locked' => !empty($reasons),
             'within_advertised_buyer_request_window' => $within_window,
             'advertised_request_window_minutes' => $window_minutes,
-            'refund_required_if_cancelled' => $order->is_paid() && self::cents((float) $order->get_remaining_refund_amount()) > 0,
+            'refund_required_if_cancelled' => self::order_has_verified_payment($order) && self::cents((float) $order->get_remaining_refund_amount()) > 0,
         ];
     }
 

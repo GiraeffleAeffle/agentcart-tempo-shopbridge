@@ -161,6 +161,12 @@ Run the mutable endpoint harness after checking that the shop can be reset:
 scripts/woocommerce-usd-staging-smoke.sh --endpoint-harness
 ```
 
+The USD endpoint harness uses a quote-bound demo Tempo proof so checkout,
+status, cancellation, idempotency, and verifier replay behavior can be tested
+without pretending that real money moved. Refunds are expected to return a
+`tempo_refund_adapter_missing` rejection until a real Tempo refund adapter is
+implemented; do not treat that harness result as `real_refund_verified=true`.
+
 The USD shop is for Tempo/pathUSD flow validation. Do not use it to claim EUR
 settlement, EUR refunds, or production merchant readiness. The verifier still
 needs the real Tempo refund adapter before `real_refund_verified=true` is a

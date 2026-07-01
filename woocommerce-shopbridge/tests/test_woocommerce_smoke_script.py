@@ -259,9 +259,13 @@ def sample_quote(**overrides):
         "currency": "EUR",
         "quote_hash": "quote-hash",
         "payment_requirements": {
-            "protocols": [{"id": "tempo-mpp"}],
+            "protocols": [{"id": "tempo-mpp", "network": "testnet", "recipient": "0xabc"}],
             "payment_contract_hash": "payment-contract-hash",
-            "verification_contract": {"payment_contract_hash": "payment-contract-hash"},
+            "verification_contract": {
+                "rail": "tempo-mpp",
+                "payment_contract_hash": "payment-contract-hash",
+                "settlement": {"network": "testnet", "recipient": "0xabc"},
+            },
         },
         "merchant_policy": {"returns_url": "https://shop.test/returns"},
         "delivery_window": {"label": "2-4 business days"},
@@ -418,6 +422,31 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
         self.assertEqual(payload["payment_receipt"]["currency"], "EUR")
         self.assertEqual(payload["payment_receipt"]["quote_hash"], "quote-hash")
         self.assertEqual(payload["payment_receipt"]["payment_contract_hash"], "payment-contract-hash")
+        proof = payload["payment_receipt"]["external_value_proof"]
+        self.assertEqual(proof["provider"], "tempo_mpp")
+        self.assertEqual(proof["body"]["amount"], "14.80")
+        self.assertEqual(proof["body"]["recipient"], "0xabc")
+        self.assertEqual(proof["payment_receipt"]["reference"], "receipt-123")
+        self.assertFalse(proof["real_settlement"])
+
+    def test_tempo_refund_gap_is_reported_as_expected_rejection(self) -> None:
+        error = smoke.HttpJsonError(
+            "HTTP 402",
+            status=402,
+            method="POST",
+            path="/wp-json/agentcart/v1/orders/123/refunds",
+            detail={
+                "code": "agentcart_payment_not_verified",
+                "data": {"detail": {"error": "Unsupported refund rail: tempo-mpp"}},
+            },
+        )
+
+        rejection = smoke.expected_tempo_refund_rejection(error, sample_quote(), args())
+
+        self.assertIsNotNone(rejection)
+        assert rejection is not None
+        self.assertEqual(rejection["reason"], "tempo_refund_adapter_missing")
+        self.assertFalse(rejection["real_refund_verified"])
 
     def test_endpoint_harness_exercises_checkout_status_refund_cancellation_paths(self) -> None:
         calls = []
