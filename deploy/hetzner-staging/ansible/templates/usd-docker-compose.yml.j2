@@ -52,8 +52,8 @@ services:
       AGENTCART_PAYMENT_VERIFIER_URL: http://agentcart-usd-verifier:4260/agentcart/verify
       AGENTCART_PAYMENT_VERIFIER_TOKEN: ${STAGING_PAYMENT_VERIFIER_TOKEN}
       AGENTCART_CHECKOUT_MODE: external_verifier_only
-      AGENTCART_SIGNED_REQUEST_MODE: off
-      AGENTCART_SIGNED_REQUEST_SECRET: ""
+      AGENTCART_SIGNED_REQUEST_MODE: ${STAGING_SIGNED_REQUEST_MODE:-off}
+      AGENTCART_SIGNED_REQUEST_SECRET: ${STAGING_SIGNED_REQUEST_SECRET:-}
     volumes:
       - wordpress_data:/var/www/html
       - ./agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro
@@ -125,6 +125,8 @@ services:
       AGENTCART_PAYMENT_VERIFIER_URL: http://agentcart-usd-verifier:4260/agentcart/verify
       AGENTCART_PAYMENT_VERIFIER_TOKEN: ${STAGING_PAYMENT_VERIFIER_TOKEN}
       AGENTCART_CHECKOUT_MODE: external_verifier_only
+      AGENTCART_SIGNED_REQUEST_MODE: ${STAGING_SIGNED_REQUEST_MODE:-off}
+      AGENTCART_SIGNED_REQUEST_SECRET: ${STAGING_SIGNED_REQUEST_SECRET:-}
     volumes:
       - wordpress_data:/var/www/html
       - ./agentcart-shopbridge:/var/www/html/wp-content/plugins/agentcart-shopbridge:ro

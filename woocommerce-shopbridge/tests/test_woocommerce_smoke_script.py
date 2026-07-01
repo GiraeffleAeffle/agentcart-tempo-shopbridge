@@ -35,6 +35,8 @@ def args(**overrides):
         "require_vat_lines": True,
         "require_real_refund_verifier_evidence": False,
         "rounding_tolerance_cents": 1,
+        "signed_request_secret": "",
+        "signed_request_signer": "agentcart",
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -504,6 +506,36 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
         self.assertEqual(rejection["reason"], "tempo_refund_adapter_missing")
         self.assertFalse(rejection["real_refund_verified"])
 
+    def test_signed_request_headers_use_shopbridge_canonical_hmac(self) -> None:
+        payload = {"agentcart_order_id": "order-1"}
+        headers = smoke.signed_request_headers(
+            "/wp-json/agentcart/v1/orders",
+            "POST",
+            payload,
+            secret="secret-123",
+            signer="agentcart",
+            nonce="nonce-123456789",
+            expires_at=1800000000,
+        )
+
+        digest = "sha-256=" + smoke.hashlib.sha256(smoke.request_body_bytes(payload)).hexdigest()
+        canonical = "\n".join(
+            [
+                "agentcart-signed-request-v1",
+                "POST",
+                "/wp-json/agentcart/v1/orders",
+                digest,
+                "nonce-123456789",
+                "1800000000",
+                "agentcart",
+            ]
+        )
+        expected = smoke.hmac.new(b"secret-123", canonical.encode(), smoke.hashlib.sha256).hexdigest()
+
+        self.assertEqual(headers["X-AgentCart-Content-Digest"], digest)
+        self.assertEqual(headers["X-AgentCart-Signature-Alg"], "hmac-sha256")
+        self.assertEqual(headers["X-AgentCart-Signature"], expected)
+
     def test_endpoint_harness_exercises_checkout_status_refund_cancellation_paths(self) -> None:
         calls = []
         original = smoke.http_json
@@ -566,6 +598,61 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
                 ("/wp-json/agentcart/v1/orders/123/refunds", "POST"),
             ],
         )
+
+    def test_endpoint_harness_signs_mutable_requests_when_secret_is_configured(self) -> None:
+        calls = []
+        original = smoke.http_json
+
+        def fake_http_json(base_url, path, *, method="GET", payload=None, timeout=30, headers=None):
+            calls.append((path, method, payload, headers or {}))
+            if path == "/wp-json/agentcart/v1/orders":
+                if str(payload.get("merchant_quote_id", "")).startswith("woo_quote_missing_"):
+                    raise smoke.HttpJsonError(
+                        "HTTP 409",
+                        status=409,
+                        method=method,
+                        path=path,
+                        detail={"code": "agentcart_quote_expired", "data": {"status": 409}},
+                    )
+                if payload.get("quote_hash") == "bad-quote-hash":
+                    raise smoke.HttpJsonError(
+                        "HTTP 409",
+                        status=409,
+                        method=method,
+                        path=path,
+                        detail={"code": "agentcart_quote_mismatch", "data": {"status": 409}},
+                    )
+                return sample_order_response()
+            if path == "/wp-json/agentcart/v1/orders/123/status":
+                return sample_order_status()
+            if path == "/wp-json/agentcart/v1/orders/123/cancellations":
+                return sample_cancellation_response()
+            if path == "/wp-json/agentcart/v1/orders/123/refunds":
+                if "refund_idempotency_key" not in payload:
+                    raise smoke.HttpJsonError(
+                        "HTTP 400",
+                        status=400,
+                        method=method,
+                        path=path,
+                        detail={"code": "agentcart_refund_idempotency_key_required", "data": {"status": 400}},
+                    )
+                return sample_refund_response()
+            raise AssertionError(f"unexpected harness call: {method} {path}")
+
+        smoke.http_json = fake_http_json
+        try:
+            smoke.run_endpoint_harness(
+                "http://shop",
+                sample_quote(),
+                args(signed_request_secret="secret-123", signed_request_signer="agentcart"),
+            )
+        finally:
+            smoke.http_json = original
+
+        mutable_calls = [headers for _path, method, _payload, headers in calls if method == "POST"]
+        self.assertTrue(mutable_calls)
+        self.assertTrue(all(headers.get("X-AgentCart-Signature-Alg") == "hmac-sha256" for headers in mutable_calls))
+        self.assertTrue(all(headers.get("X-AgentCart-Signature") for headers in mutable_calls))
 
     def test_refund_validator_can_require_real_verifier_evidence(self) -> None:
         smoke.validate_refund_response(sample_refund_response(), require_real_refund_verifier_evidence=False)
@@ -686,6 +773,10 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
         self.assertIn("_agentcart_order_id", seed_script)
         self.assertIn("agentcart_shopbridge_registry_public_check", seed_script)
         self.assertIn("agentcart_shopbridge_product_exposure_snapshot", seed_script)
+        self.assertIn("save_agentcart_catalog_snapshot", seed_script)
+        self.assertIn("agentcart.shopbridge.catalog_snapshot.v1", seed_script)
+        self.assertIn("AGENTCART_WOO_CALC_TAXES=\"${AGENTCART_WOO_CALC_TAXES:-yes}\"", seed_script)
+        self.assertIn("agentcart_upsert_tax_rate('US', 8.875)", seed_script)
 
 
 if __name__ == "__main__":

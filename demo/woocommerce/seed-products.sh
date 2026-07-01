@@ -163,7 +163,7 @@ case "$AGENTCART_WOO_MARKET_PROFILE" in
     AGENTCART_WOO_STORE_POSTCODE="${AGENTCART_WOO_STORE_POSTCODE:-10001}"
     AGENTCART_WOO_CURRENCY="${AGENTCART_WOO_CURRENCY:-USD}"
     AGENTCART_WOO_PRICES_INCLUDE_TAX="${AGENTCART_WOO_PRICES_INCLUDE_TAX:-no}"
-    AGENTCART_WOO_CALC_TAXES="${AGENTCART_WOO_CALC_TAXES:-no}"
+    AGENTCART_WOO_CALC_TAXES="${AGENTCART_WOO_CALC_TAXES:-yes}"
     AGENTCART_DEMO_COUNTRIES_JSON="${AGENTCART_DEMO_COUNTRIES_JSON:-[\"US\"]}"
     ;;
   *)
@@ -291,13 +291,15 @@ function agentcart_configure_shipping_zone($zone_name, $countries, $title, $tax_
 
 if ($market === 'usd') {
     $countries = ['US'];
-    update_option('woocommerce_calc_taxes', 'no');
+    update_option('woocommerce_calc_taxes', 'yes');
     update_option('woocommerce_prices_include_tax', 'no');
     update_option('woocommerce_allowed_countries', 'specific');
     update_option('woocommerce_specific_allowed_countries', $countries);
     update_option('woocommerce_ship_to_countries', 'specific');
     update_option('woocommerce_specific_ship_to_countries', $countries);
+    agentcart_upsert_tax_rate('US', 8.875);
     agentcart_configure_shipping_zone('AgentCart USD Demo', $countries, 'US tracked parcel', 'none', '5.00');
+    WC_Cache_Helper::incr_cache_prefix('taxes');
     WC_Cache_Helper::get_transient_version('shipping', true);
     return;
 }
@@ -730,6 +732,123 @@ configure_shopbridge_demo_settings() {
 }
 
 configure_shopbridge_demo_settings
+
+save_agentcart_catalog_snapshot() {
+  wp eval "$(cat <<'PHP'
+if (!class_exists('WooCommerce')) {
+    return;
+}
+
+function agentcart_demo_canonicalize($value) {
+    if (!is_array($value)) {
+        return $value;
+    }
+    $keys = array_keys($value);
+    $is_list = $keys === array_keys($keys);
+    if (!$is_list) {
+        ksort($value, SORT_STRING);
+    }
+    foreach ($value as $key => $item) {
+        $value[$key] = agentcart_demo_canonicalize($item);
+    }
+    return $value;
+}
+
+function agentcart_demo_hash($value) {
+    return hash('sha256', wp_json_encode(agentcart_demo_canonicalize($value), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+}
+
+function agentcart_demo_shipping_countries() {
+    if (WC()->countries && method_exists(WC()->countries, 'get_shipping_countries')) {
+        $countries = WC()->countries->get_shipping_countries();
+        if (is_array($countries) && $countries) {
+            return array_values(array_map('strtoupper', array_keys($countries)));
+        }
+    }
+    $stored = get_option('woocommerce_specific_ship_to_countries', []);
+    return is_array($stored) ? array_values(array_map('strtoupper', $stored)) : [];
+}
+
+function agentcart_demo_product_categories($product_id) {
+    $terms = wp_get_post_terms((int) $product_id, 'product_cat', ['fields' => 'slugs']);
+    return is_array($terms) ? array_values(array_map('sanitize_title', $terms)) : [];
+}
+
+$products = wc_get_products([
+    'status' => 'publish',
+    'type' => ['simple'],
+    'limit' => -1,
+    'return' => 'objects',
+    'orderby' => 'title',
+    'order' => 'ASC',
+]);
+
+$snapshot_products = [];
+$shipping_countries = agentcart_demo_shipping_countries();
+foreach ($products as $product) {
+    if (!$product instanceof WC_Product) {
+        continue;
+    }
+    if ($product->get_meta('_agentcart_enabled', true) !== 'yes') {
+        continue;
+    }
+    if ($product->get_meta('_agentcart_checkout_blocked', true) === 'yes') {
+        continue;
+    }
+    $stock_quantity = $product->managing_stock() && $product->get_stock_quantity() !== null
+        ? (int) $product->get_stock_quantity()
+        : null;
+    $stored_shipping = trim((string) $product->get_meta('_agentcart_shipping_countries', true));
+    $product_shipping_countries = $stored_shipping !== ''
+        ? array_values(array_map('strtoupper', array_map('trim', explode(',', $stored_shipping))))
+        : $shipping_countries;
+    $max_quantity = (int) $product->get_meta('_agentcart_max_quantity', true);
+    $row = [
+        'product_id' => 'woo_' . $product->get_id(),
+        'source_product_id' => (int) $product->get_id(),
+        'title' => wp_strip_all_tags($product->get_name()),
+        'sku' => $product->get_sku() ?: 'WOO-' . $product->get_id(),
+        'exposure_source' => 'manual',
+        'category_slugs' => agentcart_demo_product_categories($product->get_id()),
+        'shipping_countries' => $product_shipping_countries,
+        'stock_status' => $product->get_stock_status(),
+        'stock_quantity' => $stock_quantity,
+        'price_cents' => (int) round((float) wc_get_price_including_tax($product, ['qty' => 1]) * 100),
+        'currency' => strtoupper(get_woocommerce_currency()),
+        'max_quantity' => max(1, min(999, $max_quantity ?: 20)),
+        'restricted_goods_count' => 0,
+        'restricted_goods_override' => $product->get_meta('_agentcart_restricted_goods_allowed', true) === 'yes',
+    ];
+    $row['product_hash'] = agentcart_demo_hash($row);
+    $snapshot_products[] = $row;
+}
+
+usort($snapshot_products, static function ($left, $right) {
+    return strcmp((string) ($left['product_id'] ?? ''), (string) ($right['product_id'] ?? ''));
+});
+
+$settings_fingerprint = agentcart_demo_hash([
+    'mode' => get_option('agentcart_shopbridge_product_exposure_mode', 'manual'),
+    'tag' => get_option('agentcart_shopbridge_product_exposure_tag', 'agentcart-safe'),
+    'categories' => get_option('agentcart_shopbridge_product_exposure_categories', ''),
+    'blocked_categories' => get_option('agentcart_shopbridge_product_blocked_categories', ''),
+]);
+
+update_option('agentcart_shopbridge_product_exposure_snapshot', [
+    'schema' => 'agentcart.shopbridge.catalog_snapshot.v1',
+    'saved_at' => gmdate('Y-m-d\TH:i:s\Z'),
+    'settings_fingerprint' => $settings_fingerprint,
+    'catalog_hash' => agentcart_demo_hash($snapshot_products),
+    'included_count' => count($snapshot_products),
+    'products' => $snapshot_products,
+], false);
+
+printf("Saved AgentCart catalog exposure snapshot with %d products.\n", count($snapshot_products));
+PHP
+)" --allow-root
+}
+
+save_agentcart_catalog_snapshot
 
 wp eval "$(cat <<'PHP'
 if (class_exists('WooCommerce')) {
