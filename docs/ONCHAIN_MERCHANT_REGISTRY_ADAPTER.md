@@ -57,6 +57,28 @@ map into these optional fields. They let early records point at an ERC-8004-styl
 service id, registry contract, transaction hash, or attestation hash without
 making onchain registration mandatory for pilot merchants.
 
+## Projection Helper
+
+The projection is executable in the registry helper. For a live ShopBridge
+manifest:
+
+```sh
+python3 gateway/scripts/registry_record.py build \
+  --manifest-url https://shop.example/.well-known/agentcart.json \
+  --format onchain
+```
+
+For an existing registry record:
+
+```sh
+python3 gateway/scripts/registry_record.py project-onchain \
+  --record-file merchant-registry-record.json
+```
+
+The command emits only the contract-facing identity and integrity fields. It
+fails closed if required fields such as `registry_claim_hash`, payment binding,
+or revocation URL are missing.
+
 ## Gateway Role
 
 The gateway registry endpoint is an indexer/cache and monitor, not the source of

@@ -330,6 +330,23 @@ The output contains:
 - `legacy_merchant_settings`: paste-back settings only for legacy/non-ShopBridge
   manifests that do not publish an auto-managed registry claim.
 
+To inspect the compact smart-contract-facing projection for the same merchant,
+emit the onchain adapter shape:
+
+```sh
+python3 gateway/scripts/registry_record.py build \
+  --manifest-url https://shop.example/.well-known/agentcart.json \
+  --format onchain
+```
+
+If the registry record was already built or fetched from the merchant bundle,
+project that existing record instead:
+
+```sh
+python3 gateway/scripts/registry_record.py project-onchain \
+  --record-file merchant-registry-record.json
+```
+
 Verify the live proof:
 
 ```sh

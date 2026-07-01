@@ -367,6 +367,139 @@ def onboarding_bundle(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+ONCHAIN_REQUIRED_FIELDS = (
+    "record_hash",
+    "record_hash_alg",
+    "merchant_id",
+    "domain",
+    "manifest_url",
+    "registry_claim_hash_alg",
+    "registry_claim_hash",
+    "payment_network",
+    "payment_recipient",
+    "updated_at",
+    "revocation_url",
+)
+
+ONCHAIN_OPTIONAL_LIST_FIELDS = (
+    "protocol_profile_ids",
+    "supported_protocols",
+    "ship_to_countries",
+)
+
+ONCHAIN_IDENTITY_FIELDS = (
+    "chain_id",
+    "registry_address",
+    "agent_id",
+    "registration_uri",
+    "registration_tx_hash",
+    "attestation_hash",
+)
+
+
+def raw_onchain_identity(record: dict[str, Any]) -> Any:
+    if "onchain_identity" in record:
+        return record.get("onchain_identity")
+    return record.get("erc8004_identity")
+
+
+def onchain_identity_payload(record: dict[str, Any]) -> dict[str, str]:
+    raw = raw_onchain_identity(record)
+    if not isinstance(raw, dict):
+        return {}
+    aliases = {
+        "chain": "chain_id",
+        "chainId": "chain_id",
+        "registry": "registry_address",
+        "registry_contract": "registry_address",
+        "contract": "registry_address",
+        "service_id": "agent_id",
+        "tx_hash": "registration_tx_hash",
+        "transaction_hash": "registration_tx_hash",
+        "uri": "registration_uri",
+    }
+    payload: dict[str, str] = {}
+    for source_key in (
+        "chain_id",
+        "chain",
+        "chainId",
+        "registry_address",
+        "registry",
+        "registry_contract",
+        "contract",
+        "agent_id",
+        "service_id",
+        "registration_uri",
+        "uri",
+        "registration_tx_hash",
+        "tx_hash",
+        "transaction_hash",
+        "attestation_hash",
+    ):
+        target_key = aliases.get(source_key, source_key)
+        if target_key in payload:
+            continue
+        text = str(raw.get(source_key) or "").strip()
+        if text:
+            payload[target_key] = text
+    return payload
+
+
+def non_empty_string(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def is_sha256_hex(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdefABCDEF" for character in value)
+
+
+def onchain_projection(record: dict[str, Any]) -> dict[str, Any]:
+    projection: dict[str, Any] = {
+        "record_hash": agentcart.registry_record_hash(record),
+        "record_hash_alg": "sha-256",
+    }
+    scalar_fields = (
+        "merchant_id",
+        "domain",
+        "manifest_url",
+        "payment_network",
+        "payment_recipient",
+        "updated_at",
+        "revocation_url",
+    )
+    for field in scalar_fields:
+        value = non_empty_string(record.get(field))
+        if value:
+            projection[field] = value
+    registry_claim_hash = non_empty_string(record.get("registry_claim_hash"))
+    registry_claim_hash_alg = non_empty_string(record.get("registry_claim_hash_alg")) or "sha-256"
+    if registry_claim_hash:
+        projection["registry_claim_hash_alg"] = registry_claim_hash_alg
+        projection["registry_claim_hash"] = registry_claim_hash
+
+    identity = onchain_identity_payload(record)
+    for field in ONCHAIN_IDENTITY_FIELDS:
+        value = identity.get(field, "")
+        if value:
+            projection[field] = value
+
+    for field in ONCHAIN_OPTIONAL_LIST_FIELDS:
+        values = record.get(field)
+        if isinstance(values, list):
+            cleaned = [str(value).strip() for value in values if str(value).strip()]
+            if cleaned:
+                projection[field] = cleaned
+
+    missing = [field for field in ONCHAIN_REQUIRED_FIELDS if not projection.get(field)]
+    if missing:
+        raise ValueError(f"onchain projection missing required fields: {', '.join(missing)}")
+    if str(projection["registry_claim_hash_alg"]).lower() not in {"sha-256", "sha256"}:
+        raise ValueError("onchain projection unsupported registry_claim_hash_alg")
+    if not is_sha256_hex(str(projection["registry_claim_hash"])):
+        raise ValueError("onchain projection registry_claim_hash must be a SHA-256 hex digest")
+    return projection
+
+
 def minimal_config(tmp: pathlib.Path, *, hmac_secret: str = "", max_age_days: int = 180) -> Any:
     return agentcart.Config(
         bind="127.0.0.1",
@@ -520,9 +653,17 @@ def build_command(args: argparse.Namespace) -> int:
             if settings
             else "# no merchant env paste-back is required for this ShopBridge manifest\n"
         )
+    elif args.format == "onchain":
+        output = onchain_projection(record)
     else:
         output = bundle
     emit(output, args.output)
+    return 0
+
+
+def project_onchain_command(args: argparse.Namespace) -> int:
+    record = load_json_file(args.record_file)
+    emit(onchain_projection(record), args.output)
     return 0
 
 
@@ -563,9 +704,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build.add_argument("--hmac-secret", default="", help="Shared secret for hmac-sha256 private feeds")
     build.add_argument("--include-manifest-snapshot", action="store_true", help="Embed manifest_snapshot for local tests")
-    build.add_argument("--format", choices=["bundle", "record", "feed", "env"], default="bundle")
+    build.add_argument("--format", choices=["bundle", "record", "feed", "env", "onchain"], default="bundle")
     build.add_argument("--output", type=pathlib.Path, help="Write output to a file instead of stdout")
     build.set_defaults(func=build_command)
+
+    project_onchain = subparsers.add_parser(
+        "project-onchain",
+        help="Project an existing registry record to the smart-contract-facing adapter shape",
+    )
+    project_onchain.add_argument("--record-file", type=pathlib.Path, required=True)
+    project_onchain.add_argument("--output", type=pathlib.Path, help="Write output to a file instead of stdout")
+    project_onchain.set_defaults(func=project_onchain_command)
 
     verify = subparsers.add_parser("verify", help="Verify a registry record using the gateway verifier")
     verify.add_argument("--record-file", type=pathlib.Path, required=True)

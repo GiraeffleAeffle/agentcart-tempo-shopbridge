@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import pathlib
@@ -8,7 +9,10 @@ import tempfile
 import unittest
 
 
-TOOL_PATH = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "registry_record.py"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+TOOL_PATH = ROOT / "gateway" / "scripts" / "registry_record.py"
+TRUST_FIXTURE_PATH = ROOT / "docs" / "fixtures" / "registry" / "trust-fixtures.json"
+ONCHAIN_CONTRACT_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-adapter-contract.json"
 SPEC = importlib.util.spec_from_file_location("registry_record_tool", TOOL_PATH)
 registry_record_tool = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -132,6 +136,14 @@ def revocation_document(record: dict[str, object], revocations: list[dict[str, o
     }
 
 
+def registry_trust_fixture() -> dict[str, object]:
+    return json.loads(TRUST_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+
+def onchain_contract_fixture() -> dict[str, object]:
+    return json.loads(ONCHAIN_CONTRACT_PATH.read_text(encoding="utf-8"))
+
+
 class RegistryRecordToolTests(unittest.TestCase):
     def test_builds_legacy_domain_proof_record_and_paste_back_settings(self) -> None:
         manifest = shopbridge_manifest()
@@ -210,6 +222,74 @@ class RegistryRecordToolTests(unittest.TestCase):
         )
         self.assertEqual(bundle["legacy_merchant_settings"], {})
         self.assertIn("auto-publishes", bundle["merchant_action"])
+
+    def test_projects_shared_registry_record_to_onchain_contract_shape(self) -> None:
+        trust = registry_trust_fixture()
+        contract = onchain_contract_fixture()
+
+        projection = registry_record_tool.onchain_projection(trust["base"]["record"])
+
+        self.assertEqual(projection, contract["sample"]["onchain_record"])
+        self.assertTrue(set(contract["required_onchain_fields"]).issubset(projection))
+        self.assertTrue(set(contract["offchain_only_fields"]).isdisjoint(projection))
+
+    def test_build_format_onchain_uses_plugin_published_registry_record(self) -> None:
+        trust = registry_trust_fixture()
+        contract = onchain_contract_fixture()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest_file = tmp / "manifest.json"
+            output_file = tmp / "onchain.json"
+            manifest_file.write_text(json.dumps(trust["base"]["manifest"]), encoding="utf-8")
+
+            exit_code = registry_record_tool.main([
+                "build",
+                "--manifest-file",
+                str(manifest_file),
+                "--format",
+                "onchain",
+                "--output",
+                str(output_file),
+            ])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(json.loads(output_file.read_text(encoding="utf-8")), contract["sample"]["onchain_record"])
+
+    def test_project_onchain_command_accepts_existing_registry_record(self) -> None:
+        trust = registry_trust_fixture()
+        contract = onchain_contract_fixture()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            record_file = tmp / "record.json"
+            output_file = tmp / "onchain.json"
+            record_file.write_text(json.dumps(trust["base"]["record"]), encoding="utf-8")
+
+            exit_code = registry_record_tool.main([
+                "project-onchain",
+                "--record-file",
+                str(record_file),
+                "--output",
+                str(output_file),
+            ])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(json.loads(output_file.read_text(encoding="utf-8")), contract["sample"]["onchain_record"])
+
+    def test_onchain_projection_fails_closed_when_required_claim_hash_is_missing(self) -> None:
+        trust = registry_trust_fixture()
+        record = copy.deepcopy(trust["base"]["record"])
+        record.pop("registry_claim_hash")
+
+        with self.assertRaisesRegex(ValueError, "registry_claim_hash"):
+            registry_record_tool.onchain_projection(record)
+
+    def test_onchain_projection_rejects_malformed_claim_hash(self) -> None:
+        trust = registry_trust_fixture()
+        record = copy.deepcopy(trust["base"]["record"])
+        record["registry_claim_hash"] = "not-a-sha256-hash"
+
+        with self.assertRaisesRegex(ValueError, "SHA-256 hex digest"):
+            registry_record_tool.onchain_projection(record)
 
     def test_auto_managed_shopbridge_registry_claim_verifies(self) -> None:
         manifest = shopbridge_manifest_with_published_claim()
