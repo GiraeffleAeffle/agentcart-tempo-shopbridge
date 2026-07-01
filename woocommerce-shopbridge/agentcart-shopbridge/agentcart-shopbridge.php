@@ -5699,6 +5699,9 @@ final class AgentCart_ShopBridge {
                 $line_total = intval($quote_item['line_total_cents'] ?? 0) / 100;
                 $order_item->set_subtotal($line_total);
                 $order_item->set_total($line_total);
+                $order_item->set_subtotal_tax(0);
+                $order_item->set_total_tax(0);
+                $order_item->set_taxes(['subtotal' => [], 'total' => []]);
                 $order_item->save();
             }
         }
@@ -5709,6 +5712,9 @@ final class AgentCart_ShopBridge {
             $shipping_item->set_method_title(sanitize_text_field((string) ($shipping['method'] ?? 'AgentCart standard shipping')));
             $shipping_item->set_method_id('agentcart_standard');
             $shipping_item->set_total($shipping_cents / 100);
+            if (method_exists($shipping_item, 'set_taxes')) {
+                $shipping_item->set_taxes(['total' => []]);
+            }
             $order->add_item($shipping_item);
         }
         $ship_to = self::normalize_address($quote['ship_to'] ?? $body['ship_to'] ?? ['country' => 'DE']);
@@ -5755,7 +5761,9 @@ final class AgentCart_ShopBridge {
         }
         $order->update_meta_data('_agentcart_delivery_window', wp_json_encode($quote['delivery_window'] ?? null));
         $order->update_meta_data(self::STATUS_TOKEN_META, $status_token);
-        $order->calculate_totals();
+        // The quote total is already gross, payment-bound, and verifier-checked.
+        // Do not let WooCommerce recalculate tax on top of it during order creation.
+        $order->calculate_totals(false);
         $order->payment_complete(sanitize_text_field((string) $receipt['id']));
         $order->set_date_paid(time());
         $order->add_order_note('AgentCart created this order after quote-bound payment verification: ' . sanitize_text_field((string) ($payment_verification['mode'] ?? 'unknown')) . '.');
