@@ -813,6 +813,8 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
             Path(__file__).resolve().parents[2] / "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php"
         ).read_text()
         self.assertIn("$order->calculate_totals(false);", plugin)
+        self.assertIn("$quote_total_cents = intval($quote['total_cents'] ?? 0);", plugin)
+        self.assertIn("$order->set_total($quote_total_cents / 100);", plugin)
         self.assertIn("Do not let WooCommerce recalculate tax on top of it during order creation.", plugin)
 
 

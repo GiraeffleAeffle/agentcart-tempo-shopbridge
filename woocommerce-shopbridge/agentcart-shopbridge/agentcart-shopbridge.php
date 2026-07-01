@@ -5764,6 +5764,10 @@ final class AgentCart_ShopBridge {
         // The quote total is already gross, payment-bound, and verifier-checked.
         // Do not let WooCommerce recalculate tax on top of it during order creation.
         $order->calculate_totals(false);
+        $quote_total_cents = intval($quote['total_cents'] ?? 0);
+        if ($quote_total_cents > 0) {
+            $order->set_total($quote_total_cents / 100);
+        }
         $order->payment_complete(sanitize_text_field((string) $receipt['id']));
         $order->set_date_paid(time());
         $order->add_order_note('AgentCart created this order after quote-bound payment verification: ' . sanitize_text_field((string) ($payment_verification['mode'] ?? 'unknown')) . '.');
