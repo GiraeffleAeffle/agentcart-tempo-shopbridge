@@ -96,6 +96,7 @@ bash -n "$ROOT_DIR/scripts/woocommerce-demo-smoke.sh"
 bash -n "$ROOT_DIR/scripts/woocommerce-demo-reset.sh"
 bash -n "$ROOT_DIR/scripts/woocommerce-demo-integration.sh"
 bash -n "$ROOT_DIR/scripts/woocommerce-usd-staging-smoke.sh"
+bash -n "$ROOT_DIR/scripts/woocommerce-usd-mppx-settlement-smoke.sh"
 bash -n "$ROOT_DIR/scripts/pilot-evidence-dry-run.sh"
 bash -n "$ROOT_DIR/demo/woocommerce/seed-products.sh"
 bash -n "$ROOT_DIR/deploy/hetzner-staging/scripts/generate-usd-staging-secrets.sh"
@@ -135,6 +136,7 @@ section "Stripe MPP verifier syntax"
 (
   cd "$ROOT_DIR/gateway"
   npm run stripe:mpp:check
+  node --check scripts/mpp-smoke-server.mjs
   node --check scripts/verifier-sqlite-replay-store.mjs
   bash -n scripts/stripe-link-mpp-smoke.sh
   bash -n scripts/verifier-replay-smoke.sh

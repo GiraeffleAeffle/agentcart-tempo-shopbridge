@@ -429,6 +429,58 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
         self.assertEqual(proof["payment_receipt"]["reference"], "receipt-123")
         self.assertFalse(proof["real_settlement"])
 
+    def test_checkout_payload_can_use_real_mppx_proof_hook(self) -> None:
+        original = smoke.create_tempo_mpp_external_value_proof
+        calls = []
+
+        def fake_create_tempo_mpp_external_value_proof(quote, smoke_args):
+            calls.append((quote, smoke_args))
+            return {
+                "provider": "tempo_mpp",
+                "state": "succeeded",
+                "mode": "mppx-cli",
+                "body": {"amount": "14.80", "recipient": "0xabc"},
+                "payment_receipt": {"reference": "tx-123"},
+                "transaction_reference": "tx-123",
+                "real_settlement": False,
+                "value_transfer": True,
+            }
+
+        smoke.create_tempo_mpp_external_value_proof = fake_create_tempo_mpp_external_value_proof
+        try:
+            payload = smoke.checkout_payload(
+                sample_quote(),
+                args(tempo_mpp_proof_url="http://127.0.0.1:4250/paid"),
+                idempotency_key="checkout-key",
+                receipt_id="receipt-123",
+                use_tempo_mpp_proof=True,
+            )
+        finally:
+            smoke.create_tempo_mpp_external_value_proof = original
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(payload["payment_receipt"]["external_value_proof"]["mode"], "mppx-cli")
+        self.assertEqual(payload["payment_receipt"]["external_value_proof"]["transaction_reference"], "tx-123")
+
+    def test_mppx_output_parser_extracts_payment_receipt_reference(self) -> None:
+        receipt = smoke.base64.urlsafe_b64encode(
+            json.dumps({"method": "tempo", "status": "success", "reference": "tx-abc"}).encode()
+        ).decode().rstrip("=")
+        output = (
+            "HTTP/1.1 402 Payment Required\n"
+            "www-authenticate: Payment id=\"challenge\"\n\n"
+            "HTTP/1.1 200 OK\n"
+            f"payment-receipt: {receipt}\n"
+            "content-type: application/json\n\n"
+            '{"ok": true, "amount": "14.80", "recipient": "0xabc"}\n'
+        )
+
+        parsed = smoke.parse_mppx_output(output)
+
+        self.assertEqual(parsed["reference"], "tx-abc")
+        self.assertEqual(parsed["body"]["amount"], "14.80")
+        self.assertEqual(parsed["payment_receipt"]["method"], "tempo")
+
     def test_tempo_refund_gap_is_reported_as_expected_rejection(self) -> None:
         error = smoke.HttpJsonError(
             "HTTP 402",

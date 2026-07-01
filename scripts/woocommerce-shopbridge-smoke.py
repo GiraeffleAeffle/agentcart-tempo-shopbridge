@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
+import re
+import shlex
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -441,6 +446,108 @@ def tempo_demo_external_value_proof(quote: dict[str, Any], *, transaction_refere
     }
 
 
+def tempo_mpp_proof_url_for_quote(proof_url: str, quote: dict[str, Any]) -> str:
+    amount_cents = int(quote.get("total_cents") or 0)
+    amount = f"{amount_cents // 100}.{amount_cents % 100:02d}"
+    parts = urllib.parse.urlsplit(proof_url)
+    query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    query = [(key, value) for key, value in query if key not in {"amount", "currency", "quote_hash"}]
+    query.extend(
+        [
+            ("amount", amount),
+            ("currency", str(quote.get("currency") or "")),
+            ("quote_hash", str(quote.get("quote_hash") or "")),
+        ]
+    )
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(query), parts.fragment))
+
+
+def b64url_json(value: str) -> Any:
+    padding = "=" * (-len(value) % 4)
+    return json.loads(base64.urlsafe_b64decode((value + padding).encode()))
+
+
+def parse_mppx_output(output: str) -> dict[str, Any]:
+    receipt_match = re.search(r"(?im)^payment-receipt:\s*(.+)$", output)
+    receipt_header = receipt_match.group(1).strip() if receipt_match else ""
+    receipt: dict[str, Any] = {}
+    if receipt_header:
+        try:
+            decoded = b64url_json(receipt_header)
+            receipt = decoded if isinstance(decoded, dict) else {}
+        except (ValueError, json.JSONDecodeError):
+            receipt = {}
+    body: Any = {}
+    sections = [section.strip() for section in re.split(r"\r?\n\r?\n", output.strip()) if section.strip()]
+    for section in reversed(sections):
+        if section.startswith("HTTP/") or re.match(r"(?im)^[-a-z0-9]+:", section):
+            continue
+        try:
+            body = json.loads(section)
+            break
+        except json.JSONDecodeError:
+            continue
+    reference_match = re.search(r'"reference"\s*:\s*"([^"]+)"', output)
+    reference = str(receipt.get("reference") or (reference_match.group(1) if reference_match else ""))
+    if not receipt_header or not reference:
+        raise SmokeError(
+            "mppx payment did not return a usable Payment-Receipt reference; "
+            f"has_payment_receipt_header={bool(receipt_header)}"
+        )
+    return {
+        "body": body if isinstance(body, dict) else {},
+        "payment_receipt_header": receipt_header,
+        "payment_receipt": receipt,
+        "reference": reference,
+        "raw_tail": output[-3000:],
+    }
+
+
+def create_tempo_mpp_external_value_proof(quote: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    proof_url = str(getattr(args, "tempo_mpp_proof_url", "") or "").strip()
+    require(bool(proof_url), "--tempo-mpp-proof-url is required for real mppx proof checkout")
+    command = shlex.split(str(getattr(args, "tempo_mpp_command", "") or "npx mppx"))
+    full_command = [*command, tempo_mpp_proof_url_for_quote(proof_url, quote)]
+    network = str(getattr(args, "tempo_mpp_network", "") or "testnet").strip()
+    account = str(getattr(args, "tempo_mpp_account", "") or "").strip()
+    if network:
+        full_command.extend(["--network", network])
+    if account:
+        full_command.extend(["--account", account])
+    if "--include" not in full_command and "-i" not in full_command:
+        full_command.append("--include")
+    completed = subprocess.run(full_command, check=False, capture_output=True, text=True, timeout=120)
+    output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
+    if completed.returncode != 0:
+        raise SmokeError(f"mppx payment failed with exit {completed.returncode}: {output[-3000:]}")
+    parsed = parse_mppx_output(output)
+    rail = payment_rail_from_quote(quote)
+    contract = payment_contract_from_quote(quote, rail)
+    settlement = contract.get("settlement") if isinstance(contract.get("settlement"), dict) else {}
+    body = parsed["body"]
+    proof_receipt = parsed["payment_receipt"]
+    return {
+        "provider": "tempo_mpp",
+        "state": "succeeded",
+        "mode": "mppx-cli",
+        "network": str(body.get("network") or proof_receipt.get("network") or network),
+        "recipient": str(body.get("recipient") or settlement.get("recipient") or ""),
+        "body": body,
+        "payment_receipt": {
+            "method": str(proof_receipt.get("method") or "tempo"),
+            "status": str(proof_receipt.get("status") or "success"),
+            "reference": parsed["reference"],
+            "timestamp": str(proof_receipt.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+            "network": str(proof_receipt.get("network") or network),
+        },
+        "payment_receipt_header": parsed["payment_receipt_header"],
+        "transaction_reference": parsed["reference"],
+        "real_settlement": False,
+        "value_transfer": True,
+        "raw_tail": parsed["raw_tail"],
+    }
+
+
 def merchant_headers(args: argparse.Namespace) -> dict[str, str]:
     token = str(getattr(args, "merchant_token", "") or "").strip()
     require(bool(token), "--merchant-token or AGENTCART_WOO_SMOKE_MERCHANT_TOKEN is required for the endpoint harness")
@@ -455,6 +562,7 @@ def checkout_payload(
     receipt_id: str,
     merchant_quote_id: str | None = None,
     quote_hash: str | None = None,
+    use_tempo_mpp_proof: bool = False,
 ) -> dict[str, Any]:
     merchant_quote_id = merchant_quote_id or str(quote.get("id") or "")
     quote_hash = quote_hash if quote_hash is not None else str(quote.get("quote_hash") or "")
@@ -473,9 +581,10 @@ def checkout_payload(
         "payment_contract_hash": payment_contract_hash,
     }
     if rail == "tempo-mpp":
-        receipt["external_value_proof"] = tempo_demo_external_value_proof(
-            quote,
-            transaction_reference=receipt_id,
+        receipt["external_value_proof"] = (
+            create_tempo_mpp_external_value_proof(quote, args)
+            if use_tempo_mpp_proof
+            else tempo_demo_external_value_proof(quote, transaction_reference=receipt_id)
         )
     return {
         "agentcart_order_id": idempotency_key,
@@ -628,6 +737,7 @@ def run_endpoint_harness(base_url: str, quote: dict[str, Any], args: argparse.Na
             args,
             idempotency_key=f"agentcart-checkout-{run_id}",
             receipt_id=f"receipt-checkout-{run_id}",
+            use_tempo_mpp_proof=bool(str(getattr(args, "tempo_mpp_proof_url", "") or "").strip()),
         ),
     )
     validate_order_response(order)
@@ -861,6 +971,24 @@ def parser() -> argparse.ArgumentParser:
             os.getenv("AGENTCART_SHOPBRIDGE_TOKEN", "agentcart-woo-demo-token"),
         ),
         help="Merchant token used by the mutable checkout, refund, and cancellation harness.",
+    )
+    parser.add_argument(
+        "--tempo-mpp-proof-url",
+        default=os.getenv("AGENTCART_WOO_SMOKE_TEMPO_MPP_PROOF_URL", "").strip(),
+        help="Tempo MPP paid endpoint used to create a real mppx testnet proof for the successful checkout probe.",
+    )
+    parser.add_argument(
+        "--tempo-mpp-command",
+        default=os.getenv("AGENTCART_WOO_SMOKE_TEMPO_MPP_COMMAND", "npx mppx").strip(),
+        help="Command used to run mppx when --tempo-mpp-proof-url is set.",
+    )
+    parser.add_argument(
+        "--tempo-mpp-network",
+        default=os.getenv("AGENTCART_WOO_SMOKE_TEMPO_MPP_NETWORK", "testnet").strip(),
+    )
+    parser.add_argument(
+        "--tempo-mpp-account",
+        default=os.getenv("AGENTCART_WOO_SMOKE_TEMPO_MPP_ACCOUNT", "agentcart-test").strip(),
     )
     parser.add_argument(
         "--require-real-refund-verifier-evidence",

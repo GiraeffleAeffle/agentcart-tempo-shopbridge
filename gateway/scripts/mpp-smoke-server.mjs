@@ -13,7 +13,7 @@ const recipient = (
   ""
 ).trim();
 const token = process.env.MPP_SMOKE_TOKEN || "0x20c0000000000000000000000000000000000000";
-const amount = process.env.MPP_SMOKE_AMOUNT || "0.01";
+const defaultAmount = process.env.MPP_SMOKE_AMOUNT || "0.01";
 const secretKey =
   process.env.MPP_SMOKE_SECRET_KEY || crypto.randomBytes(32).toString("base64");
 
@@ -70,14 +70,22 @@ function readiness() {
     service: "agentcart-mpp-smoke",
     network,
     token,
-    amount,
+    default_amount: defaultAmount,
     recipient: recipient || null,
     paid_endpoint: `http://${host}:${port}/paid`,
     missing: recipient ? [] : ["MPP_SMOKE_RECIPIENT or AGENTCART_TEMPO_RECIPIENT_ADDRESS"],
   };
 }
 
-async function paid(fetchRequest) {
+function amountFromUrl(url) {
+  const requested = String(url.searchParams.get("amount") || defaultAmount).trim();
+  if (!/^\d+(?:\.\d{1,6})?$/.test(requested)) {
+    return null;
+  }
+  return requested;
+}
+
+async function paid(fetchRequest, url) {
   if (!recipient) {
     return jsonResponse(
       {
@@ -87,6 +95,11 @@ async function paid(fetchRequest) {
       },
       503,
     );
+  }
+
+  const amount = amountFromUrl(url);
+  if (!amount) {
+    return jsonResponse({ error: "amount must be a positive decimal string" }, 400);
   }
 
   const mpp = Mppx.create({
@@ -116,6 +129,8 @@ async function paid(fetchRequest) {
       real_settlement: network !== "testnet",
       testnet: network === "testnet",
       amount,
+      quote_hash: url.searchParams.get("quote_hash") || undefined,
+      quote_currency: url.searchParams.get("currency") || undefined,
       token,
       recipient,
       delivered_at: new Date().toISOString(),
@@ -136,7 +151,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const body = await parseBody(request);
-    await writeResponse(await paid(await toFetchRequest(request, body)), response);
+    await writeResponse(await paid(await toFetchRequest(request, body), url), response);
   } catch (error) {
     await writeResponse(
       jsonResponse(
@@ -156,4 +171,3 @@ server.listen(port, host, () => {
   console.log(`AgentCart MPP smoke server listening on http://${host}:${port}`);
   console.log(JSON.stringify(status, null, 2));
 });
-
