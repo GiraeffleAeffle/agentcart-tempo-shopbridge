@@ -150,6 +150,7 @@ AGENTCART_WOO_SHOP_TITLE="${AGENTCART_WOO_SHOP_TITLE:-AgentCart Demo Shop}"
 case "$AGENTCART_WOO_MARKET_PROFILE" in
   eur|baseline-eu-tax-shipping)
     AGENTCART_WOO_STORE_COUNTRY="${AGENTCART_WOO_STORE_COUNTRY:-DE:BB}"
+    AGENTCART_WOO_STORE_CITY="${AGENTCART_WOO_STORE_CITY:-Berlin}"
     AGENTCART_WOO_STORE_POSTCODE="${AGENTCART_WOO_STORE_POSTCODE:-10115}"
     AGENTCART_WOO_CURRENCY="${AGENTCART_WOO_CURRENCY:-EUR}"
     AGENTCART_WOO_PRICES_INCLUDE_TAX="${AGENTCART_WOO_PRICES_INCLUDE_TAX:-yes}"
@@ -158,6 +159,7 @@ case "$AGENTCART_WOO_MARKET_PROFILE" in
     ;;
   usd|tempo-usd-staging)
     AGENTCART_WOO_STORE_COUNTRY="${AGENTCART_WOO_STORE_COUNTRY:-US:NY}"
+    AGENTCART_WOO_STORE_CITY="${AGENTCART_WOO_STORE_CITY:-New York}"
     AGENTCART_WOO_STORE_POSTCODE="${AGENTCART_WOO_STORE_POSTCODE:-10001}"
     AGENTCART_WOO_CURRENCY="${AGENTCART_WOO_CURRENCY:-USD}"
     AGENTCART_WOO_PRICES_INCLUDE_TAX="${AGENTCART_WOO_PRICES_INCLUDE_TAX:-no}"
@@ -178,6 +180,7 @@ wp option update woocommerce_demo_store yes --allow-root
 wp option update woocommerce_demo_store_notice "Demo/staging shop only. No real orders, payments, delivery, or merchant obligations. Use only for AgentCart testing." --allow-root
 wp option update woocommerce_store_address "Demo Street 1" --allow-root
 wp option update woocommerce_default_country "$AGENTCART_WOO_STORE_COUNTRY" --allow-root
+wp option update woocommerce_store_city "$AGENTCART_WOO_STORE_CITY" --allow-root
 wp option update woocommerce_currency "$AGENTCART_WOO_CURRENCY" --allow-root
 wp option update woocommerce_prices_include_tax "$AGENTCART_WOO_PRICES_INCLUDE_TAX" --allow-root
 wp option update woocommerce_calc_taxes "$AGENTCART_WOO_CALC_TAXES" --allow-root

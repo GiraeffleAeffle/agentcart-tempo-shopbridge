@@ -391,6 +391,56 @@ def payment_rail_from_quote(quote: dict[str, Any]) -> str:
     return "tempo-mpp"
 
 
+def payment_contract_from_quote(quote: dict[str, Any], rail: str) -> dict[str, Any]:
+    requirements = quote.get("payment_requirements")
+    if not isinstance(requirements, dict):
+        return {}
+    contracts = requirements.get("verification_contracts")
+    if isinstance(contracts, list):
+        for contract in contracts:
+            if isinstance(contract, dict) and str(contract.get("rail") or "") == rail:
+                return contract
+    contract = requirements.get("verification_contract")
+    if isinstance(contract, dict) and (not contract.get("rail") or str(contract.get("rail") or "") == rail):
+        return contract
+    return {}
+
+
+def tempo_demo_external_value_proof(quote: dict[str, Any], *, transaction_reference: str) -> dict[str, Any]:
+    rail = payment_rail_from_quote(quote)
+    contract = payment_contract_from_quote(quote, rail)
+    settlement = contract.get("settlement") if isinstance(contract.get("settlement"), dict) else {}
+    amount_cents = int(quote.get("total_cents") or 0)
+    amount = f"{amount_cents // 100}.{amount_cents % 100:02d}"
+    network = str(settlement.get("network") or "")
+    recipient = str(settlement.get("recipient") or "")
+    if not recipient:
+        requirements = quote.get("payment_requirements")
+        protocols = requirements.get("protocols") if isinstance(requirements, dict) else []
+        for protocol in protocols if isinstance(protocols, list) else []:
+            if isinstance(protocol, dict) and str(protocol.get("id") or "") == "tempo-mpp":
+                recipient = str(protocol.get("recipient") or "")
+                network = network or str(protocol.get("network") or "")
+                break
+    return {
+        "provider": "tempo_mpp",
+        "state": "succeeded",
+        "network": network,
+        "recipient": recipient,
+        "body": {
+            "amount": amount,
+            "recipient": recipient,
+            "transaction_reference": transaction_reference,
+        },
+        "payment_receipt": {
+            "reference": transaction_reference,
+            "network": network,
+        },
+        "real_settlement": False,
+        "value_transfer": True,
+    }
+
+
 def merchant_headers(args: argparse.Namespace) -> dict[str, str]:
     token = str(getattr(args, "merchant_token", "") or "").strip()
     require(bool(token), "--merchant-token or AGENTCART_WOO_SMOKE_MERCHANT_TOKEN is required for the endpoint harness")
@@ -411,21 +461,28 @@ def checkout_payload(
     require(bool(merchant_quote_id), "quote.id is required for checkout")
     require(bool(quote_hash), "quote.quote_hash is required for checkout")
     payment_contract_hash = payment_contract_hash_from_quote(quote)
+    rail = payment_rail_from_quote(quote)
+    receipt = {
+        "id": receipt_id,
+        "rail": rail,
+        "provider": "agentcart-demo-harness",
+        "status": "verified",
+        "amount_cents": int(quote.get("total_cents") or 0),
+        "currency": str(quote.get("currency") or getattr(args, "currency", "EUR")),
+        "quote_hash": str(quote.get("quote_hash") or ""),
+        "payment_contract_hash": payment_contract_hash,
+    }
+    if rail == "tempo-mpp":
+        receipt["external_value_proof"] = tempo_demo_external_value_proof(
+            quote,
+            transaction_reference=receipt_id,
+        )
     return {
         "agentcart_order_id": idempotency_key,
         "idempotency_key": idempotency_key,
         "merchant_quote_id": merchant_quote_id,
         "quote_hash": quote_hash,
-        "payment_receipt": {
-            "id": receipt_id,
-            "rail": payment_rail_from_quote(quote),
-            "provider": "agentcart-demo-harness",
-            "status": "verified",
-            "amount_cents": int(quote.get("total_cents") or 0),
-            "currency": str(quote.get("currency") or getattr(args, "currency", "EUR")),
-            "quote_hash": str(quote.get("quote_hash") or ""),
-            "payment_contract_hash": payment_contract_hash,
-        },
+        "payment_receipt": receipt,
         "approval": {
             "approval_id": "approval_" + idempotency_key,
             "approval_hash": hashlib.sha256(("approval|" + idempotency_key).encode()).hexdigest(),
@@ -460,6 +517,30 @@ def expect_http_error(
             "detail": exc.detail,
         }
     raise SmokeError(f"{method} {path} unexpectedly succeeded; expected {expected_code}")
+
+
+def expected_tempo_refund_rejection(error: HttpJsonError, quote: dict[str, Any], args: argparse.Namespace) -> dict[str, Any] | None:
+    if payment_rail_from_quote(quote) != "tempo-mpp":
+        return None
+    if bool(getattr(args, "require_real_refund_verifier_evidence", False)):
+        return None
+    if error_code(error) not in {"agentcart_payment_not_verified", "agentcart_refund_not_verified"}:
+        return None
+    detail = error.detail if isinstance(error.detail, dict) else {}
+    data = detail.get("data") if isinstance(detail.get("data"), dict) else {}
+    verifier_detail = data.get("detail") if isinstance(data.get("detail"), dict) else {}
+    verifier_error = str(verifier_detail.get("error") or detail.get("message") or "")
+    if "Unsupported refund rail: tempo-mpp" not in verifier_error:
+        return None
+    return {
+        "state": "refund_rejected",
+        "expected_rejection": True,
+        "reason": "tempo_refund_adapter_missing",
+        "code": error_code(error),
+        "status": error.status,
+        "real_refund_verified": False,
+        "detail": error.detail,
+    }
 
 
 def validate_order_response(order: dict[str, Any]) -> None:
@@ -574,23 +655,28 @@ def run_endpoint_harness(base_url: str, quote: dict[str, Any], args: argparse.Na
         },
     )
     validate_cancellation_response(cancellation)
-    refund = http_json(
-        base_url,
-        f"/wp-json/agentcart/v1/orders/{order['id']}/refunds",
-        method="POST",
-        headers=headers,
-        payload={
-            "refund_idempotency_key": f"refund-{run_id}",
-            "requested_reference": f"refund-{run_id}",
-            "amount_cents": int(quote.get("total_cents") or 0),
-            "reason": "Endpoint integration harness refund probe",
-            "rail": payment_rail_from_quote(quote),
-        },
-    )
-    validate_refund_response(
-        refund,
-        require_real_refund_verifier_evidence=bool(getattr(args, "require_real_refund_verifier_evidence", False)),
-    )
+    try:
+        refund = http_json(
+            base_url,
+            f"/wp-json/agentcart/v1/orders/{order['id']}/refunds",
+            method="POST",
+            headers=headers,
+            payload={
+                "refund_idempotency_key": f"refund-{run_id}",
+                "requested_reference": f"refund-{run_id}",
+                "amount_cents": int(quote.get("total_cents") or 0),
+                "reason": "Endpoint integration harness refund probe",
+                "rail": payment_rail_from_quote(quote),
+            },
+        )
+        validate_refund_response(
+            refund,
+            require_real_refund_verifier_evidence=bool(getattr(args, "require_real_refund_verifier_evidence", False)),
+        )
+    except HttpJsonError as exc:
+        refund = expected_tempo_refund_rejection(exc, quote, args)
+        if refund is None:
+            raise
     return {
         "expired_quote_rejection": expired,
         "quote_hash_mismatch_rejection": mismatch,

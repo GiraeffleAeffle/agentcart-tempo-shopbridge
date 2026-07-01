@@ -6,6 +6,30 @@ BASE_URL="${AGENTCART_WOO_USD_SMOKE_BASE_URL:-https://woo-usd.agentcart.eu}"
 SECRETS_ENV_FILE="${AGENTCART_WOO_USD_SECRETS_ENV_FILE:-$ROOT_DIR/.secrets/agentcart-staging-usd.env}"
 with_endpoint_harness=0
 
+load_env_file() {
+  local line key value
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ""|\#*)
+        continue
+        ;;
+    esac
+
+    key="${line%%=*}"
+    value="${line#*=}"
+    if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [ "$key" = "$line" ]; then
+      continue
+    fi
+
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    export "$key=$value"
+  done < "$1"
+}
+
 usage() {
   cat <<'EOF'
 Usage: scripts/woocommerce-usd-staging-smoke.sh [--endpoint-harness]
@@ -54,10 +78,7 @@ args=(
 
 if [ "$with_endpoint_harness" -eq 1 ]; then
   if [ -f "$SECRETS_ENV_FILE" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "$SECRETS_ENV_FILE"
-    set +a
+    load_env_file "$SECRETS_ENV_FILE"
   fi
   if [ -z "${STAGING_SHOPBRIDGE_TOKEN:-}" ]; then
     printf 'STAGING_SHOPBRIDGE_TOKEN is required for --endpoint-harness. Source %s or set it manually.\n' "$SECRETS_ENV_FILE" >&2

@@ -32,28 +32,43 @@ stripe_sandbox_secret_key="sk_test_agentcart_usd_staging_demo_not_real"
 stripe_profile_id="agentcart_usd_staging_demo_profile"
 mpp_secret_key="$(openssl rand -base64 32 | tr -d '\n')"
 
-cat > "$SECRETS_ENV_FILE" <<EOF
-STAGING_DOMAIN=$domain
-STAGING_WOO_ADMIN_USER=$admin_user
-STAGING_WOO_ADMIN_PASSWORD=$admin_password
-STAGING_WOO_ADMIN_EMAIL=$admin_email
-STAGING_WOO_MARKET_PROFILE=tempo-usd-staging
-STAGING_WOO_SHOP_TITLE=$merchant_name
-STAGING_WOO_SMOKE_COUNTRY=US
-STAGING_WOO_SMOKE_POSTCODE=10001
-STAGING_WOO_SMOKE_CITY=New York
-STAGING_WOO_SMOKE_CURRENCY=USD
-STAGING_DB_PASSWORD=$db_password
-STAGING_DB_ROOT_PASSWORD=$db_root_password
-STAGING_SHOPBRIDGE_TOKEN=$shopbridge_token
-STAGING_MERCHANT_ID=$merchant_id
-STAGING_MERCHANT_NAME=$merchant_name
-STAGING_TEMPO_RECIPIENT_ADDRESS=$tempo_recipient_address
-STAGING_PAYMENT_VERIFIER_TOKEN=$payment_verifier_token
-STAGING_STRIPE_SANDBOX_SECRET_KEY=$stripe_sandbox_secret_key
-STAGING_STRIPE_PROFILE_ID=$stripe_profile_id
-STAGING_MPP_SECRET_KEY=$mpp_secret_key
-EOF
+quote_env_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\\$}"
+  value="${value//\`/\\\`}"
+  printf '"%s"' "$value"
+}
+
+write_env_var() {
+  printf '%s=' "$1"
+  quote_env_value "$2"
+  printf '\n'
+}
+
+{
+  write_env_var STAGING_DOMAIN "$domain"
+  write_env_var STAGING_WOO_ADMIN_USER "$admin_user"
+  write_env_var STAGING_WOO_ADMIN_PASSWORD "$admin_password"
+  write_env_var STAGING_WOO_ADMIN_EMAIL "$admin_email"
+  write_env_var STAGING_WOO_MARKET_PROFILE "tempo-usd-staging"
+  write_env_var STAGING_WOO_SHOP_TITLE "$merchant_name"
+  write_env_var STAGING_WOO_SMOKE_COUNTRY "US"
+  write_env_var STAGING_WOO_SMOKE_POSTCODE "10001"
+  write_env_var STAGING_WOO_SMOKE_CITY "New York"
+  write_env_var STAGING_WOO_SMOKE_CURRENCY "USD"
+  write_env_var STAGING_DB_PASSWORD "$db_password"
+  write_env_var STAGING_DB_ROOT_PASSWORD "$db_root_password"
+  write_env_var STAGING_SHOPBRIDGE_TOKEN "$shopbridge_token"
+  write_env_var STAGING_MERCHANT_ID "$merchant_id"
+  write_env_var STAGING_MERCHANT_NAME "$merchant_name"
+  write_env_var STAGING_TEMPO_RECIPIENT_ADDRESS "$tempo_recipient_address"
+  write_env_var STAGING_PAYMENT_VERIFIER_TOKEN "$payment_verifier_token"
+  write_env_var STAGING_STRIPE_SANDBOX_SECRET_KEY "$stripe_sandbox_secret_key"
+  write_env_var STAGING_STRIPE_PROFILE_ID "$stripe_profile_id"
+  write_env_var STAGING_MPP_SECRET_KEY "$mpp_secret_key"
+} > "$SECRETS_ENV_FILE"
 
 cat > "$SECRETS_YAML_FILE" <<EOF
 staging:
