@@ -114,9 +114,15 @@
         mode: "0600"
       no_log: true
 
-    - name: Start USD WordPress staging stack
+    - name: Start USD database
       ansible.builtin.command:
-        cmd: docker compose up -d db verifier wordpress
+        cmd: docker compose up -d db
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Recreate USD verifier and WordPress staging stack
+      ansible.builtin.command:
+        cmd: docker compose up -d --force-recreate verifier wordpress
         chdir: "{{ app_dir }}"
       changed_when: true
 
