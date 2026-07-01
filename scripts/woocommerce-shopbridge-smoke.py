@@ -645,7 +645,10 @@ def expected_tempo_refund_rejection(error: HttpJsonError, quote: dict[str, Any],
     data = detail.get("data") if isinstance(detail.get("data"), dict) else {}
     verifier_detail = data.get("detail") if isinstance(data.get("detail"), dict) else {}
     verifier_error = str(verifier_detail.get("error") or detail.get("message") or "")
-    if "Unsupported refund rail: tempo-mpp" not in verifier_error:
+    if (
+        "Unsupported refund rail: tempo-mpp" not in verifier_error
+        and "Tempo refund adapter is not configured" not in verifier_error
+    ):
         return None
     return {
         "state": "refund_rejected",

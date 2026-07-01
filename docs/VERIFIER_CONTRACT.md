@@ -196,11 +196,11 @@ payment rail/account.
 
 ## Current Demo Scope
 
-The repo implements the commerce flow, the verifier contract, and a Stripe/card
-MPP sandbox verifier for Link CLI testing. A production verifier still belongs
-to the selected payment rail or payment provider deployment because it must
-carry provider credentials, refund authority, replay protection, and operational
-monitoring.
+The repo implements the commerce flow, the verifier contract, a Stripe/card MPP
+sandbox verifier for Link CLI testing, and a guarded Tempo refund adapter. A
+production verifier still belongs to the selected payment rail or payment
+provider deployment because it must carry provider credentials, refund
+authority, replay protection, and operational monitoring.
 
 Tempo, x402, or other CLI proof helpers are value-proof artifacts only. Even on
 a successful mainnet command, AgentCart does not set `real_settlement` from CLI
@@ -212,6 +212,14 @@ unused session deposits, not refunding a completed one-time shop order. Real
 settlement and refund claims require the external verifier response to bind
 amount, currency or FX policy, merchant recipient/profile, quote hash, payment
 contract hash, and a non-replayed transaction or refund reference.
+
+For Tempo charge-flow refunds, configure the verifier with
+`AGENTCART_TEMPO_REFUND_MODE=live`,
+`AGENTCART_TEMPO_REFUND_PRIVATE_KEY`, and the matching token/asset settings.
+The refund private key must resolve to the original payment recipient, and the
+refund recipient must match the original payer address. With refund mode
+disabled or a wallet mismatch, the verifier fails closed and ShopBridge does not
+record a rail-verified refund.
 
 The current EUR stablecoin decision fixture is
 `docs/fixtures/verifier/euro-stablecoin-rail-plan.json`. It pins the first
