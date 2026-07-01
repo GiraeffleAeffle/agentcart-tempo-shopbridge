@@ -526,12 +526,16 @@ def create_tempo_mpp_external_value_proof(quote: dict[str, Any], args: argparse.
     settlement = contract.get("settlement") if isinstance(contract.get("settlement"), dict) else {}
     body = parsed["body"]
     proof_receipt = parsed["payment_receipt"]
+    payer_address = str(body.get("payer_address") or proof_receipt.get("payer_address") or "").strip()
+    payer_source = str(body.get("payer_source") or proof_receipt.get("payer_source") or "").strip()
     return {
         "provider": "tempo_mpp",
         "state": "succeeded",
         "mode": "mppx-cli",
         "network": str(body.get("network") or proof_receipt.get("network") or network),
         "recipient": str(body.get("recipient") or settlement.get("recipient") or ""),
+        "payer_address": payer_address,
+        "payer_source": payer_source,
         "body": body,
         "payment_receipt": {
             "method": str(proof_receipt.get("method") or "tempo"),
@@ -539,6 +543,8 @@ def create_tempo_mpp_external_value_proof(quote: dict[str, Any], args: argparse.
             "reference": parsed["reference"],
             "timestamp": str(proof_receipt.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
             "network": str(proof_receipt.get("network") or network),
+            "payer_address": payer_address,
+            "payer_source": payer_source,
         },
         "payment_receipt_header": parsed["payment_receipt_header"],
         "transaction_reference": parsed["reference"],

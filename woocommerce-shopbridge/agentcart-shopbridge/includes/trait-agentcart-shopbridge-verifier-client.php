@@ -74,6 +74,8 @@ trait AgentCart_ShopBridge_Verifier_Client {
         $expected_x402_asset = strtolower(self::x402_asset());
         $expected_x402_pay_to = strtolower(self::x402_pay_to());
         $expected_x402_amount = self::x402_atomic_amount(intval($quote['total_cents'] ?? 0));
+        $verified_payer_address = strtolower(sanitize_text_field((string) ($decoded['payer_address'] ?? $decoded['source_address'] ?? '')));
+        $verified_payer_source = sanitize_text_field((string) ($decoded['payer_source'] ?? $decoded['payment_source'] ?? ''));
         $transaction_reference = sanitize_text_field((string) ($decoded['transaction_reference'] ?? ''));
         $verified_contract_hash = sanitize_text_field((string) ($decoded['payment_contract_hash'] ?? $decoded['contract_hash'] ?? ''));
         if (
@@ -98,6 +100,9 @@ trait AgentCart_ShopBridge_Verifier_Client {
         }
         if ($rail === 'tempo-mpp' && $expected_recipient !== '' && $verified_recipient !== $expected_recipient) {
             return new WP_Error('agentcart_payment_recipient_mismatch', 'External payment verifier returned the wrong recipient.', ['status' => 402]);
+        }
+        if ($rail === 'tempo-mpp' && $verified_payer_address !== '' && !preg_match('/^0x[a-f0-9]{40}$/', $verified_payer_address)) {
+            return new WP_Error('agentcart_payment_payer_address_invalid', 'External payment verifier returned an invalid payer address.', ['status' => 402]);
         }
         if ($rail === 'stripe-card-mpp' && $expected_stripe_profile_id !== '' && $verified_stripe_profile_id !== $expected_stripe_profile_id) {
             return new WP_Error('agentcart_payment_stripe_profile_mismatch', 'External payment verifier returned the wrong Stripe profile.', ['status' => 402]);
@@ -135,6 +140,8 @@ trait AgentCart_ShopBridge_Verifier_Client {
             'rail' => $verified_rail,
             'network' => $verified_network ?: $expected_network,
             'recipient' => $verified_recipient ?: $expected_recipient,
+            'payer_address' => $verified_payer_address,
+            'payer_source' => $verified_payer_source,
             'stripe_profile_id' => $verified_stripe_profile_id ?: $expected_stripe_profile_id,
             'transaction_reference' => $transaction_reference,
             'quote_hash' => $expected_quote_hash,
@@ -143,6 +150,9 @@ trait AgentCart_ShopBridge_Verifier_Client {
     }
 
     private static function call_refund_verifier($verifier_url, WC_Order $order, $amount_cents, $currency, $reason, $rail, $quote_hash, $transaction_reference, $payment_verification, $body) {
+        $refund_recipient = is_array($payment_verification) ? strtolower(sanitize_text_field((string) ($payment_verification['payer_address'] ?? ''))) : '';
+        $tempo_asset = self::tempo_settlement_asset();
+        $tempo_asset_name = sanitize_text_field((string) ($tempo_asset['asset'] ?? ''));
         $payload = [
             'operation' => 'refund',
             'merchant' => self::merchant(),
@@ -165,6 +175,8 @@ trait AgentCart_ShopBridge_Verifier_Client {
                 'reason' => $reason,
                 'rail' => $rail,
                 'requested_reference' => sanitize_text_field((string) ($body['requested_reference'] ?? '')),
+                'recipient' => $rail === 'tempo-mpp' ? $refund_recipient : '',
+                'asset' => $rail === 'tempo-mpp' ? $tempo_asset_name : '',
             ],
             'expected' => [
                 'amount_cents' => intval($amount_cents),
@@ -173,6 +185,8 @@ trait AgentCart_ShopBridge_Verifier_Client {
                 'original_transaction_reference' => $transaction_reference,
                 'tempo_network' => self::tempo_network(),
                 'tempo_recipient' => self::tempo_recipient(),
+                'refund_recipient' => $rail === 'tempo-mpp' ? $refund_recipient : '',
+                'asset' => $rail === 'tempo-mpp' ? $tempo_asset_name : '',
                 'stripe_profile_id' => self::stripe_profile_id(),
             ],
         ];

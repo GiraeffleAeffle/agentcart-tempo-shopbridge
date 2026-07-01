@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
+import { Credential } from "mppx";
 import { Mppx, tempo } from "mppx/server";
 
 const host = process.env.MPP_SMOKE_BIND || "127.0.0.1";
@@ -85,6 +86,22 @@ function amountFromUrl(url) {
   return requested;
 }
 
+function payerFromAuthorizationHeader(value) {
+  const authorization = String(value || "").trim();
+  if (!authorization) return {};
+  try {
+    const credential = Credential.deserialize(authorization);
+    const source = String(credential.source || "").trim();
+    const match = /^did:pkh:eip155:(0|[1-9]\d*):(0x[a-fA-F0-9]{40})$/.exec(source);
+    return {
+      payer_source: source || undefined,
+      payer_address: match ? match[2].toLowerCase() : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function paid(fetchRequest, url) {
   if (!recipient) {
     return jsonResponse(
@@ -122,6 +139,8 @@ async function paid(fetchRequest, url) {
 
   if (result.status === 402) return result.challenge;
 
+  const payer = payerFromAuthorizationHeader(fetchRequest.headers.get("authorization"));
+
   return result.withReceipt(
     jsonResponse({
       ok: true,
@@ -133,6 +152,8 @@ async function paid(fetchRequest, url) {
       quote_currency: url.searchParams.get("currency") || undefined,
       token,
       recipient,
+      payer_source: payer.payer_source,
+      payer_address: payer.payer_address,
       delivered_at: new Date().toISOString(),
       artifact: "AgentCart MPP smoke paid resource",
     }),
