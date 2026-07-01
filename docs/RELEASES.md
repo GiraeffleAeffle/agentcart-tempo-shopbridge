@@ -53,6 +53,20 @@ feat!: major release
 
 You can also add a `BREAKING CHANGE:` footer for a major release.
 
+## Release Notes
+
+### Next patch release
+
+- Ship the USD WooCommerce staging production-readiness fixes: signed checkout
+  request enforcement, configured tax/shipping readiness, saved catalog exposure
+  snapshots, and the strict settlement smoke wrapper.
+- Preserve the verified AgentCart quote total when creating WooCommerce orders,
+  so tax-exclusive WooCommerce stores cannot create a refundable order total
+  that diverges from the payment-bound quote.
+- Validate the deployed USD staging path with real Tempo/pathUSD settlement and
+  refund evidence, including zero remaining refundable cents after cancellation
+  and full refund.
+
 Local config check:
 
 ```sh
