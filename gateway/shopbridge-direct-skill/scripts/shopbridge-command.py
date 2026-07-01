@@ -2028,6 +2028,10 @@ def create_tempo_demo_proof(quote: dict[str, Any]) -> dict[str, Any]:
     if completed.returncode != 0:
         raise SystemExit(json.dumps({"error": "mppx payment failed", "output": output[-3000:]}, indent=2))
     parsed = parse_mppx_output(output)
+    body = parsed["body"]
+    proof_receipt = parsed["payment_receipt"]
+    payer_address = str(body.get("payer_address") or proof_receipt.get("payer_address") or "").strip()
+    payer_source = str(body.get("payer_source") or proof_receipt.get("payer_source") or "").strip()
     return {
         "state": "succeeded",
         "provider": "tempo_mpp",
@@ -2035,12 +2039,16 @@ def create_tempo_demo_proof(quote: dict[str, Any]) -> dict[str, Any]:
         "network": MPP_NETWORK,
         "quote_currency": quote.get("currency"),
         "quote_total_cents": quote.get("total_cents"),
-        "body": parsed["body"],
+        "payer_address": payer_address,
+        "payer_source": payer_source,
+        "body": body,
         "payment_receipt": {
             "method": "tempo",
             "status": "success",
             "reference": parsed["reference"],
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "payer_address": payer_address,
+            "payer_source": payer_source,
         },
         "payment_receipt_header": parsed["payment_receipt_header"],
         "transaction_reference": parsed["reference"],

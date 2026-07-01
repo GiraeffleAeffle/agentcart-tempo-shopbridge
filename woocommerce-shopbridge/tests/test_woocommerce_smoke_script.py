@@ -440,6 +440,8 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
                 "state": "succeeded",
                 "mode": "mppx-cli",
                 "body": {"amount": "14.80", "recipient": "0xabc"},
+                "payer_address": "0x2222222222222222222222222222222222222222",
+                "payer_source": "did:pkh:eip155:6342:0x2222222222222222222222222222222222222222",
                 "payment_receipt": {"reference": "tx-123"},
                 "transaction_reference": "tx-123",
                 "real_settlement": False,
@@ -472,13 +474,15 @@ class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
             "HTTP/1.1 200 OK\n"
             f"payment-receipt: {receipt}\n"
             "content-type: application/json\n\n"
-            '{"ok": true, "amount": "14.80", "recipient": "0xabc"}\n'
+            '{"ok": true, "amount": "14.80", "recipient": "0xabc", '
+            '"payer_address": "0x2222222222222222222222222222222222222222"}\n'
         )
 
         parsed = smoke.parse_mppx_output(output)
 
         self.assertEqual(parsed["reference"], "tx-abc")
         self.assertEqual(parsed["body"]["amount"], "14.80")
+        self.assertEqual(parsed["body"]["payer_address"], "0x2222222222222222222222222222222222222222")
         self.assertEqual(parsed["payment_receipt"]["method"], "tempo")
 
     def test_tempo_refund_gap_is_reported_as_expected_rejection(self) -> None:

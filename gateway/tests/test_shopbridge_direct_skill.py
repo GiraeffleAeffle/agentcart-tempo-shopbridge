@@ -859,6 +859,21 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             shopbridge_direct.parse_mppx_output(output)
 
+    def test_mppx_output_parser_retains_payer_address(self) -> None:
+        receipt = shopbridge_direct.base64.urlsafe_b64encode(
+            json.dumps({"method": "tempo", "status": "success", "reference": "tx-abc"}).encode()
+        ).decode().rstrip("=")
+        output = (
+            "HTTP/1.1 200 OK\n"
+            f"payment-receipt: {receipt}\n\n"
+            '{"ok": true, "payer_address": "0x2222222222222222222222222222222222222222"}\n'
+        )
+
+        parsed = shopbridge_direct.parse_mppx_output(output)
+
+        self.assertEqual(parsed["reference"], "tx-abc")
+        self.assertEqual(parsed["body"]["payer_address"], "0x2222222222222222222222222222222222222222")
+
     def test_checkout_preflight_requires_external_verifier(self) -> None:
         quote = sample_quote(
             payment_requirements={

@@ -1190,6 +1190,39 @@ function tempoProofFromReceipt(receipt) {
   return { proof, body, proofReceipt };
 }
 
+function normalizeEvmAddress(value) {
+  const address = String(value || "").trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(address) ? address.toLowerCase() : "";
+}
+
+function addressFromPayerSource(value) {
+  const source = String(value || "").trim();
+  const match = /^did:pkh:eip155:(0|[1-9]\d*):(0x[a-fA-F0-9]{40})$/.exec(source);
+  return match ? match[2].toLowerCase() : "";
+}
+
+function tempoPayerFromProof(proof, body, proofReceipt) {
+  const payerSource = String(
+    proof.payer_source ||
+      body.payer_source ||
+      proofReceipt.payer_source ||
+      proof.payment_source ||
+      body.payment_source ||
+      "",
+  ).trim();
+  const payerAddress =
+    normalizeEvmAddress(proof.payer_address) ||
+    normalizeEvmAddress(body.payer_address) ||
+    normalizeEvmAddress(proofReceipt.payer_address) ||
+    normalizeEvmAddress(proof.source_address) ||
+    normalizeEvmAddress(body.source_address) ||
+    addressFromPayerSource(payerSource);
+  return {
+    payerAddress,
+    payerSource,
+  };
+}
+
 function chargeOptions(expected) {
   return {
     amount: String(expected.amountCents),
@@ -1377,6 +1410,7 @@ async function verifyTempoFxPayment(receipt, expected) {
   if (expected.tempoRecipient && recipient && recipient !== expected.tempoRecipient) {
     return jsonResponse({ ok: false, error: "Tempo proof recipient does not match merchant configuration." }, 400);
   }
+  const payer = tempoPayerFromProof(proof, body, proofReceipt);
   const transactionReference = String(
     proof.transaction_reference ||
       proof.reference ||
@@ -1397,6 +1431,7 @@ async function verifyTempoFxPayment(receipt, expected) {
     payment_contract_hash: expected.paymentContractHash || undefined,
     network: expected.tempoNetwork || network,
     recipient: expected.tempoRecipient || recipient,
+    payer_address: payer.payerAddress || undefined,
   });
   if (!replayClaim.ok) return replayClaim.response;
   return jsonResponse({
@@ -1410,6 +1445,8 @@ async function verifyTempoFxPayment(receipt, expected) {
     payment_contract_hash: expected.paymentContractHash || undefined,
     network: expected.tempoNetwork || network,
     recipient: expected.tempoRecipient || recipient,
+    payer_address: payer.payerAddress || undefined,
+    payer_source: payer.payerSource || undefined,
     transaction_reference: transactionReference,
     replay_reference: transactionReference,
     replay_request_hash: replayClaim.requestHash,

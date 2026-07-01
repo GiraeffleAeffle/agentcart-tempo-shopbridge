@@ -81,6 +81,8 @@ Expected success response:
   "rail": "tempo-mpp",
   "network": "testnet",
   "recipient": "0x...",
+  "payer_address": "0x...",
+  "payer_source": "did:pkh:eip155:...",
   "asset": "0x...",
   "pay_to": "0x...",
   "max_amount_required": "14800000",
@@ -123,13 +125,17 @@ ShopBridge sends:
     "currency": "EUR",
     "reason": "Customer requested refund",
     "rail": "stripe-card-mpp",
-    "requested_reference": "refund-order-123-1"
+    "requested_reference": "refund-order-123-1",
+    "recipient": "0x...",
+    "asset": "pathUSD"
   },
   "expected": {
     "amount_cents": 1480,
     "currency": "EUR",
     "quote_hash": "sha256...",
-    "original_transaction_reference": "0x..."
+    "original_transaction_reference": "0x...",
+    "refund_recipient": "0x...",
+    "asset": "pathUSD"
   }
 }
 ```

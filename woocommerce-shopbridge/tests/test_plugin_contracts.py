@@ -153,6 +153,9 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'replay_request_hash'", verifier_body + response_body)
         self.assertIn("'refund_status'", verifier_body + response_body)
         self.assertIn("'rail_refund_verified'", response_body)
+        self.assertIn("'refund_recipient' => $rail === 'tempo-mpp' ? $refund_recipient : ''", verifier_body)
+        self.assertIn("'recipient' => $rail === 'tempo-mpp' ? $refund_recipient : ''", verifier_body)
+        self.assertIn("'asset' => $rail === 'tempo-mpp' ? $tempo_asset_name : ''", verifier_body)
 
     def test_external_payment_references_are_replay_checked_before_paid_order_creation(self) -> None:
         body = function_body("call_payment_verifier")
