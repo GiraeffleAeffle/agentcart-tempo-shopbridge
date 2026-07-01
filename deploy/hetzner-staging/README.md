@@ -10,6 +10,7 @@ Default target:
 - Location: `fsn1`
 - Image: `ubuntu-24.04`
 - Domain: `woo-staging.agentcart.eu`
+- USD Tempo staging domain: `woo-usd.agentcart.eu`
 
 ## Local Secrets
 
@@ -35,6 +36,16 @@ The generated secrets include a non-real Tempo testnet recipient and an
 internal verifier bearer token. Staging uses these to exercise quote-bound
 public checkout with replay protection; the verifier still reports Tempo demo
 payments as not real settlement evidence.
+
+Generate a second, isolated secret set for the USD Tempo staging shop:
+
+```sh
+deploy/hetzner-staging/scripts/generate-usd-staging-secrets.sh
+```
+
+This writes `.secrets/agentcart-staging-usd.env` and
+`.secrets/agentcart-staging-usd.yml`. The USD shop uses a separate WordPress
+database volume, ShopBridge token, verifier replay store, and merchant id.
 
 ## Provision Server
 
@@ -64,12 +75,18 @@ Create this DNS record in Hetzner DNS or the domain DNS UI:
 
 ```text
 A  woo-staging  <terraform server_ipv4 output>
+A  woo-usd      <terraform server_ipv4 output>
 ```
+
+The Hetzner Cloud token used by Terraform provisions servers. It does not
+necessarily grant Hetzner DNS API access. If the DNS API is not separately
+configured, add the `woo-usd` record in the Console DNS UI.
 
 Wait until this resolves:
 
 ```sh
 dig +short woo-staging.agentcart.eu
+dig +short woo-usd.agentcart.eu
 ```
 
 ## Deploy WooCommerce
@@ -112,6 +129,42 @@ The public buyer-skill checkout path is configured for
 `external_verifier_only` mode. The WordPress container calls the internal
 `verifier` service at `http://verifier:4260/agentcart/verify`; the verifier is
 not exposed through Caddy.
+
+## Deploy USD Tempo Staging Shop
+
+After the base `woo-staging` stack is deployed and
+`woo-usd.agentcart.eu` points to the same server IPv4:
+
+```sh
+deploy/hetzner-staging/scripts/generate-usd-staging-secrets.sh
+ansible-playbook \
+  -i "$(cd deploy/hetzner-staging/terraform && docker run --rm -e HCLOUD_TOKEN -v "$PWD/../../..:/workspace" -w /workspace/deploy/hetzner-staging/terraform hashicorp/terraform:1.9 output -raw server_ipv4)," \
+  -u root \
+  --private-key .secrets/agentcart_staging_ed25519 \
+  deploy/hetzner-staging/ansible/usd-shop.yml
+```
+
+The USD playbook keeps the EUR staging shop intact. It deploys a second
+WordPress/database/verifier stack under `/opt/agentcart-woocommerce-usd`, joins
+the existing Caddy Docker network, and adds a Caddy route for
+`woo-usd.agentcart.eu`.
+
+Smoke-test the USD quote path:
+
+```sh
+scripts/woocommerce-usd-staging-smoke.sh
+```
+
+Run the mutable endpoint harness after checking that the shop can be reset:
+
+```sh
+scripts/woocommerce-usd-staging-smoke.sh --endpoint-harness
+```
+
+The USD shop is for Tempo/pathUSD flow validation. Do not use it to claim EUR
+settlement, EUR refunds, or production merchant readiness. The verifier still
+needs the real Tempo refund adapter before `real_refund_verified=true` is a
+production claim.
 
 This is internal rehearsal evidence only. It does not replace the
 non-maintainer walkthrough evidence required by

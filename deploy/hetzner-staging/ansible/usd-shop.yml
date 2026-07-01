@@ -1,0 +1,158 @@
+- name: Deploy AgentCart USD WooCommerce staging shop
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    app_dir: /opt/agentcart-woocommerce-usd
+    caddy_app_dir: /opt/agentcart-woocommerce-staging
+    caddy_proxy_network: agentcart-woocommerce-staging_default
+    caddy_upstream_host: agentcart-woocommerce-usd-wordpress-1
+    staging_secrets_file: "{{ playbook_dir }}/../../../.secrets/agentcart-staging-usd.yml"
+    plugin_src: "{{ playbook_dir }}/../../../woocommerce-shopbridge/agentcart-shopbridge"
+    seed_src: "{{ playbook_dir }}/../../../demo/woocommerce/seed-products.sh"
+    verifier_src: "{{ playbook_dir }}/../../../gateway"
+
+  pre_tasks:
+    - name: Load local USD staging secrets
+      ansible.builtin.include_vars:
+        file: "{{ staging_secrets_file }}"
+      no_log: true
+
+    - name: Validate local USD staging secrets
+      ansible.builtin.assert:
+        that:
+          - staging.domain | length > 0
+          - staging.woo_market_profile == 'tempo-usd-staging'
+          - staging.woo_smoke_currency == 'USD'
+          - staging.woo_admin_password | length > 0
+          - staging.db_password | length > 0
+          - staging.shopbridge_token | length > 0
+          - staging.tempo_recipient_address | length > 0
+          - staging.payment_verifier_token | length > 0
+          - staging.stripe_sandbox_secret_key | length > 0
+          - staging.stripe_profile_id | length > 0
+          - staging.mpp_secret_key | length > 0
+        fail_msg: "Run deploy/hetzner-staging/scripts/generate-usd-staging-secrets.sh first."
+      no_log: true
+
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - docker.io
+          - docker-compose-v2
+          - git
+          - openssl
+          - ufw
+        state: present
+        update_cache: true
+
+    - name: Enable Docker
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Ensure existing Caddy stack directory exists
+      ansible.builtin.stat:
+        path: "{{ caddy_app_dir }}/docker-compose.yml"
+      register: caddy_stack
+
+    - name: Require the existing EUR staging Caddy stack
+      ansible.builtin.assert:
+        that:
+          - caddy_stack.stat.exists
+        fail_msg: "Deploy the base woo-staging stack before deploying the USD shop."
+
+    - name: Create USD app directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/agentcart-shopbridge"
+        - "{{ app_dir }}/verifier"
+        - "{{ app_dir }}/verifier/scripts"
+
+    - name: Copy ShopBridge plugin
+      ansible.builtin.copy:
+        src: "{{ plugin_src }}/"
+        dest: "{{ app_dir }}/agentcart-shopbridge/"
+        mode: preserve
+
+    - name: Copy seed script
+      ansible.builtin.copy:
+        src: "{{ seed_src }}"
+        dest: "{{ app_dir }}/seed-products.sh"
+        mode: "0755"
+
+    - name: Copy verifier runtime
+      ansible.builtin.copy:
+        src: "{{ verifier_src }}/{{ item }}"
+        dest: "{{ app_dir }}/verifier/{{ item }}"
+        mode: preserve
+      loop:
+        - package.json
+        - package-lock.json
+        - scripts/stripe-mpp-verifier.mjs
+        - scripts/verifier-sqlite-replay-store.mjs
+
+    - name: Render USD Docker Compose file
+      ansible.builtin.template:
+        src: usd-docker-compose.yml.j2
+        dest: "{{ app_dir }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Render USD environment file
+      ansible.builtin.template:
+        src: staging.env.j2
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+      no_log: true
+
+    - name: Start USD WordPress staging stack
+      ansible.builtin.command:
+        cmd: docker compose up -d db verifier wordpress
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Wait for USD payment verifier health
+      ansible.builtin.command:
+        cmd: docker compose exec -T verifier wget -qO- http://127.0.0.1:4260/health
+        chdir: "{{ app_dir }}"
+      register: verifier_health
+      until: 'verifier_health.rc == 0 and ''"ok": true'' in verifier_health.stdout'
+      retries: 20
+      delay: 5
+      changed_when: false
+
+    - name: Seed USD WooCommerce and ShopBridge
+      ansible.builtin.command:
+        cmd: docker compose run --rm wpcli
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Add USD host to shared Caddyfile
+      ansible.builtin.blockinfile:
+        path: "{{ caddy_app_dir }}/Caddyfile"
+        marker: "# {mark} AgentCart USD WooCommerce staging"
+        block: |
+          {{ staging.domain }} {
+          	reverse_proxy {{ caddy_upstream_host }}:80
+          }
+        create: false
+        mode: "0644"
+
+    - name: Reload shared Caddy
+      ansible.builtin.command:
+        cmd: docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+        chdir: "{{ caddy_app_dir }}"
+      changed_when: true
+
+    - name: Show USD staging URL
+      ansible.builtin.debug:
+        msg: "USD WooCommerce staging is deployed at https://{{ staging.domain }}/wp-admin/"
