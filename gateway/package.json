@@ -15,7 +15,7 @@
     "stripe:link:smoke": "bash scripts/stripe-link-mpp-smoke.sh"
   },
   "dependencies": {
-    "mppx": "^0.7.0",
+    "mppx": "^0.8.1",
     "stripe": "^22.2.1"
   },
   "overrides": {

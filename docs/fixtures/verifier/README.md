@@ -15,6 +15,17 @@ the verifier can distinguish exact idempotent retries from replay conflicts.
   recording a rail-verified refund.
 - `refund-success.stripe-card-mpp.json`: verifier response ShopBridge accepts
   for a Stripe/card MPP refund.
+- `payment-request.tempo-mpp.json`: USD/pathUSD payload ShopBridge sends before
+  creating a paid WooCommerce order through a Tempo verifier.
+- `payment-success.tempo-mpp.json`: verifier response ShopBridge accepts for a
+  real Tempo settlement claim.
+- `refund-request.tempo-mpp.json`: USD/pathUSD refund payload that binds the
+  refund recipient to the original payer address.
+- `refund-success.tempo-mpp.json`: verifier response ShopBridge accepts for a
+  real Tempo refund transfer claim.
+- `euro-stablecoin-rail-plan.json`: current rail decision fixture recording why
+  the first Tempo staging shop should be USD and why EURC/EURe belong behind an
+  x402/EVM verifier path.
 - `negative/*.json`: mutation cases that must be rejected before a paid order
   or rail refund is accepted.
 

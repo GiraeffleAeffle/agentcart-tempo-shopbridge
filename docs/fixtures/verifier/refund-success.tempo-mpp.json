@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "provider": "tempo",
+  "rail": "tempo-mpp",
+  "amount_cents": 2499,
+  "currency": "USD",
+  "quote_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "original_transaction_reference": "tempo_testnet_charge_fixture_001",
+  "network": "testnet",
+  "original_recipient": "0x1111111111111111111111111111111111111111",
+  "refund_recipient": "0x2222222222222222222222222222222222222222",
+  "asset": "pathUSD",
+  "refund_reference": "tempo_testnet_refund_fixture_001",
+  "replay_reference": "tempo_testnet_refund_fixture_001",
+  "replay_request_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "refund_status": "succeeded",
+  "real_refund_verified": true
+}

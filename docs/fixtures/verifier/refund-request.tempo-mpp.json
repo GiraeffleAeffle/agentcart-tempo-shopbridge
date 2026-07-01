@@ -1,0 +1,55 @@
+{
+  "operation": "refund",
+  "merchant": {
+    "id": "woocommerce-usd-test-shop",
+    "name": "AgentCart USD Test Shop"
+  },
+  "order": {
+    "id": "456",
+    "number": "2001",
+    "agentcart_order_id": "skill_tempo_usd_fixture_001",
+    "agentcart_quote_id": "woo_quote_tempo_usd_fixture_001",
+    "merchant_quote_id": "woo_quote_tempo_usd_fixture_001",
+    "quote_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "currency": "USD",
+    "payment_method": "agentcart",
+    "payment_receipt_id": "payrcpt_tempo_fixture_001",
+    "transaction_reference": "tempo_testnet_charge_fixture_001",
+    "payment_verification": {
+      "state": "verified",
+      "mode": "external_verifier",
+      "real_settlement_verified": true,
+      "amount_cents": 2499,
+      "currency": "USD",
+      "rail": "tempo-mpp",
+      "network": "testnet",
+      "tempo_network": "testnet",
+      "recipient": "0x1111111111111111111111111111111111111111",
+      "asset": "pathUSD",
+      "payer_address": "0x2222222222222222222222222222222222222222",
+      "transaction_reference": "tempo_testnet_charge_fixture_001",
+      "quote_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "refund": {
+    "amount_cents": 2499,
+    "currency": "USD",
+    "reason": "Customer requested refund",
+    "rail": "tempo-mpp",
+    "requested_reference": "refund-order-456-1",
+    "recipient": "0x2222222222222222222222222222222222222222",
+    "asset": "pathUSD"
+  },
+  "expected": {
+    "amount_cents": 2499,
+    "currency": "USD",
+    "quote_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "original_transaction_reference": "tempo_testnet_charge_fixture_001",
+    "tempo_network": "testnet",
+    "tempo_recipient": "0x1111111111111111111111111111111111111111",
+    "refund_recipient": "0x2222222222222222222222222222222222222222",
+    "asset": "pathUSD",
+    "stripe_profile_id": ""
+  }
+}

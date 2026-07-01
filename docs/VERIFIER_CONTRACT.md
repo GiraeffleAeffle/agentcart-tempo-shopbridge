@@ -50,6 +50,8 @@ ShopBridge sends:
 
 The canonical Stripe/card MPP fixture is checked in at
 `docs/fixtures/verifier/payment-request.stripe-card-mpp.json`.
+The canonical Tempo MPP fixture is checked in at
+`docs/fixtures/verifier/payment-request.tempo-mpp.json`.
 
 The verifier must reject the payment unless it can prove:
 
@@ -91,6 +93,8 @@ Expected success response:
 
 The canonical Stripe/card MPP success fixture is checked in at
 `docs/fixtures/verifier/payment-success.stripe-card-mpp.json`.
+The canonical Tempo MPP success fixture is checked in at
+`docs/fixtures/verifier/payment-success.tempo-mpp.json`.
 
 ShopBridge rejects mismatched quote hash, payment contract hash, amount,
 currency, rail, rail-specific merchant recipient/profile fields, or missing
@@ -132,6 +136,8 @@ ShopBridge sends:
 
 The canonical Stripe/card MPP refund request fixture is checked in at
 `docs/fixtures/verifier/refund-request.stripe-card-mpp.json`.
+The canonical Tempo MPP refund request fixture is checked in at
+`docs/fixtures/verifier/refund-request.tempo-mpp.json`.
 
 The verifier must execute or verify the refund through the original rail and
 return:
@@ -153,6 +159,15 @@ return:
 
 The canonical Stripe/card MPP refund success fixture is checked in at
 `docs/fixtures/verifier/refund-success.stripe-card-mpp.json`.
+The canonical Tempo MPP refund success fixture is checked in at
+`docs/fixtures/verifier/refund-success.tempo-mpp.json`.
+
+Tempo refund fixtures are deliberately USD/pathUSD denominated. A Tempo refund
+success response must bind the refund transfer to the original transaction
+reference, merchant recipient, source/refund recipient, network, asset, quote
+hash, and replay reference before `real_refund_verified=true` is accepted. Do
+not claim EUR settlement or EUR refunds from a pathUSD proof unless a separate
+quote-bound FX verifier fixture is added.
 
 Negative contract fixtures are checked in at `docs/fixtures/verifier/negative/`.
 They cover amount mismatch, quote-hash mismatch, payment-contract mismatch,
@@ -183,9 +198,20 @@ monitoring.
 
 Tempo, x402, or other CLI proof helpers are value-proof artifacts only. Even on
 a successful mainnet command, AgentCart does not set `real_settlement` from CLI
-success alone. Real settlement claims require the external verifier response to
-bind amount, currency or FX policy, merchant recipient/profile, quote hash,
-payment contract hash, and a non-replayed transaction reference.
+success alone. Latest `mppx` checked on 2026-07-01 is `0.8.1`; the repo had
+`0.7.0` pinned before this research. The newer package adds hardening and
+x402/EVM surface work, but still does not expose a one-time Tempo refund API for
+completed WooCommerce orders. Session-channel `refundedToPayer` receipts cover
+unused session deposits, not refunding a completed one-time shop order. Real
+settlement and refund claims require the external verifier response to bind
+amount, currency or FX policy, merchant recipient/profile, quote hash, payment
+contract hash, and a non-replayed transaction or refund reference.
+
+The current EUR stablecoin decision fixture is
+`docs/fixtures/verifier/euro-stablecoin-rail-plan.json`. It pins the first
+Tempo staging shop as USD/pathUSD and treats EURC or Monerium EURe as x402/EVM
+rail candidates that need facilitator support plus the same verifier/refund
+contract before WooCommerce can mark settlement or refunds real.
 
 Validate the checked-in fixtures and the WooCommerce plugin payload field names:
 
