@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -109,6 +110,79 @@ def canonical(value: Any) -> str:
 
 def sha256_hex(value: Any) -> str:
     return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+def request_body_bytes(payload: dict[str, Any] | None) -> bytes:
+    return json.dumps(payload).encode() if payload is not None else b""
+
+
+def signed_request_headers(
+    path: str,
+    method: str,
+    payload: dict[str, Any] | None,
+    *,
+    secret: str,
+    signer: str = "agentcart",
+    nonce: str | None = None,
+    expires_at: int | None = None,
+) -> dict[str, str]:
+    require(bool(secret), "signed request secret is required")
+    nonce = nonce or f"smoke-{uuid.uuid4().hex}"
+    expires_at = int(expires_at or (time.time() + 300))
+    digest = "sha-256=" + hashlib.sha256(request_body_bytes(payload)).hexdigest()
+    canonical_request = "\n".join(
+        [
+            "agentcart-signed-request-v1",
+            method.upper(),
+            path,
+            digest.lower(),
+            nonce,
+            str(expires_at),
+            signer,
+        ]
+    )
+    signature = hmac.new(secret.encode(), canonical_request.encode(), hashlib.sha256).hexdigest()
+    return {
+        "X-AgentCart-Signed-Method": method.upper(),
+        "X-AgentCart-Signed-Path": path,
+        "X-AgentCart-Content-Digest": digest,
+        "X-AgentCart-Nonce": nonce,
+        "X-AgentCart-Expires-At": str(expires_at),
+        "X-AgentCart-Signer": signer,
+        "X-AgentCart-Signature-Alg": "hmac-sha256",
+        "X-AgentCart-Signature": signature,
+    }
+
+
+def signed_request_secret(args: argparse.Namespace) -> str:
+    return str(getattr(args, "signed_request_secret", "") or "").strip()
+
+
+def signed_request_signer(args: argparse.Namespace) -> str:
+    return str(getattr(args, "signed_request_signer", "") or "agentcart").strip() or "agentcart"
+
+
+def request_headers(
+    args: argparse.Namespace,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    base_headers: dict[str, str] | None = None,
+) -> dict[str, str]:
+    headers = dict(base_headers or {})
+    secret = signed_request_secret(args)
+    if secret:
+        headers.update(
+            signed_request_headers(
+                path,
+                method,
+                payload,
+                secret=secret,
+                signer=signed_request_signer(args),
+            )
+        )
+    return headers
 
 
 def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
@@ -704,89 +778,143 @@ def validate_cancellation_response(cancellation: dict[str, Any]) -> None:
 
 
 def run_endpoint_harness(base_url: str, quote: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    headers = merchant_headers(args)
+    base_headers = merchant_headers(args)
     run_id = uuid.uuid4().hex[:12]
+    expired_payload = checkout_payload(
+        quote,
+        args,
+        idempotency_key=f"agentcart-expired-{run_id}",
+        receipt_id=f"receipt-expired-{run_id}",
+        merchant_quote_id=f"woo_quote_missing_{run_id}",
+    )
     expired = expect_http_error(
         base_url,
         "/wp-json/agentcart/v1/orders",
         method="POST",
-        headers=headers,
-        payload=checkout_payload(
-            quote,
+        headers=request_headers(
             args,
-            idempotency_key=f"agentcart-expired-{run_id}",
-            receipt_id=f"receipt-expired-{run_id}",
-            merchant_quote_id=f"woo_quote_missing_{run_id}",
+            "/wp-json/agentcart/v1/orders",
+            method="POST",
+            payload=expired_payload,
+            base_headers=base_headers,
         ),
+        payload=expired_payload,
         expected_status=409,
         expected_code="agentcart_quote_expired",
+    )
+    mismatch_payload = checkout_payload(
+        quote,
+        args,
+        idempotency_key=f"agentcart-mismatch-{run_id}",
+        receipt_id=f"receipt-mismatch-{run_id}",
+        quote_hash="bad-quote-hash",
     )
     mismatch = expect_http_error(
         base_url,
         "/wp-json/agentcart/v1/orders",
         method="POST",
-        headers=headers,
-        payload=checkout_payload(
-            quote,
+        headers=request_headers(
             args,
-            idempotency_key=f"agentcart-mismatch-{run_id}",
-            receipt_id=f"receipt-mismatch-{run_id}",
-            quote_hash="bad-quote-hash",
+            "/wp-json/agentcart/v1/orders",
+            method="POST",
+            payload=mismatch_payload,
+            base_headers=base_headers,
         ),
+        payload=mismatch_payload,
         expected_status=409,
         expected_code="agentcart_quote_mismatch",
     )
+    checkout_path = "/wp-json/agentcart/v1/orders"
+    checkout_body = checkout_payload(
+        quote,
+        args,
+        idempotency_key=f"agentcart-checkout-{run_id}",
+        receipt_id=f"receipt-checkout-{run_id}",
+        use_tempo_mpp_proof=bool(str(getattr(args, "tempo_mpp_proof_url", "") or "").strip()),
+    )
     order = http_json(
         base_url,
-        "/wp-json/agentcart/v1/orders",
+        checkout_path,
         method="POST",
-        headers=headers,
-        payload=checkout_payload(
-            quote,
+        headers=request_headers(
             args,
-            idempotency_key=f"agentcart-checkout-{run_id}",
-            receipt_id=f"receipt-checkout-{run_id}",
-            use_tempo_mpp_proof=bool(str(getattr(args, "tempo_mpp_proof_url", "") or "").strip()),
+            checkout_path,
+            method="POST",
+            payload=checkout_body,
+            base_headers=base_headers,
         ),
+        payload=checkout_body,
     )
     validate_order_response(order)
     status_headers = {"X-AgentCart-Order-Token": str(order.get("status_token") or "")}
-    status = http_json(base_url, f"/wp-json/agentcart/v1/orders/{order['id']}/status", headers=status_headers)
+    status_path = f"/wp-json/agentcart/v1/orders/{order['id']}/status"
+    status = http_json(
+        base_url,
+        status_path,
+        headers=request_headers(args, status_path, base_headers=status_headers),
+    )
     validate_order_status(status, order=order)
+    refund_idempotency_path = f"/wp-json/agentcart/v1/orders/{order['id']}/refunds"
+    refund_idempotency_payload = {
+        "amount_cents": int(quote.get("total_cents") or 0),
+        "reason": "Endpoint harness missing idempotency probe",
+    }
     refund_idempotency = expect_http_error(
         base_url,
-        f"/wp-json/agentcart/v1/orders/{order['id']}/refunds",
+        refund_idempotency_path,
         method="POST",
-        headers=headers,
-        payload={"amount_cents": int(quote.get("total_cents") or 0), "reason": "Endpoint harness missing idempotency probe"},
+        headers=request_headers(
+            args,
+            refund_idempotency_path,
+            method="POST",
+            payload=refund_idempotency_payload,
+            base_headers=base_headers,
+        ),
+        payload=refund_idempotency_payload,
         expected_status=400,
         expected_code="agentcart_refund_idempotency_key_required",
     )
+    cancellation_path = f"/wp-json/agentcart/v1/orders/{order['id']}/cancellations"
+    cancellation_payload = {
+        "cancellation_idempotency_key": f"cancel-{run_id}",
+        "requested_reference": f"cancel-{run_id}",
+        "reason": "Endpoint integration harness cancellation probe",
+    }
     cancellation = http_json(
         base_url,
-        f"/wp-json/agentcart/v1/orders/{order['id']}/cancellations",
+        cancellation_path,
         method="POST",
-        headers=headers,
-        payload={
-            "cancellation_idempotency_key": f"cancel-{run_id}",
-            "requested_reference": f"cancel-{run_id}",
-            "reason": "Endpoint integration harness cancellation probe",
-        },
+        headers=request_headers(
+            args,
+            cancellation_path,
+            method="POST",
+            payload=cancellation_payload,
+            base_headers=base_headers,
+        ),
+        payload=cancellation_payload,
     )
     validate_cancellation_response(cancellation)
     try:
+        refund_path = f"/wp-json/agentcart/v1/orders/{order['id']}/refunds"
+        refund_payload = {
+            "refund_idempotency_key": f"refund-{run_id}",
+            "requested_reference": f"refund-{run_id}",
+            "amount_cents": int(quote.get("total_cents") or 0),
+            "reason": "Endpoint integration harness refund probe",
+            "rail": payment_rail_from_quote(quote),
+        }
         refund = http_json(
             base_url,
-            f"/wp-json/agentcart/v1/orders/{order['id']}/refunds",
+            refund_path,
             method="POST",
-            headers=headers,
-            payload={
-                "refund_idempotency_key": f"refund-{run_id}",
-                "requested_reference": f"refund-{run_id}",
-                "amount_cents": int(quote.get("total_cents") or 0),
-                "reason": "Endpoint integration harness refund probe",
-                "rail": payment_rail_from_quote(quote),
-            },
+            headers=request_headers(
+                args,
+                refund_path,
+                method="POST",
+                payload=refund_payload,
+                base_headers=base_headers,
+            ),
+            payload=refund_payload,
         )
         validate_refund_response(
             refund,
@@ -980,6 +1108,16 @@ def parser() -> argparse.ArgumentParser:
             os.getenv("AGENTCART_SHOPBRIDGE_TOKEN", "agentcart-woo-demo-token"),
         ),
         help="Merchant token used by the mutable checkout, refund, and cancellation harness.",
+    )
+    parser.add_argument(
+        "--signed-request-secret",
+        default=os.getenv("AGENTCART_WOO_SMOKE_SIGNED_REQUEST_SECRET", os.getenv("AGENTCART_SIGNED_REQUEST_SECRET", "")).strip(),
+        help="Optional HMAC secret used to sign mutable ShopBridge smoke requests.",
+    )
+    parser.add_argument(
+        "--signed-request-signer",
+        default=os.getenv("AGENTCART_WOO_SMOKE_SIGNED_REQUEST_SIGNER", "agentcart").strip(),
+        help="Signer label for signed ShopBridge smoke requests.",
     )
     parser.add_argument(
         "--tempo-mpp-proof-url",

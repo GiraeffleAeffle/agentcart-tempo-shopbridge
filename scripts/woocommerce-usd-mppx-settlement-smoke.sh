@@ -121,6 +121,7 @@ STAGING_SHOPBRIDGE_TOKEN="$STAGING_SHOPBRIDGE_TOKEN" \
     --require-shipping \
     --endpoint-harness \
     --merchant-token "$STAGING_SHOPBRIDGE_TOKEN" \
+    --signed-request-secret "${STAGING_SIGNED_REQUEST_SECRET:-}" \
     --tempo-mpp-proof-url "$MPP_PROOF_URL" \
     --tempo-mpp-command "$MPP_COMMAND" \
     --tempo-mpp-network "$MPP_NETWORK" \

@@ -45,7 +45,8 @@ deploy/hetzner-staging/scripts/generate-usd-staging-secrets.sh
 
 This writes `.secrets/agentcart-staging-usd.env` and
 `.secrets/agentcart-staging-usd.yml`. The USD shop uses a separate WordPress
-database volume, ShopBridge token, verifier replay store, and merchant id.
+database volume, ShopBridge token, signed checkout request secret, verifier
+replay store, and merchant id.
 
 ## Provision Server
 
@@ -161,9 +162,15 @@ Run the mutable endpoint harness after checking that the shop can be reset:
 scripts/woocommerce-usd-staging-smoke.sh --endpoint-harness
 ```
 
+The generated USD secrets set `STAGING_SIGNED_REQUEST_MODE=require_checkout`.
+The smoke wrappers load `STAGING_SIGNED_REQUEST_SECRET` from
+`.secrets/agentcart-staging-usd.env` and sign the checkout harness requests.
+This exercises the same signed checkout gate that production merchant setups
+must enable.
+
 The USD endpoint harness uses a quote-bound demo Tempo proof so checkout,
-status, cancellation, idempotency, and verifier replay behavior can be tested
-without pretending that real money moved. Refunds return a
+status, cancellation, idempotency, signed checkout enforcement, and verifier
+replay behavior can be tested without pretending that real money moved. Refunds return a
 `tempo_refund_adapter_missing` rejection while
 `STAGING_TEMPO_REFUND_MODE=disabled`; do not treat that harness result as
 `real_refund_verified=true`.
@@ -206,6 +213,8 @@ staging:
   tempo_refund_private_key: "0x..."
   tempo_refund_asset: "pathUSD"
   tempo_refund_token_address: "0x20c0000000000000000000000000000000000000"
+  signed_request_mode: "require_checkout"
+  signed_request_secret: "replace-with-32-byte-hex-secret"
 ```
 
 With settlement mode `verify`, the verifier waits for the Tempo transaction
@@ -218,8 +227,17 @@ The refund private key must belong to the original
 refund as `real_refund_verified=true` after a successful on-chain transfer
 receipt.
 
+After those settings are deployed, assert the production-readiness contract and
+real refund evidence in the settlement smoke:
+
+```sh
+AGENTCART_WOO_SMOKE_REQUIRE_PRODUCTION_READY=1 \
+AGENTCART_WOO_SMOKE_REQUIRE_REAL_REFUND_VERIFIER_EVIDENCE=1 \
+scripts/woocommerce-usd-mppx-settlement-smoke.sh
+```
+
 The USD shop is for Tempo/pathUSD flow validation. Do not use it to claim EUR
-settlement, EUR refunds, or production merchant readiness.
+settlement, EUR refunds, or real merchant market readiness.
 
 This is internal rehearsal evidence only. It does not replace the
 non-maintainer walkthrough evidence required by
