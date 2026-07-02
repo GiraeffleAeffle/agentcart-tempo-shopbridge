@@ -347,6 +347,23 @@ python3 gateway/scripts/registry_record.py project-onchain \
   --record-file merchant-registry-record.json
 ```
 
+For append-only/onchain registry dry runs, write compact events to a JSONL
+ledger and rebuild the index from that event stream:
+
+```sh
+python3 gateway/scripts/registry_record.py append-onchain \
+  --ledger-file onchain-registry.jsonl \
+  --operation upsert \
+  --record-file merchant-registry-record.json
+
+python3 gateway/scripts/registry_record.py index-onchain \
+  --ledger-file onchain-registry.jsonl
+```
+
+The ledger stores the contract-facing projection and revoke events only; it does
+not store products, prices, quotes, buyer demand, order payloads, or payment
+receipts.
+
 Verify the live proof:
 
 ```sh

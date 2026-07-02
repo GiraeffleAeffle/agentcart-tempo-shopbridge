@@ -291,6 +291,139 @@ class RegistryRecordToolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SHA-256 hex digest"):
             registry_record_tool.onchain_projection(record)
 
+    def test_append_only_onchain_ledger_indexes_active_and_revoked_records(self) -> None:
+        trust = registry_trust_fixture()
+        contract = onchain_contract_fixture()
+        record_hash = contract["sample"]["onchain_record"]["record_hash"]
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            ledger_file = tmp / "onchain-registry.jsonl"
+            record_file = tmp / "record.json"
+            upsert_file = tmp / "upsert.json"
+            revoke_file = tmp / "revoke.json"
+            index_file = tmp / "index.json"
+            revoked_index_file = tmp / "revoked-index.json"
+            record_file.write_text(json.dumps(trust["base"]["record"]), encoding="utf-8")
+
+            upsert_exit = registry_record_tool.main([
+                "append-onchain",
+                "--ledger-file",
+                str(ledger_file),
+                "--operation",
+                "upsert",
+                "--record-file",
+                str(record_file),
+                "--created-at",
+                "2026-06-01T00:00:00Z",
+                "--output",
+                str(upsert_file),
+            ])
+            index_exit = registry_record_tool.main([
+                "index-onchain",
+                "--ledger-file",
+                str(ledger_file),
+                "--output",
+                str(index_file),
+            ])
+            revoke_exit = registry_record_tool.main([
+                "append-onchain",
+                "--ledger-file",
+                str(ledger_file),
+                "--operation",
+                "revoke",
+                "--record-hash",
+                record_hash,
+                "--created-at",
+                "2026-06-02T00:00:00Z",
+                "--reason",
+                "merchant_admin_revoke",
+                "--output",
+                str(revoke_file),
+            ])
+            revoked_index_exit = registry_record_tool.main([
+                "index-onchain",
+                "--ledger-file",
+                str(ledger_file),
+                "--output",
+                str(revoked_index_file),
+            ])
+
+            self.assertEqual(upsert_exit, 0)
+            self.assertEqual(index_exit, 0)
+            self.assertEqual(revoke_exit, 0)
+            self.assertEqual(revoked_index_exit, 0)
+
+            upsert_event = json.loads(upsert_file.read_text(encoding="utf-8"))
+            index = json.loads(index_file.read_text(encoding="utf-8"))
+            revoked_index = json.loads(revoked_index_file.read_text(encoding="utf-8"))
+
+            self.assertEqual(upsert_event["schema"], "agentcart.onchain_registry_ledger_event.v1")
+            self.assertEqual(upsert_event["operation"], "upsert")
+            self.assertEqual(upsert_event["previous_event_hash"], "")
+            self.assertEqual(upsert_event["record_hash"], record_hash)
+            self.assertEqual(upsert_event["onchain_record"], contract["sample"]["onchain_record"])
+            self.assertTrue(set(contract["offchain_only_fields"]).isdisjoint(upsert_event["onchain_record"]))
+
+            self.assertEqual(index["schema"], "agentcart.onchain_registry_ledger_index.v1")
+            self.assertTrue(index["verification"]["chain_valid"])
+            self.assertEqual(index["records"], [contract["sample"]["onchain_record"]])
+            self.assertEqual(index["revocations"], [])
+            self.assertEqual(index["proof"]["record_hashes"], [record_hash])
+            self.assertEqual(index["proof"]["revocation_record_hashes"], [])
+
+            events = registry_record_tool.load_onchain_ledger_events(ledger_file)
+            self.assertEqual(len(events), 2)
+            self.assertEqual(events[1]["previous_event_hash"], events[0]["event_hash"])
+            self.assertTrue(registry_record_tool.verify_onchain_ledger_events(events)["chain_valid"])
+
+            self.assertTrue(revoked_index["verification"]["chain_valid"])
+            self.assertEqual(revoked_index["records"], [])
+            self.assertEqual([item["record_hash"] for item in revoked_index["revocations"]], [record_hash])
+            self.assertEqual(revoked_index["proof"]["record_hashes"], [])
+            self.assertEqual(revoked_index["proof"]["revocation_record_hashes"], [record_hash])
+
+    def test_onchain_ledger_index_reports_hash_chain_tampering(self) -> None:
+        trust = registry_trust_fixture()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            ledger_file = tmp / "onchain-registry.jsonl"
+            record_file = tmp / "record.json"
+            upsert_file = tmp / "upsert.json"
+            index_file = tmp / "index.json"
+            record_file.write_text(json.dumps(trust["base"]["record"]), encoding="utf-8")
+            self.assertEqual(
+                registry_record_tool.main([
+                    "append-onchain",
+                    "--ledger-file",
+                    str(ledger_file),
+                    "--operation",
+                    "upsert",
+                    "--record-file",
+                    str(record_file),
+                    "--output",
+                    str(upsert_file),
+                ]),
+                0,
+            )
+            event = json.loads(ledger_file.read_text(encoding="utf-8"))
+            event["merchant_id"] = "tampered-shop"
+            ledger_file.write_text(json.dumps(event, sort_keys=True) + "\n", encoding="utf-8")
+
+            exit_code = registry_record_tool.main([
+                "index-onchain",
+                "--ledger-file",
+                str(ledger_file),
+                "--output",
+                str(index_file),
+            ])
+
+            self.assertEqual(exit_code, 1)
+            index = json.loads(index_file.read_text(encoding="utf-8"))
+            self.assertFalse(index["verification"]["chain_valid"])
+            self.assertEqual(index["verification"]["errors"][0]["error"], "event_hash_mismatch")
+            self.assertEqual(index["records"], [])
+            self.assertEqual(index["revocations"], [])
+
     def test_auto_managed_shopbridge_registry_claim_verifies(self) -> None:
         manifest = shopbridge_manifest_with_published_claim()
         record = registry_record_tool.build_registry_record(manifest)
