@@ -79,6 +79,42 @@ The command emits only the contract-facing identity and integrity fields. It
 fails closed if required fields such as `registry_claim_hash`, payment binding,
 or revocation URL are missing.
 
+## Append-Only Ledger Prototype
+
+The same helper can write and index a local append-only JSONL ledger that mirrors
+the event stream a future smart contract or indexer would expose. It stores only
+the compact onchain projection plus revocation events.
+
+Append an upsert event:
+
+```sh
+python3 gateway/scripts/registry_record.py append-onchain \
+  --ledger-file onchain-registry.jsonl \
+  --operation upsert \
+  --record-file merchant-registry-record.json
+```
+
+Append a revoke event:
+
+```sh
+python3 gateway/scripts/registry_record.py append-onchain \
+  --ledger-file onchain-registry.jsonl \
+  --operation revoke \
+  --record-hash e62a7ac838db39bee5df09c2394c961c6d0809e8132fad344a868bc788745478 \
+  --reason merchant_admin_revoke
+```
+
+Rebuild the index:
+
+```sh
+python3 gateway/scripts/registry_record.py index-onchain \
+  --ledger-file onchain-registry.jsonl
+```
+
+The index command verifies sequence numbers, previous-event hashes, event
+hashes, and record hashes before returning active onchain records, revocations,
+and a compact proof over record hashes, revoked hashes, and the log head.
+
 ## Gateway Role
 
 The gateway registry endpoint is an indexer/cache and monitor, not the source of

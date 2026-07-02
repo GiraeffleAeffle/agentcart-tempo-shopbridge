@@ -397,6 +397,11 @@ ONCHAIN_IDENTITY_FIELDS = (
 )
 
 
+ONCHAIN_LEDGER_EVENT_SCHEMA = "agentcart.onchain_registry_ledger_event.v1"
+ONCHAIN_LEDGER_INDEX_SCHEMA = "agentcart.onchain_registry_ledger_index.v1"
+ONCHAIN_LEDGER_PROOF_SCHEMA = "agentcart.onchain_registry_ledger_proof.v1"
+
+
 def raw_onchain_identity(record: dict[str, Any]) -> Any:
     if "onchain_identity" in record:
         return record.get("onchain_identity")
@@ -498,6 +503,219 @@ def onchain_projection(record: dict[str, Any]) -> dict[str, Any]:
     if not is_sha256_hex(str(projection["registry_claim_hash"])):
         raise ValueError("onchain projection registry_claim_hash must be a SHA-256 hex digest")
     return projection
+
+
+def hash_without(value: dict[str, Any], field: str) -> str:
+    return agentcart.canonical_json_hash({key: item for key, item in value.items() if key != field})
+
+
+def onchain_ledger_event_hash(event: dict[str, Any]) -> str:
+    return hash_without(event, "event_hash")
+
+
+def load_onchain_ledger_events(path: pathlib.Path) -> list[dict[str, Any]]:
+    try:
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    events: list[dict[str, Any]] = []
+    for line_number, line in enumerate(raw_lines, start=1):
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        if not isinstance(event, dict):
+            raise ValueError(f"{path}:{line_number} must contain a JSON object")
+        events.append(event)
+    return events
+
+
+def verify_onchain_ledger_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    previous_hash = ""
+    for index, event in enumerate(events, start=1):
+        sequence = int(event.get("sequence") or 0)
+        if sequence != index:
+            errors.append({"sequence": index, "error": "sequence_mismatch", "actual": sequence})
+        if str(event.get("schema") or "") != ONCHAIN_LEDGER_EVENT_SCHEMA:
+            errors.append({"sequence": index, "error": "schema_mismatch"})
+        supplied_previous = str(event.get("previous_event_hash") or "")
+        if supplied_previous != previous_hash:
+            errors.append({"sequence": index, "error": "previous_event_hash_mismatch"})
+        supplied_hash = str(event.get("event_hash") or "")
+        actual_hash = onchain_ledger_event_hash(event)
+        if not supplied_hash or supplied_hash != actual_hash:
+            errors.append({"sequence": index, "error": "event_hash_mismatch", "actual": actual_hash})
+        operation = str(event.get("operation") or "")
+        if operation not in {"upsert", "revoke"}:
+            errors.append({"sequence": index, "error": "operation_mismatch"})
+        record_hash = str(event.get("record_hash") or "")
+        if not is_sha256_hex(record_hash):
+            errors.append({"sequence": index, "error": "record_hash_invalid"})
+        if operation == "upsert":
+            onchain_record = event.get("onchain_record")
+            if not isinstance(onchain_record, dict):
+                errors.append({"sequence": index, "error": "onchain_record_missing"})
+            elif str(onchain_record.get("record_hash") or "") != record_hash:
+                errors.append({"sequence": index, "error": "onchain_record_hash_mismatch"})
+        previous_hash = supplied_hash
+    return {
+        "chain_valid": not errors,
+        "errors": errors,
+        "event_count": len(events),
+        "log_head_hash": previous_hash if events else "",
+        "hash_alg": "sha-256",
+    }
+
+
+def onchain_ledger_event(
+    events: list[dict[str, Any]],
+    *,
+    operation: str,
+    record_hash: str,
+    created_at: str,
+    onchain_record: dict[str, Any] | None = None,
+    merchant_id: str = "",
+    domain: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    if operation not in {"upsert", "revoke"}:
+        raise ValueError("operation must be upsert or revoke")
+    if not is_sha256_hex(record_hash):
+        raise ValueError("record_hash must be a SHA-256 hex digest")
+    previous_hash = str(events[-1].get("event_hash") or "") if events else ""
+    event: dict[str, Any] = {
+        "schema": ONCHAIN_LEDGER_EVENT_SCHEMA,
+        "sequence": len(events) + 1,
+        "operation": operation,
+        "created_at": created_at,
+        "record_hash": record_hash,
+        "record_hash_alg": "sha-256",
+        "merchant_id": merchant_id,
+        "domain": domain,
+        "previous_event_hash": previous_hash,
+        "hash_alg": "sha-256",
+    }
+    if operation == "upsert":
+        if onchain_record is None:
+            raise ValueError("onchain_record is required for upsert")
+        event["onchain_record"] = onchain_record
+        event["onchain_record_hash"] = agentcart.canonical_json_hash(onchain_record)
+    if operation == "revoke":
+        event["reason"] = reason or "merchant_admin_revoke"
+    event["event_hash"] = onchain_ledger_event_hash(event)
+    return event
+
+
+def append_onchain_ledger_event(
+    path: pathlib.Path,
+    *,
+    operation: str,
+    record: dict[str, Any] | None = None,
+    record_hash: str = "",
+    created_at: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    events = load_onchain_ledger_events(path)
+    verification = verify_onchain_ledger_events(events)
+    if not verification["chain_valid"]:
+        raise ValueError("onchain ledger chain is invalid")
+    onchain_record = onchain_projection(record) if record is not None else None
+    final_record_hash = record_hash or str((onchain_record or {}).get("record_hash") or "")
+    event = onchain_ledger_event(
+        events,
+        operation=operation,
+        record_hash=final_record_hash,
+        created_at=created_at or iso_now(),
+        onchain_record=onchain_record,
+        merchant_id=str((onchain_record or record or {}).get("merchant_id") or ""),
+        domain=str((onchain_record or record or {}).get("domain") or ""),
+        reason=reason,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
+    return event
+
+
+def onchain_ledger_proof(
+    *,
+    record_hashes: list[str],
+    revocation_record_hashes: list[str],
+    verification: dict[str, Any],
+) -> dict[str, Any]:
+    payload = {
+        "schema": ONCHAIN_LEDGER_PROOF_SCHEMA,
+        "record_hashes": record_hashes,
+        "revocation_record_hashes": revocation_record_hashes,
+        "records_hash": agentcart.canonical_json_hash(record_hashes),
+        "revocations_hash": agentcart.canonical_json_hash(revocation_record_hashes),
+        "log_head_hash": str(verification.get("log_head_hash") or ""),
+        "event_count": int(verification.get("event_count") or 0),
+        "hash_alg": "sha-256",
+    }
+    return {
+        **payload,
+        "payload_hash": agentcart.canonical_json_hash(payload),
+    }
+
+
+def index_onchain_ledger_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    verification = verify_onchain_ledger_events(events)
+    if not verification["chain_valid"]:
+        return {
+            "schema": ONCHAIN_LEDGER_INDEX_SCHEMA,
+            "generated_at": iso_now(),
+            "source": "append_only_jsonl",
+            "event_count": len(events),
+            "log_head_hash": str(verification.get("log_head_hash") or ""),
+            "verification": verification,
+            "records": [],
+            "revocations": [],
+            "proof": onchain_ledger_proof(
+                record_hashes=[],
+                revocation_record_hashes=[],
+                verification=verification,
+            ),
+        }
+    active: dict[str, dict[str, Any]] = {}
+    revocations: dict[str, dict[str, Any]] = {}
+    for event in events:
+        operation = str(event.get("operation") or "")
+        record_hash = str(event.get("record_hash") or "")
+        if not is_sha256_hex(record_hash):
+            continue
+        if operation == "upsert" and isinstance(event.get("onchain_record"), dict):
+            active[record_hash] = copy.deepcopy(event["onchain_record"])
+            revocations.pop(record_hash, None)
+        elif operation == "revoke":
+            active.pop(record_hash, None)
+            revocations[record_hash] = {
+                "record_hash": record_hash,
+                "merchant_id": str(event.get("merchant_id") or ""),
+                "domain": str(event.get("domain") or ""),
+                "revoked_at": str(event.get("created_at") or ""),
+                "reason": str(event.get("reason") or ""),
+                "event_hash": str(event.get("event_hash") or ""),
+            }
+    records = sorted(active.values(), key=lambda item: (str(item.get("domain") or ""), str(item.get("merchant_id") or ""), str(item.get("record_hash") or "")))
+    revocation_list = sorted(revocations.values(), key=lambda item: str(item.get("record_hash") or ""))
+    record_hashes = [str(record.get("record_hash") or "") for record in records]
+    revocation_record_hashes = [str(item.get("record_hash") or "") for item in revocation_list]
+    return {
+        "schema": ONCHAIN_LEDGER_INDEX_SCHEMA,
+        "generated_at": iso_now(),
+        "source": "append_only_jsonl",
+        "event_count": len(events),
+        "log_head_hash": str(verification.get("log_head_hash") or ""),
+        "verification": verification,
+        "records": records,
+        "revocations": revocation_list,
+        "proof": onchain_ledger_proof(
+            record_hashes=record_hashes,
+            revocation_record_hashes=revocation_record_hashes,
+            verification=verification,
+        ),
+    }
 
 
 def minimal_config(tmp: pathlib.Path, *, hmac_secret: str = "", max_age_days: int = 180) -> Any:
@@ -667,6 +885,27 @@ def project_onchain_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def append_onchain_command(args: argparse.Namespace) -> int:
+    record = load_json_file(args.record_file) if args.record_file else None
+    event = append_onchain_ledger_event(
+        args.ledger_file,
+        operation=args.operation,
+        record=record,
+        record_hash=args.record_hash,
+        created_at=args.created_at,
+        reason=args.reason,
+    )
+    emit(event, args.output)
+    return 0
+
+
+def index_onchain_command(args: argparse.Namespace) -> int:
+    events = load_onchain_ledger_events(args.ledger_file)
+    index = index_onchain_ledger_events(events)
+    emit(index, args.output)
+    return 0 if index["verification"]["chain_valid"] else 1
+
+
 def verify_command(args: argparse.Namespace) -> int:
     record = load_json_file(args.record_file)
     manifest = load_json_file(args.manifest_file) if args.manifest_file else None
@@ -715,6 +954,27 @@ def build_parser() -> argparse.ArgumentParser:
     project_onchain.add_argument("--record-file", type=pathlib.Path, required=True)
     project_onchain.add_argument("--output", type=pathlib.Path, help="Write output to a file instead of stdout")
     project_onchain.set_defaults(func=project_onchain_command)
+
+    append_onchain = subparsers.add_parser(
+        "append-onchain",
+        help="Append an upsert or revoke event to an append-only onchain registry ledger",
+    )
+    append_onchain.add_argument("--ledger-file", type=pathlib.Path, required=True)
+    append_onchain.add_argument("--operation", choices=["upsert", "revoke"], required=True)
+    append_onchain.add_argument("--record-file", type=pathlib.Path, help="Registry record JSON file for upsert or revoke metadata")
+    append_onchain.add_argument("--record-hash", default="", help="Record hash to revoke when --record-file is omitted")
+    append_onchain.add_argument("--created-at", default="", help="Event timestamp, for example 2026-06-22T10:00:00Z")
+    append_onchain.add_argument("--reason", default="", help="Revocation reason for revoke events")
+    append_onchain.add_argument("--output", type=pathlib.Path, help="Write appended event to a file instead of stdout")
+    append_onchain.set_defaults(func=append_onchain_command)
+
+    index_onchain = subparsers.add_parser(
+        "index-onchain",
+        help="Verify and index an append-only onchain registry ledger",
+    )
+    index_onchain.add_argument("--ledger-file", type=pathlib.Path, required=True)
+    index_onchain.add_argument("--output", type=pathlib.Path, help="Write output to a file instead of stdout")
+    index_onchain.set_defaults(func=index_onchain_command)
 
     verify = subparsers.add_parser("verify", help="Verify a registry record using the gateway verifier")
     verify.add_argument("--record-file", type=pathlib.Path, required=True)
