@@ -169,6 +169,8 @@ class Config:
     registry_feed_proof_public_key_url: str
     registry_feed_proof_anchor_url: str
     registry_feed_proof_anchor_chain_id: str
+    registry_feed_proof_retiring_signers: tuple[str, ...]
+    registry_feed_proof_rotation_due_at: str
     registry_monitor_interval_seconds: int
     registry_monitor_history_limit: int
     registry_alert_webhook_url: str
@@ -303,6 +305,11 @@ class Config:
             registry_feed_proof_public_key_url=os.getenv("AGENTCART_REGISTRY_FEED_PROOF_PUBLIC_KEY_URL", "").strip(),
             registry_feed_proof_anchor_url=os.getenv("AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_URL", "").strip(),
             registry_feed_proof_anchor_chain_id=os.getenv("AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_CHAIN_ID", "").strip(),
+            registry_feed_proof_retiring_signers=csv_env("AGENTCART_REGISTRY_FEED_PROOF_RETIRING_SIGNERS"),
+            registry_feed_proof_rotation_due_at=os.getenv(
+                "AGENTCART_REGISTRY_FEED_PROOF_ROTATION_DUE_AT",
+                "",
+            ).strip(),
             registry_monitor_interval_seconds=int(os.getenv("AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS", "0")),
             registry_monitor_history_limit=int(os.getenv("AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT", "50")),
             registry_alert_webhook_url=os.getenv("AGENTCART_REGISTRY_ALERT_WEBHOOK_URL", "").strip(),
@@ -2674,6 +2681,79 @@ class AgentCartService:
             anchor["note"] = "Signed feed proof is ready to pin or publish as an onchain anchor."
         return anchor
 
+    def hosted_registry_feed_proof_governance(
+        self,
+        *,
+        signature: dict[str, Any],
+        anchor: dict[str, Any],
+    ) -> dict[str, Any]:
+        signed = str(signature.get("status") or "") == "signed"
+        signer = self.config.registry_feed_proof_signer or "agentcart-registry"
+        public_key_url = self.config.registry_feed_proof_public_key_url
+        retiring_signers = list(self.config.registry_feed_proof_retiring_signers)
+        rotation_due_at = self.config.registry_feed_proof_rotation_due_at
+        anchor_url = self.config.registry_feed_proof_anchor_url
+        anchor_chain_id = self.config.registry_feed_proof_anchor_chain_id
+        operator_actions: list[dict[str, str]] = []
+
+        def add_action(action_id: str, severity: str, summary: str) -> None:
+            operator_actions.append(
+                {
+                    "id": action_id,
+                    "severity": severity,
+                    "summary": summary,
+                }
+            )
+
+        if not signed:
+            status = "unsigned_alpha"
+            add_action(
+                "configure_feed_proof_signing_key",
+                "critical",
+                "Set AGENTCART_REGISTRY_FEED_PROOF_PRIVATE_KEY before relying on the hosted registry publicly.",
+            )
+        elif not public_key_url:
+            status = "needs_public_key_publication"
+            add_action(
+                "publish_feed_proof_public_key",
+                "critical",
+                "Set AGENTCART_REGISTRY_FEED_PROOF_PUBLIC_KEY_URL so buyer agents can verify feed proofs.",
+            )
+        elif retiring_signers:
+            status = "key_rotation_in_progress"
+            add_action(
+                "complete_feed_proof_key_rotation",
+                "warning",
+                "Keep retiring signer public keys available until all consumers have accepted the active signer.",
+            )
+        elif rotation_due_at:
+            status = "key_rotation_scheduled"
+        else:
+            status = "active"
+
+        if signed and not anchor_url:
+            add_action(
+                "publish_feed_proof_anchor",
+                "warning",
+                "Publish the feed proof payload hash and transparency head to an external or onchain anchor.",
+            )
+
+        return {
+            "schema": "agentcart.registry_feed_proof_governance.v1",
+            "status": status,
+            "active_signer": signer,
+            "retiring_signers": retiring_signers,
+            "rotation_due_at": rotation_due_at,
+            "public_key_url": public_key_url,
+            "anchor_url": anchor_url,
+            "anchor_chain_id": anchor_chain_id,
+            "signature_status": str(signature.get("status") or ""),
+            "signature_alg": str(signature.get("alg") or "none"),
+            "signature_payload_hash": str(signature.get("signature_payload_hash") or ""),
+            "anchor_status": str(anchor.get("status") or ""),
+            "operator_actions": operator_actions,
+        }
+
     def hosted_registry_feed_proof(self) -> dict[str, Any]:
         store = self.read_hosted_registry_store()
         payload = self.hosted_registry_feed_proof_payload(store)
@@ -2681,6 +2761,11 @@ class AgentCartService:
         signature = self.hosted_registry_feed_proof_signature(
             payload=payload,
             payload_hash=payload_hash,
+        )
+        anchor = self.hosted_registry_feed_proof_anchor(
+            payload=payload,
+            payload_hash=payload_hash,
+            signature=signature,
         )
         return {
             "schema": "agentcart.registry_feed_proof.v1",
@@ -2697,10 +2782,10 @@ class AgentCartService:
             "records_url": "/v1/registry/records",
             "transparency_url": "/v1/registry/transparency",
             "signature": signature,
-            "anchor": self.hosted_registry_feed_proof_anchor(
-                payload=payload,
-                payload_hash=payload_hash,
+            "anchor": anchor,
+            "governance": self.hosted_registry_feed_proof_governance(
                 signature=signature,
+                anchor=anchor,
             ),
             "verification": {
                 "payload_hash": payload_hash,
