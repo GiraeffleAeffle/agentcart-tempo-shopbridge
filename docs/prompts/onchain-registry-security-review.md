@@ -44,39 +44,40 @@ Important repo docs:
 
 ## Proposed Concept To Review
 
-The onchain contract stores compact merchant commitments:
+The proposed v1 contract stores only compact state the contract can enforce:
 
 - controller address;
-- deterministic record id;
 - canonical record hash;
-- record URI;
-- domain hash;
-- merchant id hash;
-- registry claim hash;
-- payment binding hash;
-- revocation URI hash;
-- freshness timestamp;
-- active/revoked/challenged/suspended status;
-- optional refundable merchant bond;
-- latest validator attestation hash.
+- normalized domain hash;
+- contract-set freshness timestamp;
+- active/revoked/suspended status;
+- current attestation state for the active record hash.
 
 The full record stays offchain. Agents fetch it, verify the hash, then run the
-same trust checks as the hosted registry. Public eligibility also requires an
-accepted validator attestation. Challenges are limited to objective failures:
-domain proof mismatch, manifest claim mismatch, payment binding mismatch,
-revocation, endpoint scope violation, and stale records.
+same trust checks as the hosted registry. Public onchain eligibility also
+requires the well-known domain proof to bind the merchant domain to the onchain
+controller, `chain_id`, registry address, expected record id, and record hash.
+Reference indexers may require validator attestations for a verified badge or
+default public listing; self-verifying buyer agents can rerun objective checks.
+Challenges are v1 event-only flags that trigger monitoring and re-verification,
+not status changes, slashing, or challenger payouts.
 
 ## Review Tasks
 
-1. Threat-model fake shop registration, domain takeover, payment-recipient swap,
-   stale record replay, validator compromise, malicious challenger, indexer
-   censorship, admin key compromise, and migration failure.
+1. Threat-model fake shop registration, registration front-running of public
+   merchant bundles, domain takeover, controller key loss, controller key
+   compromise, payment-recipient swap, stale record replay, attestation
+   carry-over after update, subdomain Sybil registration, IDN/homograph
+   impersonation, validator compromise, validator silence, malicious challenger,
+   indexer/search censorship, admin key compromise, reorg/finality failure, SSRF
+   in validators/indexers, and migration failure.
 2. Identify which fields must be stored onchain vs emitted only in events vs
    kept offchain.
 3. Evaluate the validator/attestation model. Is permissioned validation safe for
    pilot? What is the minimal path to permissionless validation?
-4. Evaluate the bond/challenge/slashing model. Which objective failures are
-   safely slashable? Which should never be slashable?
+4. Evaluate the bond/challenge/slashing model. Should v1 remain event-only with
+   no slashing? If not, which objective failures are safely slashable and which
+   should never be slashable?
 5. Evaluate fairness. Does any mechanism create paid placement, stake-weighted
    ranking, SEO-style dominance, or a gatekeeping monopoly?
 6. Evaluate privacy. Could record fields, events, evidence URIs, or indexer
@@ -99,5 +100,6 @@ Return:
 - fairness recommendations;
 - privacy recommendations;
 - test plan;
+- numbered invariant list that must hold before Solidity implementation;
 - production rollout gates;
 - any open questions that block implementation.

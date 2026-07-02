@@ -2,8 +2,8 @@
 
 Status: design contract. The repo currently ships an off-chain hosted registry
 adapter for pilots. The intended public trust anchor is a smart contract or
-append-only registry that can expose the same minimal merchant record shape. The
-proposed source-of-truth concept is tracked in
+append-only registry that can expose the same minimal merchant commitment and
+event shape. The proposed source-of-truth concept is tracked in
 `docs/ONCHAIN_MERCHANT_REGISTRY_CONCEPT.md` and ADR 0007.
 
 ## Position
@@ -54,10 +54,22 @@ Optional ERC-8004-style mapping fields:
 - `supported_protocols`
 - `ship_to_countries`
 
+The fixture is a projection and event/indexer shape, not the v1 contract storage
+layout. ADR 0007 requires the first contract to store only state it can enforce:
+controller, record hash, normalized domain hash, contract-set timestamp, status,
+and current attestation state. Merchant id, manifest URL, registry claim hash,
+payment binding, revocation URL, shipping countries, and protocol lists remain
+inside the hashed offchain record and emitted event projection.
+
 The current `onchain_identity` and `erc8004_identity` fields in registry records
-map into these optional fields. They let early records point at an ERC-8004-style
-service id, registry contract, transaction hash, or attestation hash without
-making onchain registration mandatory for pilot merchants.
+map into optional projection fields. They let early records point at an
+ERC-8004-style service id, registry contract, transaction hash, or attestation
+hash without making onchain registration mandatory for pilot merchants.
+
+Public onchain eligibility also needs a controller-bound domain proof. The
+well-known proof document and trust contract must verify the controller address,
+chain id, registry address, expected record id, and record hash before a public
+onchain record is considered eligible.
 
 ## Projection Helper
 
@@ -141,15 +153,21 @@ payment receipts, buyer addresses, or order payloads as registry state.
 Agents should:
 
 1. Read the record from the smart contract or a trusted indexer.
-2. Reject records missing required onchain fields.
-3. Verify the canonical record hash when the full record is available.
-4. Fetch the merchant manifest from `manifest_url`.
-5. Verify the manifest domain matches the registered domain.
-6. Verify the manifest registry claim hash matches `registry_claim_hash`.
-7. Check revocation URL and revocation document.
-8. Verify payment network and recipient match manifest payment profiles.
-9. Reject catalog, quote, or order endpoints outside the registered domain.
-10. Run private quote requests and buyer-side ranking only after verification.
+2. Wait for the configured finality depth before accepting a payment binding.
+3. Reject records missing required projection fields.
+4. Verify the canonical record hash when the full record is available.
+5. Normalize and hash the domain with the configured IDN/punycode and
+   public-suffix-list rules.
+6. Verify the full record domain matches the onchain domain hash.
+7. Fetch the merchant manifest from `manifest_url`.
+8. Verify the manifest domain matches the registered domain.
+9. Verify the manifest registry claim hash matches `registry_claim_hash`.
+10. Check the controller-bound domain proof document.
+11. Check revocation URL and revocation document.
+12. Verify payment network and recipient match manifest payment profiles.
+13. Reject catalog, quote, or order endpoints outside the registered domain.
+14. Apply the configured attestation policy.
+15. Run private quote requests and buyer-side ranking only after verification.
 
 ## Staking Hooks
 
@@ -167,9 +185,10 @@ These hooks should be added after the identity layer is stable. Otherwise, the
 system risks making merchant onboarding expensive before discovery semantics are
 proven.
 
-The proposed onchain registry concept keeps this conservative order: domain
-proof and validator attestations come before permissionless stake/slashing, and
-any merchant bond must be refundable, capped, and excluded from ranking.
+The proposed onchain registry concept keeps this conservative order:
+controller-bound domain proof and validator attestations come before
+permissionless stake/slashing. v1 challenges are event-only. Any future merchant
+bond must be fixed-size, refundable, capped, and excluded from ranking.
 
 ## Standards Fit
 

@@ -28,6 +28,24 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertIn("registry_claim_hash", onchain_record)
         self.assertIn("payment_recipient", onchain_record)
 
+    def test_contract_storage_is_smaller_than_projection(self) -> None:
+        contract = fixture(CONTRACT_PATH)
+        storage_fields = set(contract["v1_contract_storage_fields"])
+        event_fields = set(contract["event_projection_fields"])
+
+        self.assertIn("controller", storage_fields)
+        self.assertIn("record_hash", storage_fields)
+        self.assertIn("domain_hash", storage_fields)
+        self.assertNotIn("merchant_id", storage_fields)
+        self.assertNotIn("payment_recipient", storage_fields)
+        self.assertNotIn("ship_to_countries", storage_fields)
+        self.assertIn("payment_recipient", event_fields)
+        self.assertIn("ship_to_countries", event_fields)
+        self.assertEqual(
+            contract["controller_bound_proof_fields"],
+            ["controller", "chain_id", "registry_address", "record_id", "record_hash"],
+        )
+
     def test_onchain_sample_projects_the_shared_registry_fixture(self) -> None:
         contract = fixture(CONTRACT_PATH)
         trust = fixture(TRUST_FIXTURE_PATH)
@@ -85,8 +103,18 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         steps = contract["agent_verification_steps"]
 
         self.assertIn("run_private_quote_requests_and_buyer_side_ranking", steps)
+        self.assertIn("verify_controller_bound_domain_proof", steps)
+        self.assertIn("apply_configured_attestation_policy", steps)
         self.assertIn("Sponsored ranking", contract["non_goals"])
         self.assertIn("Publishing household demand", contract["non_goals"])
+
+    def test_v1_challenges_are_event_only(self) -> None:
+        contract = fixture(CONTRACT_PATH)
+        policy = contract["challenge_policy"]
+
+        self.assertEqual(policy["v1_status_effect"], "event_only")
+        self.assertFalse(policy["slashing_required_for_pilot"])
+        self.assertFalse(policy["merchant_slashing_required_for_v1"])
 
 
 if __name__ == "__main__":
