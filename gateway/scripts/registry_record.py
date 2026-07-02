@@ -336,6 +336,11 @@ def domain_proof_document(record: dict[str, Any]) -> dict[str, Any]:
         proof["registry_claim_hash"] = str(record.get("registry_claim_hash") or "")
     else:
         proof["manifest_hash"] = str(record.get("manifest_hash") or "")
+    identity = onchain_identity_payload(record)
+    for field in ("controller", "chain_id", "registry_address", "record_id"):
+        value = identity.get(field, "")
+        if value:
+            proof[field] = value
     return proof
 
 
@@ -388,8 +393,10 @@ ONCHAIN_OPTIONAL_LIST_FIELDS = (
 )
 
 ONCHAIN_IDENTITY_FIELDS = (
+    "controller",
     "chain_id",
     "registry_address",
+    "record_id",
     "agent_id",
     "registration_uri",
     "registration_tx_hash",
@@ -415,10 +422,13 @@ def onchain_identity_payload(record: dict[str, Any]) -> dict[str, str]:
     aliases = {
         "chain": "chain_id",
         "chainId": "chain_id",
+        "controller_address": "controller",
+        "merchant_controller": "controller",
         "registry": "registry_address",
         "registry_contract": "registry_address",
         "contract": "registry_address",
         "service_id": "agent_id",
+        "id": "record_id",
         "tx_hash": "registration_tx_hash",
         "transaction_hash": "registration_tx_hash",
         "uri": "registration_uri",
@@ -428,10 +438,15 @@ def onchain_identity_payload(record: dict[str, Any]) -> dict[str, str]:
         "chain_id",
         "chain",
         "chainId",
+        "controller",
+        "controller_address",
+        "merchant_controller",
         "registry_address",
         "registry",
         "registry_contract",
         "contract",
+        "record_id",
+        "id",
         "agent_id",
         "service_id",
         "registration_uri",

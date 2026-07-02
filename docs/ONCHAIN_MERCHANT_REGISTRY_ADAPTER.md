@@ -45,7 +45,9 @@ Required fields:
 Optional ERC-8004-style mapping fields:
 
 - `chain_id`
+- `controller`
 - `registry_address`
+- `record_id`
 - `agent_id`
 - `registration_uri`
 - `registration_tx_hash`

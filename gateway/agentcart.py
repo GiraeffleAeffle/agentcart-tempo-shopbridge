@@ -3353,6 +3353,12 @@ class AgentCartService:
             required_fields.append("registry_claim_hash")
         else:
             required_fields.append("manifest_hash")
+        for field, expected in self.registry_controller_bound_proof_fields(record).items():
+            supplied = str(proof_document.get(field) or "")
+            if expected and supplied and expected.lower() != supplied.lower():
+                errors.append(f"domain_proof_{field}_mismatch")
+            elif expected and not supplied:
+                errors.append(f"domain_proof_{field}_missing")
         for field in required_fields:
             expected = str(record.get(field) or "")
             supplied = str(proof_document.get(field) or "")
@@ -3462,9 +3468,12 @@ class AgentCartService:
         aliases = {
             "chain": "chain_id",
             "chainId": "chain_id",
+            "controller_address": "controller",
+            "merchant_controller": "controller",
             "registry": "registry_address",
             "registry_contract": "registry_address",
             "contract": "registry_address",
+            "id": "record_id",
             "tx_hash": "registration_tx_hash",
             "transaction_hash": "registration_tx_hash",
             "uri": "registration_uri",
@@ -3476,10 +3485,15 @@ class AgentCartService:
             "chain_id",
             "chain",
             "chainId",
+            "controller",
+            "controller_address",
+            "merchant_controller",
             "registry_address",
             "registry",
             "registry_contract",
             "contract",
+            "record_id",
+            "id",
             "service_id",
             "agent_id",
             "registration_uri",
@@ -3498,6 +3512,28 @@ class AgentCartService:
                 payload[target_key] = text
         return payload
 
+    def registry_onchain_identity_requires_controller_bound_proof(self, payload: dict[str, str]) -> bool:
+        return any(
+            payload.get(field)
+            for field in (
+                "controller",
+                "record_id",
+                "chain_id",
+                "registry_address",
+                "registration_tx_hash",
+                "attestation_hash",
+            )
+        )
+
+    def registry_controller_bound_proof_fields(self, record: dict[str, Any]) -> dict[str, str]:
+        payload = self.registry_onchain_identity_payload(record)
+        if not self.registry_onchain_identity_requires_controller_bound_proof(payload):
+            return {}
+        return {
+            field: payload.get(field, "")
+            for field in ("controller", "chain_id", "registry_address", "record_id")
+        }
+
     def verify_registry_onchain_identity(self, record: dict[str, Any]) -> list[str]:
         raw = self.raw_registry_onchain_identity(record)
         if raw is None:
@@ -3507,7 +3543,7 @@ class AgentCartService:
         errors: list[str] = []
         payload = self.registry_onchain_identity_payload(record)
         standard = payload.get("standard", "").lower().replace("_", "-")
-        if standard not in {"erc-8004", "erc8004", "eip-8004", "eip8004"}:
+        if standard not in {"erc-8004", "erc8004", "eip-8004", "eip8004", "agentcart-onchain-registry-v1"}:
             errors.append("onchain_identity_standard_unsupported")
         if not any(
             payload.get(field)
@@ -3524,13 +3560,23 @@ class AgentCartService:
         chain_id = payload.get("chain_id", "")
         if chain_id and not re.fullmatch(r"(eip155:)?[0-9]{1,20}", chain_id):
             errors.append("onchain_identity_chain_id_invalid")
+        controller = payload.get("controller", "")
+        if controller and not re.fullmatch(r"0x[0-9a-fA-F]{40}", controller):
+            errors.append("onchain_identity_controller_invalid")
         registry_address = payload.get("registry_address", "")
         if registry_address and not re.fullmatch(r"0x[0-9a-fA-F]{40}", registry_address):
             errors.append("onchain_identity_registry_address_invalid")
+        record_id = payload.get("record_id", "")
+        if record_id and not re.fullmatch(r"(0x)?[0-9a-fA-F]{64}", record_id):
+            errors.append("onchain_identity_record_id_invalid")
         for hash_field in ("registration_tx_hash", "attestation_hash"):
             supplied_hash = payload.get(hash_field, "")
             if supplied_hash.startswith("0x") and not re.fullmatch(r"0x[0-9a-fA-F]{64}", supplied_hash):
                 errors.append(f"onchain_identity_{hash_field}_invalid")
+        if self.registry_onchain_identity_requires_controller_bound_proof(payload):
+            for field in ("controller", "chain_id", "registry_address", "record_id"):
+                if not payload.get(field):
+                    errors.append(f"onchain_identity_{field}_missing")
         proof_url = payload.get("proof_url", "")
         if proof_url:
             parsed = urllib.parse.urlparse(proof_url)

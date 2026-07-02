@@ -73,7 +73,9 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
 
         onchain_identity = record["onchain_identity"]
         self.assertEqual(onchain_record["chain_id"], onchain_identity["chain_id"])
+        self.assertEqual(onchain_record["controller"], onchain_identity["controller"])
         self.assertEqual(onchain_record["registry_address"], onchain_identity["registry_address"])
+        self.assertEqual(onchain_record["record_id"], onchain_identity["record_id"])
         self.assertEqual(onchain_record["agent_id"], onchain_identity["agent_id"])
         self.assertEqual(onchain_record["registration_uri"], onchain_identity["registration_uri"])
         self.assertEqual(onchain_record["registration_tx_hash"], onchain_identity["registration_tx_hash"])

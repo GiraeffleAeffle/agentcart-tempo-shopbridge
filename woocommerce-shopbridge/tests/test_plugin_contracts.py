@@ -663,12 +663,27 @@ class ShopBridgePluginContractTests(unittest.TestCase):
 
         self.assertIn("agentcart-registry-revocations.json", well_known_body)
         self.assertIn("registry_revocation_url", proof_body)
+        self.assertIn("registry_onchain_identity", proof_body)
+        self.assertIn("'controller'", proof_body)
+        self.assertIn("'chain_id'", proof_body)
+        self.assertIn("'registry_address'", proof_body)
+        self.assertIn("'record_id'", proof_body)
         self.assertIn("$revocations = self::registry_revoked_records()", revocations_body)
         self.assertIn("'revocations' => $revocations", revocations_body)
         self.assertIn("'revocation_url' => self::registry_revocation_url()", claim_body)
+        self.assertIn("registry_onchain_identity", claim_body)
         self.assertIn("'registry_revocations' => self::registry_revocation_url()", capability_body)
         self.assertIn("'revocation_url' => self::registry_revocation_url()", capability_body)
         self.assertIn("'revocation_snapshot'", signature_payload_body)
+
+    def test_registry_onchain_identity_uses_controller_bound_constants(self) -> None:
+        identity_body = function_body("registry_onchain_identity")
+
+        self.assertIn("AGENTCART_REGISTRY_ONCHAIN_CONTROLLER", identity_body)
+        self.assertIn("AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID", identity_body)
+        self.assertIn("AGENTCART_REGISTRY_ONCHAIN_ADDRESS", identity_body)
+        self.assertIn("AGENTCART_REGISTRY_ONCHAIN_RECORD_ID", identity_body)
+        self.assertIn("$identity['standard'] = 'AgentCart-Onchain-Registry-v1'", identity_body)
 
     def test_registry_onboarding_bundle_is_auto_published(self) -> None:
         well_known_body = function_body("maybe_serve_well_known_manifest")
