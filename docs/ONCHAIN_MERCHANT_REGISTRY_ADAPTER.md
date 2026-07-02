@@ -2,7 +2,9 @@
 
 Status: design contract. The repo currently ships an off-chain hosted registry
 adapter for pilots. The intended public trust anchor is a smart contract or
-append-only registry that can expose the same minimal merchant record shape.
+append-only registry that can expose the same minimal merchant record shape. The
+proposed source-of-truth concept is tracked in
+`docs/ONCHAIN_MERCHANT_REGISTRY_CONCEPT.md` and ADR 0007.
 
 ## Position
 
@@ -164,6 +166,10 @@ names three future extension hooks:
 These hooks should be added after the identity layer is stable. Otherwise, the
 system risks making merchant onboarding expensive before discovery semantics are
 proven.
+
+The proposed onchain registry concept keeps this conservative order: domain
+proof and validator attestations come before permissionless stake/slashing, and
+any merchant bond must be refundable, capped, and excluded from ranking.
 
 ## Standards Fit
 
