@@ -91,6 +91,8 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         registry_feed_proof_public_key_url="",
         registry_feed_proof_anchor_url="",
         registry_feed_proof_anchor_chain_id="",
+        registry_feed_proof_retiring_signers=(),
+        registry_feed_proof_rotation_due_at="",
         registry_monitor_interval_seconds=0,
         registry_monitor_history_limit=50,
         registry_alert_webhook_url="",
@@ -1623,6 +1625,10 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(initial["payload_hash"], agentcart.canonical_json_hash(initial["payload"]))
             self.assertEqual(initial["signature"]["status"], "unsigned_alpha")
             self.assertEqual(initial["anchor"]["status"], "unsigned_alpha")
+            self.assertEqual(initial["governance"]["status"], "unsigned_alpha")
+            self.assertEqual(initial["governance"]["active_signer"], "agentcart-registry")
+            self.assertEqual(initial["governance"]["signature_status"], "unsigned_alpha")
+            self.assertEqual(initial["governance"]["operator_actions"][0]["id"], "configure_feed_proof_signing_key")
 
             service.submit_hosted_registry_request(
                 {
@@ -1721,6 +1727,70 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(proof["anchor"]["signature_payload_hash"], proof["signature"]["signature_payload_hash"])
             self.assertEqual(proof["anchor"]["chain_id"], "eip155:8453")
             self.assertEqual(proof["anchor"]["anchor_url"], "https://basescan.org/tx/0x" + "4" * 64)
+            self.assertEqual(proof["governance"]["schema"], "agentcart.registry_feed_proof_governance.v1")
+            self.assertEqual(proof["governance"]["status"], "active")
+            self.assertEqual(proof["governance"]["active_signer"], "registry-signer-1")
+            self.assertEqual(
+                proof["governance"]["public_key_url"],
+                "https://registry.example/.well-known/agentcart-registry-feed-proof.pem",
+            )
+            self.assertEqual(proof["governance"]["anchor_status"], "anchored")
+            self.assertEqual(proof["governance"]["operator_actions"], [])
+
+    def test_hosted_registry_feed_proof_governance_flags_missing_public_key(self) -> None:
+        private_key, _public_key = openssl_rsa_keypair()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                registry_feed_proof_private_key=private_key,
+                registry_feed_proof_signer="registry-signer-1",
+            )
+
+            proof = service.hosted_registry_feed_proof()
+
+            self.assertEqual(proof["signature"]["status"], "signed")
+            self.assertEqual(proof["governance"]["status"], "needs_public_key_publication")
+            self.assertEqual(proof["governance"]["active_signer"], "registry-signer-1")
+            self.assertEqual(proof["governance"]["public_key_url"], "")
+            self.assertEqual(
+                [action["id"] for action in proof["governance"]["operator_actions"]],
+                ["publish_feed_proof_public_key", "publish_feed_proof_anchor"],
+            )
+
+    def test_hosted_registry_feed_proof_governance_exposes_key_rotation(self) -> None:
+        private_key, _public_key = openssl_rsa_keypair()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                registry_feed_proof_private_key=private_key,
+                registry_feed_proof_signer="registry-signer-2",
+                registry_feed_proof_public_key_url="https://registry.example/.well-known/registry-signer-2.pem",
+                registry_feed_proof_anchor_url="https://basescan.org/tx/0x" + "5" * 64,
+                registry_feed_proof_anchor_chain_id="eip155:8453",
+                registry_feed_proof_retiring_signers=("registry-signer-1",),
+                registry_feed_proof_rotation_due_at="2026-08-01T00:00:00Z",
+            )
+
+            proof = service.hosted_registry_feed_proof()
+
+            self.assertEqual(proof["governance"]["status"], "key_rotation_in_progress")
+            self.assertEqual(proof["governance"]["active_signer"], "registry-signer-2")
+            self.assertEqual(proof["governance"]["retiring_signers"], ["registry-signer-1"])
+            self.assertEqual(proof["governance"]["rotation_due_at"], "2026-08-01T00:00:00Z")
+            self.assertEqual(proof["governance"]["anchor_status"], "anchored")
+            self.assertEqual(
+                proof["governance"]["operator_actions"],
+                [
+                    {
+                        "id": "complete_feed_proof_key_rotation",
+                        "severity": "warning",
+                        "summary": (
+                            "Keep retiring signer public keys available until all consumers have accepted "
+                            "the active signer."
+                        ),
+                    }
+                ],
+            )
 
     def test_hosted_registry_submission_http_requires_registry_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

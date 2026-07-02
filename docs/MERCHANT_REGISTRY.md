@@ -149,6 +149,8 @@ AGENTCART_REGISTRY_FEED_PROOF_SIGNER=agentcart-registry
 AGENTCART_REGISTRY_FEED_PROOF_PUBLIC_KEY_URL=
 AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_URL=
 AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_CHAIN_ID=
+AGENTCART_REGISTRY_FEED_PROOF_RETIRING_SIGNERS=
+AGENTCART_REGISTRY_FEED_PROOF_ROTATION_DUE_AT=
 AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS=0
 AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT=50
 AGENTCART_REGISTRY_ALERT_WEBHOOK_URL=
@@ -187,6 +189,13 @@ includes an RSA-SHA256 signature over a canonical signature payload. Optional
 `AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_CHAIN_ID` fields let operators publish the
 same payload hash and transparency head as an external or onchain anchor without
 putting catalog, quote, buyer, order, or payment data into the registry.
+The response also includes `governance`, a machine-readable signer operations
+block with the active signer, retiring signer ids from
+`AGENTCART_REGISTRY_FEED_PROOF_RETIRING_SIGNERS`, optional
+`AGENTCART_REGISTRY_FEED_PROOF_ROTATION_DUE_AT`, public-key/anchor publication
+state, and stable `operator_actions` ids such as
+`publish_feed_proof_public_key`, `publish_feed_proof_anchor`, and
+`complete_feed_proof_key_rotation`.
 `GET /v1/registry/health` summarizes verifier states, source errors, hosted
 record/revocation counts, stale records, endpoint failures, and suggested
 operator actions.
