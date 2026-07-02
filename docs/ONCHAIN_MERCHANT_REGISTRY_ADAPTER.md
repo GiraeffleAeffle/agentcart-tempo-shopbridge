@@ -115,6 +115,12 @@ The index command verifies sequence numbers, previous-event hashes, event
 hashes, and record hashes before returning active onchain records, revocations,
 and a compact proof over record hashes, revoked hashes, and the log head.
 
+The hosted registry feed proof can also be RSA-SHA256 signed. Operators should
+sign the canonical feed-proof signature payload and publish the public key URL
+next to any external or onchain anchor. The anchor must pin only the feed-proof
+payload hash and transparency-log head, not merchant catalogs, prices, private
+quotes, orders, buyer demand, or payment receipts.
+
 ## Gateway Role
 
 The gateway registry endpoint is an indexer/cache and monitor, not the source of

@@ -164,6 +164,11 @@ class Config:
     hosted_registry_enabled: bool
     hosted_registry_path: pathlib.Path
     hosted_registry_submit_token: str
+    registry_feed_proof_private_key: str
+    registry_feed_proof_signer: str
+    registry_feed_proof_public_key_url: str
+    registry_feed_proof_anchor_url: str
+    registry_feed_proof_anchor_chain_id: str
     registry_monitor_interval_seconds: int
     registry_monitor_history_limit: int
     registry_alert_webhook_url: str
@@ -293,6 +298,11 @@ class Config:
                 or os.getenv("AGENTCART_REGISTRY_SUBMIT_TOKEN")
                 or ""
             ).strip(),
+            registry_feed_proof_private_key=os.getenv("AGENTCART_REGISTRY_FEED_PROOF_PRIVATE_KEY", "").strip(),
+            registry_feed_proof_signer=os.getenv("AGENTCART_REGISTRY_FEED_PROOF_SIGNER", "agentcart-registry").strip(),
+            registry_feed_proof_public_key_url=os.getenv("AGENTCART_REGISTRY_FEED_PROOF_PUBLIC_KEY_URL", "").strip(),
+            registry_feed_proof_anchor_url=os.getenv("AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_URL", "").strip(),
+            registry_feed_proof_anchor_chain_id=os.getenv("AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_CHAIN_ID", "").strip(),
             registry_monitor_interval_seconds=int(os.getenv("AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS", "0")),
             registry_monitor_history_limit=int(os.getenv("AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT", "50")),
             registry_alert_webhook_url=os.getenv("AGENTCART_REGISTRY_ALERT_WEBHOOK_URL", "").strip(),
@@ -2586,10 +2596,92 @@ class AgentCartService:
             },
         }
 
+    def hosted_registry_feed_proof_signature_payload(
+        self,
+        *,
+        payload: dict[str, Any],
+        payload_hash: str,
+    ) -> dict[str, Any]:
+        transparency = payload.get("transparency") if isinstance(payload.get("transparency"), dict) else {}
+        return {
+            "schema": "agentcart.registry_feed_proof_signature_payload.v1",
+            "payload_hash": payload_hash,
+            "source_schema": str(payload.get("schema") or ""),
+            "entry_count": int(payload.get("entry_count") or 0),
+            "revocation_count": int(payload.get("revocation_count") or 0),
+            "records_hash": str(payload.get("records_hash") or ""),
+            "revocations_hash": str(payload.get("revocations_hash") or ""),
+            "transparency_log_head_hash": str(transparency.get("log_head_hash") or ""),
+            "transparency_event_count": int(transparency.get("event_count") or 0),
+            "hash_alg": "sha-256",
+        }
+
+    def hosted_registry_feed_proof_signature(
+        self,
+        *,
+        payload: dict[str, Any],
+        payload_hash: str,
+    ) -> dict[str, Any]:
+        private_key = self.config.registry_feed_proof_private_key
+        if not private_key:
+            return {
+                "alg": "none",
+                "status": "unsigned_alpha",
+                "value": "",
+            }
+        signature_payload = self.hosted_registry_feed_proof_signature_payload(
+            payload=payload,
+            payload_hash=payload_hash,
+        )
+        signature_value = rsa_sha256_signature(canonical_json(signature_payload), private_key)
+        return {
+            "alg": "rsa-sha256",
+            "status": "signed",
+            "signer": self.config.registry_feed_proof_signer or "agentcart-registry",
+            "public_key_url": self.config.registry_feed_proof_public_key_url,
+            "value": signature_value,
+            "value_encoding": "base64",
+            "signature_payload": signature_payload,
+            "signature_payload_hash": canonical_json_hash(signature_payload),
+        }
+
+    def hosted_registry_feed_proof_anchor(
+        self,
+        *,
+        payload: dict[str, Any],
+        payload_hash: str,
+        signature: dict[str, Any],
+    ) -> dict[str, Any]:
+        transparency = payload.get("transparency") if isinstance(payload.get("transparency"), dict) else {}
+        signed = str(signature.get("status") or "") == "signed"
+        anchor_url = self.config.registry_feed_proof_anchor_url
+        status = "anchored" if signed and anchor_url else "signed_ready_for_onchain_anchor" if signed else "unsigned_alpha"
+        anchor = {
+            "schema": "agentcart.registry_feed_proof_anchor.v1",
+            "status": status,
+            "payload_hash": payload_hash,
+            "transparency_log_head_hash": str(transparency.get("log_head_hash") or ""),
+            "transparency_event_count": int(transparency.get("event_count") or 0),
+            "signature_alg": str(signature.get("alg") or "none"),
+            "signature_payload_hash": str(signature.get("signature_payload_hash") or ""),
+            "anchor_url": anchor_url,
+            "chain_id": self.config.registry_feed_proof_anchor_chain_id,
+            "hash_alg": "sha-256",
+        }
+        if not signed:
+            anchor["note"] = "Configure AGENTCART_REGISTRY_FEED_PROOF_PRIVATE_KEY to publish a public signature."
+        elif not anchor_url:
+            anchor["note"] = "Signed feed proof is ready to pin or publish as an onchain anchor."
+        return anchor
+
     def hosted_registry_feed_proof(self) -> dict[str, Any]:
         store = self.read_hosted_registry_store()
         payload = self.hosted_registry_feed_proof_payload(store)
         payload_hash = canonical_json_hash(payload)
+        signature = self.hosted_registry_feed_proof_signature(
+            payload=payload,
+            payload_hash=payload_hash,
+        )
         return {
             "schema": "agentcart.registry_feed_proof.v1",
             "generated_at": isoformat(utcnow()),
@@ -2604,11 +2696,12 @@ class AgentCartService:
             "transparency": payload["transparency"],
             "records_url": "/v1/registry/records",
             "transparency_url": "/v1/registry/transparency",
-            "signature": {
-                "alg": "none",
-                "status": "unsigned_alpha",
-                "value": "",
-            },
+            "signature": signature,
+            "anchor": self.hosted_registry_feed_proof_anchor(
+                payload=payload,
+                payload_hash=payload_hash,
+                signature=signature,
+            ),
             "verification": {
                 "payload_hash": payload_hash,
                 "payload_hash_input": "canonical JSON of payload",

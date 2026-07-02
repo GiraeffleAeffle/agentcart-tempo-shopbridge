@@ -86,6 +86,11 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         hosted_registry_enabled=True,
         hosted_registry_path=tmp / "hosted-registry.json",
         hosted_registry_submit_token="",
+        registry_feed_proof_private_key="",
+        registry_feed_proof_signer="agentcart-registry",
+        registry_feed_proof_public_key_url="",
+        registry_feed_proof_anchor_url="",
+        registry_feed_proof_anchor_chain_id="",
         registry_monitor_interval_seconds=0,
         registry_monitor_history_limit=50,
         registry_alert_webhook_url="",
@@ -1616,6 +1621,8 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(initial["entry_count"], 0)
             self.assertEqual(initial["record_hashes"], [])
             self.assertEqual(initial["payload_hash"], agentcart.canonical_json_hash(initial["payload"]))
+            self.assertEqual(initial["signature"]["status"], "unsigned_alpha")
+            self.assertEqual(initial["anchor"]["status"], "unsigned_alpha")
 
             service.submit_hosted_registry_request(
                 {
@@ -1657,6 +1664,63 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(revoked["payload_hash"], agentcart.canonical_json_hash(revoked["payload"]))
             self.assertTrue(revoked["transparency"]["chain_valid"])
             self.assertEqual(revoked["transparency"]["event_count"], 2)
+
+    def test_hosted_registry_feed_proof_can_be_rsa_signed_and_anchor_ready(self) -> None:
+        private_key, public_key = openssl_rsa_keypair()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
+            record_hash = agentcart.registry_record_hash(record)
+            service = make_service(
+                tmp,
+                registry_feed_proof_private_key=private_key,
+                registry_feed_proof_signer="registry-signer-1",
+                registry_feed_proof_public_key_url="https://registry.example/.well-known/agentcart-registry-feed-proof.pem",
+                registry_feed_proof_anchor_url="https://basescan.org/tx/0x" + "4" * 64,
+                registry_feed_proof_anchor_chain_id="eip155:8453",
+            )
+            install_domain_proof_http_json(service, record, manifest)
+            service.submit_hosted_registry_request(
+                {
+                    "operation": "upsert",
+                    "registry_record": record,
+                    "record_hash": record_hash,
+                }
+            )
+
+            proof = service.hosted_registry_feed_proof()
+
+            self.assertEqual(proof["signature"]["alg"], "rsa-sha256")
+            self.assertEqual(proof["signature"]["status"], "signed")
+            self.assertEqual(proof["signature"]["signer"], "registry-signer-1")
+            self.assertEqual(
+                proof["signature"]["public_key_url"],
+                "https://registry.example/.well-known/agentcart-registry-feed-proof.pem",
+            )
+            signature_payload = proof["signature"]["signature_payload"]
+            self.assertEqual(signature_payload["payload_hash"], proof["payload_hash"])
+            self.assertEqual(signature_payload["records_hash"], proof["payload"]["records_hash"])
+            self.assertEqual(
+                signature_payload["transparency_log_head_hash"],
+                proof["transparency"]["log_head_hash"],
+            )
+            self.assertEqual(
+                proof["signature"]["signature_payload_hash"],
+                agentcart.canonical_json_hash(signature_payload),
+            )
+            self.assertTrue(
+                openssl_verify_rsa_sha256(
+                    public_key,
+                    agentcart.canonical_json(signature_payload),
+                    proof["signature"]["value"],
+                )
+            )
+            self.assertEqual(proof["anchor"]["status"], "anchored")
+            self.assertEqual(proof["anchor"]["payload_hash"], proof["payload_hash"])
+            self.assertEqual(proof["anchor"]["signature_payload_hash"], proof["signature"]["signature_payload_hash"])
+            self.assertEqual(proof["anchor"]["chain_id"], "eip155:8453")
+            self.assertEqual(proof["anchor"]["anchor_url"], "https://basescan.org/tx/0x" + "4" * 64)
 
     def test_hosted_registry_submission_http_requires_registry_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
