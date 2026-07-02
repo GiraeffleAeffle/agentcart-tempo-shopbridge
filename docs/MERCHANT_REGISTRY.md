@@ -144,6 +144,11 @@ AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS=180
 AGENTCART_HOSTED_REGISTRY_ENABLED=true
 AGENTCART_HOSTED_REGISTRY_PATH=/data/hosted-merchant-registry.json
 AGENTCART_REGISTRY_SUBMIT_TOKEN=replace-with-distinct-submit-token
+AGENTCART_REGISTRY_FEED_PROOF_PRIVATE_KEY=
+AGENTCART_REGISTRY_FEED_PROOF_SIGNER=agentcart-registry
+AGENTCART_REGISTRY_FEED_PROOF_PUBLIC_KEY_URL=
+AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_URL=
+AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_CHAIN_ID=
 AGENTCART_REGISTRY_MONITOR_INTERVAL_SECONDS=0
 AGENTCART_REGISTRY_MONITOR_HISTORY_LIMIT=50
 AGENTCART_REGISTRY_ALERT_WEBHOOK_URL=
@@ -175,8 +180,13 @@ chain verification status so agents can audit registry continuity without
 trusting mutable feed state alone.
 `GET /v1/registry/feed-proof` returns a compact canonical payload hash over the
 active record hashes, revoked record hashes, and current transparency-log head.
-Operators and buyer agents can pin that hash between runs today, and the same
-payload is the intended input for a later public signature or onchain anchor.
+Operators and buyer agents can pin that hash between runs today. When
+`AGENTCART_REGISTRY_FEED_PROOF_PRIVATE_KEY` is configured, the proof also
+includes an RSA-SHA256 signature over a canonical signature payload. Optional
+`AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_URL` and
+`AGENTCART_REGISTRY_FEED_PROOF_ANCHOR_CHAIN_ID` fields let operators publish the
+same payload hash and transparency head as an external or onchain anchor without
+putting catalog, quote, buyer, order, or payment data into the registry.
 `GET /v1/registry/health` summarizes verifier states, source errors, hosted
 record/revocation counts, stale records, endpoint failures, and suggested
 operator actions.
