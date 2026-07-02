@@ -232,7 +232,11 @@ optional so pilots can use either an authenticated provider or a local relay.
 The email body contains public merchant registry metadata only.
 
 The monitor JSON, registry page, and ShopBridge WordPress admin registry health
-panel show whether alert delivery was skipped, sent, partial, or failed.
+panel show whether alert delivery was skipped, sent, partial, or failed. The
+monitor JSON also exposes `alert_delivery_metrics` with delivery counts by
+state, per-sink sent/failed counters, the latest delivery summary, and a
+`consecutive_problem_count`/`needs_attention` signal for failed or partial alert
+delivery streaks.
 
 `hmac-sha256` remains available for private/local feeds, but it is an
 implementation shortcut. Public trust should use a merchant-owned proof such as

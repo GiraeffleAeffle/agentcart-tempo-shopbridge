@@ -1207,6 +1207,97 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(monitor_status["last_notifications"]["state"], "sent")
             self.assertEqual(monitor_status["notification_count"], 3)
             self.assertEqual(monitor_status["configured"]["alert_delivery"]["sink_count"], 1)
+            metrics = monitor_status["alert_delivery_metrics"]
+            self.assertEqual(metrics["schema"], "agentcart.registry_alert_delivery_metrics.v1")
+            self.assertEqual(metrics["delivery_count"], 3)
+            self.assertEqual(metrics["state_counts"]["sent"], 2)
+            self.assertEqual(metrics["state_counts"]["skipped"], 1)
+            self.assertEqual(metrics["problem_count"], 0)
+            self.assertEqual(metrics["consecutive_problem_count"], 0)
+            self.assertFalse(metrics["needs_attention"])
+            self.assertEqual(metrics["sink_counts"]["webhook"], {"sent": 2, "failed": 0})
+            self.assertEqual(metrics["last_delivery"]["state"], "sent")
+
+    def test_registry_monitor_delivery_metrics_track_partial_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "entries": [
+                            signed_registry_record(
+                                manifest,
+                                updated_at="2000-01-01T00:00:00Z",
+                            )
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = make_service(
+                tmp,
+                merchant_registry_path=registry_path,
+                merchant_registry_hmac_secret="registry-secret",
+                registry_alert_webhook_url="https://ops.example/agentcart-alerts",
+                registry_alert_email_to=("ops@example.test",),
+                registry_alert_email_from="agentcart@example.test",
+                registry_alert_smtp_host="smtp.example.test",
+            )
+
+            def failing_http_json(
+                url: str,
+                *,
+                method: str,
+                token: str,
+                payload: dict[str, object] | None = None,
+                headers_extra: dict[str, str] | None = None,
+                timeout: int = 10,
+            ) -> dict[str, object]:
+                raise agentcart.UpstreamError("alert webhook unavailable", detail={"url": url, "method": method})
+
+            class FakeSMTP:
+                def __init__(self, host: str, port: int, timeout: int) -> None:
+                    self.host = host
+                    self.port = port
+                    self.timeout = timeout
+
+                def __enter__(self) -> "FakeSMTP":
+                    return self
+
+                def __exit__(self, *args: object) -> None:
+                    return None
+
+                def starttls(self) -> None:
+                    return None
+
+                def send_message(self, message: object) -> None:
+                    return None
+
+            service.http_json = failing_http_json  # type: ignore[method-assign]
+            original_smtp = agentcart.smtplib.SMTP
+            agentcart.smtplib.SMTP = FakeSMTP  # type: ignore[assignment]
+            try:
+                first = service.run_registry_monitor({"trigger": "test"})
+            finally:
+                agentcart.smtplib.SMTP = original_smtp  # type: ignore[assignment]
+
+            self.assertEqual(first["notifications"]["state"], "partial")
+            self.assertEqual(first["notifications"]["results"][0]["sink"], "webhook")
+            self.assertFalse(first["notifications"]["results"][0]["ok"])
+            self.assertEqual(first["notifications"]["results"][1]["sink"], "email")
+            self.assertTrue(first["notifications"]["results"][1]["ok"])
+            metrics = first["monitor"]["alert_delivery_metrics"]
+            self.assertEqual(metrics["delivery_count"], 1)
+            self.assertEqual(metrics["state_counts"]["partial"], 1)
+            self.assertEqual(metrics["problem_count"], 1)
+            self.assertEqual(metrics["consecutive_problem_count"], 1)
+            self.assertTrue(metrics["needs_attention"])
+            self.assertEqual(metrics["sink_counts"]["webhook"], {"sent": 0, "failed": 1})
+            self.assertEqual(metrics["sink_counts"]["email"], {"sent": 1, "failed": 0})
+            self.assertEqual(metrics["last_delivery"]["state"], "partial")
+            self.assertTrue(metrics["last_delivery"]["event_id"].startswith("registry_alert_"))
 
     def test_registry_monitor_sends_email_for_alert_deltas(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
