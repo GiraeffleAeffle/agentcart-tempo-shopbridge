@@ -4088,7 +4088,8 @@ final class AgentCart_ShopBridge {
         $payment_configured = self::payment_verifier_url() !== ''
             && self::payment_verifier_token() !== ''
             && (self::tempo_recipient() !== '' || self::stripe_profile_id() !== '')
-            && self::external_verifier_required_for_checkout();
+            && self::external_verifier_required_for_checkout()
+            && !self::payment_verifier_url_allows_private_networks();
         $registry_ready = self::public_origin_is_https() && self::registry_domain_proof_configured();
         $steps = [
             self::setup_guide_step(
@@ -4212,6 +4213,9 @@ final class AgentCart_ShopBridge {
         if (self::payment_verifier_url() && !self::payment_verifier_token()) {
             $missing_production[] = 'payment verifier token';
         }
+        if (self::payment_verifier_url_allows_private_networks()) {
+            $missing_production[] = 'public payment verifier URL';
+        }
         if (!self::external_verifier_required_for_checkout()) {
             $missing_production[] = 'external-verifier-only checkout mode';
         }
@@ -4246,6 +4250,7 @@ final class AgentCart_ShopBridge {
             'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token_demo',
             'checkout_mode' => self::checkout_mode(),
             'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
+            'private_payment_verifier_urls_allowed' => self::payment_verifier_url_allows_private_networks(),
             'trusted_token_checkout_enabled' => !self::external_verifier_required_for_checkout(),
             'signed_request_mode' => self::signed_request_mode(),
             'signed_request_configured' => self::signed_request_profile_configured(),
@@ -7789,7 +7794,78 @@ final class AgentCart_ShopBridge {
         if (!empty($parts['user']) || !empty($parts['pass'])) {
             return '';
         }
+        if (!self::payment_verifier_url_allows_private_networks() && !self::payment_verifier_host_resolves_to_public_ips((string) $parts['host'])) {
+            return '';
+        }
         return $url;
+    }
+
+    private static function payment_verifier_url_allows_private_networks() {
+        if (defined('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL')) {
+            return self::truthy_config_value(AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL);
+        }
+        $value = getenv('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL');
+        return self::truthy_config_value($value);
+    }
+
+    private static function truthy_config_value($value) {
+        return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    private static function payment_verifier_host_resolves_to_public_ips($host) {
+        $host = strtolower(trim((string) $host));
+        $host = trim($host, '[]');
+        if ($host === '' || $host === 'localhost' || str_ends_with($host, '.localhost')) {
+            return false;
+        }
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            return self::payment_verifier_ip_is_public($host);
+        }
+        if (!preg_match('/^[a-z0-9.-]+$/', $host)) {
+            return false;
+        }
+
+        $ips = [];
+        if (function_exists('dns_get_record')) {
+            $records = dns_get_record($host, DNS_A | DNS_AAAA);
+            if (is_array($records)) {
+                foreach ($records as $record) {
+                    if (!empty($record['ip'])) {
+                        $ips[] = (string) $record['ip'];
+                    }
+                    if (!empty($record['ipv6'])) {
+                        $ips[] = (string) $record['ipv6'];
+                    }
+                }
+            }
+        }
+        if (function_exists('gethostbynamel')) {
+            $resolved = gethostbynamel($host);
+            if (is_array($resolved)) {
+                foreach ($resolved as $ip) {
+                    $ips[] = (string) $ip;
+                }
+            }
+        }
+
+        $ips = array_values(array_unique(array_filter($ips)));
+        if (empty($ips)) {
+            return false;
+        }
+        foreach ($ips as $ip) {
+            if (!self::payment_verifier_ip_is_public($ip)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static function payment_verifier_ip_is_public($ip) {
+        return (bool) filter_var(
+            trim((string) $ip),
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
     }
 
     private static function payment_verifier_token() {
