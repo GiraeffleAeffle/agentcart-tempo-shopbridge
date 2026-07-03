@@ -35,6 +35,7 @@
         "woocommerce_compatibility_matrix_result",
         "woocommerce_baseline_eu_tax_shipping_result",
         "woocommerce_restricted_stock_policy_result",
+        "non_maintainer_setup_walkthrough_notes",
         "registry_record_or_bundle_url"
       ],
       "exit_criteria": [

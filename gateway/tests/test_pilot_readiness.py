@@ -51,6 +51,16 @@ class PilotReadinessTest(unittest.TestCase):
         self.assertIn("woocommerce_baseline_eu_tax_shipping_result", merchant_gate["required_evidence"])
         self.assertIn("woocommerce_restricted_stock_policy_result", merchant_gate["required_evidence"])
 
+    def test_non_maintainer_walkthrough_evidence_is_required(self) -> None:
+        checklist = load_checklist()
+        merchant_gate = next(
+            gate
+            for gate in checklist["gates"]
+            if isinstance(gate, dict) and gate.get("id") == "pilot-merchant-onboarding"
+        )
+
+        self.assertIn("non_maintainer_setup_walkthrough_notes", merchant_gate["required_evidence"])
+
     def test_evidence_check_requires_expected_files(self) -> None:
         checklist = load_checklist()
         first_gate = checklist["gates"][0]

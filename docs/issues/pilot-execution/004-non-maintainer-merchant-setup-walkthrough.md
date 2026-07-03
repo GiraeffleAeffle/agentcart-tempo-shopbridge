@@ -23,7 +23,10 @@ path and report where it breaks down.
 
 ## Blocked by
 
-- Blocked by #17
+- Human walkthrough required: a non-maintainer must run
+  `docs/MERCHANT_SETUP_WALKTHROUGH.md` against a staging shop and record the
+  notes in
+  `pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md`.
 
 ## Slice metadata
 

@@ -102,6 +102,7 @@ Required evidence:
 - WooCommerce compatibility matrix result;
 - WooCommerce baseline EU tax/shipping profile result;
 - WooCommerce restricted stock/policy profile result;
+- non-maintainer setup walkthrough notes;
 - registry record or bundle URL.
 
 Exit criteria:
