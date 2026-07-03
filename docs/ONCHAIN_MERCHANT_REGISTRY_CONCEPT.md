@@ -75,7 +75,15 @@ interface IMerchantRegistry {
         uint64 updatedAt;
         uint64 attestedAt;
         uint64 attestationExpiresAt;
+        uint16 attestationCount;
         Status status;
+    }
+
+    struct Attestation {
+        bytes32 recordHash;
+        bytes32 resultHash;
+        uint64 attestedAt;
+        uint64 expiresAt;
     }
 
     function register(
@@ -139,6 +147,19 @@ interface IMerchantRegistry {
         string calldata evidenceURI
     ) external;
 
+    function attestation(
+        bytes32 recordId,
+        address validator
+    ) external view returns (Attestation memory);
+
+    function setAttestationThreshold(uint16 threshold) external;
+
+    function scheduleGovernanceAction(
+        bytes32 actionHash
+    ) external returns (uint64 readyAt);
+
+    function acceptOwnership() external;
+
     event MerchantRegistered(
         bytes32 indexed recordId,
         address indexed controller,
@@ -171,6 +192,15 @@ interface IMerchantRegistry {
         address indexed flagger,
         bytes32 challengeType,
         string evidenceURI
+    );
+    event AttestationThresholdSet(uint16 threshold);
+    event GovernanceActionScheduled(
+        bytes32 indexed actionHash,
+        uint64 readyAt
+    );
+    event OwnershipTransferStarted(
+        address indexed previousOwner,
+        address indexed newOwner
     );
 }
 ```
@@ -253,6 +283,10 @@ Pilot mode:
 - validators run the same checks as `gateway/scripts/registry_record.py verify`;
 - validators publish an attestation over `recordId`, `recordHash`, validator,
   result hash, and expiry;
+- the contract keeps one current attestation per validator and requires the
+  configured attestation threshold before `isAttestationCurrent()` is true;
+- aggregate attestation expiry is conservative: if any counted attestation
+  expires, the record needs a fresh quorum instead of overstating freshness;
 - `update()` clears attestation state;
 - expired attestations do not satisfy verified listing policy;
 - the hosted AgentCart registry can be one validator, but not the only long-term
@@ -311,8 +345,10 @@ occupied domain hash, enters a pending window, emits monitorable events, and
 becomes active only after re-attestation or an explicit challenge window.
 Owner-only `forceRevoke` is an emergency pilot recovery path for obvious squats
 or broken records. It frees a domain slot with public events, but it is a
-trusted-operator power and must move behind timelocked multisig governance
-before a neutral public deployment.
+trusted-operator power. The prototype requires a delayed governance action for
+`forceRevoke`, validator set changes, and threshold changes; production still
+needs the owner to be a timelocked multisig or equivalent public governance
+process before a neutral public deployment.
 
 ## Challenge Scope
 
@@ -331,9 +367,11 @@ Initial flags:
 | `stale_record` | updated timestamp older than freshness window |
 | `homograph_risk` | normalized-domain and display-domain mismatch evidence |
 
-Flags do not change status, lock a bond, or slash anyone in v1. They trigger
-validator re-verification and public monitoring. Suspension requires controller
-action, validator quorum, or timelocked governance with public reason.
+Flags do not change status, lock a bond, or slash anyone in v1. They are
+cooldown-limited per flagger and record, and `evidenceURI` must be treated as
+untrusted input by indexers and validators. They trigger validator
+re-verification and public monitoring. Suspension requires controller action,
+validator quorum, or timelocked governance with public reason.
 
 Do not include subjective challenges such as "bad price", "slow support", or
 "poor product quality" in the base registry. Those belong in reputation or

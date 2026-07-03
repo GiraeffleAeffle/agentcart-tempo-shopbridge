@@ -16,7 +16,15 @@ interface IAgentCartMerchantRegistry {
         uint64 updatedAt;
         uint64 attestedAt;
         uint64 attestationExpiresAt;
+        uint16 attestationCount;
         Status status;
+    }
+
+    struct Attestation {
+        bytes32 recordHash;
+        bytes32 resultHash;
+        uint64 attestedAt;
+        uint64 expiresAt;
     }
 
     struct Supersession {
@@ -66,6 +74,8 @@ interface IAgentCartMerchantRegistry {
 
     function record(bytes32 recordId) external view returns (Record memory);
 
+    function attestation(bytes32 recordId, address validator) external view returns (Attestation memory);
+
     function supersession(bytes32 pendingRecordId) external view returns (Supersession memory);
 
     function recordIdForDomain(bytes32 domainHash) external view returns (bytes32);
@@ -74,17 +84,41 @@ interface IAgentCartMerchantRegistry {
 
     function validators(address validator) external view returns (bool);
 
+    function validatorCount() external view returns (uint16);
+
+    function attestationThreshold() external view returns (uint16);
+
+    function nextFlagAvailableAt(bytes32 recordId, address flagger) external view returns (uint64);
+
+    function governanceActionReadyAt(bytes32 actionHash) external view returns (uint64);
+
     function owner() external view returns (address);
+
+    function pendingOwner() external view returns (address);
 
     function writesPaused() external view returns (bool);
 
     function isAttestationCurrent(bytes32 recordId) external view returns (bool);
 
+    function validatorActionHash(address validator, bool enabled) external view returns (bytes32);
+
+    function attestationThresholdActionHash(uint16 threshold) external view returns (bytes32);
+
+    function forceRevokeActionHash(bytes32 recordId, bytes32 reasonHash) external view returns (bytes32);
+
+    function scheduleGovernanceAction(bytes32 actionHash) external returns (uint64 readyAt);
+
+    function cancelGovernanceAction(bytes32 actionHash) external;
+
     function setValidator(address validator, bool enabled) external;
+
+    function setAttestationThreshold(uint16 threshold) external;
 
     function setWritesPaused(bool paused) external;
 
     function transferOwnership(address newOwner) external;
+
+    function acceptOwnership() external;
 
     event MerchantRegistered(
         bytes32 indexed recordId,
@@ -140,7 +174,15 @@ interface IAgentCartMerchantRegistry {
 
     event ValidatorSet(address indexed validator, bool enabled);
 
+    event AttestationThresholdSet(uint16 threshold);
+
+    event GovernanceActionScheduled(bytes32 indexed actionHash, uint64 readyAt);
+
+    event GovernanceActionCanceled(bytes32 indexed actionHash);
+
     event WritesPaused(bool paused);
+
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 }

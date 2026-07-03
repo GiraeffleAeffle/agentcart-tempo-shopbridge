@@ -457,6 +457,75 @@ class RegistryRecordToolTests(unittest.TestCase):
             self.assertEqual(index["flags"][0]["challenge_type"], "domain_proof_mismatch")
             self.assertEqual(index["suspensions"], [])
 
+    def test_contract_events_ignore_governance_events(self) -> None:
+        contract = onchain_contract_fixture()
+        fixture = onchain_contract_events_fixture()
+        fixture["events"].insert(
+            1,
+            {
+                "event": "GovernanceActionScheduled",
+                "block_number": 100,
+                "block_time": "2026-06-01T00:01:00Z",
+                "transaction_hash": "0x1212121212121212121212121212121212121212121212121212121212121212",
+                "log_index": 1,
+                "args": {
+                    "actionHash": "0x1313131313131313131313131313131313131313131313131313131313131313",
+                    "readyAt": 1782864060,
+                },
+            },
+        )
+        fixture["events"].insert(
+            2,
+            {
+                "event": "ValidatorSet",
+                "block_number": 100,
+                "block_time": "2026-06-01T00:02:00Z",
+                "transaction_hash": "0x1414141414141414141414141414141414141414141414141414141414141414",
+                "log_index": 2,
+                "args": {
+                    "validator": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "enabled": True,
+                },
+            },
+        )
+
+        index = registry_record_tool.index_onchain_contract_events(fixture["events"])
+
+        self.assertTrue(index["verification"]["chain_valid"], index)
+        self.assertEqual(index["records"], [contract["sample"]["onchain_record"]])
+        self.assertEqual(index["proof"]["record_hashes"], [contract["sample"]["onchain_record"]["record_hash"]])
+
+    def test_contract_events_keep_attestations_per_validator(self) -> None:
+        contract = onchain_contract_fixture()
+        fixture = onchain_contract_events_fixture()
+        fixture["events"].append(
+            {
+                "event": "MerchantAttested",
+                "block_number": 106,
+                "block_time": "2026-06-01T00:30:00Z",
+                "transaction_hash": "0x1515151515151515151515151515151515151515151515151515151515151515",
+                "log_index": 0,
+                "args": {
+                    "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444",
+                    "validator": "0xdddddddddddddddddddddddddddddddddddddddd",
+                    "recordHash": "0x0e8f8493e57e69734713cbfdc16c0effda09df4e304b72c08e50ed8187a97bef",
+                    "resultHash": "0xadadadadadadadadadadadadadadadadadadadadadadadadadadadadadadadad",
+                    "expiresAt": 1782866100,
+                    "evidenceURI": "https://registry.agentcart.eu/evidence/fixture-tea-shop/second-validator",
+                },
+            }
+        )
+
+        index = registry_record_tool.index_onchain_contract_events(fixture["events"])
+
+        self.assertTrue(index["verification"]["chain_valid"], index)
+        self.assertEqual(index["records"], [contract["sample"]["onchain_record"]])
+        self.assertEqual(len(index["attestations"]), 2)
+        self.assertEqual(
+            [item["validator"] for item in index["attestations"]],
+            ["0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "0xdddddddddddddddddddddddddddddddddddddddd"],
+        )
+
     def test_contract_events_revoke_removes_active_record(self) -> None:
         contract = onchain_contract_fixture()
         fixture = onchain_contract_events_fixture()

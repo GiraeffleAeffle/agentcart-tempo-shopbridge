@@ -145,20 +145,32 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
             "MerchantUpdated",
             "ControllerChanged",
             "MerchantRevoked",
+            "MerchantForceRevoked",
+            "SupersessionRequested",
+            "SupersessionActivated",
             "MerchantAttested",
             "MerchantSuspended",
             "MerchantUnsuspended",
             "MerchantFlagged",
+            "ValidatorSet",
+            "AttestationThresholdSet",
+            "GovernanceActionScheduled",
+            "GovernanceActionCanceled",
+            "OwnershipTransferStarted",
         ):
             self.assertIn(f"event {event_name}", source)
         self.assertIn("function register(", source)
         self.assertIn("function update(", source)
         self.assertIn("function attest(", source)
+        self.assertIn("function attestation(", source)
         self.assertIn("function flag(", source)
         self.assertIn("function record(", source)
         self.assertIn("function recordIdForDomain(", source)
         self.assertIn("function revokedRecordHashes(", source)
         self.assertIn("function isAttestationCurrent(", source)
+        self.assertIn("function setAttestationThreshold(", source)
+        self.assertIn("function scheduleGovernanceAction(", source)
+        self.assertIn("function acceptOwnership(", source)
 
     def test_contract_events_fixture_uses_interface_events(self) -> None:
         source = INTERFACE_PATH.read_text(encoding="utf-8")
@@ -180,9 +192,12 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertEqual(contract["implementation"], "contracts/AgentCartMerchantRegistry.sol")
         self.assertIn("contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry", source)
         self.assertIn("mapping(bytes32 => Record) private _records", source)
+        self.assertIn("mapping(bytes32 => mapping(address => Attestation)) private _attestations", source)
         self.assertIn("mapping(bytes32 => bytes32) public recordIdForDomain", source)
         self.assertIn("mapping(bytes32 => bool) public revokedRecordHashes", source)
         self.assertIn("mapping(address => bool) public validators", source)
+        self.assertIn("mapping(bytes32 => mapping(address => uint64)) public nextFlagAvailableAt", source)
+        self.assertIn("mapping(bytes32 => uint64) public governanceActionReadyAt", source)
 
     def test_solidity_storage_stays_identity_and_integrity_only(self) -> None:
         source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
@@ -226,6 +241,7 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         for body in (update_body, controller_body, suspend_body, revoke_body):
             self.assertIn("stored.attestedAt = 0", body)
             self.assertIn("stored.attestationExpiresAt = 0", body)
+            self.assertIn("stored.attestationCount = 0", body)
         self.assertIn("revokedRecordHashes[stored.recordHash] = true", revoke_body)
         self.assertIn("delete recordIdForDomain[stored.domainHash]", revoke_body)
         self.assertIn("_revoke(recordId, reasonHash)", public_revoke_body)
@@ -237,8 +253,27 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertIn("onlyValidator", source[source.index("function attest(") : source.index("{", source.index("function attest("))])
         self.assertIn("recordHash != stored.recordHash", body)
         self.assertIn("expiresAt <= block.timestamp", body)
-        self.assertIn("stored.attestedAt = _now64()", body)
+        self.assertIn("stored.attestationCount += 1", body)
         self.assertIn("stored.attestationExpiresAt = expiresAt", body)
+        self.assertIn("validatorAttestation.recordHash = recordHash", body)
+        self.assertIn("validatorAttestation.resultHash = resultHash", body)
+        self.assertIn("stored.attestedAt = stored.attestationCount >= attestationThreshold ? now64 : 0", body)
+
+    def test_solidity_sensitive_owner_actions_are_delayed_or_accepted(self) -> None:
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+        validator_body = solidity_function_body(source, "setValidator")
+        threshold_body = solidity_function_body(source, "setAttestationThreshold")
+        force_revoke_body = solidity_function_body(source, "forceRevoke")
+        transfer_body = solidity_function_body(source, "transferOwnership")
+        accept_body = solidity_function_body(source, "acceptOwnership")
+
+        self.assertIn("_consumeGovernanceAction(validatorActionHash(validator, enabled))", validator_body)
+        self.assertIn("_consumeGovernanceAction(attestationThresholdActionHash(threshold))", threshold_body)
+        self.assertIn("_consumeGovernanceAction(forceRevokeActionHash(recordId, reasonHash))", force_revoke_body)
+        self.assertIn("pendingOwner = newOwner", transfer_body)
+        self.assertNotIn("owner = newOwner", transfer_body)
+        self.assertIn("msg.sender != pendingOwner", accept_body)
+        self.assertIn("owner = msg.sender", accept_body)
 
     def test_solidity_flags_are_event_only(self) -> None:
         source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")

@@ -13,6 +13,13 @@
     "updated_at",
     "attested_at",
     "attestation_expires_at",
+    "attestation_count",
+    "attestation_threshold",
+    "validator_count",
+    "validator_attestations",
+    "next_flag_available_at",
+    "governance_action_ready_at",
+    "pending_owner",
     "status"
   ],
   "event_projection_fields": [
@@ -173,7 +180,7 @@
     "v1_status_effect": "event_only",
     "slashing_required_for_pilot": false,
     "merchant_slashing_required_for_v1": false,
-    "note": "Permissionless flags trigger monitoring and validator re-verification. They do not change status, lock bonds, or pay challengers in v1."
+    "note": "Permissionless flags trigger monitoring and validator re-verification. They are rate-limited per flagger and record, and do not change status, lock bonds, or pay challengers in v1."
   },
   "non_goals": [
     "Sponsored ranking",

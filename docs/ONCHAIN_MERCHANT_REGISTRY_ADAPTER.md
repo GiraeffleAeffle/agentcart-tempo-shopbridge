@@ -41,9 +41,10 @@ contracts/AgentCartMerchantRegistry.sol
 ```
 
 This first implementation stores controller, domain hash, record hash, status,
-freshness timestamps, revocation hashes, and validator attestation timestamps.
-It does not include staking, slashing, paid ranking, onchain catalog data, or
-challenge payouts. Permissionless flags are event-only.
+freshness timestamps, revocation hashes, per-validator attestation state,
+conservative attestation quorum summary, flag cooldown metadata, and delayed
+governance actions. It does not include staking, slashing, paid ranking,
+onchain catalog data, or challenge payouts. Permissionless flags are event-only.
 
 When Foundry is installed, the repo verification script runs the Solidity
 lifecycle tests with the pinned `foundry.toml` settings. Environments without
@@ -86,9 +87,10 @@ Optional ERC-8004-style mapping fields:
 The fixture is a projection and event/indexer shape, not the v1 contract storage
 layout. ADR 0007 requires the first contract to store only state it can enforce:
 controller, record hash, normalized domain hash, contract-set timestamp, status,
-and current attestation state. Merchant id, manifest URL, registry claim hash,
-payment binding, revocation URL, shipping countries, and protocol lists remain
-inside the hashed offchain record and emitted event projection.
+current attestation state, and compact abuse/governance controls. Merchant id,
+manifest URL, registry claim hash, payment binding, revocation URL, shipping
+countries, and protocol lists remain inside the hashed offchain record and
+emitted event projection.
 
 The current `onchain_identity` and `erc8004_identity` fields in registry records
 map into optional projection fields. They let early records point at an
@@ -172,9 +174,10 @@ python3 gateway/scripts/registry_record.py index-contract-events \
 offchain record projection for the advertised `recordURI`; the indexer rejects
 the event stream if the projection hash does not match the event `recordHash`.
 `MerchantAttested` records attestation metadata for the current record hash,
-`MerchantSuspended` removes the record from active discovery until
-`MerchantUnsuspended`, and `MerchantFlagged` remains event-only so it never
-changes eligibility by itself.
+keyed by validator. `MerchantSuspended` removes the record from active discovery
+and clears attestation state until `MerchantUnsuspended` plus fresh
+attestation. `MerchantFlagged` remains event-only so it never changes
+eligibility by itself.
 
 The hosted registry feed proof can also be RSA-SHA256 signed. Operators should
 sign the canonical feed-proof signature payload and publish the public key URL

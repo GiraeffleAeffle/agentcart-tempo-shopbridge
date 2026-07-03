@@ -35,7 +35,8 @@ enforce:
 - normalized domain hash, with one active record per domain hash;
 - contract-set freshness timestamp;
 - status: active, revoked, or suspended;
-- current attestation state for the active record hash.
+- current per-validator attestation state and conservative quorum summary for
+  the active record hash.
 
 Do not store fields that the contract cannot verify from calldata or chain
 state, such as merchant id hash, registry claim hash, payment binding hash,
@@ -96,6 +97,10 @@ The first contract must make attestation lifecycle rules explicit:
 
 - an attestation commits to `record_id`, `record_hash`, validator, result hash,
   and expiry;
+- the contract tracks one current attestation per validator and a configurable
+  threshold before `isAttestationCurrent()` returns true;
+- aggregate freshness is conservative: counted attestations use the earliest
+  expiry, so stale quorum state can fail closed but not overstate freshness;
 - `update()` clears attestation state;
 - expired attestations do not satisfy verified listing policy;
 - validators are from an explicit set with timelocked changes;
@@ -184,6 +189,9 @@ For v1, permissionless challenges are event-only flags:
 
 - they do not change merchant eligibility by themselves;
 - they do not lock a bond;
+- they are cooldown-limited per flagger and record;
+- their evidence URI is untrusted input and must not be fetched by indexers
+  without the same URL-safety controls used for merchant endpoints;
 - they trigger validator re-verification and public monitoring;
 - suspension requires controller action, validator quorum, or timelocked
   governance with public reason.
@@ -200,7 +208,11 @@ Production default should prefer simple and conservative:
 - migration through event replay into a successor registry;
 - writes-only pause, never read blocking;
 - timelocked validator set changes;
-- admin can suspend with public reason but cannot mutate merchant records;
+- delayed emergency recovery and attestation-threshold changes;
+- two-step ownership transfer, with the production owner set to a timelocked
+  multisig or equivalent public governance process;
+- admin can suspend with public reason, and cannot update merchant controller,
+  record hash, or record URI;
 - no admin ability to delete history;
 - no admin ability to rank merchants.
 

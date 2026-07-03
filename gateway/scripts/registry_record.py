@@ -803,6 +803,27 @@ def verify_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, An
         "MerchantUpdated",
         "ControllerChanged",
         "MerchantRevoked",
+        "MerchantForceRevoked",
+        "SupersessionRequested",
+        "SupersessionActivated",
+        "MerchantAttested",
+        "MerchantSuspended",
+        "MerchantUnsuspended",
+        "MerchantFlagged",
+        "ValidatorSet",
+        "AttestationThresholdSet",
+        "GovernanceActionScheduled",
+        "GovernanceActionCanceled",
+        "WritesPaused",
+        "OwnershipTransferStarted",
+        "OwnershipTransferred",
+    }
+    record_id_events = {
+        "MerchantRegistered",
+        "MerchantUpdated",
+        "ControllerChanged",
+        "MerchantRevoked",
+        "MerchantForceRevoked",
         "MerchantAttested",
         "MerchantSuspended",
         "MerchantUnsuspended",
@@ -817,9 +838,10 @@ def verify_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, An
         if not args:
             errors.append({"sequence": sequence, "error": "event_args_missing", "event": event_name})
             continue
-        record_id = contract_event_record_id(event)
-        if not is_bytes32_hex(record_id):
-            errors.append({"sequence": sequence, "error": "record_id_invalid", "event": event_name})
+        if event_name in record_id_events:
+            record_id = contract_event_record_id(event)
+            if not is_bytes32_hex(record_id):
+                errors.append({"sequence": sequence, "error": "record_id_invalid", "event": event_name})
         if event_name in {"MerchantRegistered", "MerchantUpdated", "MerchantAttested"}:
             record_hash = contract_event_record_hash(event)
             if not is_sha256_hex(record_hash):
@@ -877,11 +899,32 @@ def index_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any
     attestations: dict[str, dict[str, Any]] = {}
     suspensions: dict[str, dict[str, Any]] = {}
     flags: list[dict[str, Any]] = []
+
+    def remove_attestations(record_id: str) -> None:
+        for attestation_key, attestation in list(attestations.items()):
+            if str(attestation.get("record_id") or "") == record_id:
+                attestations.pop(attestation_key, None)
+
+    record_id_events = {
+        "MerchantRegistered",
+        "MerchantUpdated",
+        "ControllerChanged",
+        "MerchantRevoked",
+        "MerchantForceRevoked",
+        "MerchantAttested",
+        "MerchantSuspended",
+        "MerchantUnsuspended",
+        "MerchantFlagged",
+    }
     for sequence, event in enumerate(events, start=1):
         event_name = str(event.get("event") or "")
         args = contract_event_args(event)
-        record_id = contract_event_record_id(event)
-        record_hash = contract_event_record_hash(event)
+        record_id = contract_event_record_id(event) if event_name in record_id_events else ""
+        record_hash = contract_event_record_hash(event) if event_name in {
+            "MerchantRegistered",
+            "MerchantUpdated",
+            "MerchantAttested",
+        } else ""
         event_ref = {
             "event": event_name,
             "sequence": sequence,
@@ -893,8 +936,12 @@ def index_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any
             active_by_record_id[record_id] = copy.deepcopy(event["onchain_record"])
             active_by_record_id[record_id].setdefault("record_id", record_id)
             revocations.pop(record_hash, None)
-            attestations.pop(record_id, None)
+            remove_attestations(record_id)
             suspensions.pop(record_id, None)
+        elif event_name == "ControllerChanged":
+            if record_id in active_by_record_id:
+                active_by_record_id[record_id]["controller"] = contract_event_arg(args, "newController", "new_controller")
+            remove_attestations(record_id)
         elif event_name == "MerchantRevoked":
             current = active_by_record_id.pop(record_id, None)
             final_hash = str((current or {}).get("record_hash") or record_hash)
@@ -906,14 +953,15 @@ def index_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any
                     "reason_hash": contract_event_arg(args, "reasonHash", "reason_hash"),
                     **event_ref,
                 }
-            attestations.pop(record_id, None)
+            remove_attestations(record_id)
             suspensions.pop(record_id, None)
         elif event_name == "MerchantAttested":
             if record_id in active_by_record_id and active_by_record_id[record_id].get("record_hash") == record_hash:
-                attestations[record_id] = {
+                validator = str(contract_event_arg(args, "validator") or "")
+                attestations[f"{record_id}:{validator.lower()}"] = {
                     "record_id": record_id,
                     "record_hash": record_hash,
-                    "validator": contract_event_arg(args, "validator"),
+                    "validator": validator,
                     "result_hash": contract_event_arg(args, "resultHash", "result_hash"),
                     "expires_at": str(contract_event_arg(args, "expiresAt", "expires_at")),
                     "evidence_uri": str(contract_event_arg(args, "evidenceURI", "evidence_uri")),
@@ -925,6 +973,7 @@ def index_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any
                 "reason_hash": contract_event_arg(args, "reasonHash", "reason_hash"),
                 **event_ref,
             }
+            remove_attestations(record_id)
         elif event_name == "MerchantUnsuspended":
             suspensions.pop(record_id, None)
         elif event_name == "MerchantFlagged":
@@ -945,7 +994,10 @@ def index_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any
     ]
     records = sorted(active_records, key=lambda item: (str(item.get("domain") or ""), str(item.get("merchant_id") or ""), str(item.get("record_hash") or "")))
     revocation_list = sorted(revocations.values(), key=lambda item: str(item.get("record_hash") or ""))
-    attestation_list = sorted(attestations.values(), key=lambda item: str(item.get("record_id") or ""))
+    attestation_list = sorted(
+        attestations.values(),
+        key=lambda item: (str(item.get("record_id") or ""), str(item.get("validator") or "")),
+    )
     suspension_list = sorted(suspensions.values(), key=lambda item: str(item.get("record_id") or ""))
     record_hashes = [str(record.get("record_hash") or "") for record in records]
     revocation_record_hashes = [str(item.get("record_hash") or "") for item in revocation_list]

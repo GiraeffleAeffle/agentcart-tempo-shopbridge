@@ -17,19 +17,33 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
     error RevokedRecordHash(bytes32 recordHash);
     error RecordHashMismatch(bytes32 expected, bytes32 actual);
     error InvalidAttestationExpiry(uint64 expiresAt);
+    error InvalidAttestationThreshold(uint16 threshold);
     error UnknownSupersession();
     error SupersessionNotReady(uint64 availableAt);
     error SupersessionTargetChanged(bytes32 expectedRecordId, bytes32 actualRecordId);
+    error FlagCooldownActive(bytes32 recordId, uint64 availableAt);
+    error UnknownGovernanceAction(bytes32 actionHash);
+    error GovernanceActionNotReady(uint64 availableAt);
+    error NotPendingOwner();
 
     uint64 public constant SUPERSESSION_DELAY_SECONDS = 2 days;
+    uint64 public constant FLAG_COOLDOWN_SECONDS = 1 hours;
+    uint64 public constant GOVERNANCE_DELAY_SECONDS = 1 days;
+
     address public owner;
+    address public pendingOwner;
     bool public writesPaused;
+    uint16 public validatorCount;
+    uint16 public attestationThreshold = 1;
 
     mapping(bytes32 => Record) private _records;
+    mapping(bytes32 => mapping(address => Attestation)) private _attestations;
     mapping(bytes32 => Supersession) private _supersessions;
     mapping(bytes32 => bytes32) public recordIdForDomain;
     mapping(bytes32 => bool) public revokedRecordHashes;
     mapping(address => bool) public validators;
+    mapping(bytes32 => mapping(address => uint64)) public nextFlagAvailableAt;
+    mapping(bytes32 => uint64) public governanceActionReadyAt;
 
     modifier onlyOwner() {
         _onlyOwner();
@@ -78,6 +92,7 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
             updatedAt: _now64(),
             attestedAt: 0,
             attestationExpiresAt: 0,
+            attestationCount: 0,
             status: Status.Active
         });
         recordIdForDomain[domainHash] = recordId;
@@ -99,6 +114,7 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
         stored.updatedAt = _now64();
         stored.attestedAt = 0;
         stored.attestationExpiresAt = 0;
+        stored.attestationCount = 0;
 
         emit MerchantUpdated(recordId, recordHash, recordURI);
     }
@@ -112,6 +128,7 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
         stored.updatedAt = _now64();
         stored.attestedAt = 0;
         stored.attestationExpiresAt = 0;
+        stored.attestationCount = 0;
 
         emit ControllerChanged(recordId, newController);
     }
@@ -121,6 +138,7 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
     }
 
     function forceRevoke(bytes32 recordId, bytes32 reasonHash) external whenWritesOpen onlyOwner {
+        _consumeGovernanceAction(forceRevokeActionHash(recordId, reasonHash));
         _revoke(recordId, reasonHash);
         emit MerchantForceRevoked(recordId, msg.sender, reasonHash);
     }
@@ -199,6 +217,7 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
             updatedAt: _now64(),
             attestedAt: 0,
             attestationExpiresAt: 0,
+            attestationCount: 0,
             status: Status.Active
         });
         recordIdForDomain[pending.domainHash] = pendingRecordId;
@@ -234,8 +253,29 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
             revert InvalidAttestationExpiry(expiresAt);
         }
 
-        stored.attestedAt = _now64();
-        stored.attestationExpiresAt = expiresAt;
+        if (stored.attestationExpiresAt != 0 && stored.attestationExpiresAt <= block.timestamp) {
+            stored.attestedAt = 0;
+            stored.attestationExpiresAt = 0;
+            stored.attestationCount = 0;
+        }
+
+        Attestation storage validatorAttestation = _attestations[recordId][msg.sender];
+        bool wasCurrentForHash =
+            validatorAttestation.recordHash == recordHash && validatorAttestation.expiresAt > block.timestamp;
+        if (!wasCurrentForHash) {
+            stored.attestationCount += 1;
+        }
+
+        uint64 now64 = _now64();
+        validatorAttestation.recordHash = recordHash;
+        validatorAttestation.resultHash = resultHash;
+        validatorAttestation.attestedAt = now64;
+        validatorAttestation.expiresAt = expiresAt;
+
+        if (stored.attestationExpiresAt == 0 || expiresAt < stored.attestationExpiresAt) {
+            stored.attestationExpiresAt = expiresAt;
+        }
+        stored.attestedAt = stored.attestationCount >= attestationThreshold ? now64 : 0;
 
         emit MerchantAttested(recordId, msg.sender, recordHash, resultHash, expiresAt, evidenceURI);
     }
@@ -250,6 +290,7 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
         stored.updatedAt = _now64();
         stored.attestedAt = 0;
         stored.attestationExpiresAt = 0;
+        stored.attestationCount = 0;
 
         emit MerchantSuspended(recordId, reasonHash);
     }
@@ -270,11 +311,21 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
         _requireNonZero(challengeType);
         _requireNonEmptyUri(evidenceURI);
 
+        uint64 availableAt = nextFlagAvailableAt[recordId][msg.sender];
+        if (block.timestamp < availableAt) {
+            revert FlagCooldownActive(recordId, availableAt);
+        }
+        nextFlagAvailableAt[recordId][msg.sender] = _now64() + FLAG_COOLDOWN_SECONDS;
+
         emit MerchantFlagged(recordId, msg.sender, challengeType, evidenceURI);
     }
 
     function record(bytes32 recordId) external view returns (Record memory) {
         return _records[recordId];
+    }
+
+    function attestation(bytes32 recordId, address validator) external view returns (Attestation memory) {
+        return _attestations[recordId][validator];
     }
 
     function supersession(bytes32 pendingRecordId) external view returns (Supersession memory) {
@@ -283,8 +334,8 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
 
     function isAttestationCurrent(bytes32 recordId) external view returns (bool) {
         Record storage stored = _records[recordId];
-        return
-            stored.status == Status.Active && stored.attestedAt != 0 && stored.attestationExpiresAt >= block.timestamp;
+        return stored.status == Status.Active && stored.attestationCount >= attestationThreshold
+            && stored.attestationExpiresAt > block.timestamp;
     }
 
     function computeRecordId(bytes32 domainHash, address controller) public view returns (bytes32) {
@@ -295,10 +346,56 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
             );
     }
 
+    function validatorActionHash(address validator, bool enabled) public view returns (bytes32) {
+        return
+            keccak256(
+                abi.encode("agentcart.registry.setValidator.v1", block.chainid, address(this), validator, enabled)
+            );
+    }
+
+    function attestationThresholdActionHash(uint16 threshold) public view returns (bytes32) {
+        return
+            keccak256(
+                abi.encode("agentcart.registry.setAttestationThreshold.v1", block.chainid, address(this), threshold)
+            );
+    }
+
+    function forceRevokeActionHash(bytes32 recordId, bytes32 reasonHash) public view returns (bytes32) {
+        return
+            keccak256(
+                abi.encode("agentcart.registry.forceRevoke.v1", block.chainid, address(this), recordId, reasonHash)
+            );
+    }
+
+    function scheduleGovernanceAction(bytes32 actionHash) external onlyOwner returns (uint64 readyAt) {
+        _requireNonZero(actionHash);
+        readyAt = _now64() + GOVERNANCE_DELAY_SECONDS;
+        governanceActionReadyAt[actionHash] = readyAt;
+        emit GovernanceActionScheduled(actionHash, readyAt);
+    }
+
+    function cancelGovernanceAction(bytes32 actionHash) external onlyOwner {
+        _requireNonZero(actionHash);
+        delete governanceActionReadyAt[actionHash];
+        emit GovernanceActionCanceled(actionHash);
+    }
+
     function setValidator(address validator, bool enabled) external onlyOwner {
         if (validator == address(0)) revert ZeroAddress();
+        _consumeGovernanceAction(validatorActionHash(validator, enabled));
+        bool current = validators[validator];
+        if (current != enabled) {
+            validatorCount = enabled ? validatorCount + 1 : validatorCount - 1;
+        }
         validators[validator] = enabled;
         emit ValidatorSet(validator, enabled);
+    }
+
+    function setAttestationThreshold(uint16 threshold) external onlyOwner {
+        if (threshold == 0) revert InvalidAttestationThreshold(threshold);
+        _consumeGovernanceAction(attestationThresholdActionHash(threshold));
+        attestationThreshold = threshold;
+        emit AttestationThresholdSet(threshold);
     }
 
     function setWritesPaused(bool paused) external onlyOwner {
@@ -308,9 +405,16 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner();
         address previousOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(previousOwner, newOwner);
+        owner = msg.sender;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(previousOwner, msg.sender);
     }
 
     function _existingRecord(bytes32 recordId) private view returns (Record storage stored) {
@@ -370,8 +474,16 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
         stored.updatedAt = _now64();
         stored.attestedAt = 0;
         stored.attestationExpiresAt = 0;
+        stored.attestationCount = 0;
 
         emit MerchantRevoked(recordId, reasonHash);
+    }
+
+    function _consumeGovernanceAction(bytes32 actionHash) private {
+        uint64 availableAt = governanceActionReadyAt[actionHash];
+        if (availableAt == 0) revert UnknownGovernanceAction(actionHash);
+        if (block.timestamp < availableAt) revert GovernanceActionNotReady(availableAt);
+        delete governanceActionReadyAt[actionHash];
     }
 
     function _now64() private view returns (uint64) {
