@@ -80,6 +80,20 @@ For local/self-hosted testing without a public registry:
 export SHOPBRIDGE_REGISTRY_PATH=/path/to/merchant-registry.json
 ```
 
+For an onchain-registry indexer snapshot, configure the contract-event feed
+instead:
+
+```sh
+export SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL=https://registry.example/onchain-events.json
+# or, for local tests:
+export SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_PATH=/path/to/onchain-events.json
+```
+
+The direct skill validates `MerchantRegistered` and `MerchantUpdated` hashes
+against both the compact `onchain_record` projection and the resolved full
+`registry_record`, then applies the normal domain-proof, manifest, payment,
+freshness, and revocation checks.
+
 The direct skill rejects records with missing/invalid timestamps, records dated
 more than 10 minutes in the future, and records older than
 `SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS` days. The default is `180`; use `0` only for
