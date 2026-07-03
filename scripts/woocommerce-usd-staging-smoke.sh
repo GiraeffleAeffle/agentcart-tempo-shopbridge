@@ -39,6 +39,7 @@ US shipping and USD currency and does not require VAT lines.
 
 Options:
   --endpoint-harness  Also run mutable checkout/cancellation/refund endpoint probes.
+                      Uses a synthetic proof unless AGENTCART_WOO_SMOKE_TEMPO_MPP_PROOF_URL is set.
   -h, --help          Show this help.
 
 Environment:
@@ -84,7 +85,18 @@ if [ "$with_endpoint_harness" -eq 1 ]; then
     printf 'STAGING_SHOPBRIDGE_TOKEN is required for --endpoint-harness. Source %s or set it manually.\n' "$SECRETS_ENV_FILE" >&2
     exit 2
   fi
+  case "${STAGING_TEMPO_SETTLEMENT_MODE:-disabled}" in
+    verify|VERIFY|Verify)
+      if [ -z "${AGENTCART_WOO_SMOKE_TEMPO_MPP_PROOF_URL:-}" ]; then
+        printf 'STAGING_TEMPO_SETTLEMENT_MODE=verify requires a real Tempo proof. Run scripts/woocommerce-usd-mppx-settlement-smoke.sh for the live settlement/refund harness, or set AGENTCART_WOO_SMOKE_TEMPO_MPP_PROOF_URL for a prepared paid resource.\n' >&2
+        exit 2
+      fi
+      ;;
+  esac
   args+=(--endpoint-harness --merchant-token "$STAGING_SHOPBRIDGE_TOKEN")
+  if [ -n "${STAGING_SIGNED_REQUEST_SECRET:-}" ]; then
+    args+=(--signed-request-secret "$STAGING_SIGNED_REQUEST_SECRET")
+  fi
 fi
 
 python3 "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py" "${args[@]}"
