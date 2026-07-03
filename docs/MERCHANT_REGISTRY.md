@@ -40,8 +40,10 @@ agent.
   "protocol_profile_ids": ["agentcart-shopbridge", "mpp-http-auth", "erc8004-ready"],
   "onchain_identity": {
     "standard": "ERC-8004",
+    "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "chain_id": "eip155:8453",
     "registry_address": "0x2222222222222222222222222222222222222222",
+    "record_id": "0x4444444444444444444444444444444444444444444444444444444444444444",
     "agent_id": "agentcart:tea-shop.example",
     "registration_uri": "https://shop.example/.well-known/agentcart.json"
   },
@@ -259,6 +261,10 @@ the registered merchant domain under `/.well-known/`:
   "payment_recipient": "0x...",
   "updated_at": "2026-06-18T00:00:00Z",
   "revocation_url": "https://shop.example/.well-known/agentcart-registry-revocations.json",
+  "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "chain_id": "eip155:8453",
+  "registry_address": "0x2222222222222222222222222222222222222222",
+  "record_id": "0x4444444444444444444444444444444444444444444444444444444444444444",
   "record_hash": "def456..."
 }
 ```
@@ -267,14 +273,22 @@ the registered merchant domain under `/.well-known/`:
 runtime-only fields such as `signature`, `verification`, and local test
 snapshots. AgentCart requires the proof URL to be HTTPS, to stay on the
 registered merchant domain, and to use a `/.well-known/` path. It rejects
-mismatched record hashes. This proves control of the shop domain without adding
-a crypto dependency to the gateway. Wallet signatures can be added later as
-another verifier behind the same proof seam.
+mismatched record hashes. If the record claims an onchain registry identity,
+the proof must also bind the domain to the onchain `controller`, `chain_id`,
+`registry_address`, and `record_id`; this prevents a public merchant bundle
+from being copied and registered under an attacker's controller. This proves
+control of the shop domain without adding a crypto dependency to the gateway.
+Wallet signatures can be added later as another verifier behind the same proof
+seam.
 
 The WooCommerce ShopBridge plugin exposes this proof at
 `/.well-known/agentcart-registry-proof.json`. It automatically maintains the
 claim hash, record hash, `updated_at` timestamp, and revocation URL from stable
 settings, so merchants do not paste registry hashes during normal onboarding.
+When configured with `AGENTCART_REGISTRY_ONCHAIN_CONTROLLER`,
+`AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID`, `AGENTCART_REGISTRY_ONCHAIN_ADDRESS`,
+and `AGENTCART_REGISTRY_ONCHAIN_RECORD_ID`, the plugin also publishes the
+controller-bound onchain identity fields in both the registry claim and proof.
 The admin page also provides a manual refresh action for the generated registry
 metadata and a public endpoint check that fetches the manifest, proof,
 revocation document, and registry bundle before a merchant asks a registry to
@@ -387,6 +401,20 @@ The ledger stores the contract-facing projection and revoke events only; it does
 not store products, prices, quotes, buyer demand, order payloads, or payment
 receipts.
 
+For smart-contract event dry runs, use the minimal interface fixture and replay
+contract logs into the same indexed adapter shape:
+
+```sh
+python3 gateway/scripts/registry_record.py index-contract-events \
+  --events-file docs/fixtures/registry/onchain-contract-events.json
+```
+
+The event fixture mirrors
+`contracts/interfaces/IAgentCartMerchantRegistry.sol` and covers register,
+attest, event-only flag, suspend, and unsuspend flows. The indexer fails closed
+when a `MerchantRegistered` or `MerchantUpdated` log does not match the fetched
+offchain record projection.
+
 Verify the live proof:
 
 ```sh
@@ -446,8 +474,9 @@ The gateway now:
   transparency export at `/v1/registry/transparency`;
 - exposes a compact feed proof at `/v1/registry/feed-proof` so monitors can pin
   active record hashes, revoked hashes, and the transparency head;
-- normalizes optional ERC-8004-style `onchain_identity` / `erc8004_identity`
-  metadata and exposes the mapping status without requiring onchain
+- normalizes optional ERC-8004-style or AgentCart onchain registry
+  `onchain_identity` / `erc8004_identity` metadata, including controller-bound
+  proof fields, and exposes the mapping status without requiring onchain
   registration for early pilots;
 - fetches each manifest, or reads `manifest_snapshot` for reproducible local
   tests;

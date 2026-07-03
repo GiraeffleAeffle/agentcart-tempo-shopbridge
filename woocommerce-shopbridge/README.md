@@ -470,10 +470,13 @@ https://shop.example/.well-known/agentcart-registry-bundle.json
 ```
 
 The proof document is used with `signature_alg: https-domain-proof`. It binds
-the shop domain to the final canonical registry record hash. The plugin
-auto-generates the stable registry claim, claim hash, record hash, and
-`updated_at` timestamp from merchant identity, payment, shipping, and endpoint
-settings.
+the shop domain to the final canonical registry record hash. If the deployment
+defines `AGENTCART_REGISTRY_ONCHAIN_CONTROLLER`,
+`AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID`, `AGENTCART_REGISTRY_ONCHAIN_ADDRESS`,
+and `AGENTCART_REGISTRY_ONCHAIN_RECORD_ID`, the proof also binds the domain to
+that onchain controller and record. The plugin auto-generates the stable
+registry claim, claim hash, record hash, and `updated_at` timestamp from
+merchant identity, payment, shipping, and endpoint settings.
 
 The bundle contains `registry_record`, `record_hash`, the expected proof
 document, a revocation document, and a one-entry `registry_feed`. Registries can

@@ -1,0 +1,104 @@
+{
+  "schema": "agentcart.onchain_registry_contract_events.v1",
+  "interface": "contracts/interfaces/IAgentCartMerchantRegistry.sol",
+  "chain_id": "eip155:8453",
+  "registry_address": "0x2222222222222222222222222222222222222222",
+  "events": [
+    {
+      "event": "MerchantRegistered",
+      "block_number": 100,
+      "block_time": "2026-06-01T00:00:00Z",
+      "transaction_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "log_index": 0,
+      "args": {
+        "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444",
+        "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "domainHash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "recordHash": "0x0e8f8493e57e69734713cbfdc16c0effda09df4e304b72c08e50ed8187a97bef",
+        "recordURI": "https://fixture-shop.example/.well-known/agentcart-registry-bundle.json"
+      },
+      "onchain_record": {
+        "record_hash": "0e8f8493e57e69734713cbfdc16c0effda09df4e304b72c08e50ed8187a97bef",
+        "record_hash_alg": "sha-256",
+        "merchant_id": "fixture-tea-shop",
+        "domain": "fixture-shop.example",
+        "manifest_url": "https://fixture-shop.example/.well-known/agentcart.json",
+        "registry_claim_hash_alg": "sha-256",
+        "registry_claim_hash": "1bee81c0024d3041155021f69e9491c5c12c556f9df5deb257b8af9939aa63f2",
+        "payment_network": "testnet",
+        "payment_recipient": "0x1111111111111111111111111111111111111111",
+        "updated_at": "2026-06-01T00:00:00Z",
+        "revocation_url": "https://fixture-shop.example/.well-known/agentcart-registry-revocations.json",
+        "chain_id": "eip155:8453",
+        "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "registry_address": "0x2222222222222222222222222222222222222222",
+        "record_id": "0x4444444444444444444444444444444444444444444444444444444444444444",
+        "agent_id": "agentcart:fixture-tea-shop",
+        "registration_uri": "https://fixture-shop.example/.well-known/agentcart.json",
+        "registration_tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+        "protocol_profile_ids": [
+          "agentcart-shopbridge",
+          "mpp-http-auth",
+          "erc8004-ready"
+        ],
+        "supported_protocols": [
+          "agentcart-shopbridge",
+          "tempo-mpp"
+        ],
+        "ship_to_countries": [
+          "DE",
+          "AT"
+        ]
+      }
+    },
+    {
+      "event": "MerchantAttested",
+      "block_number": 101,
+      "block_time": "2026-06-01T00:05:00Z",
+      "transaction_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "log_index": 0,
+      "args": {
+        "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444",
+        "validator": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "recordHash": "0x0e8f8493e57e69734713cbfdc16c0effda09df4e304b72c08e50ed8187a97bef",
+        "resultHash": "0xabababababababababababababababababababababababababababababababab",
+        "expiresAt": 1782864300,
+        "evidenceURI": "https://registry.agentcart.eu/evidence/fixture-tea-shop/2026-06-01"
+      }
+    },
+    {
+      "event": "MerchantFlagged",
+      "block_number": 102,
+      "block_time": "2026-06-01T00:10:00Z",
+      "transaction_hash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "log_index": 0,
+      "args": {
+        "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444",
+        "flagger": "0xcccccccccccccccccccccccccccccccccccccccc",
+        "challengeType": "domain_proof_mismatch",
+        "evidenceURI": "https://registry.agentcart.eu/flags/fixture-tea-shop/1"
+      }
+    },
+    {
+      "event": "MerchantSuspended",
+      "block_number": 103,
+      "block_time": "2026-06-01T00:15:00Z",
+      "transaction_hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "log_index": 0,
+      "args": {
+        "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444",
+        "reasonHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    },
+    {
+      "event": "MerchantUnsuspended",
+      "block_number": 104,
+      "block_time": "2026-06-01T00:20:00Z",
+      "transaction_hash": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "log_index": 0,
+      "args": {
+        "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    }
+  ]
+}

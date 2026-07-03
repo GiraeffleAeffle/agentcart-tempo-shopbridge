@@ -7,6 +7,8 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-adapter-contract.json"
+CONTRACT_EVENTS_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-contract-events.json"
+INTERFACE_PATH = ROOT / "contracts" / "interfaces" / "IAgentCartMerchantRegistry.sol"
 TRUST_FIXTURE_PATH = ROOT / "docs" / "fixtures" / "registry" / "trust-fixtures.json"
 
 
@@ -27,6 +29,24 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertTrue(forbidden.isdisjoint(onchain_record), forbidden.intersection(onchain_record))
         self.assertIn("registry_claim_hash", onchain_record)
         self.assertIn("payment_recipient", onchain_record)
+
+    def test_contract_storage_is_smaller_than_projection(self) -> None:
+        contract = fixture(CONTRACT_PATH)
+        storage_fields = set(contract["v1_contract_storage_fields"])
+        event_fields = set(contract["event_projection_fields"])
+
+        self.assertIn("controller", storage_fields)
+        self.assertIn("record_hash", storage_fields)
+        self.assertIn("domain_hash", storage_fields)
+        self.assertNotIn("merchant_id", storage_fields)
+        self.assertNotIn("payment_recipient", storage_fields)
+        self.assertNotIn("ship_to_countries", storage_fields)
+        self.assertIn("payment_recipient", event_fields)
+        self.assertIn("ship_to_countries", event_fields)
+        self.assertEqual(
+            contract["controller_bound_proof_fields"],
+            ["controller", "chain_id", "registry_address", "record_id", "record_hash"],
+        )
 
     def test_onchain_sample_projects_the_shared_registry_fixture(self) -> None:
         contract = fixture(CONTRACT_PATH)
@@ -55,7 +75,9 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
 
         onchain_identity = record["onchain_identity"]
         self.assertEqual(onchain_record["chain_id"], onchain_identity["chain_id"])
+        self.assertEqual(onchain_record["controller"], onchain_identity["controller"])
         self.assertEqual(onchain_record["registry_address"], onchain_identity["registry_address"])
+        self.assertEqual(onchain_record["record_id"], onchain_identity["record_id"])
         self.assertEqual(onchain_record["agent_id"], onchain_identity["agent_id"])
         self.assertEqual(onchain_record["registration_uri"], onchain_identity["registration_uri"])
         self.assertEqual(onchain_record["registration_tx_hash"], onchain_identity["registration_tx_hash"])
@@ -85,8 +107,51 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         steps = contract["agent_verification_steps"]
 
         self.assertIn("run_private_quote_requests_and_buyer_side_ranking", steps)
+        self.assertIn("verify_controller_bound_domain_proof", steps)
+        self.assertIn("apply_configured_attestation_policy", steps)
         self.assertIn("Sponsored ranking", contract["non_goals"])
         self.assertIn("Publishing household demand", contract["non_goals"])
+
+    def test_v1_challenges_are_event_only(self) -> None:
+        contract = fixture(CONTRACT_PATH)
+        policy = contract["challenge_policy"]
+
+        self.assertEqual(policy["v1_status_effect"], "event_only")
+        self.assertFalse(policy["slashing_required_for_pilot"])
+        self.assertFalse(policy["merchant_slashing_required_for_v1"])
+
+    def test_solidity_interface_exposes_minimal_v1_events(self) -> None:
+        source = INTERFACE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("interface IAgentCartMerchantRegistry", source)
+        for event_name in (
+            "MerchantRegistered",
+            "MerchantUpdated",
+            "ControllerChanged",
+            "MerchantRevoked",
+            "MerchantAttested",
+            "MerchantSuspended",
+            "MerchantUnsuspended",
+            "MerchantFlagged",
+        ):
+            self.assertIn(f"event {event_name}", source)
+        self.assertIn("function register(", source)
+        self.assertIn("function update(", source)
+        self.assertIn("function attest(", source)
+        self.assertIn("function flag(", source)
+
+    def test_contract_events_fixture_uses_interface_events(self) -> None:
+        source = INTERFACE_PATH.read_text(encoding="utf-8")
+        fixture_document = fixture(CONTRACT_EVENTS_PATH)
+
+        self.assertEqual(fixture_document["schema"], "agentcart.onchain_registry_contract_events.v1")
+        self.assertEqual(fixture_document["interface"], "contracts/interfaces/IAgentCartMerchantRegistry.sol")
+        for event in fixture_document["events"]:
+            self.assertIn(f"event {event['event']}", source)
+        self.assertEqual(
+            fixture_document["events"][0]["onchain_record"],
+            fixture(CONTRACT_PATH)["sample"]["onchain_record"],
+        )
 
 
 if __name__ == "__main__":

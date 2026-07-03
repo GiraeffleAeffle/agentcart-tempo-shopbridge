@@ -216,6 +216,11 @@ def domain_proof_document(record: dict[str, object], *, record_hash: str | None 
     }
     if record.get("revocation_url"):
         proof["revocation_url"] = record["revocation_url"]
+    onchain_identity = record.get("onchain_identity")
+    if isinstance(onchain_identity, dict):
+        for field in ("controller", "chain_id", "registry_address", "record_id"):
+            if onchain_identity.get(field):
+                proof[field] = onchain_identity[field]
     return proof
 
 
@@ -766,8 +771,10 @@ class AgentCartTests(unittest.TestCase):
             )
             onchain_identity = {
                 "standard": "ERC-8004",
+                "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "chain_id": "eip155:8453",
                 "registry_address": "0x2222222222222222222222222222222222222222",
+                "record_id": "0x" + "4" * 64,
                 "agent_id": "agentcart:signed-tea-shop",
                 "registration_uri": "https://signed.example/.well-known/agentcart.json",
                 "registration_tx_hash": "0x" + "3" * 64,
@@ -801,8 +808,10 @@ class AgentCartTests(unittest.TestCase):
             self.assertTrue(entry["onchain_identity"]["configured"])
             self.assertFalse(entry["onchain_identity"]["required"])
             self.assertEqual(entry["onchain_identity"]["standard"], "ERC-8004")
+            self.assertEqual(entry["onchain_identity"]["controller"], "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             self.assertEqual(entry["onchain_identity"]["chain_id"], "eip155:8453")
             self.assertEqual(entry["onchain_identity"]["registry_address"], "0x2222222222222222222222222222222222222222")
+            self.assertEqual(entry["onchain_identity"]["record_id"], "0x" + "4" * 64)
             self.assertEqual(entry["onchain_identity"]["record_hash"], entry["registry_record_hash"])
             self.assertIn("erc8004-ready", entry["protocol_profile_ids"])
             self.assertIn("Onchain <code>mapped</code>", agentcart.render_registry_page(service))
@@ -851,8 +860,10 @@ class AgentCartTests(unittest.TestCase):
             manifest = signed_registry_manifest()
             onchain_identity = {
                 "standard": "ERC-8004",
+                "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "chain_id": "8453",
                 "registry_address": "0x2222222222222222222222222222222222222222",
+                "record_id": "0x" + "4" * 64,
                 "service_id": "agentcart:signed-tea-shop",
             }
             claim = {
@@ -2103,6 +2114,58 @@ class AgentCartTests(unittest.TestCase):
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
             self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
             self.assertIn("domain_proof_record_hash_mismatch", entries["signed-tea-shop"]["verification"]["errors"])
+            self.assertNotIn("signed-tea-shop", service.adapters)
+
+    def test_domain_proof_rejects_missing_onchain_controller_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(
+                manifest,
+                onchain_identity={
+                    "standard": "ERC-8004",
+                    "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "chain_id": "eip155:8453",
+                    "registry_address": "0x2222222222222222222222222222222222222222",
+                    "record_id": "0x" + "4" * 64,
+                },
+            )
+            record["proof_snapshot"].pop("controller")  # type: ignore[index,union-attr]
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertIn("domain_proof_controller_missing", entries["signed-tea-shop"]["verification"]["errors"])
+            self.assertNotIn("signed-tea-shop", service.adapters)
+
+    def test_domain_proof_rejects_mismatched_onchain_controller_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(
+                manifest,
+                onchain_identity={
+                    "standard": "ERC-8004",
+                    "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "chain_id": "eip155:8453",
+                    "registry_address": "0x2222222222222222222222222222222222222222",
+                    "record_id": "0x" + "4" * 64,
+                },
+            )
+            record["proof_snapshot"]["record_id"] = "0x" + "5" * 64  # type: ignore[index]
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
+
+            service = make_service(tmp, merchant_registry_path=registry_path)
+            registry = service.registry_document()
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "rejected")
+            self.assertIn("domain_proof_record_id_mismatch", entries["signed-tea-shop"]["verification"]["errors"])
             self.assertNotIn("signed-tea-shop", service.adapters)
 
     def test_domain_proof_rejects_cross_domain_proof_url(self) -> None:

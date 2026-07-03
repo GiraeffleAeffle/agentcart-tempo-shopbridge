@@ -3325,7 +3325,7 @@ final class AgentCart_ShopBridge {
 
     private static function registry_domain_proof() {
         $record = self::suggested_registry_record();
-        return [
+        $proof = [
             'type' => 'https-well-known',
             'configured' => self::registry_domain_proof_configured(),
             'merchant_id' => self::merchant()['id'],
@@ -3338,6 +3338,12 @@ final class AgentCart_ShopBridge {
             'revocation_url' => self::registry_revocation_url(),
             'record_hash' => self::registry_record_hash($record),
         ];
+        foreach (self::registry_onchain_identity() as $field => $value) {
+            if (in_array($field, ['controller', 'chain_id', 'registry_address', 'record_id'], true) && $value !== '') {
+                $proof[$field] = $value;
+            }
+        }
+        return $proof;
     }
 
     private static function registry_revocations() {
@@ -3426,7 +3432,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function registry_claim() {
-        return [
+        $claim = [
             'merchant_id' => self::merchant()['id'],
             'name' => self::merchant()['name'],
             'domain' => self::public_origin_host(),
@@ -3449,6 +3455,34 @@ final class AgentCart_ShopBridge {
             'proof_url' => self::registry_proof_url(),
             'revocation_url' => self::registry_revocation_url(),
         ];
+        $onchain_identity = self::registry_onchain_identity();
+        if (!empty($onchain_identity)) {
+            $claim['onchain_identity'] = $onchain_identity;
+        }
+        return $claim;
+    }
+
+    private static function registry_onchain_identity() {
+        $identity = [];
+        $fields = [
+            'controller' => 'AGENTCART_REGISTRY_ONCHAIN_CONTROLLER',
+            'chain_id' => 'AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID',
+            'registry_address' => 'AGENTCART_REGISTRY_ONCHAIN_ADDRESS',
+            'record_id' => 'AGENTCART_REGISTRY_ONCHAIN_RECORD_ID',
+        ];
+        foreach ($fields as $field => $constant) {
+            if (!defined($constant)) {
+                continue;
+            }
+            $value = sanitize_text_field((string) constant($constant));
+            if ($value !== '') {
+                $identity[$field] = $value;
+            }
+        }
+        if (!empty($identity)) {
+            $identity['standard'] = 'AgentCart-Onchain-Registry-v1';
+        }
+        return $identity;
     }
 
     private static function registry_supported_protocols() {

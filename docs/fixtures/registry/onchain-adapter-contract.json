@@ -4,6 +4,36 @@
   "target_standard": "ERC-8004-style identity registry",
   "source_trust_contract": "agentcart.registry_trust_contract.v1",
   "purpose": "Define the compact merchant identity and integrity projection that can be sourced from a smart contract registry while keeping products, prices, quotes, and household demand offchain.",
+  "storage_note": "required_onchain_fields are projection fields for events/indexers/verifiers. ADR 0007 limits v1 contract storage to enforceable fields only.",
+  "v1_contract_storage_fields": [
+    "controller",
+    "record_hash",
+    "domain_hash",
+    "updated_at",
+    "attested_at",
+    "attestation_expires_at",
+    "status"
+  ],
+  "event_projection_fields": [
+    "record_hash",
+    "merchant_id",
+    "domain",
+    "manifest_url",
+    "registry_claim_hash",
+    "payment_network",
+    "payment_recipient",
+    "revocation_url",
+    "protocol_profile_ids",
+    "supported_protocols",
+    "ship_to_countries"
+  ],
+  "controller_bound_proof_fields": [
+    "controller",
+    "chain_id",
+    "registry_address",
+    "record_id",
+    "record_hash"
+  ],
   "required_onchain_fields": [
     "record_hash",
     "record_hash_alg",
@@ -19,7 +49,9 @@
   ],
   "optional_onchain_fields": [
     "chain_id",
+    "controller",
     "registry_address",
+    "record_id",
     "agent_id",
     "registration_uri",
     "registration_tx_hash",
@@ -45,19 +77,21 @@
   "sample": {
     "source_record_fixture": "docs/fixtures/registry/trust-fixtures.json#/base/record",
     "onchain_record": {
-      "record_hash": "e62a7ac838db39bee5df09c2394c961c6d0809e8132fad344a868bc788745478",
+      "record_hash": "0e8f8493e57e69734713cbfdc16c0effda09df4e304b72c08e50ed8187a97bef",
       "record_hash_alg": "sha-256",
       "merchant_id": "fixture-tea-shop",
       "domain": "fixture-shop.example",
       "manifest_url": "https://fixture-shop.example/.well-known/agentcart.json",
       "registry_claim_hash_alg": "sha-256",
-      "registry_claim_hash": "8e6cf1b0208de5dd4958195685fab936e09e64f32eb3863b691896d022294d4a",
+      "registry_claim_hash": "1bee81c0024d3041155021f69e9491c5c12c556f9df5deb257b8af9939aa63f2",
       "payment_network": "testnet",
       "payment_recipient": "0x1111111111111111111111111111111111111111",
       "updated_at": "2026-06-01T00:00:00Z",
       "revocation_url": "https://fixture-shop.example/.well-known/agentcart-registry-revocations.json",
       "chain_id": "eip155:8453",
+      "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "registry_address": "0x2222222222222222222222222222222222222222",
+      "record_id": "0x4444444444444444444444444444444444444444444444444444444444444444",
       "agent_id": "agentcart:fixture-tea-shop",
       "registration_uri": "https://fixture-shop.example/.well-known/agentcart.json",
       "registration_tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
@@ -78,14 +112,19 @@
   },
   "agent_verification_steps": [
     "read_record_from_smart_contract_or_trusted_indexer",
-    "reject_missing_required_onchain_fields",
+    "wait_for_configured_finality_depth",
+    "reject_missing_required_projection_fields",
     "verify_record_hash_against_canonical_registry_record_when_full_record_is_available",
+    "normalize_domain_with_idn_punycode_and_public_suffix_rules",
+    "verify_record_domain_matches_onchain_domain_hash",
     "fetch_manifest_from_manifest_url",
     "verify_manifest_domain_matches_registered_domain",
     "verify_manifest_registry_claim_hash_matches_registry_claim_hash",
+    "verify_controller_bound_domain_proof",
     "verify_revocation_url_and_revocation_document",
     "verify_payment_network_and_recipient_match_manifest_payment_profiles",
     "verify_catalog_quote_order_endpoints_stay_on_registered_domain",
+    "apply_configured_attestation_policy",
     "run_private_quote_requests_and_buyer_side_ranking"
   ],
   "indexer_cache": {
@@ -129,6 +168,12 @@
       "purpose": "Future bond for challenging stale, fraudulent, or policy-ineligible merchant records."
     }
   ],
+  "challenge_policy": {
+    "v1_status_effect": "event_only",
+    "slashing_required_for_pilot": false,
+    "merchant_slashing_required_for_v1": false,
+    "note": "Permissionless flags trigger monitoring and validator re-verification. They do not change status, lock bonds, or pay challengers in v1."
+  },
   "non_goals": [
     "Sponsored ranking",
     "Onchain product catalogs",
