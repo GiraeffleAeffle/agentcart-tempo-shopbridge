@@ -256,7 +256,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         if ($url === '') {
             return new WP_Error(
                 'agentcart_payment_verifier_url_invalid',
-                'Payment verifier URL must be a valid HTTP(S) URL without embedded credentials.',
+                'Payment verifier URL must be a public HTTP(S) URL without embedded credentials.',
                 ['status' => 400]
             );
         }
@@ -264,6 +264,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
             'headers' => $headers,
             'body' => wp_json_encode($payload),
             'timeout' => intval($timeout),
+            'reject_unsafe_urls' => !self::payment_verifier_url_allows_private_networks(),
             'redirection' => 0,
             'limit_response_size' => 1048576,
         ]);

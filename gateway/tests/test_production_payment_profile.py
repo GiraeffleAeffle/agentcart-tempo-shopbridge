@@ -28,6 +28,7 @@ def valid_profile() -> dict[str, str]:
         "AGENTCART_SIGNED_REQUEST_MODE": "require_mutations",
         "AGENTCART_SIGNED_REQUEST_SECRET": "shared-signing-secret",
         "WOOCOMMERCE_SIGNED_REQUEST_SECRET": "shared-signing-secret",
+        "AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL": "false",
     }
 
 
@@ -70,6 +71,14 @@ class ProductionPaymentProfileTest(unittest.TestCase):
         errors = production_payment_profile_tool.validate_profile(profile)
 
         self.assertTrue(any("must match" in error for error in errors), errors)
+
+    def test_private_payment_verifier_urls_are_not_allowed_for_production(self) -> None:
+        profile = valid_profile()
+        profile["AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL"] = "true"
+
+        errors = production_payment_profile_tool.validate_profile(profile)
+
+        self.assertTrue(any("ALLOW_PRIVATE_PAYMENT_VERIFIER_URL" in error for error in errors), errors)
 
     def test_checked_in_production_overlay_is_shape_valid(self) -> None:
         values = production_payment_profile_tool.parse_env_files(

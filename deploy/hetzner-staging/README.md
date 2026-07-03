@@ -168,6 +168,12 @@ The smoke wrappers load `STAGING_SIGNED_REQUEST_SECRET` from
 This exercises the same signed checkout gate that production merchant setups
 must enable.
 
+The Hetzner staging compose templates set
+`AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL=1` because WordPress calls the
+verifier through an internal Docker service name. That override is for
+supervised staging only; production payment profiles must use a verifier URL
+that resolves to public IP addresses and leave the override unset or false.
+
 The USD endpoint harness uses a quote-bound demo Tempo proof so checkout,
 status, cancellation, idempotency, signed checkout enforcement, and verifier
 replay behavior can be tested without pretending that real money moved. Refunds return a
