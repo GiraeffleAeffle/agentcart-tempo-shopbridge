@@ -399,10 +399,10 @@ manifest URLs, proof URLs, and evidence URIs are attacker-controlled inputs.
    chain, registry, and record binding.
 3. **Contract interface fixture**: add a Solidity interface and event fixtures
    that mirror the minimal v1 surface without deploy logic.
-4. **Local contract prototype**: implement register, update, rotate controller,
+4. **Indexer adapter**: replay contract events into the existing onchain
+   adapter index shape and verifier fixtures.
+5. **Local contract prototype**: implement register, update, rotate controller,
    revoke, attest, suspend, unsuspend, and event-only flag with invariant tests.
-5. **Indexer adapter**: read contract events into the existing Registry Record
-   verifier flow.
 6. **Testnet drill**: deploy to a testnet, register the staging USD shop, verify
    through the indexer, rotate controller, revoke, flag, suspend, and recover.
 7. **Pilot gate**: require recorded evidence before any production claim.

@@ -7,6 +7,8 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-adapter-contract.json"
+CONTRACT_EVENTS_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-contract-events.json"
+INTERFACE_PATH = ROOT / "contracts" / "interfaces" / "IAgentCartMerchantRegistry.sol"
 TRUST_FIXTURE_PATH = ROOT / "docs" / "fixtures" / "registry" / "trust-fixtures.json"
 
 
@@ -117,6 +119,39 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertEqual(policy["v1_status_effect"], "event_only")
         self.assertFalse(policy["slashing_required_for_pilot"])
         self.assertFalse(policy["merchant_slashing_required_for_v1"])
+
+    def test_solidity_interface_exposes_minimal_v1_events(self) -> None:
+        source = INTERFACE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("interface IAgentCartMerchantRegistry", source)
+        for event_name in (
+            "MerchantRegistered",
+            "MerchantUpdated",
+            "ControllerChanged",
+            "MerchantRevoked",
+            "MerchantAttested",
+            "MerchantSuspended",
+            "MerchantUnsuspended",
+            "MerchantFlagged",
+        ):
+            self.assertIn(f"event {event_name}", source)
+        self.assertIn("function register(", source)
+        self.assertIn("function update(", source)
+        self.assertIn("function attest(", source)
+        self.assertIn("function flag(", source)
+
+    def test_contract_events_fixture_uses_interface_events(self) -> None:
+        source = INTERFACE_PATH.read_text(encoding="utf-8")
+        fixture_document = fixture(CONTRACT_EVENTS_PATH)
+
+        self.assertEqual(fixture_document["schema"], "agentcart.onchain_registry_contract_events.v1")
+        self.assertEqual(fixture_document["interface"], "contracts/interfaces/IAgentCartMerchantRegistry.sol")
+        for event in fixture_document["events"]:
+            self.assertIn(f"event {event['event']}", source)
+        self.assertEqual(
+            fixture_document["events"][0]["onchain_record"],
+            fixture(CONTRACT_PATH)["sample"]["onchain_record"],
+        )
 
 
 if __name__ == "__main__":

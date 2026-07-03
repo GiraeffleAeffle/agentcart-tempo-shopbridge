@@ -16,3 +16,10 @@ the same trust contract. It keeps the onchain record limited to merchant
 identity, manifest integrity, payment binding, freshness, and revocation data,
 while product catalogs, prices, private quotes, buyer intent, and order payloads
 remain offchain.
+
+`onchain-contract-events.json` is the contract-event replay fixture for the
+minimal Solidity interface in
+`contracts/interfaces/IAgentCartMerchantRegistry.sol`. The registry helper can
+index it with `index-contract-events` and returns active records, revocations,
+attestations, event-only flags, and the same compact proof shape as the JSONL
+ledger prototype.

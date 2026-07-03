@@ -7,6 +7,7 @@ import datetime as dt
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 import tempfile
 import urllib.parse
@@ -407,6 +408,8 @@ ONCHAIN_IDENTITY_FIELDS = (
 ONCHAIN_LEDGER_EVENT_SCHEMA = "agentcart.onchain_registry_ledger_event.v1"
 ONCHAIN_LEDGER_INDEX_SCHEMA = "agentcart.onchain_registry_ledger_index.v1"
 ONCHAIN_LEDGER_PROOF_SCHEMA = "agentcart.onchain_registry_ledger_proof.v1"
+ONCHAIN_CONTRACT_EVENTS_SCHEMA = "agentcart.onchain_registry_contract_events.v1"
+ONCHAIN_CONTRACT_INDEX_SCHEMA = "agentcart.onchain_registry_contract_index.v1"
 
 
 def raw_onchain_identity(record: dict[str, Any]) -> Any:
@@ -471,6 +474,21 @@ def non_empty_string(value: Any) -> str:
 
 def is_sha256_hex(value: str) -> bool:
     return len(value) == 64 and all(character in "0123456789abcdefABCDEF" for character in value)
+
+
+def strip_hex_prefix(value: Any) -> str:
+    text = str(value or "").strip()
+    return text[2:] if text.lower().startswith("0x") else text
+
+
+def is_bytes32_hex(value: Any) -> bool:
+    text = strip_hex_prefix(value)
+    return len(text) == 64 and all(character in "0123456789abcdefABCDEF" for character in text)
+
+
+def normalize_bytes32_hex(value: Any, *, with_prefix: bool = False) -> str:
+    text = strip_hex_prefix(value).lower()
+    return f"0x{text}" if with_prefix and text else text
 
 
 def onchain_projection(record: dict[str, Any]) -> dict[str, Any]:
@@ -733,6 +751,224 @@ def index_onchain_ledger_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def load_onchain_contract_events(path: pathlib.Path) -> list[dict[str, Any]]:
+    document = load_json_file(path)
+    if isinstance(document, dict):
+        if str(document.get("schema") or "") != ONCHAIN_CONTRACT_EVENTS_SCHEMA:
+            raise ValueError("contract events fixture schema mismatch")
+        events = document.get("events")
+    else:
+        events = document
+    if not isinstance(events, list):
+        raise ValueError("contract events fixture must contain an events array")
+    result: list[dict[str, Any]] = []
+    for index, event in enumerate(events, start=1):
+        if not isinstance(event, dict):
+            raise ValueError(f"contract event {index} must be an object")
+        result.append(event)
+    return result
+
+
+def contract_event_args(event: dict[str, Any]) -> dict[str, Any]:
+    args = event.get("args")
+    return args if isinstance(args, dict) else {}
+
+
+def contract_event_arg(args: dict[str, Any], *names: str) -> str:
+    for name in names:
+        value = args.get(name)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
+def contract_event_record_id(event: dict[str, Any]) -> str:
+    args = contract_event_args(event)
+    return normalize_bytes32_hex(contract_event_arg(args, "recordId", "record_id"), with_prefix=True)
+
+
+def contract_event_record_hash(event: dict[str, Any]) -> str:
+    args = contract_event_args(event)
+    return normalize_bytes32_hex(contract_event_arg(args, "recordHash", "record_hash"), with_prefix=False)
+
+
+def contract_event_stream_hash(events: list[dict[str, Any]]) -> str:
+    return agentcart.canonical_json_hash(events) if events else ""
+
+
+def verify_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    allowed_events = {
+        "MerchantRegistered",
+        "MerchantUpdated",
+        "ControllerChanged",
+        "MerchantRevoked",
+        "MerchantAttested",
+        "MerchantSuspended",
+        "MerchantUnsuspended",
+        "MerchantFlagged",
+    }
+    for sequence, event in enumerate(events, start=1):
+        event_name = str(event.get("event") or "")
+        args = contract_event_args(event)
+        if event_name not in allowed_events:
+            errors.append({"sequence": sequence, "error": "event_name_unsupported", "event": event_name})
+            continue
+        if not args:
+            errors.append({"sequence": sequence, "error": "event_args_missing", "event": event_name})
+            continue
+        record_id = contract_event_record_id(event)
+        if not is_bytes32_hex(record_id):
+            errors.append({"sequence": sequence, "error": "record_id_invalid", "event": event_name})
+        if event_name in {"MerchantRegistered", "MerchantUpdated", "MerchantAttested"}:
+            record_hash = contract_event_record_hash(event)
+            if not is_sha256_hex(record_hash):
+                errors.append({"sequence": sequence, "error": "record_hash_invalid", "event": event_name})
+        if event_name in {"MerchantRegistered", "MerchantUpdated"}:
+            onchain_record = event.get("onchain_record")
+            if not isinstance(onchain_record, dict):
+                errors.append({"sequence": sequence, "error": "onchain_record_missing", "event": event_name})
+            elif str(onchain_record.get("record_hash") or "").lower() != contract_event_record_hash(event):
+                errors.append({"sequence": sequence, "error": "onchain_record_hash_mismatch", "event": event_name})
+        if event_name == "MerchantRegistered":
+            controller = contract_event_arg(args, "controller")
+            if controller and not re.fullmatch(r"0x[0-9a-fA-F]{40}", controller):
+                errors.append({"sequence": sequence, "error": "controller_invalid", "event": event_name})
+            domain_hash = contract_event_arg(args, "domainHash", "domain_hash")
+            if domain_hash and not is_bytes32_hex(domain_hash):
+                errors.append({"sequence": sequence, "error": "domain_hash_invalid", "event": event_name})
+        if event_name == "MerchantAttested":
+            validator = contract_event_arg(args, "validator")
+            if validator and not re.fullmatch(r"0x[0-9a-fA-F]{40}", validator):
+                errors.append({"sequence": sequence, "error": "validator_invalid", "event": event_name})
+    return {
+        "chain_valid": not errors,
+        "errors": errors,
+        "event_count": len(events),
+        "log_head_hash": contract_event_stream_hash(events) if events else "",
+        "hash_alg": "sha-256",
+    }
+
+
+def index_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    verification = verify_onchain_contract_events(events)
+    if not verification["chain_valid"]:
+        return {
+            "schema": ONCHAIN_CONTRACT_INDEX_SCHEMA,
+            "generated_at": iso_now(),
+            "source": "contract_events",
+            "event_count": len(events),
+            "log_head_hash": str(verification.get("log_head_hash") or ""),
+            "verification": verification,
+            "records": [],
+            "revocations": [],
+            "attestations": [],
+            "suspensions": [],
+            "flags": [],
+            "proof": onchain_ledger_proof(
+                record_hashes=[],
+                revocation_record_hashes=[],
+                verification=verification,
+            ),
+        }
+
+    active_by_record_id: dict[str, dict[str, Any]] = {}
+    revocations: dict[str, dict[str, Any]] = {}
+    attestations: dict[str, dict[str, Any]] = {}
+    suspensions: dict[str, dict[str, Any]] = {}
+    flags: list[dict[str, Any]] = []
+    for sequence, event in enumerate(events, start=1):
+        event_name = str(event.get("event") or "")
+        args = contract_event_args(event)
+        record_id = contract_event_record_id(event)
+        record_hash = contract_event_record_hash(event)
+        event_ref = {
+            "event": event_name,
+            "sequence": sequence,
+            "block_number": int(event.get("block_number") or 0),
+            "transaction_hash": str(event.get("transaction_hash") or ""),
+            "log_index": int(event.get("log_index") or 0),
+        }
+        if event_name in {"MerchantRegistered", "MerchantUpdated"} and isinstance(event.get("onchain_record"), dict):
+            active_by_record_id[record_id] = copy.deepcopy(event["onchain_record"])
+            active_by_record_id[record_id].setdefault("record_id", record_id)
+            revocations.pop(record_hash, None)
+            attestations.pop(record_id, None)
+            suspensions.pop(record_id, None)
+        elif event_name == "MerchantRevoked":
+            current = active_by_record_id.pop(record_id, None)
+            final_hash = str((current or {}).get("record_hash") or record_hash)
+            if final_hash:
+                revocations[final_hash] = {
+                    "record_hash": final_hash,
+                    "record_id": record_id,
+                    "revoked_at": str(event.get("block_time") or event.get("created_at") or ""),
+                    "reason_hash": contract_event_arg(args, "reasonHash", "reason_hash"),
+                    **event_ref,
+                }
+            attestations.pop(record_id, None)
+            suspensions.pop(record_id, None)
+        elif event_name == "MerchantAttested":
+            if record_id in active_by_record_id and active_by_record_id[record_id].get("record_hash") == record_hash:
+                attestations[record_id] = {
+                    "record_id": record_id,
+                    "record_hash": record_hash,
+                    "validator": contract_event_arg(args, "validator"),
+                    "result_hash": contract_event_arg(args, "resultHash", "result_hash"),
+                    "expires_at": str(contract_event_arg(args, "expiresAt", "expires_at")),
+                    "evidence_uri": str(contract_event_arg(args, "evidenceURI", "evidence_uri")),
+                    **event_ref,
+                }
+        elif event_name == "MerchantSuspended":
+            suspensions[record_id] = {
+                "record_id": record_id,
+                "reason_hash": contract_event_arg(args, "reasonHash", "reason_hash"),
+                **event_ref,
+            }
+        elif event_name == "MerchantUnsuspended":
+            suspensions.pop(record_id, None)
+        elif event_name == "MerchantFlagged":
+            flags.append(
+                {
+                    "record_id": record_id,
+                    "flagger": contract_event_arg(args, "flagger"),
+                    "challenge_type": contract_event_arg(args, "challengeType", "challenge_type"),
+                    "evidence_uri": contract_event_arg(args, "evidenceURI", "evidence_uri"),
+                    **event_ref,
+                }
+            )
+
+    active_records = [
+        record
+        for record_id, record in active_by_record_id.items()
+        if record_id not in suspensions
+    ]
+    records = sorted(active_records, key=lambda item: (str(item.get("domain") or ""), str(item.get("merchant_id") or ""), str(item.get("record_hash") or "")))
+    revocation_list = sorted(revocations.values(), key=lambda item: str(item.get("record_hash") or ""))
+    attestation_list = sorted(attestations.values(), key=lambda item: str(item.get("record_id") or ""))
+    suspension_list = sorted(suspensions.values(), key=lambda item: str(item.get("record_id") or ""))
+    record_hashes = [str(record.get("record_hash") or "") for record in records]
+    revocation_record_hashes = [str(item.get("record_hash") or "") for item in revocation_list]
+    return {
+        "schema": ONCHAIN_CONTRACT_INDEX_SCHEMA,
+        "generated_at": iso_now(),
+        "source": "contract_events",
+        "event_count": len(events),
+        "log_head_hash": str(verification.get("log_head_hash") or ""),
+        "verification": verification,
+        "records": records,
+        "revocations": revocation_list,
+        "attestations": attestation_list,
+        "suspensions": suspension_list,
+        "flags": flags,
+        "proof": onchain_ledger_proof(
+            record_hashes=record_hashes,
+            revocation_record_hashes=revocation_record_hashes,
+            verification=verification,
+        ),
+    }
+
+
 def minimal_config(tmp: pathlib.Path, *, hmac_secret: str = "", max_age_days: int = 180) -> Any:
     return agentcart.Config(
         bind="127.0.0.1",
@@ -928,6 +1164,13 @@ def index_onchain_command(args: argparse.Namespace) -> int:
     return 0 if index["verification"]["chain_valid"] else 1
 
 
+def index_contract_events_command(args: argparse.Namespace) -> int:
+    events = load_onchain_contract_events(args.events_file)
+    index = index_onchain_contract_events(events)
+    emit(index, args.output)
+    return 0 if index["verification"]["chain_valid"] else 1
+
+
 def verify_command(args: argparse.Namespace) -> int:
     record = load_json_file(args.record_file)
     manifest = load_json_file(args.manifest_file) if args.manifest_file else None
@@ -997,6 +1240,14 @@ def build_parser() -> argparse.ArgumentParser:
     index_onchain.add_argument("--ledger-file", type=pathlib.Path, required=True)
     index_onchain.add_argument("--output", type=pathlib.Path, help="Write output to a file instead of stdout")
     index_onchain.set_defaults(func=index_onchain_command)
+
+    index_contract_events = subparsers.add_parser(
+        "index-contract-events",
+        help="Verify and index smart-contract registry events into the onchain adapter shape",
+    )
+    index_contract_events.add_argument("--events-file", type=pathlib.Path, required=True)
+    index_contract_events.add_argument("--output", type=pathlib.Path, help="Write output to a file instead of stdout")
+    index_contract_events.set_defaults(func=index_contract_events_command)
 
     verify = subparsers.add_parser("verify", help="Verify a registry record using the gateway verifier")
     verify.add_argument("--record-file", type=pathlib.Path, required=True)

@@ -22,10 +22,22 @@ addresses, household tasks, payment receipts, or order payloads.
 
 ## Contract-Facing Record
 
-The executable fixture is:
+The executable projection fixture is:
 
 ```text
 docs/fixtures/registry/onchain-adapter-contract.json
+```
+
+The minimal Solidity interface fixture is:
+
+```text
+contracts/interfaces/IAgentCartMerchantRegistry.sol
+```
+
+The contract-event replay fixture is:
+
+```text
+docs/fixtures/registry/onchain-contract-events.json
 ```
 
 Required fields:
@@ -116,7 +128,7 @@ Append a revoke event:
 python3 gateway/scripts/registry_record.py append-onchain \
   --ledger-file onchain-registry.jsonl \
   --operation revoke \
-  --record-hash e62a7ac838db39bee5df09c2394c961c6d0809e8132fad344a868bc788745478 \
+  --record-hash 0e8f8493e57e69734713cbfdc16c0effda09df4e304b72c08e50ed8187a97bef \
   --reason merchant_admin_revoke
 ```
 
@@ -130,6 +142,24 @@ python3 gateway/scripts/registry_record.py index-onchain \
 The index command verifies sequence numbers, previous-event hashes, event
 hashes, and record hashes before returning active onchain records, revocations,
 and a compact proof over record hashes, revoked hashes, and the log head.
+
+## Contract Event Replay
+
+The helper can also replay ordered smart-contract events into the same indexer
+shape without deploying Solidity:
+
+```sh
+python3 gateway/scripts/registry_record.py index-contract-events \
+  --events-file docs/fixtures/registry/onchain-contract-events.json
+```
+
+`MerchantRegistered` and `MerchantUpdated` logs must be paired with the fetched
+offchain record projection for the advertised `recordURI`; the indexer rejects
+the event stream if the projection hash does not match the event `recordHash`.
+`MerchantAttested` records attestation metadata for the current record hash,
+`MerchantSuspended` removes the record from active discovery until
+`MerchantUnsuspended`, and `MerchantFlagged` remains event-only so it never
+changes eligibility by itself.
 
 The hosted registry feed proof can also be RSA-SHA256 signed. Operators should
 sign the canonical feed-proof signature payload and publish the public key URL

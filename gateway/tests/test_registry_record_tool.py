@@ -13,6 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 TOOL_PATH = ROOT / "gateway" / "scripts" / "registry_record.py"
 TRUST_FIXTURE_PATH = ROOT / "docs" / "fixtures" / "registry" / "trust-fixtures.json"
 ONCHAIN_CONTRACT_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-adapter-contract.json"
+ONCHAIN_CONTRACT_EVENTS_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-contract-events.json"
 SPEC = importlib.util.spec_from_file_location("registry_record_tool", TOOL_PATH)
 registry_record_tool = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -142,6 +143,10 @@ def registry_trust_fixture() -> dict[str, object]:
 
 def onchain_contract_fixture() -> dict[str, object]:
     return json.loads(ONCHAIN_CONTRACT_PATH.read_text(encoding="utf-8"))
+
+
+def onchain_contract_events_fixture() -> dict[str, object]:
+    return json.loads(ONCHAIN_CONTRACT_EVENTS_PATH.read_text(encoding="utf-8"))
 
 
 class RegistryRecordToolTests(unittest.TestCase):
@@ -423,6 +428,71 @@ class RegistryRecordToolTests(unittest.TestCase):
             self.assertEqual(index["verification"]["errors"][0]["error"], "event_hash_mismatch")
             self.assertEqual(index["records"], [])
             self.assertEqual(index["revocations"], [])
+
+    def test_contract_events_index_to_onchain_adapter_records(self) -> None:
+        contract = onchain_contract_fixture()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            events_file = tmp / "contract-events.json"
+            output_file = tmp / "contract-index.json"
+            events_file.write_text(json.dumps(onchain_contract_events_fixture()), encoding="utf-8")
+
+            exit_code = registry_record_tool.main([
+                "index-contract-events",
+                "--events-file",
+                str(events_file),
+                "--output",
+                str(output_file),
+            ])
+
+            self.assertEqual(exit_code, 0)
+            index = json.loads(output_file.read_text(encoding="utf-8"))
+            self.assertEqual(index["schema"], "agentcart.onchain_registry_contract_index.v1")
+            self.assertTrue(index["verification"]["chain_valid"])
+            self.assertEqual(index["records"], [contract["sample"]["onchain_record"]])
+            self.assertEqual(index["revocations"], [])
+            self.assertEqual(index["proof"]["record_hashes"], [contract["sample"]["onchain_record"]["record_hash"]])
+            self.assertEqual(index["proof"]["revocation_record_hashes"], [])
+            self.assertEqual(index["attestations"][0]["record_hash"], contract["sample"]["onchain_record"]["record_hash"])
+            self.assertEqual(index["flags"][0]["challenge_type"], "domain_proof_mismatch")
+            self.assertEqual(index["suspensions"], [])
+
+    def test_contract_events_revoke_removes_active_record(self) -> None:
+        contract = onchain_contract_fixture()
+        fixture = onchain_contract_events_fixture()
+        events = fixture["events"]
+        events.append(
+            {
+                "event": "MerchantRevoked",
+                "block_number": 105,
+                "block_time": "2026-06-01T00:25:00Z",
+                "transaction_hash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "log_index": 0,
+                "args": {
+                    "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444",
+                    "reasonHash": "0xefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+                },
+            }
+        )
+
+        index = registry_record_tool.index_onchain_contract_events(events)
+
+        self.assertTrue(index["verification"]["chain_valid"], index)
+        self.assertEqual(index["records"], [])
+        self.assertEqual([item["record_hash"] for item in index["revocations"]], [contract["sample"]["onchain_record"]["record_hash"]])
+        self.assertEqual(index["proof"]["record_hashes"], [])
+        self.assertEqual(index["proof"]["revocation_record_hashes"], [contract["sample"]["onchain_record"]["record_hash"]])
+
+    def test_contract_events_reject_record_hash_mismatch(self) -> None:
+        fixture = onchain_contract_events_fixture()
+        fixture["events"][0]["args"]["recordHash"] = "0" * 64
+
+        index = registry_record_tool.index_onchain_contract_events(fixture["events"])
+
+        self.assertFalse(index["verification"]["chain_valid"])
+        self.assertEqual(index["verification"]["errors"][0]["error"], "onchain_record_hash_mismatch")
+        self.assertEqual(index["records"], [])
+        self.assertEqual(index["revocations"], [])
 
     def test_auto_managed_shopbridge_registry_claim_verifies(self) -> None:
         manifest = shopbridge_manifest_with_published_claim()

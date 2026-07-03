@@ -397,6 +397,20 @@ The ledger stores the contract-facing projection and revoke events only; it does
 not store products, prices, quotes, buyer demand, order payloads, or payment
 receipts.
 
+For smart-contract event dry runs, use the minimal interface fixture and replay
+contract logs into the same indexed adapter shape:
+
+```sh
+python3 gateway/scripts/registry_record.py index-contract-events \
+  --events-file docs/fixtures/registry/onchain-contract-events.json
+```
+
+The event fixture mirrors
+`contracts/interfaces/IAgentCartMerchantRegistry.sol` and covers register,
+attest, event-only flag, suspend, and unsuspend flows. The indexer fails closed
+when a `MerchantRegistered` or `MerchantUpdated` log does not match the fetched
+offchain record projection.
+
 Verify the live proof:
 
 ```sh
