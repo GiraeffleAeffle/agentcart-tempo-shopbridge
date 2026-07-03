@@ -80,6 +80,8 @@ def validate_profile(values: dict[str, str], *, allow_placeholders: bool = False
         errors.append("AGENTCART_PAYMENT_VERIFIER_URL must be configured")
     if not configured(values, "AGENTCART_PAYMENT_VERIFIER_TOKEN", allow_placeholders=allow_placeholders):
         errors.append("AGENTCART_PAYMENT_VERIFIER_TOKEN must be configured")
+    if values.get("AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL", "").strip().lower() in TRUTHY:
+        errors.append("AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL must be false or unset for production payment profiles")
 
     durable_replay = values.get("AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY", "").strip().lower()
     if durable_replay not in TRUTHY:

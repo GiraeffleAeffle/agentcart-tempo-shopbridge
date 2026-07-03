@@ -444,6 +444,12 @@ def verify_plugin_contract_fields() -> None:
     for literal in [
         "sanitize_payment_verifier_url_setting",
         "normalize_payment_verifier_url",
+        "payment_verifier_url_allows_private_networks",
+        "payment_verifier_host_resolves_to_public_ips",
+        "payment_verifier_ip_is_public",
+        "AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL",
+        "wp_remote_post($url",
+        "'reject_unsafe_urls' => !self::payment_verifier_url_allows_private_networks()",
         "'redirection' => 0",
         "'limit_response_size' => 1048576",
         "verifier_error_detail",
