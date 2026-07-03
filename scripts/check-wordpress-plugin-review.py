@@ -92,11 +92,20 @@ def check_external_http_verifier_calls(source: str) -> None:
         "'headers' => $headers",
         "'body' => wp_json_encode($payload)",
         "'timeout' => intval($timeout)",
+        "'reject_unsafe_urls' => !self::payment_verifier_url_allows_private_networks()",
         "'redirection' => 0",
         "'limit_response_size' => 1048576",
     ]:
         if literal not in verifier_http_body:
             fail(f"verifier HTTP wrapper missing review guard: {literal}")
+    for literal in [
+        "payment_verifier_url_allows_private_networks",
+        "payment_verifier_host_resolves_to_public_ips",
+        "payment_verifier_ip_is_public",
+        "AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL",
+    ]:
+        if literal not in source:
+            fail(f"verifier URL SSRF guard missing review marker: {literal}")
     for literal in [
         "wp_remote_post($registry_url",
         "'Content-Type' => 'application/json'",

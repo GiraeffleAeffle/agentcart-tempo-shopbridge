@@ -4404,6 +4404,57 @@ class AgentCartService:
             "results": [],
         }
 
+    def registry_alert_delivery_metrics(self, notification_history: list[Any]) -> dict[str, Any]:
+        state_counts = {"sent": 0, "partial": 0, "failed": 0, "skipped": 0, "unknown": 0}
+        sink_counts: dict[str, dict[str, int]] = {}
+        deliveries = [delivery for delivery in notification_history if isinstance(delivery, dict)]
+        for delivery in deliveries:
+            state = str(delivery.get("state") or "unknown").lower()
+            if state not in state_counts:
+                state = "unknown"
+            state_counts[state] += 1
+            results = delivery.get("results") if isinstance(delivery.get("results"), list) else []
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+                sink = str(result.get("sink") or "unknown").strip() or "unknown"
+                counts = sink_counts.setdefault(sink, {"sent": 0, "failed": 0})
+                if result.get("ok"):
+                    counts["sent"] += 1
+                else:
+                    counts["failed"] += 1
+
+        consecutive_problem_count = 0
+        for delivery in reversed(deliveries):
+            state = str(delivery.get("state") or "unknown").lower()
+            if state not in {"failed", "partial"}:
+                break
+            consecutive_problem_count += 1
+
+        last_delivery = deliveries[-1] if deliveries else {}
+        event = last_delivery.get("event") if isinstance(last_delivery.get("event"), dict) else {}
+        last_summary = (
+            {
+                "state": str(last_delivery.get("state") or ""),
+                "created_at": str(last_delivery.get("created_at") or ""),
+                "reason": str(last_delivery.get("reason") or ""),
+                "event_id": str(event.get("id") or ""),
+                "result_count": len(last_delivery.get("results") if isinstance(last_delivery.get("results"), list) else []),
+            }
+            if last_delivery
+            else None
+        )
+        return {
+            "schema": "agentcart.registry_alert_delivery_metrics.v1",
+            "delivery_count": len(deliveries),
+            "state_counts": state_counts,
+            "problem_count": state_counts["failed"] + state_counts["partial"],
+            "consecutive_problem_count": consecutive_problem_count,
+            "needs_attention": consecutive_problem_count > 0,
+            "sink_counts": {key: sink_counts[key] for key in sorted(sink_counts)},
+            "last_delivery": last_summary,
+        }
+
     def deliver_registry_monitor_notifications(
         self,
         snapshot: dict[str, Any],
@@ -4933,6 +4984,7 @@ class AgentCartService:
                 if isinstance(monitor.get("last_notifications"), dict)
                 else None,
                 "notification_count": len(notification_history),
+                "alert_delivery_metrics": self.registry_alert_delivery_metrics(notification_history),
             }
             if include_snapshots:
                 result["snapshots"] = list(snapshots)
@@ -10161,6 +10213,9 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
     last_changes = monitor.get("last_changes") if isinstance(monitor.get("last_changes"), dict) else {}
     last_notifications = monitor.get("last_notifications") if isinstance(monitor.get("last_notifications"), dict) else {}
     alert_delivery = monitor_config.get("alert_delivery") if isinstance(monitor_config.get("alert_delivery"), dict) else {}
+    alert_delivery_metrics = (
+        monitor.get("alert_delivery_metrics") if isinstance(monitor.get("alert_delivery_metrics"), dict) else {}
+    )
     state_counts = summary.get("state_counts") if isinstance(summary.get("state_counts"), dict) else {}
     state_count_label = ", ".join(f"{key}: {value}" for key, value in sorted(state_counts.items())) or "none"
     delivery_sink_count = int(alert_delivery.get("sink_count") or 0)
@@ -10324,7 +10379,7 @@ def render_registry_page(service: AgentCartService, query_text: str = "", countr
       <div class="card"><h3>Status Mix</h3><p>{esc(state_count_label)}</p></div>
       <div class="card"><h3>Monitor</h3><p>{health_state_label(last_snapshot_summary.get('state') or 'not-run')}<br><span class="muted">last run: {esc(monitor.get('last_run_at') or 'never')}</span><br><span class="muted">{esc(monitor.get('snapshot_count') or 0)} snapshots, scheduled: {esc('on' if monitor_config.get('scheduled') else 'off')}</span></p></div>
       <div class="card"><h3>Monitor Changes</h3><p><strong>{esc(last_changes.get('new_alert_count') or 0)}</strong> new alerts, <strong>{esc(last_changes.get('resolved_alert_count') or 0)}</strong> resolved<br><span class="muted">state changed: {esc('yes' if last_changes.get('state_changed') else 'no')}</span></p></div>
-      <div class="card"><h3>Alert Delivery</h3><p>{delivery_state_label(last_notifications.get('state') or 'not-run')}<br><span class="muted">{esc(delivery_detail)}</span><br><span class="muted">{esc(monitor.get('notification_count') or 0)} delivery records</span></p></div>
+      <div class="card"><h3>Alert Delivery</h3><p>{delivery_state_label(last_notifications.get('state') or 'not-run')}<br><span class="muted">{esc(delivery_detail)}</span><br><span class="muted">{esc(monitor.get('notification_count') or 0)} delivery records, {esc(alert_delivery_metrics.get('problem_count') or 0)} problem deliveries, streak {esc(alert_delivery_metrics.get('consecutive_problem_count') or 0)}</span></p></div>
     </section>
     <table>
       <thead><tr><th>Severity</th><th>Code</th><th>Scope</th><th>Action</th></tr></thead>

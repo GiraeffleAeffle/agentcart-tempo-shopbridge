@@ -110,6 +110,10 @@ merchant configures a Registry connection URL or defines
 `AGENTCART_REGISTRY_CONNECTION_URL` and presses one of the registry connection
 or registry health action buttons.
 
+Payment verifier URLs must resolve to public IP addresses unless
+`AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL=1` is set for a local or staging
+environment. Do not enable that private-network override for production.
+
 The verifier request can include the stored quote, selected order/refund fields,
 payment receipt fields supplied by the buyer agent, merchant id, payment rail,
 payment destination, amount, currency, quote hash, payment contract hash,

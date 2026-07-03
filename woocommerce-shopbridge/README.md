@@ -152,6 +152,11 @@ For production, configure `AGENTCART_PAYMENT_VERIFIER_URL`,
 verifier confirms the quote-bound receipt; the merchant token cannot fall back
 to local trusted checkout for paid order creation.
 
+Payment verifier URLs must resolve only to public IP addresses by default.
+Local, staging, or private Docker verifier hosts require
+`AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL=1`; do not enable that override
+for production payment profiles.
+
 For local or private gateway testing, `AGENTCART_SHOPBRIDGE_TOKEN` can let a
 trusted AgentCart gateway create orders after its own approval and payment proof
 flow. Do not use trusted-token checkout as a public settlement path.

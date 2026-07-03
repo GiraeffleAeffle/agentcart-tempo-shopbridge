@@ -13,6 +13,12 @@ checkout mode `external_verifier_only`. That keeps the merchant token available
 for private gateway/admin operations without allowing token-authenticated demo
 checkout to mark a WooCommerce order paid.
 
+Verifier URLs are public-network endpoints by default: ShopBridge rejects
+embedded credentials and private, reserved, loopback, or link-local verifier
+hosts unless `AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL=1` is set for a
+local/staging deployment. Production payment profiles must leave that override
+disabled.
+
 The verifier is intentionally a separate module because the checks are
 rail-specific. Tempo stablecoin, Stripe/card MPP, Lightning, bank, or custom
 rails should not change the catalog, quote, approval, order, delivery, and audit
