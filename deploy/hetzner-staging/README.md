@@ -162,6 +162,12 @@ Run the mutable endpoint harness after checking that the shop can be reset:
 scripts/woocommerce-usd-staging-smoke.sh --endpoint-harness
 ```
 
+Use this command only when `STAGING_TEMPO_SETTLEMENT_MODE` is `disabled` or
+when you provide `AGENTCART_WOO_SMOKE_TEMPO_MPP_PROOF_URL` yourself. If the USD
+shop is configured with `STAGING_TEMPO_SETTLEMENT_MODE=verify`, run the real
+`mppx` settlement smoke below instead; the synthetic proof is supposed to be
+rejected by the verifier in that mode.
+
 The generated USD secrets set `STAGING_SIGNED_REQUEST_MODE=require_checkout`.
 The smoke wrappers load `STAGING_SIGNED_REQUEST_SECRET` from
 `.secrets/agentcart-staging-usd.env` and sign the checkout harness requests.
@@ -196,6 +202,13 @@ npm run mpp:account:create
 npm run mpp:account:fund
 cd ..
 scripts/woocommerce-usd-mppx-settlement-smoke.sh
+```
+
+To fail unless the refund response includes verifier-backed rail evidence, run:
+
+```sh
+AGENTCART_WOO_SMOKE_REQUIRE_REAL_REFUND_VERIFIER_EVIDENCE=1 \
+  scripts/woocommerce-usd-mppx-settlement-smoke.sh
 ```
 
 This starts the local AgentCart MPP paid resource, pays it with `mppx`, submits
