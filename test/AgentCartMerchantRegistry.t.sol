@@ -7,6 +7,7 @@ import {IAgentCartMerchantRegistry} from "../contracts/interfaces/IAgentCartMerc
 interface Vm {
     function prank(address sender) external;
     function expectRevert(bytes calldata revertData) external;
+    function warp(uint256 timestamp) external;
 }
 
 contract AgentCartMerchantRegistryTest {
@@ -106,6 +107,83 @@ contract AgentCartMerchantRegistryTest {
         require(stored.status == IAgentCartMerchantRegistry.Status.Suspended, "not suspended");
         require(stored.attestedAt == 0, "attestation timestamp not cleared");
         require(stored.attestationExpiresAt == 0, "attestation expiry not cleared");
+    }
+
+    function testSquatterCannotPermanentlyBlockDomainSupersession() public {
+        bytes32 squatterRecordId = _register(MERCHANT_2, RECORD_HASH_2);
+
+        VM.prank(MERCHANT);
+        VM.expectRevert(
+            abi.encodeWithSelector(
+                AgentCartMerchantRegistry.DomainAlreadyRegistered.selector, DOMAIN_HASH, squatterRecordId
+            )
+        );
+        registry.register(DOMAIN_HASH, RECORD_HASH, RECORD_URI);
+
+        VM.prank(MERCHANT);
+        (bytes32 pendingRecordId, uint64 availableAt) =
+            registry.requestSupersession(DOMAIN_HASH, RECORD_HASH, REASON_HASH, RECORD_URI, EVIDENCE_URI);
+
+        IAgentCartMerchantRegistry.Supersession memory pending = registry.supersession(pendingRecordId);
+        require(pending.controller == MERCHANT, "pending controller mismatch");
+        require(pending.previousRecordId == squatterRecordId, "previous record mismatch");
+        require(pending.recordHash == RECORD_HASH, "pending hash mismatch");
+
+        VM.prank(MERCHANT);
+        VM.expectRevert(abi.encodeWithSelector(AgentCartMerchantRegistry.SupersessionNotReady.selector, availableAt));
+        registry.activateSupersession(pendingRecordId, RECORD_URI);
+
+        VM.warp(uint256(availableAt) + 1);
+        VM.prank(MERCHANT);
+        registry.activateSupersession(pendingRecordId, RECORD_URI);
+
+        IAgentCartMerchantRegistry.Record memory squatter = registry.record(squatterRecordId);
+        IAgentCartMerchantRegistry.Record memory recovered = registry.record(pendingRecordId);
+        require(squatter.status == IAgentCartMerchantRegistry.Status.Revoked, "squatter not revoked");
+        require(registry.revokedRecordHashes(RECORD_HASH_2), "squatter hash not revoked");
+        require(registry.recordIdForDomain(DOMAIN_HASH) == pendingRecordId, "domain not recovered");
+        require(recovered.controller == MERCHANT, "recovered controller mismatch");
+        require(recovered.recordHash == RECORD_HASH, "recovered record hash mismatch");
+        require(recovered.status == IAgentCartMerchantRegistry.Status.Active, "recovered not active");
+    }
+
+    function testSupersessionTargetChangeFailsClosed() public {
+        bytes32 originalRecordId = _register(MERCHANT_2, RECORD_HASH_2);
+
+        VM.prank(MERCHANT);
+        (bytes32 pendingRecordId, uint64 availableAt) =
+            registry.requestSupersession(DOMAIN_HASH, RECORD_HASH, REASON_HASH, RECORD_URI, EVIDENCE_URI);
+
+        VM.prank(MERCHANT_2);
+        registry.revoke(originalRecordId, REASON_HASH);
+
+        bytes32 replacementRecordId = _register(NEW_CONTROLLER, keccak256("record-v3"));
+
+        VM.warp(uint256(availableAt) + 1);
+        VM.prank(MERCHANT);
+        VM.expectRevert(
+            abi.encodeWithSelector(
+                AgentCartMerchantRegistry.SupersessionTargetChanged.selector, originalRecordId, replacementRecordId
+            )
+        );
+        registry.activateSupersession(pendingRecordId, RECORD_URI);
+    }
+
+    function testOwnerForceRevokeFreesSquattedDomain() public {
+        bytes32 squatterRecordId = _register(MERCHANT_2, RECORD_HASH_2);
+
+        VM.prank(MERCHANT);
+        VM.expectRevert(abi.encodeWithSelector(AgentCartMerchantRegistry.NotOwner.selector));
+        registry.forceRevoke(squatterRecordId, REASON_HASH);
+
+        registry.forceRevoke(squatterRecordId, REASON_HASH);
+
+        IAgentCartMerchantRegistry.Record memory squatter = registry.record(squatterRecordId);
+        require(squatter.status == IAgentCartMerchantRegistry.Status.Revoked, "squatter not force revoked");
+        require(registry.revokedRecordHashes(RECORD_HASH_2), "squatter hash not revoked");
+        require(registry.recordIdForDomain(DOMAIN_HASH) == bytes32(0), "domain not released");
+
+        _register(MERCHANT, RECORD_HASH);
     }
 
     function _register(address controller, bytes32 recordHash) private returns (bytes32 recordId) {

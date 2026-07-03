@@ -123,6 +123,15 @@ registration squatting: a new controller publishes fresh domain proof, enters a
 pending window, emits events for monitoring, and becomes active only after
 re-attestation or a defined challenge window.
 
+The v1 prototype implements this as a timelocked supersession request keyed by
+the deterministic `record_id` for the new controller. The contract cannot verify
+the HTTPS proof by itself, so the request emits `recordURI` and `evidenceURI`
+for validators, indexers, and self-verifying agents to inspect during the
+waiting window. Activation revokes the previous record hash, frees the occupied
+domain hash, and creates the new active record. A separate owner-only
+`forceRevoke` exists only as a trusted-operator emergency escape hatch for pilot
+registries; it is not a neutrality primitive.
+
 ## Fairness
 
 Registration bond, validator stake, or challenge bonds must not affect ranking.
@@ -146,6 +155,23 @@ Fairness also applies to the reference indexer/search layer. Since product
 search happens offchain, the reference implementation must be open, replayable,
 deterministic where possible, and clear about where filtering ends and
 buyer-side ranking begins.
+
+There is also a pre-quote candidate-selection layer between the eligible set and
+private RFQs. If thousands of merchants are eligible, an agent will select a
+bounded candidate set before asking for quotes. That selection is market-shaping
+ranking even though final price ranking happens after quotes. The reference
+buyer agent and indexer must therefore make candidate selection explicit,
+auditable, and user-configurable. Validator attestation should be advisory by
+default; self-verification of the full record, manifest, proof, payment binding,
+and revocation state should be the default path for buyers who do not want a
+validator-operated gate.
+
+Default candidate selection should avoid fixed positional advantage. Prefer a
+buyer-query-seeded randomized sample among self-verified eligible merchants,
+then apply user-owned constraints such as country, payment rail, delivery
+window, budget, preferred/blocked merchants, and local policy before sending
+private RFQs. Registration bond size, validator stake, and sponsored placement
+must never be ranking inputs.
 
 ## Challenge Scope
 
@@ -177,6 +203,10 @@ Production default should prefer simple and conservative:
 - admin can suspend with public reason but cannot mutate merchant records;
 - no admin ability to delete history;
 - no admin ability to rank merchants.
+
+Until ownership, pause, validator changes, and emergency recovery are controlled
+by a timelocked multisig or equivalent public governance process, the deployment
+must be described as a trusted-operator pilot, not a neutral public registry.
 
 ## Consequences
 

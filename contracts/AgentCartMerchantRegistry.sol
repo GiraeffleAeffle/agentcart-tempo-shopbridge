@@ -17,11 +17,16 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
     error RevokedRecordHash(bytes32 recordHash);
     error RecordHashMismatch(bytes32 expected, bytes32 actual);
     error InvalidAttestationExpiry(uint64 expiresAt);
+    error UnknownSupersession();
+    error SupersessionNotReady(uint64 availableAt);
+    error SupersessionTargetChanged(bytes32 expectedRecordId, bytes32 actualRecordId);
 
+    uint64 public constant SUPERSESSION_DELAY_SECONDS = 2 days;
     address public owner;
     bool public writesPaused;
 
     mapping(bytes32 => Record) private _records;
+    mapping(bytes32 => Supersession) private _supersessions;
     mapping(bytes32 => bytes32) public recordIdForDomain;
     mapping(bytes32 => bool) public revokedRecordHashes;
     mapping(address => bool) public validators;
@@ -112,20 +117,102 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
     }
 
     function revoke(bytes32 recordId, bytes32 reasonHash) external whenWritesOpen onlyController(recordId) {
+        _revoke(recordId, reasonHash);
+    }
+
+    function forceRevoke(bytes32 recordId, bytes32 reasonHash) external whenWritesOpen onlyOwner {
+        _revoke(recordId, reasonHash);
+        emit MerchantForceRevoked(recordId, msg.sender, reasonHash);
+    }
+
+    function requestSupersession(
+        bytes32 domainHash,
+        bytes32 recordHash,
+        bytes32 reasonHash,
+        string calldata recordURI,
+        string calldata evidenceURI
+    ) external whenWritesOpen returns (bytes32 pendingRecordId, uint64 availableAt) {
+        _requireNonZero(domainHash);
+        _requireActiveRecordHash(recordHash);
         _requireNonZero(reasonHash);
+        _requireNonEmptyUri(recordURI);
+        _requireNonEmptyUri(evidenceURI);
 
-        Record storage stored = _records[recordId];
-        if (stored.status == Status.Revoked) {
-            revert InvalidStatus(Status.Active, stored.status);
+        bytes32 previousRecordId = recordIdForDomain[domainHash];
+        if (previousRecordId == bytes32(0)) {
+            revert UnknownRecord();
         }
-        revokedRecordHashes[stored.recordHash] = true;
-        delete recordIdForDomain[stored.domainHash];
-        stored.status = Status.Revoked;
-        stored.updatedAt = _now64();
-        stored.attestedAt = 0;
-        stored.attestationExpiresAt = 0;
 
-        emit MerchantRevoked(recordId, reasonHash);
+        pendingRecordId = computeRecordId(domainHash, msg.sender);
+        if (pendingRecordId == previousRecordId) {
+            revert DomainAlreadyRegistered(domainHash, previousRecordId);
+        }
+
+        uint64 requestedAt = _now64();
+        availableAt = requestedAt + SUPERSESSION_DELAY_SECONDS;
+        _supersessions[pendingRecordId] = Supersession({
+            controller: msg.sender,
+            domainHash: domainHash,
+            previousRecordId: previousRecordId,
+            recordHash: recordHash,
+            reasonHash: reasonHash,
+            requestedAt: requestedAt
+        });
+
+        emit SupersessionRequested(
+            domainHash,
+            previousRecordId,
+            pendingRecordId,
+            msg.sender,
+            recordHash,
+            reasonHash,
+            availableAt,
+            recordURI,
+            evidenceURI
+        );
+    }
+
+    function activateSupersession(bytes32 pendingRecordId, string calldata recordURI) external whenWritesOpen {
+        _requireNonEmptyUri(recordURI);
+
+        Supersession memory pending = _supersessions[pendingRecordId];
+        if (pending.controller == address(0)) revert UnknownSupersession();
+        if (msg.sender != pending.controller) revert NotController();
+
+        uint64 availableAt = pending.requestedAt + SUPERSESSION_DELAY_SECONDS;
+        if (block.timestamp < availableAt) {
+            revert SupersessionNotReady(availableAt);
+        }
+
+        bytes32 currentRecordId = recordIdForDomain[pending.domainHash];
+        if (currentRecordId != pending.previousRecordId) {
+            revert SupersessionTargetChanged(pending.previousRecordId, currentRecordId);
+        }
+
+        _revoke(pending.previousRecordId, pending.reasonHash);
+        _requireActiveRecordHash(pending.recordHash);
+
+        _records[pendingRecordId] = Record({
+            controller: pending.controller,
+            recordHash: pending.recordHash,
+            domainHash: pending.domainHash,
+            updatedAt: _now64(),
+            attestedAt: 0,
+            attestationExpiresAt: 0,
+            status: Status.Active
+        });
+        recordIdForDomain[pending.domainHash] = pendingRecordId;
+        delete _supersessions[pendingRecordId];
+
+        emit SupersessionActivated(
+            pending.domainHash,
+            pending.previousRecordId,
+            pendingRecordId,
+            pending.controller,
+            pending.recordHash,
+            recordURI
+        );
+        emit MerchantRegistered(pendingRecordId, pending.controller, pending.domainHash, pending.recordHash, recordURI);
     }
 
     function attest(
@@ -188,6 +275,10 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
 
     function record(bytes32 recordId) external view returns (Record memory) {
         return _records[recordId];
+    }
+
+    function supersession(bytes32 pendingRecordId) external view returns (Supersession memory) {
+        return _supersessions[pendingRecordId];
     }
 
     function isAttestationCurrent(bytes32 recordId) external view returns (bool) {
@@ -263,6 +354,24 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
         if (stored.status != expected) {
             revert InvalidStatus(expected, stored.status);
         }
+    }
+
+    function _revoke(bytes32 recordId, bytes32 reasonHash) private {
+        _requireNonZero(reasonHash);
+
+        Record storage stored = _records[recordId];
+        if (stored.status == Status.None) revert UnknownRecord();
+        if (stored.status == Status.Revoked) {
+            revert InvalidStatus(Status.Active, stored.status);
+        }
+        revokedRecordHashes[stored.recordHash] = true;
+        delete recordIdForDomain[stored.domainHash];
+        stored.status = Status.Revoked;
+        stored.updatedAt = _now64();
+        stored.attestedAt = 0;
+        stored.attestationExpiresAt = 0;
+
+        emit MerchantRevoked(recordId, reasonHash);
     }
 
     function _now64() private view returns (uint64) {

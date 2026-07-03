@@ -100,6 +100,24 @@ interface IMerchantRegistry {
         bytes32 reasonHash
     ) external;
 
+    function forceRevoke(
+        bytes32 recordId,
+        bytes32 reasonHash
+    ) external;
+
+    function requestSupersession(
+        bytes32 domainHash,
+        bytes32 recordHash,
+        bytes32 reasonHash,
+        string calldata recordURI,
+        string calldata evidenceURI
+    ) external returns (bytes32 pendingRecordId, uint64 availableAt);
+
+    function activateSupersession(
+        bytes32 pendingRecordId,
+        string calldata recordURI
+    ) external;
+
     function attest(
         bytes32 recordId,
         bytes32 recordHash,
@@ -291,6 +309,10 @@ un-revoke. Recovery uses a new record hash.
 required before public production: a new controller publishes fresh proof for an
 occupied domain hash, enters a pending window, emits monitorable events, and
 becomes active only after re-attestation or an explicit challenge window.
+Owner-only `forceRevoke` is an emergency pilot recovery path for obvious squats
+or broken records. It frees a domain slot with public events, but it is a
+trusted-operator power and must move behind timelocked multisig governance
+before a neutral public deployment.
 
 ## Challenge Scope
 
@@ -333,6 +355,26 @@ Rules:
 - final ranking happens after private final quotes;
 - registry UIs may filter by protocol, country, freshness, and verification
   state, but must label this as filtering, not ranking.
+
+The eligible set is not the whole discovery problem. A buyer agent must still
+choose which merchants to ask before it has final quotes. That pre-quote
+candidate selection is a ranking layer and must be governed explicitly:
+
+- self-verify records by default instead of hard-filtering on a single
+  validator badge;
+- cap RFQ fan-out and make the cap visible to the owner;
+- randomize candidate sampling per buyer query among eligible merchants instead
+  of returning a fixed global order;
+- let owner policy decide preferred/blocked merchants, payment rails, delivery
+  constraints, budget, and local/ethical preferences;
+- treat registry/indexer ordering as untrusted input, not as final ranking;
+- keep sponsored placement, bond size, and validator stake out of both
+  candidate selection and final ranking.
+
+The RFQ layer also needs privacy and abuse controls before broad production:
+bounded fan-out, rate limits, optional decoy/crowd batching for sensitive
+queries, and merchant-side quote throttles so small shops are not forced to
+serve unlimited free quote computation.
 
 Fairness mechanisms:
 
@@ -402,7 +444,8 @@ manifest URLs, proof URLs, and evidence URIs are attacker-controlled inputs.
 4. **Indexer adapter**: replay contract events into the existing onchain
    adapter index shape and verifier fixtures.
 5. **Local contract prototype**: implement register, update, rotate controller,
-   revoke, attest, suspend, unsuspend, and event-only flag with invariant tests.
+   revoke, supersession, emergency force-revoke, attest, suspend, unsuspend, and
+   event-only flag with invariant tests.
 6. **Testnet drill**: deploy to a testnet, register the staging USD shop, verify
    through the indexer, rotate controller, revoke, flag, suspend, and recover.
 7. **Pilot gate**: require recorded evidence before any production claim.

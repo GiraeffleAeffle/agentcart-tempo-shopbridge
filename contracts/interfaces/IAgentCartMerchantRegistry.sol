@@ -19,6 +19,15 @@ interface IAgentCartMerchantRegistry {
         Status status;
     }
 
+    struct Supersession {
+        address controller;
+        bytes32 domainHash;
+        bytes32 previousRecordId;
+        bytes32 recordHash;
+        bytes32 reasonHash;
+        uint64 requestedAt;
+    }
+
     function register(bytes32 domainHash, bytes32 recordHash, string calldata recordURI)
         external
         returns (bytes32 recordId);
@@ -28,6 +37,18 @@ interface IAgentCartMerchantRegistry {
     function setController(bytes32 recordId, address newController) external;
 
     function revoke(bytes32 recordId, bytes32 reasonHash) external;
+
+    function forceRevoke(bytes32 recordId, bytes32 reasonHash) external;
+
+    function requestSupersession(
+        bytes32 domainHash,
+        bytes32 recordHash,
+        bytes32 reasonHash,
+        string calldata recordURI,
+        string calldata evidenceURI
+    ) external returns (bytes32 pendingRecordId, uint64 availableAt);
+
+    function activateSupersession(bytes32 pendingRecordId, string calldata recordURI) external;
 
     function attest(
         bytes32 recordId,
@@ -44,6 +65,8 @@ interface IAgentCartMerchantRegistry {
     function flag(bytes32 recordId, bytes32 challengeType, string calldata evidenceURI) external;
 
     function record(bytes32 recordId) external view returns (Record memory);
+
+    function supersession(bytes32 pendingRecordId) external view returns (Supersession memory);
 
     function recordIdForDomain(bytes32 domainHash) external view returns (bytes32);
 
@@ -76,6 +99,29 @@ interface IAgentCartMerchantRegistry {
     event ControllerChanged(bytes32 indexed recordId, address indexed newController);
 
     event MerchantRevoked(bytes32 indexed recordId, bytes32 reasonHash);
+
+    event MerchantForceRevoked(bytes32 indexed recordId, address indexed operator, bytes32 reasonHash);
+
+    event SupersessionRequested(
+        bytes32 indexed domainHash,
+        bytes32 indexed previousRecordId,
+        bytes32 indexed pendingRecordId,
+        address controller,
+        bytes32 recordHash,
+        bytes32 reasonHash,
+        uint64 availableAt,
+        string recordURI,
+        string evidenceURI
+    );
+
+    event SupersessionActivated(
+        bytes32 indexed domainHash,
+        bytes32 indexed previousRecordId,
+        bytes32 indexed recordId,
+        address controller,
+        bytes32 recordHash,
+        string recordURI
+    );
 
     event MerchantAttested(
         bytes32 indexed recordId,

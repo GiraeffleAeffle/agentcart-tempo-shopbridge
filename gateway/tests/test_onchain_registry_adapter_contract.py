@@ -220,13 +220,15 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         update_body = solidity_function_body(source, "update")
         controller_body = solidity_function_body(source, "setController")
         suspend_body = solidity_function_body(source, "suspend")
-        revoke_body = solidity_function_body(source, "revoke")
+        public_revoke_body = solidity_function_body(source, "revoke")
+        revoke_body = solidity_function_body(source, "_revoke")
 
         for body in (update_body, controller_body, suspend_body, revoke_body):
             self.assertIn("stored.attestedAt = 0", body)
             self.assertIn("stored.attestationExpiresAt = 0", body)
         self.assertIn("revokedRecordHashes[stored.recordHash] = true", revoke_body)
         self.assertIn("delete recordIdForDomain[stored.domainHash]", revoke_body)
+        self.assertIn("_revoke(recordId, reasonHash)", public_revoke_body)
 
     def test_solidity_attestation_requires_validator_current_hash_and_expiry(self) -> None:
         source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
