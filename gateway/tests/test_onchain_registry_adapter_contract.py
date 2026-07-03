@@ -9,11 +9,27 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-adapter-contract.json"
 CONTRACT_EVENTS_PATH = ROOT / "docs" / "fixtures" / "registry" / "onchain-contract-events.json"
 INTERFACE_PATH = ROOT / "contracts" / "interfaces" / "IAgentCartMerchantRegistry.sol"
+IMPLEMENTATION_PATH = ROOT / "contracts" / "AgentCartMerchantRegistry.sol"
 TRUST_FIXTURE_PATH = ROOT / "docs" / "fixtures" / "registry" / "trust-fixtures.json"
 
 
 def fixture(path: pathlib.Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def solidity_function_body(source: str, name: str) -> str:
+    marker = f"function {name}("
+    start = source.index(marker)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1 : index]
+    raise AssertionError(f"function body not found: {name}")
 
 
 class OnchainRegistryAdapterContractTests(unittest.TestCase):
@@ -139,6 +155,10 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertIn("function update(", source)
         self.assertIn("function attest(", source)
         self.assertIn("function flag(", source)
+        self.assertIn("function record(", source)
+        self.assertIn("function recordIdForDomain(", source)
+        self.assertIn("function revokedRecordHashes(", source)
+        self.assertIn("function isAttestationCurrent(", source)
 
     def test_contract_events_fixture_uses_interface_events(self) -> None:
         source = INTERFACE_PATH.read_text(encoding="utf-8")
@@ -152,6 +172,80 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
             fixture_document["events"][0]["onchain_record"],
             fixture(CONTRACT_PATH)["sample"]["onchain_record"],
         )
+
+    def test_solidity_implementation_is_present_and_bound_to_fixture(self) -> None:
+        contract = fixture(CONTRACT_PATH)
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+
+        self.assertEqual(contract["implementation"], "contracts/AgentCartMerchantRegistry.sol")
+        self.assertIn("contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry", source)
+        self.assertIn("mapping(bytes32 => Record) private _records", source)
+        self.assertIn("mapping(bytes32 => bytes32) public recordIdForDomain", source)
+        self.assertIn("mapping(bytes32 => bool) public revokedRecordHashes", source)
+        self.assertIn("mapping(address => bool) public validators", source)
+
+    def test_solidity_storage_stays_identity_and_integrity_only(self) -> None:
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+        forbidden_state_terms = (
+            "catalog",
+            "products",
+            "prices",
+            "quotes",
+            "buyer",
+            "household",
+            "order",
+            "ranking",
+            "rank",
+            "stake",
+            "bond",
+            "payable",
+            "slashing",
+        )
+
+        for term in forbidden_state_terms:
+            self.assertNotIn(term, source.lower(), term)
+
+    def test_solidity_record_id_is_bound_to_controller_domain_chain_and_contract(self) -> None:
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+        body = solidity_function_body(source, "computeRecordId")
+
+        self.assertIn('"agentcart.merchant.registry.v1"', body)
+        self.assertIn("block.chainid", body)
+        self.assertIn("address(this)", body)
+        self.assertIn("domainHash", body)
+        self.assertIn("controller", body)
+
+    def test_solidity_identity_changes_clear_attestation_state(self) -> None:
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+        update_body = solidity_function_body(source, "update")
+        controller_body = solidity_function_body(source, "setController")
+        suspend_body = solidity_function_body(source, "suspend")
+        revoke_body = solidity_function_body(source, "revoke")
+
+        for body in (update_body, controller_body, suspend_body, revoke_body):
+            self.assertIn("stored.attestedAt = 0", body)
+            self.assertIn("stored.attestationExpiresAt = 0", body)
+        self.assertIn("revokedRecordHashes[stored.recordHash] = true", revoke_body)
+        self.assertIn("delete recordIdForDomain[stored.domainHash]", revoke_body)
+
+    def test_solidity_attestation_requires_validator_current_hash_and_expiry(self) -> None:
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+        body = solidity_function_body(source, "attest")
+
+        self.assertIn("onlyValidator", source[source.index("function attest(") : source.index("{", source.index("function attest("))])
+        self.assertIn("recordHash != stored.recordHash", body)
+        self.assertIn("expiresAt <= block.timestamp", body)
+        self.assertIn("stored.attestedAt = _now64()", body)
+        self.assertIn("stored.attestationExpiresAt = expiresAt", body)
+
+    def test_solidity_flags_are_event_only(self) -> None:
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+        body = solidity_function_body(source, "flag")
+
+        self.assertIn("emit MerchantFlagged", body)
+        self.assertNotIn("status", body)
+        self.assertNotIn("recordIdForDomain", body)
+        self.assertNotIn("revokedRecordHashes", body)
 
 
 if __name__ == "__main__":

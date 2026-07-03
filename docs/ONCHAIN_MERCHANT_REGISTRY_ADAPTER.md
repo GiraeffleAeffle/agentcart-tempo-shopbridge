@@ -1,9 +1,9 @@
 # Onchain Merchant Registry Adapter
 
-Status: design contract. The repo currently ships an off-chain hosted registry
-adapter for pilots. The intended public trust anchor is a smart contract or
-append-only registry that can expose the same minimal merchant commitment and
-event shape. The proposed source-of-truth concept is tracked in
+Status: v1 Solidity prototype. The repo currently ships an off-chain hosted
+registry adapter for pilots. The intended public trust anchor is a smart
+contract or append-only registry that can expose the same minimal merchant
+commitment and event shape. The proposed source-of-truth concept is tracked in
 `docs/ONCHAIN_MERCHANT_REGISTRY_CONCEPT.md` and ADR 0007.
 
 ## Position
@@ -33,6 +33,21 @@ The minimal Solidity interface fixture is:
 ```text
 contracts/interfaces/IAgentCartMerchantRegistry.sol
 ```
+
+The v1 Solidity implementation is:
+
+```text
+contracts/AgentCartMerchantRegistry.sol
+```
+
+This first implementation stores controller, domain hash, record hash, status,
+freshness timestamps, revocation hashes, and validator attestation timestamps.
+It does not include staking, slashing, paid ranking, onchain catalog data, or
+challenge payouts. Permissionless flags are event-only.
+
+When Foundry is installed, the repo verification script runs the Solidity
+lifecycle tests with the pinned `foundry.toml` settings. Environments without
+Foundry still run the registry projection and invariant tests.
 
 The contract-event replay fixture is:
 

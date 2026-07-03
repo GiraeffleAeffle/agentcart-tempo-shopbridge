@@ -1,6 +1,7 @@
 {
   "schema": "agentcart.onchain_registry_adapter_contract.v1",
-  "status": "design-contract",
+  "status": "solidity-v1-prototype",
+  "implementation": "contracts/AgentCartMerchantRegistry.sol",
   "target_standard": "ERC-8004-style identity registry",
   "source_trust_contract": "agentcart.registry_trust_contract.v1",
   "purpose": "Define the compact merchant identity and integrity projection that can be sourced from a smart contract registry while keeping products, prices, quotes, and household demand offchain.",
