@@ -19,6 +19,16 @@ section "Python tests: household-os"
   python3 -m unittest discover -s tests
 )
 
+section "Solidity registry contract"
+if command -v forge >/dev/null 2>&1; then
+  (
+    cd "$ROOT_DIR"
+    ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY:-dummy}" forge test --quiet
+  )
+else
+  printf 'forge not installed; skipping Solidity compile\n'
+fi
+
 section "Python 3.11 compatibility"
 py311_files=(
   gateway/agentcart.py

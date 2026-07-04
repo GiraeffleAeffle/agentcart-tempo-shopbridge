@@ -35,7 +35,8 @@ enforce:
 - normalized domain hash, with one active record per domain hash;
 - contract-set freshness timestamp;
 - status: active, revoked, or suspended;
-- current attestation state for the active record hash.
+- current per-validator attestation state and conservative quorum summary for
+  the active record hash.
 
 Do not store fields that the contract cannot verify from calldata or chain
 state, such as merchant id hash, registry claim hash, payment binding hash,
@@ -96,7 +97,14 @@ The first contract must make attestation lifecycle rules explicit:
 
 - an attestation commits to `record_id`, `record_hash`, validator, result hash,
   and expiry;
-- `update()` clears attestation state;
+- the contract tracks one current attestation per validator and a configurable
+  threshold before `isAttestationCurrent()` returns true;
+- aggregate freshness is threshold-based: one short-lived validator cannot
+  expire the record while a quorum remains valid, and stale quorum state still
+  fails closed;
+- identity and status changes increment attestation generation state so prior
+  attestations cannot carry over after update, controller rotation, suspension,
+  or revocation;
 - expired attestations do not satisfy verified listing policy;
 - validators are from an explicit set with timelocked changes;
 - malicious positive attestations are detectable by rerunning the checks;
@@ -120,8 +128,18 @@ Authority matrix:
 The contract needs `setController` for routine key rotation. Public production
 also needs a domain-proof-driven supersession path for lost keys and
 registration squatting: a new controller publishes fresh domain proof, enters a
-pending window, emits events for monitoring, and becomes active only after
-re-attestation or a defined challenge window.
+pending request, emits events for monitoring, and becomes active only after
+validator or owner approval plus the post-approval activation delay.
+
+The v1 prototype implements this as a supersession request keyed by the
+deterministic `record_id` for the new controller. The contract cannot verify the
+HTTPS proof by itself, so the request emits `recordURI` and `evidenceURI` for
+validators, indexers, and self-verifying agents to inspect. The request is
+non-destructive until a validator or owner approves it and the post-approval
+activation delay passes. Only then can activation revoke the previous record
+hash, free the occupied domain hash, and create the new active record. A
+separate owner-only `forceRevoke` exists only as a trusted-operator emergency
+escape hatch for pilot registries; it is not a neutrality primitive.
 
 ## Fairness
 
@@ -147,6 +165,23 @@ search happens offchain, the reference implementation must be open, replayable,
 deterministic where possible, and clear about where filtering ends and
 buyer-side ranking begins.
 
+There is also a pre-quote candidate-selection layer between the eligible set and
+private RFQs. If thousands of merchants are eligible, an agent will select a
+bounded candidate set before asking for quotes. That selection is market-shaping
+ranking even though final price ranking happens after quotes. The reference
+buyer agent and indexer must therefore make candidate selection explicit,
+auditable, and user-configurable. Validator attestation should be advisory by
+default; self-verification of the full record, manifest, proof, payment binding,
+and revocation state should be the default path for buyers who do not want a
+validator-operated gate.
+
+Default candidate selection should avoid fixed positional advantage. Prefer a
+buyer-query-seeded randomized sample among self-verified eligible merchants,
+then apply user-owned constraints such as country, payment rail, delivery
+window, budget, preferred/blocked merchants, and local policy before sending
+private RFQs. Registration bond size, validator stake, and sponsored placement
+must never be ranking inputs.
+
 ## Challenge Scope
 
 The first contract should not include challenge status, challenger payouts, or
@@ -158,6 +193,9 @@ For v1, permissionless challenges are event-only flags:
 
 - they do not change merchant eligibility by themselves;
 - they do not lock a bond;
+- they are cooldown-limited per flagger and record;
+- their evidence URI is untrusted input and must not be fetched by indexers
+  without the same URL-safety controls used for merchant endpoints;
 - they trigger validator re-verification and public monitoring;
 - suspension requires controller action, validator quorum, or timelocked
   governance with public reason.
@@ -174,9 +212,19 @@ Production default should prefer simple and conservative:
 - migration through event replay into a successor registry;
 - writes-only pause, never read blocking;
 - timelocked validator set changes;
-- admin can suspend with public reason but cannot mutate merchant records;
+- delayed emergency recovery and attestation-threshold changes, with scheduled
+  actions expiring after a bounded execution window;
+- two-step ownership transfer, with the production owner set to a timelocked
+  multisig or equivalent public governance process;
+- admin can suspend with public reason, and cannot update merchant controller,
+  record hash, or record URI;
 - no admin ability to delete history;
 - no admin ability to rank merchants.
+
+Pause remains an immediate trusted-operator emergency brake in the prototype.
+Until ownership, pause, validator changes, and emergency recovery are controlled
+by a timelocked multisig or equivalent public governance process, the deployment
+must be described as a trusted-operator pilot, not a neutral public registry.
 
 ## Consequences
 

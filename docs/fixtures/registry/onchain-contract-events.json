@@ -99,6 +99,21 @@
       "args": {
         "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444"
       }
+    },
+    {
+      "event": "MerchantAttested",
+      "block_number": 105,
+      "block_time": "2026-06-01T00:25:00Z",
+      "transaction_hash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "log_index": 0,
+      "args": {
+        "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444",
+        "validator": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "recordHash": "0x0e8f8493e57e69734713cbfdc16c0effda09df4e304b72c08e50ed8187a97bef",
+        "resultHash": "0xacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacac",
+        "expiresAt": 1782865500,
+        "evidenceURI": "https://registry.agentcart.eu/evidence/fixture-tea-shop/2026-06-01-recheck"
+      }
     }
   ]
 }
