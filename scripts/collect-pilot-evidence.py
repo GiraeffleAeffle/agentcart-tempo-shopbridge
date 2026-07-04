@@ -120,6 +120,7 @@ def result(
         "status": "passed" if not actionable_errors else "failed",
         "command": command,
         "errors": actionable_errors,
+        "evidence": evidence or [],
         "missing_evidence": missing,
         "evidence_summary": summarize_items(evidence or []),
         "details": details or {},

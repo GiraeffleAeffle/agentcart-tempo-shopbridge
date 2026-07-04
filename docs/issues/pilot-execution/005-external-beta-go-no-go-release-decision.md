@@ -21,6 +21,24 @@ requires actual staging merchant evidence and an operator decision.
 - [ ] If the decision is go, release docs identify the exact beta scope,
   rollback owner, support channel, and observation window.
 
+## Tooling support
+
+`scripts/build-beta-release-decision.py` generates the decision record from
+`pilot-evidence-report.json`. It lists passed gates, failed gates, blockers,
+accepted risks, follow-up issues, and the verifier operations, WooCommerce
+variance, and merchant walkthrough evidence references.
+
+The helper is intentionally stricter than a handwritten note:
+
+- `--decision go` requires a passed evidence report plus `--beta-scope`,
+  `--rollback-owner`, `--support-channel`, and `--observation-window`.
+- `--decision no-go` with failed gates requires follow-up issue URLs or blocker
+  owners.
+
+This does not complete the issue by itself. The remaining work is to run the
+real staging pilot, attach the generated report, and record the operator
+decision.
+
 ## Blocked by
 
 - Blocked by #17

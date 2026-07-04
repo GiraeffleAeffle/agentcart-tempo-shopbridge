@@ -47,6 +47,7 @@ py311_files=(
   scripts/check-buyer-agent-matrix.py
   scripts/check-ap2-mandate-mapping.py
   scripts/check-beta-release-readiness.py
+  scripts/build-beta-release-decision.py
   scripts/collect-pilot-evidence.py
   scripts/check-ucp-a2a-profiles.py
   scripts/check-pilot-readiness.py
