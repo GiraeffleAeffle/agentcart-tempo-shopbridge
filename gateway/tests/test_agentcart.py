@@ -80,6 +80,8 @@ def make_service(tmp: pathlib.Path, **overrides: object) -> object:
         delivery_calendar_token="",
         merchant_registry_path=None,
         merchant_registry_url="",
+        onchain_registry_events_path=None,
+        onchain_registry_events_url="",
         merchant_registry_hmac_secret="",
         require_verified_registry=True,
         merchant_registry_max_age_days=180,
@@ -756,6 +758,193 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(service.adapters["signed-tea-shop"].adapter_type, "shopbridge-registry")
             html = agentcart.render_registry_page(service)
             self.assertIn("mpp-http-auth", html)
+
+    def test_onchain_registry_events_source_loads_full_verified_records(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record_id = "0x" + "4" * 64
+            registry_address = "0x2222222222222222222222222222222222222222"
+            onchain_identity = {
+                "standard": "agentcart-onchain-registry-v1",
+                "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "chain_id": "eip155:8453",
+                "registry_address": registry_address,
+                "record_id": record_id,
+                "agent_id": "agentcart:signed-tea-shop",
+                "registration_uri": "https://signed.example/.well-known/agentcart.json",
+                "registration_tx_hash": "0x" + "3" * 64,
+            }
+            record = signed_registry_record(
+                manifest,
+                onchain_identity=onchain_identity,
+                protocol_profile_ids=["agentcart-shopbridge", "mpp-http-auth", "erc8004-ready"],
+            )
+            record_hash = agentcart.registry_record_hash(record)
+            onchain_record = {
+                "record_hash": record_hash,
+                "record_hash_alg": "sha-256",
+                "merchant_id": record["merchant_id"],
+                "domain": record["domain"],
+                "manifest_url": record["manifest_url"],
+                "registry_claim_hash_alg": str(record.get("registry_claim_hash_alg") or ""),
+                "registry_claim_hash": str(record.get("registry_claim_hash") or ""),
+                "payment_network": record["payment_network"],
+                "payment_recipient": record["payment_recipient"],
+                "updated_at": record["updated_at"],
+                "revocation_url": str(record.get("revocation_url") or ""),
+                "chain_id": "eip155:8453",
+                "controller": onchain_identity["controller"],
+                "registry_address": registry_address,
+                "record_id": record_id,
+                "agent_id": "agentcart:signed-tea-shop",
+                "registration_uri": "https://signed.example/.well-known/agentcart.json",
+                "registration_tx_hash": "0x" + "3" * 64,
+            }
+            events_path = tmp / "onchain-events.json"
+            events_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "agentcart.onchain_registry_contract_events.v1",
+                        "chain_id": "eip155:8453",
+                        "registry_address": registry_address,
+                        "events": [
+                            {
+                                "event": "MerchantRegistered",
+                                "block_number": 100,
+                                "block_time": "2026-06-01T00:00:00Z",
+                                "transaction_hash": "0x" + "a" * 64,
+                                "log_index": 0,
+                                "args": {
+                                    "recordId": record_id,
+                                    "controller": onchain_identity["controller"],
+                                    "domainHash": "0x" + "d" * 64,
+                                    "recordHash": "0x" + record_hash,
+                                    "recordURI": "https://signed.example/.well-known/agentcart-registry-bundle.json",
+                                },
+                                "onchain_record": onchain_record,
+                                "registry_record": record,
+                            },
+                            {
+                                "event": "MerchantAttested",
+                                "block_number": 101,
+                                "block_time": "2026-06-01T00:05:00Z",
+                                "transaction_hash": "0x" + "b" * 64,
+                                "log_index": 0,
+                                "args": {
+                                    "recordId": record_id,
+                                    "validator": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                                    "recordHash": "0x" + record_hash,
+                                    "resultHash": "0x" + "c" * 64,
+                                    "expiresAt": 1782864300,
+                                    "evidenceURI": "https://registry.agentcart.eu/evidence/signed-tea-shop/2026-06-01",
+                                },
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            service = make_service(
+                tmp,
+                onchain_registry_events_path=events_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            registry = service.registry_document()
+
+            onchain_source = registry["registry"]["onchain_source"]
+            self.assertTrue(onchain_source["enabled"])
+            self.assertTrue(onchain_source["chain_valid"])
+            self.assertEqual(onchain_source["event_count"], 2)
+            self.assertEqual(onchain_source["active_record_count"], 1)
+            self.assertEqual(onchain_source["attestation_count"], 1)
+            self.assertRegex(onchain_source["log_head_hash"], r"^[0-9a-f]{64}$")
+            self.assertRegex(onchain_source["proof_payload_hash"], r"^[0-9a-f]{64}$")
+
+            entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
+            self.assertEqual(entries["signed-tea-shop"]["verification"]["state"], "verified")
+            self.assertEqual(entries["signed-tea-shop"]["registry_record_hash"], record_hash)
+            self.assertEqual(entries["signed-tea-shop"]["onchain_identity"]["status"], "mapped")
+            self.assertEqual(entries["signed-tea-shop"]["onchain_identity"]["record_id"], record_id)
+            self.assertIn("signed-tea-shop", service.adapters)
+
+            health = service.registry_health(registry)
+            self.assertEqual(health["summary"]["onchain_event_count"], 2)
+            self.assertEqual(health["summary"]["onchain_active_record_count"], 1)
+            self.assertFalse(health["source_errors"])
+
+    def test_onchain_registry_events_source_rejects_hash_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            record = signed_registry_record(manifest)
+            record_hash = agentcart.registry_record_hash(record)
+            events_path = tmp / "onchain-events.json"
+            events_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "agentcart.onchain_registry_contract_events.v1",
+                        "events": [
+                            {
+                                "event": "MerchantRegistered",
+                                "block_number": 100,
+                                "transaction_hash": "0x" + "a" * 64,
+                                "log_index": 0,
+                                "args": {
+                                    "recordId": "0x" + "4" * 64,
+                                    "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                    "domainHash": "0x" + "d" * 64,
+                                    "recordHash": "0x" + "f" * 64,
+                                    "recordURI": "https://signed.example/.well-known/agentcart-registry-bundle.json",
+                                },
+                                "onchain_record": {"record_hash": record_hash},
+                                "registry_record": record,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            service = make_service(
+                tmp,
+                onchain_registry_events_path=events_path,
+                merchant_registry_hmac_secret="registry-secret",
+            )
+            registry = service.registry_document()
+
+            self.assertEqual(registry["registry"]["onchain_source"]["chain_valid"], False)
+            self.assertEqual(registry["registry"]["onchain_source"]["active_record_count"], 0)
+            self.assertEqual(len(registry["registry"]["source_errors"]), 1)
+            self.assertIn("onchain registry contract events invalid", registry["registry"]["source_errors"][0]["message"])
+            error_codes = {
+                error["error"]
+                for error in registry["registry"]["source_errors"][0]["detail"]["errors"]
+                if isinstance(error, dict)
+            }
+            self.assertIn("onchain_record_hash_mismatch", error_codes)
+            self.assertIn("registry_record_hash_mismatch", error_codes)
+
+            health = service.registry_health(registry)
+            self.assertEqual(health["summary"]["source_error_count"], 1)
+            self.assertIn("registry_source_error", {alert["code"] for alert in health["alerts"]})
+
+    def test_onchain_registry_events_url_rejects_public_http_before_fetching(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                onchain_registry_events_url="http://registry.example/onchain-events.json",
+            )
+
+            def fail_fetch(*args: object, **kwargs: object) -> dict[str, object]:
+                raise AssertionError("unexpected onchain events fetch")
+
+            service.http_json = fail_fetch  # type: ignore[method-assign]
+            with self.assertRaises(agentcart.UpstreamError) as error:
+                service.load_onchain_registry_index()
+
+            self.assertIn("onchain_registry_events_url_requires_https", str(error.exception))
 
     def test_registry_record_exposes_optional_erc8004_identity_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

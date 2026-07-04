@@ -140,6 +140,8 @@ The local alpha supports an off-chain JSON registry source:
 ```env
 AGENTCART_MERCHANT_REGISTRY_PATH=/data/merchant-registry.json
 AGENTCART_MERCHANT_REGISTRY_URL=
+AGENTCART_ONCHAIN_REGISTRY_EVENTS_PATH=
+AGENTCART_ONCHAIN_REGISTRY_EVENTS_URL=
 AGENTCART_MERCHANT_REGISTRY_HMAC_SECRET=replace-with-shared-registry-secret
 AGENTCART_REQUIRE_VERIFIED_REGISTRY=true
 AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS=180
@@ -415,6 +417,19 @@ attest, event-only flag, suspend, and unsuspend flows. The indexer fails closed
 when a `MerchantRegistered` or `MerchantUpdated` log does not match the fetched
 offchain record projection.
 
+The gateway can consume the same event snapshot as a discovery source:
+
+```env
+AGENTCART_ONCHAIN_REGISTRY_EVENTS_PATH=/data/onchain-registry-events.json
+AGENTCART_ONCHAIN_REGISTRY_EVENTS_URL=
+```
+
+For usable merchant discovery, the indexer snapshot should include the compact
+`onchain_record` projection and the resolved full `registry_record` for each
+register/update event. The gateway validates both hashes against the contract
+`recordHash`, then runs the full registry record through the normal signature,
+domain, manifest, payment, freshness, and revocation verifier.
+
 Verify the live proof:
 
 ```sh
@@ -466,6 +481,10 @@ The gateway now:
 
 - loads candidate records from `AGENTCART_MERCHANT_REGISTRY_PATH` or
   `AGENTCART_MERCHANT_REGISTRY_URL`;
+- replays optional `AGENTCART_ONCHAIN_REGISTRY_EVENTS_PATH` or
+  `AGENTCART_ONCHAIN_REGISTRY_EVENTS_URL` contract-event snapshots and exposes
+  the event count, active record count, log head, proof payload hash, and replay
+  errors in registry health;
 - accepts first-party hosted registry submissions and revocations at
   `/v1/registry/records`;
 - stores hosted records in an append-friendly JSON feed and removes revoked
