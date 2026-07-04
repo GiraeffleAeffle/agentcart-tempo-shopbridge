@@ -181,6 +181,21 @@ python3 scripts/collect-pilot-evidence.py \
   --report-out pilot-evidence-report.json
 ```
 
+After the evidence report is written, generate the supervised decision record:
+
+```sh
+python3 scripts/build-beta-release-decision.py \
+  --report pilot-evidence-report.json \
+  --decision no-go \
+  --operator "<name>" \
+  --follow-up-issue "https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/<id>" \
+  --out pilot-release-decision.md
+```
+
+For `--decision go`, the command requires a passed report plus
+`--beta-scope`, `--rollback-owner`, `--support-channel`, and
+`--observation-window`.
+
 Start a new evidence folder with:
 
 ```sh

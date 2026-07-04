@@ -35,6 +35,21 @@ python3 scripts/collect-pilot-evidence.py \
   --report-out pilot-evidence-report.json
 ```
 
+Then generate the operator decision record from that report:
+
+```sh
+python3 scripts/build-beta-release-decision.py \
+  --report pilot-evidence-report.json \
+  --decision no-go \
+  --operator "<name>" \
+  --follow-up-issue "https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/issues/<id>" \
+  --out pilot-release-decision.md
+```
+
+Use `--decision go` only after the evidence report passes; the command then
+requires `--beta-scope`, `--rollback-owner`, `--support-channel`, and
+`--observation-window`.
+
 Generate a sample evidence folder first when setting up a new pilot:
 
 ```sh
