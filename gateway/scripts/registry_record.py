@@ -805,6 +805,8 @@ def verify_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, An
         "MerchantRevoked",
         "MerchantForceRevoked",
         "SupersessionRequested",
+        "SupersessionApproved",
+        "SupersessionCanceled",
         "SupersessionActivated",
         "MerchantAttested",
         "MerchantSuspended",

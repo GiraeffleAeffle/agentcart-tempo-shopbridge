@@ -42,9 +42,10 @@ contracts/AgentCartMerchantRegistry.sol
 
 This first implementation stores controller, domain hash, record hash, status,
 freshness timestamps, revocation hashes, per-validator attestation state,
-conservative attestation quorum summary, flag cooldown metadata, and delayed
-governance actions. It does not include staking, slashing, paid ranking,
-onchain catalog data, or challenge payouts. Permissionless flags are event-only.
+attestation generation, threshold-based quorum summary, flag cooldown metadata,
+approval-gated supersession state, and delayed governance actions with bounded
+execution windows. It does not include staking, slashing, paid ranking, onchain
+catalog data, or challenge payouts. Permissionless flags are event-only.
 
 When Foundry is installed, the repo verification script runs the Solidity
 lifecycle tests with the pinned `foundry.toml` settings. Environments without
@@ -176,8 +177,10 @@ the event stream if the projection hash does not match the event `recordHash`.
 `MerchantAttested` records attestation metadata for the current record hash,
 keyed by validator. `MerchantSuspended` removes the record from active discovery
 and clears attestation state until `MerchantUnsuspended` plus fresh
-attestation. `MerchantFlagged` remains event-only so it never changes
-eligibility by itself.
+attestation. Supersession request/approval/cancel/activate logs are monitoring
+inputs; activation is the first destructive step and requires validator or owner
+approval plus the post-approval delay. `MerchantFlagged` remains event-only so
+it never changes eligibility by itself.
 
 The hosted registry feed proof can also be RSA-SHA256 signed. Operators should
 sign the canonical feed-proof signature payload and publish the public key URL

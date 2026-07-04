@@ -13,12 +13,17 @@
     "updated_at",
     "attested_at",
     "attestation_expires_at",
+    "attestation_generation",
     "attestation_count",
     "attestation_threshold",
     "validator_count",
+    "validator_enabled_at",
+    "validator_list",
     "validator_attestations",
     "next_flag_available_at",
     "governance_action_ready_at",
+    "governance_execution_window",
+    "supersession_approval",
     "pending_owner",
     "status"
   ],
@@ -181,6 +186,13 @@
     "slashing_required_for_pilot": false,
     "merchant_slashing_required_for_v1": false,
     "note": "Permissionless flags trigger monitoring and validator re-verification. They are rate-limited per flagger and record, and do not change status, lock bonds, or pay challengers in v1."
+  },
+  "supersession_policy": {
+    "request_status_effect": "event_and_pending_state_only",
+    "activation_requires_validator_or_owner_approval": true,
+    "activation_delay_starts_at": "approval",
+    "incumbent_can_cancel": true,
+    "note": "A pending supersession cannot revoke, burn, or replace the incumbent until it is approved and the post-approval delay has elapsed."
   },
   "non_goals": [
     "Sponsored ranking",

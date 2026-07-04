@@ -147,6 +147,8 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
             "MerchantRevoked",
             "MerchantForceRevoked",
             "SupersessionRequested",
+            "SupersessionApproved",
+            "SupersessionCanceled",
             "SupersessionActivated",
             "MerchantAttested",
             "MerchantSuspended",
@@ -163,6 +165,8 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertIn("function update(", source)
         self.assertIn("function attest(", source)
         self.assertIn("function attestation(", source)
+        self.assertIn("function approveSupersession(", source)
+        self.assertIn("function cancelSupersession(", source)
         self.assertIn("function flag(", source)
         self.assertIn("function record(", source)
         self.assertIn("function recordIdForDomain(", source)
@@ -196,8 +200,10 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertIn("mapping(bytes32 => bytes32) public recordIdForDomain", source)
         self.assertIn("mapping(bytes32 => bool) public revokedRecordHashes", source)
         self.assertIn("mapping(address => bool) public validators", source)
+        self.assertIn("mapping(address => uint64) public validatorEnabledAt", source)
         self.assertIn("mapping(bytes32 => mapping(address => uint64)) public nextFlagAvailableAt", source)
         self.assertIn("mapping(bytes32 => uint64) public governanceActionReadyAt", source)
+        self.assertIn("address[] private _validatorList", source)
 
     def test_solidity_storage_stays_identity_and_integrity_only(self) -> None:
         source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
@@ -241,6 +247,7 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         for body in (update_body, controller_body, suspend_body, revoke_body):
             self.assertIn("stored.attestedAt = 0", body)
             self.assertIn("stored.attestationExpiresAt = 0", body)
+            self.assertIn("stored.attestationGeneration += 1", body)
             self.assertIn("stored.attestationCount = 0", body)
         self.assertIn("revokedRecordHashes[stored.recordHash] = true", revoke_body)
         self.assertIn("delete recordIdForDomain[stored.domainHash]", revoke_body)
@@ -253,11 +260,45 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertIn("onlyValidator", source[source.index("function attest(") : source.index("{", source.index("function attest("))])
         self.assertIn("recordHash != stored.recordHash", body)
         self.assertIn("expiresAt <= block.timestamp", body)
-        self.assertIn("stored.attestationCount += 1", body)
-        self.assertIn("stored.attestationExpiresAt = expiresAt", body)
         self.assertIn("validatorAttestation.recordHash = recordHash", body)
         self.assertIn("validatorAttestation.resultHash = resultHash", body)
-        self.assertIn("stored.attestedAt = stored.attestationCount >= attestationThreshold ? now64 : 0", body)
+        self.assertIn("validatorAttestation.expiresAt = expiresAt", body)
+        self.assertIn("validatorAttestation.generation = stored.attestationGeneration", body)
+        self.assertIn("_syncAttestationSummary(recordId, stored)", body)
+
+    def test_solidity_attestation_summary_recomputes_from_validator_entries(self) -> None:
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+        summary_body = solidity_function_body(source, "_attestationSummary")
+        current_body = solidity_function_body(source, "isAttestationCurrent")
+        record_body = solidity_function_body(source, "record")
+
+        self.assertIn("_validatorList.length", summary_body)
+        self.assertIn("!validators[validator]", summary_body)
+        self.assertIn("stored.attestedAt < validatorEnabledAt[validator]", summary_body)
+        self.assertIn("stored.generation != recordGeneration", summary_body)
+        self.assertIn("stored.recordHash != recordHash", summary_body)
+        self.assertIn("stored.expiresAt <= block.timestamp", summary_body)
+        self.assertIn("_quorumExpiresAt(expiries, count, attestationThreshold)", summary_body)
+        self.assertIn("_attestationSummary(recordId, stored.recordHash, stored.attestationGeneration)", current_body)
+        self.assertIn("_attestationSummary(recordId, stored.recordHash, stored.attestationGeneration)", record_body)
+
+    def test_solidity_supersession_requires_approval_before_activation(self) -> None:
+        source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
+        request_body = solidity_function_body(source, "requestSupersession")
+        approve_body = solidity_function_body(source, "approveSupersession")
+        cancel_body = solidity_function_body(source, "cancelSupersession")
+        activate_body = solidity_function_body(source, "activateSupersession")
+
+        self.assertIn("approvedBy: address(0)", request_body)
+        self.assertIn("approvedAt: 0", request_body)
+        self.assertIn("_requireOwnerOrValidator()", approve_body)
+        self.assertIn("pending.approvedBy = msg.sender", approve_body)
+        self.assertIn("pending.approvedAt = approvedAt", approve_body)
+        self.assertIn("emit SupersessionApproved", approve_body)
+        self.assertIn("previous.controller == msg.sender", cancel_body)
+        self.assertIn("delete _supersessions[pendingRecordId]", cancel_body)
+        self.assertIn("pending.approvedAt == 0", activate_body)
+        self.assertIn("pending.approvedAt + SUPERSESSION_DELAY_SECONDS", activate_body)
 
     def test_solidity_sensitive_owner_actions_are_delayed_or_accepted(self) -> None:
         source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")
@@ -266,6 +307,7 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         force_revoke_body = solidity_function_body(source, "forceRevoke")
         transfer_body = solidity_function_body(source, "transferOwnership")
         accept_body = solidity_function_body(source, "acceptOwnership")
+        consume_body = solidity_function_body(source, "_consumeGovernanceAction")
 
         self.assertIn("_consumeGovernanceAction(validatorActionHash(validator, enabled))", validator_body)
         self.assertIn("_consumeGovernanceAction(attestationThresholdActionHash(threshold))", threshold_body)
@@ -274,6 +316,8 @@ class OnchainRegistryAdapterContractTests(unittest.TestCase):
         self.assertNotIn("owner = newOwner", transfer_body)
         self.assertIn("msg.sender != pendingOwner", accept_body)
         self.assertIn("owner = msg.sender", accept_body)
+        self.assertIn("GOVERNANCE_EXECUTION_WINDOW_SECONDS", consume_body)
+        self.assertIn("GovernanceActionExpired", consume_body)
 
     def test_solidity_flags_are_event_only(self) -> None:
         source = IMPLEMENTATION_PATH.read_text(encoding="utf-8")

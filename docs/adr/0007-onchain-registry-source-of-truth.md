@@ -99,9 +99,12 @@ The first contract must make attestation lifecycle rules explicit:
   and expiry;
 - the contract tracks one current attestation per validator and a configurable
   threshold before `isAttestationCurrent()` returns true;
-- aggregate freshness is conservative: counted attestations use the earliest
-  expiry, so stale quorum state can fail closed but not overstate freshness;
-- `update()` clears attestation state;
+- aggregate freshness is threshold-based: one short-lived validator cannot
+  expire the record while a quorum remains valid, and stale quorum state still
+  fails closed;
+- identity and status changes increment attestation generation state so prior
+  attestations cannot carry over after update, controller rotation, suspension,
+  or revocation;
 - expired attestations do not satisfy verified listing policy;
 - validators are from an explicit set with timelocked changes;
 - malicious positive attestations are detectable by rerunning the checks;
@@ -125,17 +128,18 @@ Authority matrix:
 The contract needs `setController` for routine key rotation. Public production
 also needs a domain-proof-driven supersession path for lost keys and
 registration squatting: a new controller publishes fresh domain proof, enters a
-pending window, emits events for monitoring, and becomes active only after
-re-attestation or a defined challenge window.
+pending request, emits events for monitoring, and becomes active only after
+validator or owner approval plus the post-approval activation delay.
 
-The v1 prototype implements this as a timelocked supersession request keyed by
-the deterministic `record_id` for the new controller. The contract cannot verify
-the HTTPS proof by itself, so the request emits `recordURI` and `evidenceURI`
-for validators, indexers, and self-verifying agents to inspect during the
-waiting window. Activation revokes the previous record hash, frees the occupied
-domain hash, and creates the new active record. A separate owner-only
-`forceRevoke` exists only as a trusted-operator emergency escape hatch for pilot
-registries; it is not a neutrality primitive.
+The v1 prototype implements this as a supersession request keyed by the
+deterministic `record_id` for the new controller. The contract cannot verify the
+HTTPS proof by itself, so the request emits `recordURI` and `evidenceURI` for
+validators, indexers, and self-verifying agents to inspect. The request is
+non-destructive until a validator or owner approves it and the post-approval
+activation delay passes. Only then can activation revoke the previous record
+hash, free the occupied domain hash, and create the new active record. A
+separate owner-only `forceRevoke` exists only as a trusted-operator emergency
+escape hatch for pilot registries; it is not a neutrality primitive.
 
 ## Fairness
 
@@ -208,7 +212,8 @@ Production default should prefer simple and conservative:
 - migration through event replay into a successor registry;
 - writes-only pause, never read blocking;
 - timelocked validator set changes;
-- delayed emergency recovery and attestation-threshold changes;
+- delayed emergency recovery and attestation-threshold changes, with scheduled
+  actions expiring after a bounded execution window;
 - two-step ownership transfer, with the production owner set to a timelocked
   multisig or equivalent public governance process;
 - admin can suspend with public reason, and cannot update merchant controller,
@@ -216,6 +221,7 @@ Production default should prefer simple and conservative:
 - no admin ability to delete history;
 - no admin ability to rank merchants.
 
+Pause remains an immediate trusted-operator emergency brake in the prototype.
 Until ownership, pause, validator changes, and emergency recovery are controlled
 by a timelocked multisig or equivalent public governance process, the deployment
 must be described as a trusted-operator pilot, not a neutral public registry.

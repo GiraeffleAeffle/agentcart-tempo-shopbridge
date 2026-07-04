@@ -16,6 +16,7 @@ interface IAgentCartMerchantRegistry {
         uint64 updatedAt;
         uint64 attestedAt;
         uint64 attestationExpiresAt;
+        uint64 attestationGeneration;
         uint16 attestationCount;
         Status status;
     }
@@ -25,6 +26,7 @@ interface IAgentCartMerchantRegistry {
         bytes32 resultHash;
         uint64 attestedAt;
         uint64 expiresAt;
+        uint64 generation;
     }
 
     struct Supersession {
@@ -34,6 +36,8 @@ interface IAgentCartMerchantRegistry {
         bytes32 recordHash;
         bytes32 reasonHash;
         uint64 requestedAt;
+        address approvedBy;
+        uint64 approvedAt;
     }
 
     function register(bytes32 domainHash, bytes32 recordHash, string calldata recordURI)
@@ -55,6 +59,12 @@ interface IAgentCartMerchantRegistry {
         string calldata recordURI,
         string calldata evidenceURI
     ) external returns (bytes32 pendingRecordId, uint64 availableAt);
+
+    function approveSupersession(bytes32 pendingRecordId, bytes32 recordHash, string calldata evidenceURI)
+        external
+        returns (uint64 availableAt);
+
+    function cancelSupersession(bytes32 pendingRecordId, bytes32 reasonHash) external;
 
     function activateSupersession(bytes32 pendingRecordId, string calldata recordURI) external;
 
@@ -83,6 +93,8 @@ interface IAgentCartMerchantRegistry {
     function revokedRecordHashes(bytes32 recordHash) external view returns (bool);
 
     function validators(address validator) external view returns (bool);
+
+    function validatorEnabledAt(address validator) external view returns (uint64);
 
     function validatorCount() external view returns (uint16);
 
@@ -147,6 +159,18 @@ interface IAgentCartMerchantRegistry {
         string recordURI,
         string evidenceURI
     );
+
+    event SupersessionApproved(
+        bytes32 indexed domainHash,
+        bytes32 indexed previousRecordId,
+        bytes32 indexed pendingRecordId,
+        address approver,
+        bytes32 recordHash,
+        uint64 availableAt,
+        string evidenceURI
+    );
+
+    event SupersessionCanceled(bytes32 indexed pendingRecordId, address indexed operator, bytes32 reasonHash);
 
     event SupersessionActivated(
         bytes32 indexed domainHash,

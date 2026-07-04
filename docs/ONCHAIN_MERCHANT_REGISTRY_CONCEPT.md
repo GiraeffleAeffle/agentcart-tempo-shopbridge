@@ -75,6 +75,7 @@ interface IMerchantRegistry {
         uint64 updatedAt;
         uint64 attestedAt;
         uint64 attestationExpiresAt;
+        uint64 attestationGeneration;
         uint16 attestationCount;
         Status status;
     }
@@ -84,6 +85,7 @@ interface IMerchantRegistry {
         bytes32 resultHash;
         uint64 attestedAt;
         uint64 expiresAt;
+        uint64 generation;
     }
 
     function register(
@@ -120,6 +122,17 @@ interface IMerchantRegistry {
         string calldata recordURI,
         string calldata evidenceURI
     ) external returns (bytes32 pendingRecordId, uint64 availableAt);
+
+    function approveSupersession(
+        bytes32 pendingRecordId,
+        bytes32 recordHash,
+        string calldata evidenceURI
+    ) external returns (uint64 availableAt);
+
+    function cancelSupersession(
+        bytes32 pendingRecordId,
+        bytes32 reasonHash
+    ) external;
 
     function activateSupersession(
         bytes32 pendingRecordId,
@@ -177,6 +190,20 @@ interface IMerchantRegistry {
         address indexed newController
     );
     event MerchantRevoked(bytes32 indexed recordId, bytes32 reasonHash);
+    event SupersessionApproved(
+        bytes32 indexed domainHash,
+        bytes32 indexed previousRecordId,
+        bytes32 indexed pendingRecordId,
+        address approver,
+        bytes32 recordHash,
+        uint64 availableAt,
+        string evidenceURI
+    );
+    event SupersessionCanceled(
+        bytes32 indexed pendingRecordId,
+        address indexed operator,
+        bytes32 reasonHash
+    );
     event MerchantAttested(
         bytes32 indexed recordId,
         address indexed validator,
@@ -285,9 +312,11 @@ Pilot mode:
   result hash, and expiry;
 - the contract keeps one current attestation per validator and requires the
   configured attestation threshold before `isAttestationCurrent()` is true;
-- aggregate attestation expiry is conservative: if any counted attestation
-  expires, the record needs a fresh quorum instead of overstating freshness;
-- `update()` clears attestation state;
+- aggregate attestation expiry is threshold-based: with more attestations than
+  the threshold, one short-lived validator cannot veto current status while a
+  quorum remains valid;
+- `update()`, `setController()`, `suspend()`, and `revoke()` invalidate prior
+  attestation generation state;
 - expired attestations do not satisfy verified listing policy;
 - the hosted AgentCart registry can be one validator, but not the only long-term
   path.
@@ -341,14 +370,16 @@ un-revoke. Recovery uses a new record hash.
 
 `setController` handles routine rotation. Domain-proof-driven supersession is
 required before public production: a new controller publishes fresh proof for an
-occupied domain hash, enters a pending window, emits monitorable events, and
-becomes active only after re-attestation or an explicit challenge window.
+occupied domain hash, enters a pending request, and waits for validator or owner
+approval. Approval emits a monitorable event and starts the activation delay.
+Without approval, the request cannot revoke, burn, or replace the incumbent.
 Owner-only `forceRevoke` is an emergency pilot recovery path for obvious squats
 or broken records. It frees a domain slot with public events, but it is a
 trusted-operator power. The prototype requires a delayed governance action for
-`forceRevoke`, validator set changes, and threshold changes; production still
-needs the owner to be a timelocked multisig or equivalent public governance
-process before a neutral public deployment.
+`forceRevoke`, validator set changes, and threshold changes, and those scheduled
+actions expire after a bounded execution window. Production still needs the
+owner to be a timelocked multisig or equivalent public governance process before
+a neutral public deployment.
 
 ## Challenge Scope
 
@@ -459,7 +490,12 @@ Production default should prefer simple and conservative:
 - migration through event replay into a successor registry;
 - pause writes only, never reads;
 - timelocked validator add/remove process;
-- admin may suspend with public reason but cannot mutate merchant records;
+- delayed emergency recovery and attestation-threshold changes with expiring
+  execution windows;
+- two-step ownership transfer, with the production owner set to a timelocked
+  multisig or equivalent public governance process;
+- admin may suspend with public reason, and cannot update merchant controller,
+  record hash, or record URI;
 - no admin ability to delete history;
 - no admin ability to rank merchants;
 - public runbook for validator key rotation and registry migration.
@@ -482,8 +518,8 @@ manifest URLs, proof URLs, and evidence URIs are attacker-controlled inputs.
 4. **Indexer adapter**: replay contract events into the existing onchain
    adapter index shape and verifier fixtures.
 5. **Local contract prototype**: implement register, update, rotate controller,
-   revoke, supersession, emergency force-revoke, attest, suspend, unsuspend, and
-   event-only flag with invariant tests.
+   revoke, validator-approved supersession, emergency force-revoke, attest,
+   suspend, unsuspend, and event-only flag with invariant tests.
 6. **Testnet drill**: deploy to a testnet, register the staging USD shop, verify
    through the indexer, rotate controller, revoke, flag, suspend, and recover.
 7. **Pilot gate**: require recorded evidence before any production claim.
@@ -496,8 +532,12 @@ manifest URLs, proof URLs, and evidence URIs are attacker-controlled inputs.
 - `update()` clears attestation state;
 - attestation only satisfies policy for the current `recordHash` and before its
   expiry;
+- attestation generation changes prevent carry-over after controller rotation,
+  record update, suspension, and revocation;
 - revoked record hashes are terminal;
 - only the controller can update, rotate, or revoke controller-owned fields;
+- supersession requests are non-destructive until validator or owner approval
+  and the activation delay have both passed;
 - suspension is reversible only through the defined validator/governance path;
 - event replay is sufficient to rebuild the indexer state;
 - event-only flags do not change status;
@@ -507,7 +547,7 @@ manifest URLs, proof URLs, and evidence URIs are attacker-controlled inputs.
 
 - What exact domain normalization and registrable-domain policy should be used
   for `domainHash`?
-- What is the minimal supersession flow for squatting and lost-key recovery?
+- What approval and monitoring policy should govern supersession in production?
 - Is a permissioned validator set acceptable for the first public pilot if
   self-verifying agents can bypass validator silence?
 - Which chain is the first testnet target?

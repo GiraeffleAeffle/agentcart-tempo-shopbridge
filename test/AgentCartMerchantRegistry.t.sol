@@ -19,6 +19,7 @@ contract AgentCartMerchantRegistryTest {
     address private constant MERCHANT_2 = address(0x1000000000000000000000000000000000000002);
     address private constant VALIDATOR = address(0x2000000000000000000000000000000000000001);
     address private constant VALIDATOR_2 = address(0x2000000000000000000000000000000000000002);
+    address private constant VALIDATOR_3 = address(0x2000000000000000000000000000000000000003);
     address private constant NEW_CONTROLLER = address(0x3000000000000000000000000000000000000001);
     address private constant NEW_OWNER = address(0x4000000000000000000000000000000000000001);
 
@@ -27,6 +28,7 @@ contract AgentCartMerchantRegistryTest {
     bytes32 private constant RECORD_HASH_2 = keccak256("record-v2");
     bytes32 private constant RESULT_HASH = keccak256("validator-result");
     bytes32 private constant RESULT_HASH_2 = keccak256("validator-result-2");
+    bytes32 private constant RESULT_HASH_3 = keccak256("validator-result-3");
     bytes32 private constant REASON_HASH = keccak256("merchant-revoke");
     bytes32 private constant FLAG_TYPE = keccak256("domain_proof_mismatch");
 
@@ -149,7 +151,8 @@ contract AgentCartMerchantRegistryTest {
         require(validatorAttestation.expiresAt == firstExpiry, "validator expiry mismatch");
 
         VM.prank(VALIDATOR);
-        registry.attest(recordId, RECORD_HASH, RESULT_HASH, uint64(firstExpiry + 1 hours), EVIDENCE_URI);
+        uint64 refreshedFirstExpiry = uint64(firstExpiry + 1 hours);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH, refreshedFirstExpiry, EVIDENCE_URI);
         stored = registry.record(recordId);
         require(stored.attestationCount == 1, "duplicate validator increased count");
 
@@ -159,8 +162,89 @@ contract AgentCartMerchantRegistryTest {
         stored = registry.record(recordId);
         require(stored.attestationCount == 2, "quorum count mismatch");
         require(stored.attestedAt != 0, "quorum timestamp missing");
-        require(stored.attestationExpiresAt == firstExpiry, "aggregate expiry not conservative");
+        require(stored.attestationExpiresAt == refreshedFirstExpiry, "aggregate expiry not conservative");
         require(registry.isAttestationCurrent(recordId), "quorum not current");
+    }
+
+    function testAttestationQuorumRecoversAfterPartialExpiry() public {
+        _executeValidatorChange(VALIDATOR_2, true);
+        _executeThresholdChange(2);
+
+        bytes32 recordId = _register(MERCHANT, RECORD_HASH);
+        uint64 firstExpiry = uint64(block.timestamp + 100);
+        uint64 secondExpiry = uint64(block.timestamp + 200);
+
+        VM.prank(VALIDATOR);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH, firstExpiry, EVIDENCE_URI);
+        VM.prank(VALIDATOR_2);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH_2, secondExpiry, EVIDENCE_URI);
+
+        require(registry.isAttestationCurrent(recordId), "initial quorum not current");
+        require(registry.record(recordId).attestationExpiresAt == firstExpiry, "initial expiry mismatch");
+
+        VM.warp(uint256(firstExpiry) + 1);
+        require(!registry.isAttestationCurrent(recordId), "quorum should lapse after first expiry");
+
+        VM.prank(VALIDATOR);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH, uint64(block.timestamp + 300), EVIDENCE_URI);
+
+        IAgentCartMerchantRegistry.Record memory stored = registry.record(recordId);
+        require(stored.attestationCount == 2, "valid second attestation not recounted");
+        require(stored.attestationExpiresAt == secondExpiry, "recovered quorum expiry mismatch");
+        require(registry.isAttestationCurrent(recordId), "quorum did not recover");
+    }
+
+    function testShortValidatorExpiryDoesNotVetoQuorumWhenThresholdStillMet() public {
+        _executeValidatorChange(VALIDATOR_2, true);
+        _executeValidatorChange(VALIDATOR_3, true);
+        _executeThresholdChange(2);
+
+        bytes32 recordId = _register(MERCHANT, RECORD_HASH);
+        uint64 firstExpiry = uint64(block.timestamp + 100);
+        uint64 secondExpiry = uint64(block.timestamp + 300);
+        uint64 thirdExpiry = uint64(block.timestamp + 400);
+
+        VM.prank(VALIDATOR);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH, firstExpiry, EVIDENCE_URI);
+        VM.prank(VALIDATOR_2);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH_2, secondExpiry, EVIDENCE_URI);
+        VM.prank(VALIDATOR_3);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH_3, thirdExpiry, EVIDENCE_URI);
+
+        IAgentCartMerchantRegistry.Record memory stored = registry.record(recordId);
+        require(stored.attestationCount == 3, "three attestations not counted");
+        require(stored.attestationExpiresAt == secondExpiry, "threshold expiry should ignore one short expiry");
+
+        VM.warp(uint256(firstExpiry) + 1);
+
+        stored = registry.record(recordId);
+        require(stored.attestationCount == 2, "remaining quorum not counted");
+        require(stored.attestationExpiresAt == secondExpiry, "remaining quorum expiry mismatch");
+        require(registry.isAttestationCurrent(recordId), "single short expiry vetoed quorum");
+    }
+
+    function testValidatorReenableDoesNotReviveOldAttestation() public {
+        _executeValidatorChange(VALIDATOR_2, true);
+        _executeThresholdChange(2);
+
+        bytes32 recordId = _register(MERCHANT, RECORD_HASH);
+        VM.prank(VALIDATOR);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH, uint64(block.timestamp + 10 days), EVIDENCE_URI);
+        VM.prank(VALIDATOR_2);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH_2, uint64(block.timestamp + 10 days), EVIDENCE_URI);
+        require(registry.isAttestationCurrent(recordId), "initial quorum not current");
+
+        _executeValidatorChange(VALIDATOR_2, false);
+        require(!registry.isAttestationCurrent(recordId), "disabled validator still counted");
+
+        _executeValidatorChange(VALIDATOR_2, true);
+        IAgentCartMerchantRegistry.Record memory stored = registry.record(recordId);
+        require(stored.attestationCount == 1, "old attestation revived after reenable");
+        require(!registry.isAttestationCurrent(recordId), "reenable revived quorum");
+
+        VM.prank(VALIDATOR_2);
+        registry.attest(recordId, RECORD_HASH, RESULT_HASH_2, uint64(block.timestamp + 10 days), EVIDENCE_URI);
+        require(registry.isAttestationCurrent(recordId), "fresh attestation did not restore quorum");
     }
 
     function testGovernanceActionsRequireDelay() public {
@@ -181,6 +265,21 @@ contract AgentCartMerchantRegistryTest {
 
         VM.expectRevert(abi.encodeWithSelector(AgentCartMerchantRegistry.UnknownGovernanceAction.selector, actionHash));
         registry.setValidator(VALIDATOR_2, true);
+    }
+
+    function testGovernanceActionsExpire() public {
+        bytes32 actionHash = registry.validatorActionHash(VALIDATOR_2, true);
+        uint64 readyAt = registry.scheduleGovernanceAction(actionHash);
+        uint64 expiredAt = readyAt + registry.GOVERNANCE_EXECUTION_WINDOW_SECONDS();
+
+        VM.warp(uint256(expiredAt) + 1);
+        VM.expectRevert(abi.encodeWithSelector(AgentCartMerchantRegistry.GovernanceActionExpired.selector, expiredAt));
+        registry.setValidator(VALIDATOR_2, true);
+
+        readyAt = registry.scheduleGovernanceAction(actionHash);
+        VM.warp(uint256(readyAt));
+        registry.setValidator(VALIDATOR_2, true);
+        require(registry.validators(VALIDATOR_2), "validator not enabled after reschedule");
     }
 
     function testOwnershipTransferRequiresAcceptance() public {
@@ -228,6 +327,14 @@ contract AgentCartMerchantRegistryTest {
         require(pending.recordHash == RECORD_HASH, "pending hash mismatch");
 
         VM.prank(MERCHANT);
+        VM.expectRevert(
+            abi.encodeWithSelector(AgentCartMerchantRegistry.SupersessionNotApproved.selector, pendingRecordId)
+        );
+        registry.activateSupersession(pendingRecordId, RECORD_URI);
+
+        availableAt = _approveSupersession(pendingRecordId, RECORD_HASH);
+
+        VM.prank(MERCHANT);
         VM.expectRevert(abi.encodeWithSelector(AgentCartMerchantRegistry.SupersessionNotReady.selector, availableAt));
         registry.activateSupersession(pendingRecordId, RECORD_URI);
 
@@ -245,12 +352,40 @@ contract AgentCartMerchantRegistryTest {
         require(recovered.status == IAgentCartMerchantRegistry.Status.Active, "recovered not active");
     }
 
+    function testPermissionlessSupersessionCannotEvictAttestedIncumbent() public {
+        bytes32 incumbentRecordId = _registerAndAttest();
+
+        VM.prank(MERCHANT_2);
+        (bytes32 pendingRecordId, uint64 availableAt) =
+            registry.requestSupersession(DOMAIN_HASH, RECORD_HASH_2, REASON_HASH, RECORD_URI, EVIDENCE_URI);
+
+        VM.warp(uint256(availableAt) + 1);
+        VM.prank(MERCHANT_2);
+        VM.expectRevert(
+            abi.encodeWithSelector(AgentCartMerchantRegistry.SupersessionNotApproved.selector, pendingRecordId)
+        );
+        registry.activateSupersession(pendingRecordId, RECORD_URI);
+
+        IAgentCartMerchantRegistry.Record memory incumbent = registry.record(incumbentRecordId);
+        require(incumbent.status == IAgentCartMerchantRegistry.Status.Active, "incumbent was evicted");
+        require(!registry.revokedRecordHashes(RECORD_HASH), "incumbent hash was burned");
+        require(registry.recordIdForDomain(DOMAIN_HASH) == incumbentRecordId, "domain slot changed");
+
+        VM.prank(MERCHANT);
+        registry.cancelSupersession(pendingRecordId, REASON_HASH);
+        VM.prank(MERCHANT_2);
+        VM.expectRevert(abi.encodeWithSelector(AgentCartMerchantRegistry.UnknownSupersession.selector));
+        registry.activateSupersession(pendingRecordId, RECORD_URI);
+    }
+
     function testSupersessionTargetChangeFailsClosed() public {
         bytes32 originalRecordId = _register(MERCHANT_2, RECORD_HASH_2);
 
         VM.prank(MERCHANT);
         (bytes32 pendingRecordId, uint64 availableAt) =
             registry.requestSupersession(DOMAIN_HASH, RECORD_HASH, REASON_HASH, RECORD_URI, EVIDENCE_URI);
+
+        availableAt = _approveSupersession(pendingRecordId, RECORD_HASH);
 
         VM.prank(MERCHANT_2);
         registry.revoke(originalRecordId, REASON_HASH);
@@ -301,6 +436,11 @@ contract AgentCartMerchantRegistryTest {
 
         require(registry.isAttestationCurrent(recordId), "not attested");
         require(registry.record(recordId).attestationCount == 1, "attestation count mismatch");
+    }
+
+    function _approveSupersession(bytes32 pendingRecordId, bytes32 recordHash) private returns (uint64 availableAt) {
+        VM.prank(VALIDATOR);
+        return registry.approveSupersession(pendingRecordId, recordHash, EVIDENCE_URI);
     }
 
     function _executeValidatorChange(address validator, bool enabled) private {
