@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import datetime as dt
 import hashlib
 import hmac
@@ -63,6 +64,16 @@ REGISTRY_PATH = (
     or os.getenv("AGENTCART_MERCHANT_REGISTRY_PATH")
     or ""
 ).strip()
+ONCHAIN_REGISTRY_EVENTS_URL = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL")
+    or os.getenv("AGENTCART_ONCHAIN_REGISTRY_EVENTS_URL")
+    or ""
+).strip()
+ONCHAIN_REGISTRY_EVENTS_PATH = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_PATH")
+    or os.getenv("AGENTCART_ONCHAIN_REGISTRY_EVENTS_PATH")
+    or ""
+).strip()
 AGENTCART_SERVICE_URL = (
     os.getenv("SHOPBRIDGE_AGENTCART_URL")
     or os.getenv("AGENTCART_URL")
@@ -88,6 +99,7 @@ SIGNED_REQUEST_SIGNER = (
     or os.getenv("AGENTCART_SIGNED_REQUEST_SIGNER")
     or "agentcart-direct-skill"
 ).strip()
+ONCHAIN_CONTRACT_EVENTS_SCHEMA = "agentcart.onchain_registry_contract_events.v1"
 
 
 def boolish(value: Any, default: bool = False) -> bool:
@@ -977,6 +989,179 @@ def registry_records_from_document(document: Any) -> list[dict[str, Any]]:
     raise SystemExit("registry source must be a record, a list of records, an object with entries[], or a ShopBridge registry bundle")
 
 
+def is_sha256_hex(value: Any) -> bool:
+    return bool(re.fullmatch(r"[0-9a-fA-F]{64}", str(value or "")))
+
+
+def is_bytes32_hex(value: Any) -> bool:
+    return bool(re.fullmatch(r"(0x)?[0-9a-fA-F]{64}", str(value or "")))
+
+
+def normalize_bytes32_hex(value: Any, *, with_prefix: bool = False) -> str:
+    text = str(value or "").strip().lower()
+    if text.startswith("0x"):
+        text = text[2:]
+    if not re.fullmatch(r"[0-9a-f]{64}", text):
+        return ""
+    return f"0x{text}" if with_prefix else text
+
+
+def onchain_contract_events_from_document(document: Any) -> list[dict[str, Any]]:
+    if isinstance(document, dict):
+        if str(document.get("schema") or "") != ONCHAIN_CONTRACT_EVENTS_SCHEMA:
+            raise SystemExit("onchain_registry_contract_events_schema_mismatch")
+        events = document.get("events")
+    else:
+        events = document
+    if not isinstance(events, list):
+        raise SystemExit("onchain_registry_contract_events_missing")
+    result: list[dict[str, Any]] = []
+    for index, event in enumerate(events, start=1):
+        if not isinstance(event, dict):
+            raise SystemExit(f"onchain_registry_contract_event_{index}_must_be_object")
+        result.append(event)
+    return result
+
+
+def contract_event_args(event: dict[str, Any]) -> dict[str, Any]:
+    args = event.get("args")
+    return args if isinstance(args, dict) else {}
+
+
+def contract_event_arg(args: dict[str, Any], *names: str) -> str:
+    for name in names:
+        value = args.get(name)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
+def contract_event_record_id(event: dict[str, Any]) -> str:
+    args = contract_event_args(event)
+    return normalize_bytes32_hex(contract_event_arg(args, "recordId", "record_id"), with_prefix=True)
+
+
+def contract_event_record_hash(event: dict[str, Any]) -> str:
+    args = contract_event_args(event)
+    return normalize_bytes32_hex(contract_event_arg(args, "recordHash", "record_hash"), with_prefix=False)
+
+
+def registry_record_from_contract_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    registry_record = event.get("registry_record")
+    if isinstance(registry_record, dict):
+        return copy.deepcopy(registry_record)
+    onchain_record = event.get("onchain_record")
+    if isinstance(onchain_record, dict):
+        return copy.deepcopy(onchain_record)
+    return None
+
+
+def verify_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    allowed_events = {
+        "MerchantRegistered",
+        "MerchantUpdated",
+        "ControllerChanged",
+        "MerchantRevoked",
+        "MerchantAttested",
+        "MerchantSuspended",
+        "MerchantUnsuspended",
+        "MerchantFlagged",
+    }
+    for sequence, event in enumerate(events, start=1):
+        event_name = str(event.get("event") or "")
+        args = contract_event_args(event)
+        if event_name not in allowed_events:
+            errors.append({"sequence": sequence, "error": "event_name_unsupported", "event": event_name})
+            continue
+        if not args:
+            errors.append({"sequence": sequence, "error": "event_args_missing", "event": event_name})
+            continue
+        record_id = contract_event_record_id(event)
+        if not is_bytes32_hex(record_id):
+            errors.append({"sequence": sequence, "error": "record_id_invalid", "event": event_name})
+        if event_name in {"MerchantRegistered", "MerchantUpdated", "MerchantAttested"}:
+            record_hash = contract_event_record_hash(event)
+            if not is_sha256_hex(record_hash):
+                errors.append({"sequence": sequence, "error": "record_hash_invalid", "event": event_name})
+        if event_name in {"MerchantRegistered", "MerchantUpdated"}:
+            record_hash = contract_event_record_hash(event)
+            onchain_record = event.get("onchain_record")
+            registry_record = event.get("registry_record")
+            if not isinstance(onchain_record, dict) and not isinstance(registry_record, dict):
+                errors.append({"sequence": sequence, "error": "registry_record_missing", "event": event_name})
+            if onchain_record is not None:
+                if not isinstance(onchain_record, dict):
+                    errors.append({"sequence": sequence, "error": "onchain_record_must_be_object", "event": event_name})
+                elif str(onchain_record.get("record_hash") or "").lower() != record_hash:
+                    errors.append({"sequence": sequence, "error": "onchain_record_hash_mismatch", "event": event_name})
+            if registry_record is not None:
+                if not isinstance(registry_record, dict):
+                    errors.append({"sequence": sequence, "error": "registry_record_must_be_object", "event": event_name})
+                elif registry_record_hash(registry_record).lower() != record_hash:
+                    errors.append({"sequence": sequence, "error": "registry_record_hash_mismatch", "event": event_name})
+        if event_name in {"MerchantRegistered", "ControllerChanged"}:
+            controller = contract_event_arg(args, "controller", "newController", "new_controller")
+            if controller and not re.fullmatch(r"0x[0-9a-fA-F]{40}", controller):
+                errors.append({"sequence": sequence, "error": "controller_invalid", "event": event_name})
+        if event_name == "MerchantRegistered":
+            domain_hash = contract_event_arg(args, "domainHash", "domain_hash")
+            if domain_hash and not is_bytes32_hex(domain_hash):
+                errors.append({"sequence": sequence, "error": "domain_hash_invalid", "event": event_name})
+        if event_name == "MerchantAttested":
+            validator = contract_event_arg(args, "validator")
+            if validator and not re.fullmatch(r"0x[0-9a-fA-F]{40}", validator):
+                errors.append({"sequence": sequence, "error": "validator_invalid", "event": event_name})
+    return {
+        "chain_valid": not errors,
+        "errors": errors,
+        "event_count": len(events),
+        "log_head_hash": sha256_hex(events) if events else "",
+    }
+
+
+def registry_records_from_onchain_contract_events(document: Any) -> list[dict[str, Any]]:
+    events = onchain_contract_events_from_document(document)
+    verification = verify_onchain_contract_events(events)
+    if not verification["chain_valid"]:
+        raise SystemExit(json.dumps({"error": "onchain_registry_contract_events_invalid", "detail": verification}, sort_keys=True))
+
+    active_by_record_id: dict[str, dict[str, Any]] = {}
+    active_hash_by_record_id: dict[str, str] = {}
+    suspensions: set[str] = set()
+    for event in events:
+        event_name = str(event.get("event") or "")
+        record_id = contract_event_record_id(event)
+        record_hash = contract_event_record_hash(event)
+        if event_name in {"MerchantRegistered", "MerchantUpdated"}:
+            record = registry_record_from_contract_event(event)
+            if record is not None:
+                active_by_record_id[record_id] = record
+                active_hash_by_record_id[record_id] = record_hash
+                suspensions.discard(record_id)
+        elif event_name == "MerchantRevoked":
+            active_by_record_id.pop(record_id, None)
+            active_hash_by_record_id.pop(record_id, None)
+            suspensions.discard(record_id)
+        elif event_name == "MerchantSuspended":
+            suspensions.add(record_id)
+        elif event_name == "MerchantUnsuspended":
+            suspensions.discard(record_id)
+    active_entries = [
+        (record_id, record)
+        for record_id, record in active_by_record_id.items()
+        if record_id not in suspensions
+    ]
+    active_entries.sort(
+        key=lambda item: (
+            str(item[1].get("domain") or ""),
+            str(item[1].get("merchant_id") or ""),
+            active_hash_by_record_id.get(item[0], ""),
+        )
+    )
+    return [record for _, record in active_entries]
+
+
 def configured_registry_url(args: dict[str, Any]) -> str:
     return str(
         args.get("registry_url")
@@ -995,15 +1180,41 @@ def configured_registry_path(args: dict[str, Any]) -> str:
     ).strip()
 
 
+def configured_onchain_registry_events_url(args: dict[str, Any]) -> str:
+    return str(
+        args.get("onchain_registry_events_url")
+        or args.get("registry_events_url")
+        or ONCHAIN_REGISTRY_EVENTS_URL
+        or ""
+    ).strip()
+
+
+def configured_onchain_registry_events_path(args: dict[str, Any]) -> str:
+    return str(
+        args.get("onchain_registry_events_path")
+        or args.get("registry_events_path")
+        or ONCHAIN_REGISTRY_EVENTS_PATH
+        or ""
+    ).strip()
+
+
 def registry_records_from_source(args: dict[str, Any]) -> list[dict[str, Any]]:
     registry_path = configured_registry_path(args)
     registry_url = configured_registry_url(args)
+    onchain_events_path = configured_onchain_registry_events_path(args)
+    onchain_events_url = configured_onchain_registry_events_url(args)
+    records: list[dict[str, Any]] = []
     if registry_path:
-        return registry_records_from_document(load_json_path(registry_path))
-    if registry_url:
+        records.extend(registry_records_from_document(load_json_path(registry_path)))
+    elif registry_url:
         validate_registry_source_url(registry_url)
-        return registry_records_from_document(fetch_json_url(registry_url))
-    return []
+        records.extend(registry_records_from_document(fetch_json_url(registry_url)))
+    if onchain_events_path:
+        records.extend(registry_records_from_onchain_contract_events(load_json_path(onchain_events_path)))
+    elif onchain_events_url:
+        validate_registry_source_url(onchain_events_url, field="onchain_registry_events_url")
+        records.extend(registry_records_from_onchain_contract_events(fetch_json_url(onchain_events_url)))
+    return records
 
 
 def registry_records_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1024,7 +1235,9 @@ def registry_records_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
         if not records:
             raise SystemExit(
                 "registry_records, registry.entries, registry_record, registry_record_url, "
-                "registry_url, registry_path, SHOPBRIDGE_REGISTRY_URL, or SHOPBRIDGE_REGISTRY_PATH is required"
+                "registry_url, registry_path, onchain_registry_events_url, onchain_registry_events_path, "
+                "SHOPBRIDGE_REGISTRY_URL, SHOPBRIDGE_REGISTRY_PATH, SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL, "
+                "or SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_PATH is required"
             )
     merchant_ids = {
         str(value)
@@ -2216,7 +2429,21 @@ def registry_source_configured(args: dict[str, Any]) -> bool:
         or args.get("registry_record_url")
         or configured_registry_url(args)
         or configured_registry_path(args)
+        or configured_onchain_registry_events_url(args)
+        or configured_onchain_registry_events_path(args)
     )
+
+
+def registry_source_label(args: dict[str, Any]) -> str:
+    if configured_registry_path(args):
+        return configured_registry_path(args)
+    if configured_registry_url(args):
+        return configured_registry_url(args)
+    if configured_onchain_registry_events_path(args):
+        return configured_onchain_registry_events_path(args)
+    if configured_onchain_registry_events_url(args):
+        return configured_onchain_registry_events_url(args)
+    return "inline"
 
 
 def doctor_next_commands(mode: str, base_url: str, has_registry: bool) -> list[dict[str, Any]]:
@@ -2292,7 +2519,7 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
                     "id": "registry_source",
                     "ok": bool(records),
                     "record_count": len(records),
-                    "source": configured_registry_path(args) or configured_registry_url(args) or "inline",
+                    "source": registry_source_label(args),
                 }
             )
         except SystemExit as exc:
@@ -2372,6 +2599,8 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "base_url": base,
             "registry_url_configured": bool(configured_registry_url(args)),
             "registry_path_configured": bool(configured_registry_path(args)),
+            "onchain_registry_events_url_configured": bool(configured_onchain_registry_events_url(args)),
+            "onchain_registry_events_path_configured": bool(configured_onchain_registry_events_path(args)),
             "registry_max_age_days": registry_max_age_days(args),
             "allow_private_origin": allow_private_merchant_origin(args),
             "signed_requests_configured": bool(SIGNED_REQUEST_SECRET or SIGNED_REQUEST_PRIVATE_KEY),

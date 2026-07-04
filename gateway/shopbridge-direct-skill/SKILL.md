@@ -153,6 +153,13 @@ With a configured registry source, omit `registry_records`:
 {"command":"discover_quotes","args":{"query":"tea","country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
 ```
 
+Registry sources can also be onchain contract-event snapshots. Configure
+`SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL` or pass `onchain_registry_events_path`
+for local tests. Register/update events should include both the compact
+`onchain_record` projection and the resolved full `registry_record`; the skill
+checks both hashes against the contract `recordHash` before normal registry
+verification.
+
 This resolves each registry record first, rejects failed registry/domain-proof
 or revocation checks, stale records, and future-dated records before catalog or
 quote calls, requests private merchant quotes, ranks by final total and delivery

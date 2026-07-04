@@ -214,6 +214,47 @@ def registry_manifest_and_record(
     return manifest, record, proof
 
 
+def onchain_events_document(record, *, event_record_hash: str | None = None):
+    record_hash = shopbridge_direct.registry_record_hash(record)
+    event_hash = event_record_hash or record_hash
+    record_id = "0x" + "4" * 64
+    onchain_record = {
+        "record_hash": record_hash,
+        "record_hash_alg": "sha-256",
+        "merchant_id": record["merchant_id"],
+        "domain": record["domain"],
+        "manifest_url": record["manifest_url"],
+        "registry_claim_hash_alg": str(record.get("registry_claim_hash_alg") or ""),
+        "registry_claim_hash": str(record.get("registry_claim_hash") or ""),
+        "payment_network": record["payment_network"],
+        "payment_recipient": record["payment_recipient"],
+        "updated_at": record["updated_at"],
+        "revocation_url": str(record.get("revocation_url") or ""),
+        "record_id": record_id,
+    }
+    return {
+        "schema": "agentcart.onchain_registry_contract_events.v1",
+        "events": [
+            {
+                "event": "MerchantRegistered",
+                "block_number": 100,
+                "block_time": "2026-06-01T00:00:00Z",
+                "transaction_hash": "0x" + "a" * 64,
+                "log_index": 0,
+                "args": {
+                    "recordId": record_id,
+                    "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "domainHash": "0x" + "d" * 64,
+                    "recordHash": "0x" + event_hash,
+                    "recordURI": f"https://{record['domain']}/.well-known/agentcart-registry-bundle.json",
+                },
+                "onchain_record": onchain_record,
+                "registry_record": record,
+            }
+        ],
+    }
+
+
 def attach_revocation_url(manifest, record, proof, *, domain: str = "merchant.example"):
     revocation_url = f"https://{domain}/.well-known/agentcart-registry-revocations.json"
     claim = manifest["discovery"]["registry_claim"]
@@ -516,6 +557,21 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         registry_check = next(check for check in result["checks"] if check["id"] == "registry_source")
         self.assertEqual(registry_check["record_count"], 1)
         self.assertEqual(result["next_commands"][0]["command"], "resolve_merchant")
+
+    def test_doctor_reports_onchain_registry_events_record_count(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            events_path = Path(raw_tmp) / "onchain-events.json"
+            events_path.write_text(json.dumps(onchain_events_document(record)), encoding="utf-8")
+            with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+                result = shopbridge_direct.command_doctor({"onchain_registry_events_path": str(events_path)})
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["mode"], "registry")
+        self.assertTrue(result["configuration"]["onchain_registry_events_path_configured"])
+        registry_check = next(check for check in result["checks"] if check["id"] == "registry_source")
+        self.assertEqual(registry_check["record_count"], 1)
+        self.assertEqual(registry_check["source"], str(events_path))
 
     def test_doctor_can_verify_configured_registry_records_when_requested(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
@@ -1065,6 +1121,40 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["base_url"], "https://merchant.example")
         self.assertEqual(result["merchant"]["id"], "merchant-tea-shop")
 
+    def test_resolve_merchant_can_use_onchain_registry_events_path(self) -> None:
+        manifest, record, proof = registry_manifest_and_record()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            events_path = Path(raw_tmp) / "onchain-events.json"
+            events_path.write_text(json.dumps(onchain_events_document(record)), encoding="utf-8")
+
+            result = shopbridge_direct.command_resolve_merchant(
+                {
+                    "onchain_registry_events_path": str(events_path),
+                    "merchant_id": "merchant-tea-shop",
+                    "manifest_snapshot": manifest,
+                    "proof_snapshot": proof,
+                }
+            )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["base_url"], "https://merchant.example")
+        self.assertEqual(result["merchant"]["id"], "merchant-tea-shop")
+
+    def test_onchain_registry_events_reject_hash_mismatch_before_resolution(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            events_path = Path(raw_tmp) / "onchain-events.json"
+            events_path.write_text(
+                json.dumps(onchain_events_document(record, event_record_hash="f" * 64)),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_args({"onchain_registry_events_path": str(events_path)})
+
+        self.assertIn("onchain_registry_contract_events_invalid", str(raised.exception))
+        self.assertIn("registry_record_hash_mismatch", str(raised.exception))
+
     def test_resolve_merchant_can_use_shopbridge_registry_bundle_path(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -1218,6 +1308,15 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 shopbridge_direct.registry_records_from_args({"registry_url": "http://registry.example/agentcart.json"})
 
         self.assertEqual(str(raised.exception), "registry_url_requires_https")
+
+    def test_onchain_registry_events_url_requires_https_before_fetching(self) -> None:
+        with mock.patch.object(shopbridge_direct, "fetch_json_url", side_effect=AssertionError("unexpected fetch")):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_args(
+                    {"onchain_registry_events_url": "http://registry.example/onchain-events.json"}
+                )
+
+        self.assertEqual(str(raised.exception), "onchain_registry_events_url_requires_https")
 
     def test_catalog_uses_resolved_base_url(self) -> None:
         calls = []
