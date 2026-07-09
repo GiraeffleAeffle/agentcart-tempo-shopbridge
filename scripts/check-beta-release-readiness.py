@@ -47,6 +47,10 @@ def validate_beta_release(args: argparse.Namespace) -> list[str]:
 
     try:
         payment_env = payment_profile_tool.parse_env_files(args.payment_env_file)
+        payment_env = payment_profile_tool.apply_deployment_profile(
+            payment_env,
+            getattr(args, "payment_profile", "standard"),
+        )
     except ValueError as exc:
         errors.append(str(exc))
     else:
@@ -97,6 +101,12 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         type=pathlib.Path,
         help="Production payment env file. Pass multiple files to apply overrides.",
+    )
+    parser.add_argument(
+        "--payment-profile",
+        choices=sorted(payment_profile_tool.DEPLOYMENT_PROFILES),
+        default="standard",
+        help="Normalize deployment-specific provisioning keys before validating the payment profile.",
     )
     parser.add_argument(
         "--allow-payment-placeholders",

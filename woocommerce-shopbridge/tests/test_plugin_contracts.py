@@ -1035,6 +1035,35 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertNotIn("signed_request_verified($request)", refund_body + cancellation_body)
         self.assertIn("has_valid_merchant_token($request)", refund_body + cancellation_body)
 
+    def test_production_readiness_requires_strong_separated_credentials(self) -> None:
+        readiness_body = function_body("readiness")
+        strength_body = function_body("credential_is_production_strength")
+        separation_body = function_body("production_credentials_are_separated")
+        diagnostics_body = function_body("support_diagnostics_bundle")
+
+        self.assertIn("MIN_PRODUCTION_CREDENTIAL_CHARACTERS", SOURCE)
+        self.assertIn("credential_is_production_strength(self::merchant_token_value())", readiness_body)
+        self.assertIn("credential_is_production_strength(self::payment_verifier_token())", readiness_body)
+        self.assertIn("signed_request_key_is_production_strength", readiness_body)
+        self.assertIn("production_credentials_are_separated", readiness_body)
+        self.assertIn("strlen($value) < self::MIN_PRODUCTION_CREDENTIAL_CHARACTERS", strength_body)
+        self.assertIn("array_unique", separation_body)
+        self.assertIn("'production_strength'", diagnostics_body)
+        self.assertIn("'production_credentials_separated'", diagnostics_body)
+
+    def test_pinned_internal_verifier_requires_deployment_managed_configuration(self) -> None:
+        readiness_body = function_body("readiness")
+        trust_mode_body = function_body("payment_verifier_trust_mode")
+        pinned_body = function_body("payment_verifier_internal_trust_is_pinned")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("AGENTCART_PAYMENT_VERIFIER_TRUST_MODE", trust_mode_body)
+        self.assertIn("pinned_internal", trust_mode_body + pinned_body)
+        self.assertIn("defined('AGENTCART_PAYMENT_VERIFIER_URL')", pinned_body)
+        self.assertIn("defined('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL')", pinned_body)
+        self.assertIn("payment_verifier_internal_trust_is_pinned", readiness_body)
+        self.assertIn("'verifier_trust_mode'", capability_body)
+
     def test_support_diagnostics_bundle_is_admin_only_and_redacted(self) -> None:
         routes_body = function_body("register_routes")
         auth_body = function_body("authorize_support_diagnostics")

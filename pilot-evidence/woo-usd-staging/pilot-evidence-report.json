@@ -1,0 +1,1391 @@
+{
+  "gates": [
+    {
+      "command": "python3 scripts/check-pilot-readiness.py --checklist gateway/config/pilot_beta_checklist.json --evidence-dir pilot-evidence/woo-usd-staging/pilot --require-evidence",
+      "details": {
+        "checklist": "gateway/config/pilot_beta_checklist.json",
+        "stage": "external_beta"
+      },
+      "errors": [
+        "invalid evidence for pilot_gate pilot-merchant-onboarding: non_maintainer_setup_walkthrough_notes -> pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for pilot_gate pilot-merchant-onboarding: non_maintainer_setup_walkthrough_notes -> pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md: required metadata is missing or empty: Recorded at",
+        "invalid evidence for pilot_gate pilot-merchant-onboarding: non_maintainer_setup_walkthrough_notes -> pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md: required metadata is missing or empty: Command or source",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: service_backed_agent_run_log -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/service_backed_agent_run_log.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: service_backed_agent_run_log -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/service_backed_agent_run_log.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: skill_only_agent_run_log -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/skill_only_agent_run_log.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: skill_only_agent_run_log -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/skill_only_agent_run_log.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: generic_mcp_client_run_log -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/generic_mcp_client_run_log.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: generic_mcp_client_run_log -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/generic_mcp_client_run_log.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: approval_record_hash -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/approval_record_hash.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: approval_record_hash -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/approval_record_hash.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: audit_packet_or_export -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/audit_packet_or_export.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for pilot_gate pilot-buyer-agent-setup: audit_packet_or_export -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/audit_packet_or_export.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for pilot_gate pilot-payment-mode: verifier_alert_delivery_result -> pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for pilot_gate pilot-payment-mode: verifier_alert_delivery_result -> pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for pilot_gate pilot-support-channel: support_contact -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/support_contact.md: unsigned draft remains: 'DRAFT'",
+        "invalid evidence for pilot_gate pilot-support-channel: support_contact -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/support_contact.md: incomplete marker remains: '______'",
+        "invalid evidence for pilot_gate pilot-support-channel: response_sla -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/response_sla.md: unsigned draft remains: 'DRAFT'",
+        "invalid evidence for pilot_gate pilot-support-channel: response_sla -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/response_sla.md: incomplete marker remains: '______'",
+        "invalid evidence for pilot_gate pilot-support-channel: incident_owner -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/incident_owner.md: unsigned draft remains: 'DRAFT'",
+        "invalid evidence for pilot_gate pilot-support-channel: incident_owner -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/incident_owner.md: incomplete marker remains: '______'",
+        "invalid evidence for pilot_gate pilot-safety-privacy: privacy_notice -> pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/privacy_notice.md: unsigned draft remains: 'DRAFT'",
+        "invalid evidence for pilot_gate pilot-safety-privacy: privacy_notice -> pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/privacy_notice.md: incomplete marker remains: '______'"
+      ],
+      "evidence": [
+        {
+          "evidence_id": "plugin_zip_install_screenshot_or_log",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/plugin_zip_install_screenshot_or_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/plugin_zip_install_screenshot_or_log.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "agentcart_settings_readiness_snapshot",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/agentcart_settings_readiness_snapshot.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/agentcart_settings_readiness_snapshot.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "catalog_preview_export",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/catalog_preview_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/catalog_preview_export.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "sandbox_quote_check_result",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/sandbox_quote_check_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/sandbox_quote_check_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "sandbox_checkout_test_result",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/sandbox_checkout_test_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/sandbox_checkout_test_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "live_woocommerce_smoke_result",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/live_woocommerce_smoke_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/live_woocommerce_smoke_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "woocommerce_compatibility_matrix_result",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/woocommerce_compatibility_matrix_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/woocommerce_compatibility_matrix_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "woocommerce_baseline_eu_tax_shipping_result",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/woocommerce_baseline_eu_tax_shipping_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/woocommerce_baseline_eu_tax_shipping_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "woocommerce_restricted_stock_policy_result",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/woocommerce_restricted_stock_policy_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/woocommerce_restricted_stock_policy_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "non_maintainer_setup_walkthrough_notes",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "required metadata is missing or empty: Recorded at",
+            "required metadata is missing or empty: Command or source"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "registry_record_or_bundle_url",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/registry_record_or_bundle_url.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/registry_record_or_bundle_url.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "buyer_agent_test_matrix_result",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/buyer_agent_test_matrix_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/buyer_agent_test_matrix_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "service_backed_agent_run_log",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/service_backed_agent_run_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/service_backed_agent_run_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "skill_only_agent_run_log",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/skill_only_agent_run_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/skill_only_agent_run_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "generic_mcp_client_run_log",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/generic_mcp_client_run_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/generic_mcp_client_run_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "approval_record_hash",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/approval_record_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/approval_record_hash.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_packet_or_export",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/audit_packet_or_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/audit_packet_or_export.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "payment_mode_decision_record",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/payment_mode_decision_record.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/payment_mode_decision_record.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "verifier_health_or_fixture_result",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_health_or_fixture_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_health_or_fixture_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "verifier_metrics_snapshot",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_metrics_snapshot.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_metrics_snapshot.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "sqlite_replay_backup_restore_drill",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/sqlite_replay_backup_restore_drill.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/sqlite_replay_backup_restore_drill.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "verifier_alert_delivery_result",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "provider_error_review",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/provider_error_review.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/provider_error_review.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "production_payment_profile_check_result",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/production_payment_profile_check_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/production_payment_profile_check_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "refund_policy_statement",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/refund_policy_statement.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/refund_policy_statement.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "sample_payment_contract_hash",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/sample_payment_contract_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/sample_payment_contract_hash.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "support_contact",
+          "exists": true,
+          "owner_id": "pilot-support-channel",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/support_contact.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/support_contact.md",
+          "quality_errors": [
+            "unsigned draft remains: 'DRAFT'",
+            "incomplete marker remains: '______'"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "response_sla",
+          "exists": true,
+          "owner_id": "pilot-support-channel",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/response_sla.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/response_sla.md",
+          "quality_errors": [
+            "unsigned draft remains: 'DRAFT'",
+            "incomplete marker remains: '______'"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "diagnostic_collection_steps",
+          "exists": true,
+          "owner_id": "pilot-support-channel",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/diagnostic_collection_steps.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/diagnostic_collection_steps.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "incident_owner",
+          "exists": true,
+          "owner_id": "pilot-support-channel",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/incident_owner.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/incident_owner.md",
+          "quality_errors": [
+            "unsigned draft remains: 'DRAFT'",
+            "incomplete marker remains: '______'"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "previous_plugin_zip",
+          "exists": true,
+          "owner_id": "pilot-rollback",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-rollback/previous_plugin_zip.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-rollback/previous_plugin_zip.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "release_manifest",
+          "exists": true,
+          "owner_id": "pilot-rollback",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-rollback/release_manifest.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-rollback/release_manifest.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "rollback_command_or_runbook",
+          "exists": true,
+          "owner_id": "pilot-rollback",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-rollback/rollback_command_or_runbook.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-rollback/rollback_command_or_runbook.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "registry_revocation_url",
+          "exists": true,
+          "owner_id": "pilot-rollback",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-rollback/registry_revocation_url.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-rollback/registry_revocation_url.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "privacy_notice",
+          "exists": true,
+          "owner_id": "pilot-safety-privacy",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/privacy_notice.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/privacy_notice.md",
+          "quality_errors": [
+            "unsigned draft remains: 'DRAFT'",
+            "incomplete marker remains: '______'"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "ops_event_redaction_sample",
+          "exists": true,
+          "owner_id": "pilot-safety-privacy",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/ops_event_redaction_sample.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/ops_event_redaction_sample.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "rate_limit_smoke_result",
+          "exists": true,
+          "owner_id": "pilot-safety-privacy",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/rate_limit_smoke_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/rate_limit_smoke_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "prompt_injection_corpus_result",
+          "exists": true,
+          "owner_id": "pilot-safety-privacy",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/prompt_injection_corpus_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/prompt_injection_corpus_result.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        },
+        {
+          "evidence_id": "prompt_injection_review_notes",
+          "exists": true,
+          "owner_id": "pilot-safety-privacy",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/prompt_injection_review_notes.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/prompt_injection_review_notes.md",
+          "quality_errors": [],
+          "scope": "pilot_gate",
+          "valid": true
+        }
+      ],
+      "evidence_summary": {
+        "invalid": 11,
+        "missing": 0,
+        "present": 39,
+        "required": 39,
+        "valid": 28
+      },
+      "id": "pilot-readiness",
+      "invalid_evidence": [
+        {
+          "evidence_id": "non_maintainer_setup_walkthrough_notes",
+          "exists": true,
+          "owner_id": "pilot-merchant-onboarding",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "required metadata is missing or empty: Recorded at",
+            "required metadata is missing or empty: Command or source"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "service_backed_agent_run_log",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/service_backed_agent_run_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/service_backed_agent_run_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "skill_only_agent_run_log",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/skill_only_agent_run_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/skill_only_agent_run_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "generic_mcp_client_run_log",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/generic_mcp_client_run_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/generic_mcp_client_run_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "approval_record_hash",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/approval_record_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/approval_record_hash.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_packet_or_export",
+          "exists": true,
+          "owner_id": "pilot-buyer-agent-setup",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/audit_packet_or_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/audit_packet_or_export.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "verifier_alert_delivery_result",
+          "exists": true,
+          "owner_id": "pilot-payment-mode",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "support_contact",
+          "exists": true,
+          "owner_id": "pilot-support-channel",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/support_contact.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/support_contact.md",
+          "quality_errors": [
+            "unsigned draft remains: 'DRAFT'",
+            "incomplete marker remains: '______'"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "response_sla",
+          "exists": true,
+          "owner_id": "pilot-support-channel",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/response_sla.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/response_sla.md",
+          "quality_errors": [
+            "unsigned draft remains: 'DRAFT'",
+            "incomplete marker remains: '______'"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "incident_owner",
+          "exists": true,
+          "owner_id": "pilot-support-channel",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/incident_owner.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/incident_owner.md",
+          "quality_errors": [
+            "unsigned draft remains: 'DRAFT'",
+            "incomplete marker remains: '______'"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        },
+        {
+          "evidence_id": "privacy_notice",
+          "exists": true,
+          "owner_id": "pilot-safety-privacy",
+          "path": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/privacy_notice.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-safety-privacy/privacy_notice.md",
+          "quality_errors": [
+            "unsigned draft remains: 'DRAFT'",
+            "incomplete marker remains: '______'"
+          ],
+          "scope": "pilot_gate",
+          "valid": false
+        }
+      ],
+      "label": "Pilot P0 checklist evidence",
+      "missing_evidence": [],
+      "status": "failed"
+    },
+    {
+      "command": "python3 scripts/check-buyer-agent-matrix.py --matrix gateway/config/buyer_agent_test_matrix.json --evidence-dir pilot-evidence/woo-usd-staging/buyer-agents --require-evidence",
+      "details": {
+        "matrix": "gateway/config/buyer_agent_test_matrix.json",
+        "stage": "external_beta"
+      },
+      "errors": [
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: install_or_configuration_log -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/install_or_configuration_log.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: install_or_configuration_log -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/install_or_configuration_log.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: health_or_doctor_result -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/health_or_doctor_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: health_or_doctor_result -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/health_or_doctor_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: merchant_discovery_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/merchant_discovery_transcript.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: merchant_discovery_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/merchant_discovery_transcript.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: quote_comparison_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/quote_comparison_transcript.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: quote_comparison_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/quote_comparison_transcript.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: approval_record_hash -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/approval_record_hash.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: approval_record_hash -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/approval_record_hash.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: checkout_handoff_or_order_result -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/checkout_handoff_or_order_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: checkout_handoff_or_order_result -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/checkout_handoff_or_order_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: aftercare_result -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/aftercare_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: aftercare_result -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/aftercare_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: audit_export -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/audit_export.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime agentcart-service-openclaw: audit_export -> pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/audit_export.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: install_or_configuration_log -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/install_or_configuration_log.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: install_or_configuration_log -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/install_or_configuration_log.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: health_or_doctor_result -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/health_or_doctor_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: health_or_doctor_result -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/health_or_doctor_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: merchant_discovery_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/merchant_discovery_transcript.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: merchant_discovery_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/merchant_discovery_transcript.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: quote_comparison_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/quote_comparison_transcript.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: quote_comparison_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/quote_comparison_transcript.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: approval_record_hash -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/approval_record_hash.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: approval_record_hash -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/approval_record_hash.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: checkout_handoff_or_order_result -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/checkout_handoff_or_order_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: checkout_handoff_or_order_result -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/checkout_handoff_or_order_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: aftercare_result -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/aftercare_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: aftercare_result -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/aftercare_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: audit_packet -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_packet.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: audit_packet -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_packet.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: audit_import_result -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_import_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime shopbridge-direct-skill: audit_import_result -> pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_import_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: tool_catalog_export -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/tool_catalog_export.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: tool_catalog_export -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/tool_catalog_export.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: merchant_discovery_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/merchant_discovery_transcript.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: merchant_discovery_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/merchant_discovery_transcript.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: quote_creation_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/quote_creation_transcript.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: quote_creation_transcript -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/quote_creation_transcript.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: approval_record_hash -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/approval_record_hash.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: approval_record_hash -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/approval_record_hash.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: checkout_handoff_or_order_result -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/checkout_handoff_or_order_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: checkout_handoff_or_order_result -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/checkout_handoff_or_order_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: aftercare_result -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/aftercare_result.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: aftercare_result -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/aftercare_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: audit_export -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/audit_export.md: incomplete marker remains: 'TODO'",
+        "invalid evidence for buyer_agent_runtime generic-mcp-client: audit_export -> pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/audit_export.md: file must contain substantive evidence after a level-two heading (at least 80 characters)"
+      ],
+      "evidence": [
+        {
+          "evidence_id": "install_or_configuration_log",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/install_or_configuration_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/install_or_configuration_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "health_or_doctor_result",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/health_or_doctor_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/health_or_doctor_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "merchant_discovery_transcript",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/merchant_discovery_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/merchant_discovery_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "quote_comparison_transcript",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/quote_comparison_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/quote_comparison_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "approval_record_hash",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/approval_record_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/approval_record_hash.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "checkout_handoff_or_order_result",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/checkout_handoff_or_order_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/checkout_handoff_or_order_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "aftercare_result",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/aftercare_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/aftercare_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_export",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/audit_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/audit_export.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "install_or_configuration_log",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/install_or_configuration_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/install_or_configuration_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "health_or_doctor_result",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/health_or_doctor_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/health_or_doctor_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "merchant_discovery_transcript",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/merchant_discovery_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/merchant_discovery_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "quote_comparison_transcript",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/quote_comparison_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/quote_comparison_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "approval_record_hash",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/approval_record_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/approval_record_hash.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "checkout_handoff_or_order_result",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/checkout_handoff_or_order_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/checkout_handoff_or_order_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "aftercare_result",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/aftercare_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/aftercare_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_packet",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_packet.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_packet.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_import_result",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_import_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_import_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "tool_catalog_export",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/tool_catalog_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/tool_catalog_export.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "merchant_discovery_transcript",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/merchant_discovery_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/merchant_discovery_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "quote_creation_transcript",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/quote_creation_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/quote_creation_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "approval_record_hash",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/approval_record_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/approval_record_hash.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "checkout_handoff_or_order_result",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/checkout_handoff_or_order_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/checkout_handoff_or_order_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "aftercare_result",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/aftercare_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/aftercare_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_export",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/audit_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/audit_export.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        }
+      ],
+      "evidence_summary": {
+        "invalid": 24,
+        "missing": 0,
+        "present": 24,
+        "required": 24,
+        "valid": 0
+      },
+      "id": "buyer-agent-runtime-evidence",
+      "invalid_evidence": [
+        {
+          "evidence_id": "install_or_configuration_log",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/install_or_configuration_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/install_or_configuration_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "health_or_doctor_result",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/health_or_doctor_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/health_or_doctor_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "merchant_discovery_transcript",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/merchant_discovery_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/merchant_discovery_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "quote_comparison_transcript",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/quote_comparison_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/quote_comparison_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "approval_record_hash",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/approval_record_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/approval_record_hash.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "checkout_handoff_or_order_result",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/checkout_handoff_or_order_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/checkout_handoff_or_order_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "aftercare_result",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/aftercare_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/aftercare_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_export",
+          "exists": true,
+          "owner_id": "agentcart-service-openclaw",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/audit_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/agentcart-service-openclaw/audit_export.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "install_or_configuration_log",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/install_or_configuration_log.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/install_or_configuration_log.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "health_or_doctor_result",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/health_or_doctor_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/health_or_doctor_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "merchant_discovery_transcript",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/merchant_discovery_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/merchant_discovery_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "quote_comparison_transcript",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/quote_comparison_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/quote_comparison_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "approval_record_hash",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/approval_record_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/approval_record_hash.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "checkout_handoff_or_order_result",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/checkout_handoff_or_order_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/checkout_handoff_or_order_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "aftercare_result",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/aftercare_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/aftercare_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_packet",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_packet.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_packet.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_import_result",
+          "exists": true,
+          "owner_id": "shopbridge-direct-skill",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_import_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/shopbridge-direct-skill/audit_import_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "tool_catalog_export",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/tool_catalog_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/tool_catalog_export.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "merchant_discovery_transcript",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/merchant_discovery_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/merchant_discovery_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "quote_creation_transcript",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/quote_creation_transcript.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/quote_creation_transcript.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "approval_record_hash",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/approval_record_hash.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/approval_record_hash.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "checkout_handoff_or_order_result",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/checkout_handoff_or_order_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/checkout_handoff_or_order_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "aftercare_result",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/aftercare_result.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/aftercare_result.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        },
+        {
+          "evidence_id": "audit_export",
+          "exists": true,
+          "owner_id": "generic-mcp-client",
+          "path": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/audit_export.md",
+          "path_hint": "pilot-evidence/woo-usd-staging/buyer-agents/generic-mcp-client/audit_export.md",
+          "quality_errors": [
+            "incomplete marker remains: 'TODO'",
+            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+          ],
+          "scope": "buyer_agent_runtime",
+          "valid": false
+        }
+      ],
+      "label": "Buyer-agent runtime evidence",
+      "missing_evidence": [],
+      "status": "failed"
+    },
+    {
+      "command": "python3 scripts/check-production-payment-profile.py --env-file .secrets/agentcart-staging-usd.env --deployment-profile hetzner-usd-staging",
+      "details": {
+        "checkout_mode": "external_verifier_only",
+        "deployment_profile": "hetzner-usd-staging",
+        "env_files": [
+          ".secrets/agentcart-staging-usd.env"
+        ],
+        "replay_store_driver": "sqlite",
+        "woocommerce_mode": "plugin"
+      },
+      "errors": [],
+      "evidence": [],
+      "evidence_summary": {
+        "invalid": 0,
+        "missing": 0,
+        "present": 0,
+        "required": 0,
+        "valid": 0
+      },
+      "id": "production-payment-profile",
+      "invalid_evidence": [],
+      "label": "Production payment profile",
+      "missing_evidence": [],
+      "status": "passed"
+    },
+    {
+      "command": "python3 scripts/check-woocommerce-compatibility-matrix.py --matrix gateway/config/woocommerce_compatibility_matrix.json",
+      "details": {
+        "entry": "",
+        "include_optional": false,
+        "matrix": "gateway/config/woocommerce_compatibility_matrix.json",
+        "smoke_requested": false
+      },
+      "errors": [],
+      "evidence": [],
+      "evidence_summary": {
+        "invalid": 0,
+        "missing": 0,
+        "present": 0,
+        "required": 0,
+        "valid": 0
+      },
+      "id": "woocommerce-compatibility",
+      "invalid_evidence": [],
+      "label": "WooCommerce compatibility gate",
+      "missing_evidence": [],
+      "status": "passed"
+    }
+  ],
+  "generated_at": "2026-07-09T20:43:27Z",
+  "inputs": {
+    "buyer_agent_evidence_dir": "pilot-evidence/woo-usd-staging/buyer-agents",
+    "buyer_agent_matrix": "/Users/max/Code/agentcart-tempo-shopbridge/gateway/config/buyer_agent_test_matrix.json",
+    "checklist": "/Users/max/Code/agentcart-tempo-shopbridge/gateway/config/pilot_beta_checklist.json",
+    "include_optional_woocommerce": false,
+    "payment_env_files": [
+      ".secrets/agentcart-staging-usd.env"
+    ],
+    "pilot_evidence_dir": "pilot-evidence/woo-usd-staging/pilot",
+    "run_woocommerce_smoke": false,
+    "woocommerce_entry": "",
+    "woocommerce_matrix": "/Users/max/Code/agentcart-tempo-shopbridge/gateway/config/woocommerce_compatibility_matrix.json"
+  },
+  "release_decision": {
+    "attach_this_report": true,
+    "blocking_gate_count": 2,
+    "failed_gate_ids": [
+      "pilot-readiness",
+      "buyer-agent-runtime-evidence"
+    ],
+    "invalid_evidence_count": 35,
+    "missing_evidence_count": 0,
+    "status": "failed"
+  },
+  "schema": "agentcart.pilot_evidence_runner.v1",
+  "status": "failed"
+}

@@ -145,18 +145,25 @@ def bullet_list(items: list[str], fallback: str = "_None recorded._") -> str:
 
 def gate_table(gates: list[dict[str, Any]]) -> str:
     if not gates:
-        return "| Gate | Status | Missing evidence | Errors |\n| --- | --- | ---: | --- |\n"
-    lines = ["| Gate | Status | Missing evidence | Errors |", "| --- | --- | ---: | --- |"]
+        return (
+            "| Gate | Status | Missing evidence | Invalid evidence | Errors |\n"
+            "| --- | --- | ---: | ---: | --- |\n"
+        )
+    lines = [
+        "| Gate | Status | Missing evidence | Invalid evidence | Errors |",
+        "| --- | --- | ---: | ---: | --- |",
+    ]
     for gate in gates:
         errors = gate.get("errors", [])
         error_summary = "; ".join(str(error) for error in errors[:3])
         if len(errors) > 3:
             error_summary += f"; ... +{len(errors) - 3} more"
         lines.append(
-            "| {id} | {status} | {missing} | {errors} |".format(
+            "| {id} | {status} | {missing} | {invalid} | {errors} |".format(
                 id=gate.get("id", ""),
                 status=gate.get("status", ""),
                 missing=gate.get("evidence_summary", {}).get("missing", 0),
+                invalid=gate.get("evidence_summary", {}).get("invalid", 0),
                 errors=error_summary.replace("|", "\\|") or "-",
             )
         )
@@ -174,7 +181,13 @@ def evidence_reference_section(report: dict[str, Any]) -> str:
                 lines.append(f"- `{evidence_id}`: not found in report")
                 continue
             for ref in refs:
-                exists = "present" if ref.get("exists") else "missing"
+                exists = (
+                    "missing"
+                    if not ref.get("exists")
+                    else "valid"
+                    if ref.get("valid", True)
+                    else "invalid"
+                )
                 path = ref.get("path_hint") or ref.get("path") or ""
                 lines.append(f"- `{evidence_id}`: {exists} at `{path}`")
         lines.append("")
@@ -189,7 +202,8 @@ def render_decision(args: argparse.Namespace, report: dict[str, Any], report_pat
     follow_up_issues = parse_repeated(args.follow_up_issue)
     blockers = [
         f"{gate.get('id')}: {len(gate.get('errors', []))} error(s), "
-        f"{gate.get('evidence_summary', {}).get('missing', 0)} missing evidence item(s)"
+        f"{gate.get('evidence_summary', {}).get('missing', 0)} missing evidence item(s), "
+        f"{gate.get('evidence_summary', {}).get('invalid', 0)} invalid evidence item(s)"
         for gate in failed_gates
     ]
 
@@ -203,6 +217,7 @@ def render_decision(args: argparse.Namespace, report: dict[str, Any], report_pat
         f"- Report status: `{report.get('status')}`",
         f"- Report generated at: `{report.get('generated_at', '')}`",
         f"- Missing evidence count: `{release_decision.get('missing_evidence_count', 0)}`",
+        f"- Invalid evidence count: `{release_decision.get('invalid_evidence_count', 0)}`",
         f"- Blocking gate count: `{release_decision.get('blocking_gate_count', 0)}`",
         "",
         "## Beta Scope",

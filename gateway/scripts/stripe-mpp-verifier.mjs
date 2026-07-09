@@ -26,6 +26,7 @@ const stripeSecretKey = (
 const stripeProfileId = (process.env.STRIPE_PROFILE_ID || process.env.AGENTCART_STRIPE_PROFILE_ID || "").trim();
 const mppSecretKey = (process.env.MPP_SECRET_KEY || "").trim();
 const verifierToken = (process.env.AGENTCART_PAYMENT_VERIFIER_TOKEN || "").trim();
+const minimumCredentialCharacters = 32;
 const replayStorePath = (
   process.env.AGENTCART_VERIFIER_REPLAY_STORE_PATH ||
   process.env.STRIPE_MPP_REPLAY_STORE_PATH ||
@@ -576,11 +577,37 @@ function missingConfig() {
   return missing;
 }
 
+function credentialConfigurationErrors() {
+  const errors = [];
+  for (const [name, value] of [
+    ["AGENTCART_PAYMENT_VERIFIER_TOKEN", verifierToken],
+    ["MPP_SECRET_KEY", mppSecretKey],
+  ]) {
+    if (value && value.length < minimumCredentialCharacters) {
+      errors.push(`${name} must contain a minimum 32 characters.`);
+    }
+  }
+  const credentials = [
+    ["AGENTCART_PAYMENT_VERIFIER_TOKEN", verifierToken],
+    ["MPP_SECRET_KEY", mppSecretKey],
+    ["STRIPE_SANDBOX_SECRET_KEY", stripeSecretKey],
+  ].filter(([, value]) => Boolean(value));
+  for (let left = 0; left < credentials.length; left += 1) {
+    for (let right = left + 1; right < credentials.length; right += 1) {
+      if (credentials[left][1] === credentials[right][1]) {
+        errors.push(`${credentials[left][0]} and ${credentials[right][0]} must be distinct credentials.`);
+      }
+    }
+  }
+  return errors;
+}
+
 function readiness() {
   const missing = missingConfig();
+  const configurationErrors = credentialConfigurationErrors();
   const replay = replayStoreDiagnostics();
   const journal = replayJournalDiagnostics();
-  const ok = missing.length === 0 && !replay.error && !journal.error;
+  const ok = missing.length === 0 && configurationErrors.length === 0 && !replay.error && !journal.error;
   return {
     ok,
     service: "agentcart-stripe-mpp-verifier",
@@ -611,6 +638,7 @@ function readiness() {
     replay_journal_writable: journal.writable,
     replay_journal_entry_count: journal.entry_count,
     replay_journal_error: journal.error,
+    configuration_errors: configurationErrors,
     alerts: {
       webhook_configured: Boolean(verifierAlertWebhookUrl),
       min_severity: verifierAlertMinSeverity,
@@ -630,6 +658,7 @@ function requireReady() {
         ok: false,
         error: "Stripe MPP verifier is not configured.",
         missing: status.missing,
+        configuration_errors: status.configuration_errors,
         replay_store_required: status.replay_store_required,
         replay_store_durable: status.replay_store_durable,
         replay_store_writable: status.replay_store_writable,
@@ -2243,29 +2272,28 @@ async function handler(request) {
       response = unauthorized || jsonResponse(verifierMetricsSnapshot());
     } else if (request.method !== "POST") {
       response = jsonResponse({ ok: false, error: "not found" }, 404);
-    } else {
-      payload = await parseJsonRequest(request);
-      if (url.pathname === "/stripe-mpp/challenge") {
-        response = await challenge(payload);
-      } else if (url.pathname === "/stripe-mpp/paid") {
-        response = await paid(request, payload);
-      } else if (url.pathname === "/agentcart/verify") {
-        const unauthorized = requireVerifierToken(request);
-        if (unauthorized) {
-          response = unauthorized;
-        } else {
-          const operation = String(payload.operation || "payment").toLowerCase();
-          if (operation === "payment" || operation === "charge") {
-            response = await verifyPayment(payload);
-          } else if (operation === "refund") {
-            response = await verifyRefund(payload);
-          } else {
-            response = jsonResponse({ ok: false, error: `Unsupported operation: ${operation}` }, 400);
-          }
-        }
+    } else if (url.pathname === "/agentcart/verify") {
+      const unauthorized = requireVerifierToken(request);
+      if (unauthorized) {
+        response = unauthorized;
       } else {
-        response = jsonResponse({ ok: false, error: "not found" }, 404);
+        payload = await parseJsonRequest(request);
+        const operation = String(payload.operation || "payment").toLowerCase();
+        if (operation === "payment" || operation === "charge") {
+          response = await verifyPayment(payload);
+        } else if (operation === "refund") {
+          response = await verifyRefund(payload);
+        } else {
+          response = jsonResponse({ ok: false, error: `Unsupported operation: ${operation}` }, 400);
+        }
       }
+    } else if (url.pathname === "/stripe-mpp/challenge" || url.pathname === "/stripe-mpp/paid") {
+      payload = await parseJsonRequest(request);
+      response = url.pathname === "/stripe-mpp/challenge"
+        ? await challenge(payload)
+        : await paid(request, payload);
+    } else {
+      response = jsonResponse({ ok: false, error: "not found" }, 404);
     }
   } catch (error) {
     response = jsonResponse(

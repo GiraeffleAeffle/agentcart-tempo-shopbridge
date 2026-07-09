@@ -30,18 +30,39 @@ def write_payment_env(path: pathlib.Path) -> None:
                 "WOOCOMMERCE_MODE=plugin",
                 "AGENTCART_CHECKOUT_MODE=external_verifier_only",
                 "AGENTCART_PAYMENT_VERIFIER_URL=https://verifier.agentcart.test/stripe-mpp/verify",
-                "AGENTCART_PAYMENT_VERIFIER_TOKEN=verifier-token",
+                "AGENTCART_PAYMENT_VERIFIER_TOKEN=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
                 "AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=sqlite",
                 "AGENTCART_VERIFIER_REPLAY_STORE_PATH=/data/verifier/replay-store.sqlite",
                 "AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true",
                 "AGENTCART_SIGNED_REQUEST_MODE=require_mutations",
-                "AGENTCART_SIGNED_REQUEST_SECRET=shared-signing-secret",
-                "WOOCOMMERCE_SIGNED_REQUEST_SECRET=shared-signing-secret",
+                "AGENTCART_SIGNED_REQUEST_SECRET=ssssssssssssssssssssssssssssssssssssssss",
+                "WOOCOMMERCE_SIGNED_REQUEST_SECRET=ssssssssssssssssssssssssssssssssssssssss",
             ]
         )
         + "\n",
         encoding="utf-8",
     )
+
+
+def fill_sample_evidence(sample_root: pathlib.Path) -> None:
+    for path in sample_root.rglob("*.md"):
+        if path.name == "README.md":
+            continue
+        scope = "buyer_agent_runtime" if "buyer-agents" in path.parts else "pilot_gate"
+        owner_id = path.parent.name
+        evidence_id = path.stem
+        path.write_text(
+            f"# {evidence_id}\n\n"
+            f"- Scope: `{scope}`\n"
+            f"- Owner id: `{owner_id}`\n"
+            "- Recorded at: 2026-07-09T18:00:00Z\n"
+            "- Operator: Pilot evidence dry-run operator\n"
+            "- Command or source: `agentcart pilot evidence dry run`\n\n"
+            "## Evidence\n\n"
+            "The complete dry-run artifact records the command, observed result, expected "
+            "acceptance criteria, and retained reference needed to exercise the release gate.\n",
+            encoding="utf-8",
+        )
 
 
 def runner_args(
@@ -158,7 +179,7 @@ class PilotEvidenceRunnerTest(unittest.TestCase):
         )
         self.assertEqual(["pilot-readiness", "buyer-agent-runtime-evidence"], report["release_decision"]["failed_gate_ids"])
 
-    def test_sample_writer_documents_transcript_names_and_passes(self) -> None:
+    def test_sample_writer_documents_transcript_names_and_fails_until_filled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             sample_root = root / "pilot-evidence"
@@ -189,7 +210,18 @@ class PilotEvidenceRunnerTest(unittest.TestCase):
             ).read_text(encoding="utf-8")
 
         self.assertEqual("agentcart.pilot_evidence_sample.v1", sample["schema"])
-        self.assertEqual("passed", report["status"])
+        self.assertEqual("failed", report["status"])
+        self.assertGreater(report["release_decision"]["invalid_evidence_count"], 0)
+        pilot_gate = next(gate for gate in report["gates"] if gate["id"] == "pilot-readiness")
+        buyer_gate = next(
+            gate for gate in report["gates"] if gate["id"] == "buyer-agent-runtime-evidence"
+        )
+        self.assertTrue(pilot_gate["invalid_evidence"])
+        self.assertTrue(buyer_gate["invalid_evidence"])
+        self.assertTrue(
+            any("incomplete marker" in error for error in pilot_gate["errors"]),
+            pilot_gate["errors"],
+        )
         self.assertIn("## Maintainer Help Log", walkthrough)
         self.assertIn("| Severity | Title | Follow-up issue | Notes |", walkthrough)
         self.assertIn("buyer-agents/agentcart-service-openclaw/merchant_discovery_transcript.md", readme)
@@ -212,6 +244,7 @@ class PilotEvidenceRunnerTest(unittest.TestCase):
                     write_sample=sample_root,
                 )
             )
+            fill_sample_evidence(sample_root)
 
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):

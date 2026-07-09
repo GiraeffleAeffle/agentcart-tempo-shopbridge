@@ -65,6 +65,7 @@ final class AgentCart_ShopBridge {
     const SIGNED_REQUEST_MAX_TTL_SECONDS = 900;
     const SIGNED_REQUEST_CLOCK_SKEW_SECONDS = 60;
     const SIGNED_REQUEST_KEY_RETIREMENT_SECONDS = 604800;
+    const MIN_PRODUCTION_CREDENTIAL_CHARACTERS = 32;
     const SUPPORT_EMAIL_OPTION = 'agentcart_shopbridge_support_email';
     const RETURNS_URL_OPTION = 'agentcart_shopbridge_returns_url';
     const SUBSTITUTION_POLICY_OPTION = 'agentcart_shopbridge_substitution_policy';
@@ -111,8 +112,11 @@ final class AgentCart_ShopBridge {
     }
 
     public static function ensure_token() {
+        if (defined('AGENTCART_SHOPBRIDGE_TOKEN')) {
+            return;
+        }
         if (!get_option(self::TOKEN_OPTION)) {
-            update_option(self::TOKEN_OPTION, wp_generate_password(40, false, false));
+            update_option(self::TOKEN_OPTION, wp_generate_password(40, false, false), false);
         }
     }
 
@@ -2722,6 +2726,40 @@ final class AgentCart_ShopBridge {
         return defined('AGENTCART_SHOPBRIDGE_TOKEN') ? (string) AGENTCART_SHOPBRIDGE_TOKEN : (string) get_option(self::TOKEN_OPTION, '');
     }
 
+    private static function credential_is_production_strength($value) {
+        $value = trim((string) $value);
+        if (strlen($value) < self::MIN_PRODUCTION_CREDENTIAL_CHARACTERS) {
+            return false;
+        }
+        return !preg_match('/replace-with-|changeme|placeholder|todo/i', $value);
+    }
+
+    private static function signed_request_key_is_production_strength($key) {
+        if (!is_array($key)) {
+            return false;
+        }
+        if (self::signed_request_key_alg($key) === 'rsa-sha256') {
+            return self::normalize_signed_request_public_key((string) ($key['public_key'] ?? '')) !== '';
+        }
+        return self::credential_is_production_strength((string) ($key['secret'] ?? ''));
+    }
+
+    private static function production_credentials_are_separated() {
+        $values = array_values(
+            array_filter(
+                [
+                    trim((string) self::merchant_token_value()),
+                    trim((string) self::payment_verifier_token()),
+                    trim((string) self::signed_request_secret()),
+                ],
+                static function ($value) {
+                    return $value !== '';
+                }
+            )
+        );
+        return count($values) === count(array_unique($values, SORT_STRING));
+    }
+
     private static function registry_record_hash_value() {
         return self::registry_record_hash(self::suggested_registry_record());
     }
@@ -4123,7 +4161,10 @@ final class AgentCart_ShopBridge {
             && self::payment_verifier_token() !== ''
             && (self::tempo_recipient() !== '' || self::stripe_profile_id() !== '')
             && self::external_verifier_required_for_checkout()
-            && !self::payment_verifier_url_allows_private_networks();
+            && (
+                !self::payment_verifier_url_allows_private_networks()
+                || self::payment_verifier_internal_trust_is_pinned()
+            );
         $registry_ready = self::public_origin_is_https() && self::registry_domain_proof_configured();
         $steps = [
             self::setup_guide_step(
@@ -4235,6 +4276,9 @@ final class AgentCart_ShopBridge {
         }
 
         $missing_production = [];
+        if (!self::credential_is_production_strength(self::merchant_token_value())) {
+            $missing_production[] = 'strong merchant token';
+        }
         if (!self::public_origin_is_https()) {
             $missing_production[] = 'public HTTPS origin';
         }
@@ -4246,8 +4290,13 @@ final class AgentCart_ShopBridge {
         }
         if (self::payment_verifier_url() && !self::payment_verifier_token()) {
             $missing_production[] = 'payment verifier token';
+        } elseif (self::payment_verifier_token() !== '' && !self::credential_is_production_strength(self::payment_verifier_token())) {
+            $missing_production[] = 'strong payment verifier token';
         }
-        if (self::payment_verifier_url_allows_private_networks()) {
+        if (
+            self::payment_verifier_url_allows_private_networks()
+            && !self::payment_verifier_internal_trust_is_pinned()
+        ) {
             $missing_production[] = 'public payment verifier URL';
         }
         if (!self::external_verifier_required_for_checkout()) {
@@ -4257,6 +4306,11 @@ final class AgentCart_ShopBridge {
             $missing_production[] = 'signed checkout request gate';
         } elseif (!self::signed_request_active_key()) {
             $missing_production[] = 'active signed request signing key';
+        } elseif (!self::signed_request_key_is_production_strength(self::signed_request_active_key())) {
+            $missing_production[] = 'strong signed request signing key';
+        }
+        if (!self::production_credentials_are_separated()) {
+            $missing_production[] = 'separated production credentials';
         }
         if (self::tempo_recipient() === '' && self::stripe_profile_id() === '') {
             $missing_production[] = 'Tempo recipient or Stripe profile';
@@ -4285,6 +4339,8 @@ final class AgentCart_ShopBridge {
             'checkout_mode' => self::checkout_mode(),
             'external_verifier_required_for_checkout' => self::external_verifier_required_for_checkout(),
             'private_payment_verifier_urls_allowed' => self::payment_verifier_url_allows_private_networks(),
+            'verifier_trust_mode' => self::payment_verifier_trust_mode(),
+            'internal_verifier_trust_is_pinned' => self::payment_verifier_internal_trust_is_pinned(),
             'trusted_token_checkout_enabled' => !self::external_verifier_required_for_checkout(),
             'signed_request_mode' => self::signed_request_mode(),
             'signed_request_configured' => self::signed_request_profile_configured(),
@@ -4419,6 +4475,12 @@ final class AgentCart_ShopBridge {
                 'payment_verifier_token_hash' => self::support_diagnostics_hash($payment_verifier_token),
                 'registry_connection_token_configured' => $registry_connection_token !== '',
                 'registry_connection_token_hash' => self::support_diagnostics_hash($registry_connection_token),
+                'production_strength' => [
+                    'merchant_token_is_strong' => self::credential_is_production_strength($merchant_token),
+                    'payment_verifier_token_is_strong' => self::credential_is_production_strength($payment_verifier_token),
+                    'signed_request_key_is_strong' => self::signed_request_key_is_production_strength(self::signed_request_active_key()),
+                ],
+                'production_credentials_separated' => self::production_credentials_are_separated(),
             ],
             'payment' => [
                 'checkout_mode' => self::checkout_mode(),
@@ -5237,6 +5299,7 @@ final class AgentCart_ShopBridge {
                 'idempotent_order_creation' => true,
                 'checkout_replay_conflict_detection' => true,
                 'external_verifier_only_checkout_mode' => self::external_verifier_required_for_checkout(),
+                'verifier_trust_mode' => self::payment_verifier_trust_mode(),
                 'merchant_of_record' => true,
                 'guest_checkout' => true,
                 'shipping_address_on_order' => true,
@@ -7840,6 +7903,23 @@ final class AgentCart_ShopBridge {
         }
         $value = getenv('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL');
         return self::truthy_config_value($value);
+    }
+
+    private static function payment_verifier_trust_mode() {
+        if (defined('AGENTCART_PAYMENT_VERIFIER_TRUST_MODE')) {
+            $value = sanitize_key((string) AGENTCART_PAYMENT_VERIFIER_TRUST_MODE);
+            return $value === 'pinned_internal' ? 'pinned_internal' : 'public';
+        }
+        return 'public';
+    }
+
+    private static function payment_verifier_internal_trust_is_pinned() {
+        return self::payment_verifier_trust_mode() === 'pinned_internal'
+            && defined('AGENTCART_PAYMENT_VERIFIER_TRUST_MODE')
+            && defined('AGENTCART_PAYMENT_VERIFIER_URL')
+            && defined('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL')
+            && self::payment_verifier_url_allows_private_networks()
+            && self::payment_verifier_url() !== '';
     }
 
     private static function truthy_config_value($value) {

@@ -190,15 +190,18 @@ or multi-merchant setups because the merchant stores only the matching public
 key. Use the active signer id advertised by the merchant's `signed-http-ready`
 profile as `SHOPBRIDGE_SIGNED_REQUEST_SIGNER`.
 
-When `AGENTCART_TOKEN` is set, open protected browser pages with the token once:
+When `AGENTCART_TOKEN` is set, open the browser login and submit the token from
+the environment file:
 
 ```text
-http://localhost:8099/?token=replace-with-random-agentcart-token
-http://localhost:8099/demo?token=replace-with-random-agentcart-token
+http://localhost:8099/auth/login
+http://localhost:8099/auth/login?next=%2Fdemo
 ```
 
-The query token is stored as a same-origin local demo cookie so linked pages and
-browser fetches can read the protected local APIs.
+The login POST exchanges the service token for a derived HttpOnly browser
+session cookie; the master token is not stored in the cookie or URL. Direct
+loopback runs retain a compatibility query-token bootstrap, but immediately
+redirect to a clean URL. Public binds reject that compatibility mode.
 
 ## Merchant Plugin Details
 

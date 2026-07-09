@@ -241,9 +241,13 @@ docker-compose up -d --build
 Open:
 
 ```text
-http://localhost:8099/?token=replace-with-random-agentcart-token
+http://localhost:8099/auth/login
 http://localhost:8088/chat
 ```
+
+Submit the `AGENTCART_TOKEN` value from `.env` through the login form. The
+browser receives a derived HttpOnly session cookie rather than the service
+token.
 
 Install the service-backed agent skill from:
 

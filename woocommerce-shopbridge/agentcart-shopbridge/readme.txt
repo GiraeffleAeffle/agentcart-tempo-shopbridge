@@ -71,6 +71,8 @@ actions.
 * Merchant-token-protected refund and cancellation endpoints.
 * Admin actions to generate or rotate local merchant and verifier tokens while
   respecting secrets managed in wp-config.php.
+* Production readiness rejects shared secrets shorter than 32 characters and
+  rejects reuse across merchant, verifier, and signed-request credential roles.
 * Registry transparency actions to refresh the merchant-owned claim metadata
   and check public manifest/proof/revocation/bundle endpoints before registry
   ingestion.

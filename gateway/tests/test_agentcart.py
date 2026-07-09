@@ -4,6 +4,7 @@ import importlib.util
 import base64
 import hashlib
 import hmac
+import http.client
 import json
 import pathlib
 import shutil
@@ -662,25 +663,140 @@ class AgentCartTests(unittest.TestCase):
     def test_server_rejects_public_hosted_registry_without_distinct_submit_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = pathlib.Path(raw_tmp)
-            missing_submit_token = make_service(tmp, agentcart_token="agentcart-token", hosted_registry_submit_token="")
+            agentcart_token = "a" * 40
+            registry_token = "r" * 40
+            missing_submit_token = make_service(tmp, agentcart_token=agentcart_token, hosted_registry_submit_token="")
             with self.assertRaisesRegex(RuntimeError, "REGISTRY_SUBMIT_TOKEN"):
                 agentcart.AgentCartServer(("0.0.0.0", 0), missing_submit_token)
 
             reused_submit_token = make_service(
                 tmp,
-                agentcart_token="shared-token",
-                hosted_registry_submit_token="shared-token",
+                agentcart_token="s" * 40,
+                hosted_registry_submit_token="s" * 40,
             )
             with self.assertRaisesRegex(RuntimeError, "must be distinct"):
                 agentcart.AgentCartServer(("0.0.0.0", 0), reused_submit_token)
 
             safe_service = make_service(
                 tmp,
-                agentcart_token="agentcart-token",
-                hosted_registry_submit_token="registry-submit-token",
+                agentcart_token=agentcart_token,
+                hosted_registry_submit_token=registry_token,
             )
             server = agentcart.AgentCartServer(("0.0.0.0", 0), safe_service)
             server.server_close()
+
+    def test_server_rejects_weak_public_tokens_and_query_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            with self.assertRaisesRegex(RuntimeError, "AGENTCART_TOKEN must contain at least"):
+                agentcart.AgentCartServer(
+                    ("0.0.0.0", 0),
+                    make_service(tmp, agentcart_token="short", hosted_registry_enabled=False),
+                )
+            with self.assertRaisesRegex(RuntimeError, "REGISTRY_SUBMIT_TOKEN must contain at least"):
+                agentcart.AgentCartServer(
+                    ("0.0.0.0", 0),
+                    make_service(
+                        tmp,
+                        agentcart_token="a" * 40,
+                        hosted_registry_submit_token="short",
+                    ),
+                )
+            with self.assertRaisesRegex(RuntimeError, "query-token bootstrap must be disabled"):
+                agentcart.AgentCartServer(
+                    ("0.0.0.0", 0),
+                    make_service(
+                        tmp,
+                        agentcart_token="a" * 40,
+                        hosted_registry_enabled=False,
+                        allow_query_token_bootstrap=True,
+                    ),
+                )
+
+    def test_browser_auth_uses_clean_redirect_and_derived_secure_cookie(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            token = "a" * 40
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                public_url="https://agentcart.example",
+                agentcart_token=token,
+                allow_query_token_bootstrap=True,
+            )
+            server = agentcart.AgentCartServer(("127.0.0.1", 0), service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            try:
+                connection.request("GET", f"/?token={token}&view=orders")
+                response = connection.getresponse()
+                self.assertEqual(response.status, 303)
+                self.assertEqual(response.getheader("Location"), "/?view=orders")
+                cookie = response.getheader("Set-Cookie") or ""
+                response.read()
+                self.assertIn("__Host-agentcart_session=", cookie)
+                self.assertIn("HttpOnly", cookie)
+                self.assertIn("Secure", cookie)
+                self.assertIn("SameSite=Strict", cookie)
+                self.assertNotIn(token, cookie)
+
+                cookie_pair = cookie.split(";", 1)[0]
+                connection.request("GET", "/", headers={"Cookie": cookie_pair})
+                authenticated = connection.getresponse()
+                self.assertEqual(authenticated.status, 200)
+                self.assertEqual(authenticated.getheader("Referrer-Policy"), "no-referrer")
+                authenticated.read()
+            finally:
+                connection.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+    def test_public_browser_login_posts_token_without_query_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            token = "a" * 40
+            service = make_service(
+                pathlib.Path(raw_tmp),
+                public_url="https://agentcart.example",
+                agentcart_token=token,
+                allow_query_token_bootstrap=False,
+            )
+            server = agentcart.AgentCartServer(("127.0.0.1", 0), service)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            try:
+                connection.request("GET", f"/?token={token}")
+                rejected = connection.getresponse()
+                self.assertEqual(rejected.status, 401)
+                rejected.read()
+
+                form = urllib.parse.urlencode({"token": token, "next": "/registry"})
+                connection.request(
+                    "POST",
+                    "/auth/session",
+                    body=form,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                login = connection.getresponse()
+                self.assertEqual(login.status, 303)
+                self.assertEqual(login.getheader("Location"), "/registry")
+                cookie = login.getheader("Set-Cookie") or ""
+                login.read()
+                self.assertNotIn(token, cookie)
+                self.assertIn("__Host-agentcart_session=", cookie)
+            finally:
+                connection.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+    def test_request_log_redacts_sensitive_query_values(self) -> None:
+        rendered = agentcart.redact_sensitive_query_values(
+            '"GET /?token=service-secret&next=%2Fregistry HTTP/1.1" 303 -'
+        )
+
+        self.assertNotIn("service-secret", rendered)
+        self.assertIn("token=%3Credacted%3E", rendered)
 
     def test_mcp_tool_catalog_is_publicly_served(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -2112,6 +2228,38 @@ class AgentCartTests(unittest.TestCase):
                     urllib.request.urlopen(unauthenticated, timeout=5)
                 self.assertEqual(raised.exception.code, 401)
                 raised.exception.close()
+
+                invalid_transports = [
+                    urllib.request.Request(
+                        f"{base_url}/v1/registry/records?token=registry-token",
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    ),
+                    urllib.request.Request(
+                        f"{base_url}/v1/registry/records",
+                        data=payload,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Cookie": "agentcart_token=registry-token",
+                        },
+                        method="POST",
+                    ),
+                    urllib.request.Request(
+                        f"{base_url}/v1/registry/records",
+                        data=payload,
+                        headers={
+                            "Content-Type": "application/json",
+                            "X-AgentCart-Token": "registry-token",
+                        },
+                        method="POST",
+                    ),
+                ]
+                for invalid_request in invalid_transports:
+                    with self.assertRaises(urllib.error.HTTPError) as invalid_raised:
+                        urllib.request.urlopen(invalid_request, timeout=5)
+                    self.assertEqual(invalid_raised.exception.code, 401)
+                    invalid_raised.exception.close()
 
                 authenticated = urllib.request.Request(
                     f"{base_url}/v1/registry/records",

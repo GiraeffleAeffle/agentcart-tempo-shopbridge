@@ -36,18 +36,20 @@ cp .env.example .env
 docker-compose up -d --build
 ```
 
-Then open:
+Replace every `replace-with-*` credential in `.env` with a unique randomly
+generated value of at least 32 characters before starting the stack. Then open:
 
-- AgentCart: `http://localhost:8099/?token=replace-with-random-agentcart-token`
-- Demo cockpit: `http://localhost:8099/demo?token=replace-with-random-agentcart-token`
+- AgentCart login: `http://localhost:8099/auth/login`
+- Demo cockpit login: `http://localhost:8099/auth/login?next=%2Fdemo`
 - Household OS: `http://localhost:8088/chat`
 - Vikunja: `http://localhost:3456`
 - optional Home Assistant: `http://localhost:8123`
 - optional Woo demo: `http://localhost:8098`
 
-The AgentCart token value is `AGENTCART_TOKEN` from `.env`. Open AgentCart with
-`?token=...` once; the gateway stores it in a local same-origin cookie for the
-browser demo pages.
+The AgentCart token value is `AGENTCART_TOKEN` from `.env`. Submit it through
+the login form; the gateway stores only a derived HttpOnly session credential.
+Registry submission, delivery-calendar, service, payment-verifier, merchant,
+and signed-request credentials must remain distinct.
 
 Start optional services with profiles:
 

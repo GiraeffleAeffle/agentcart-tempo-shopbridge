@@ -69,6 +69,9 @@ ENERGY_OFFER_DEFAULT_VALID_MINUTES = 15
 ONCHAIN_CONTRACT_EVENTS_SCHEMA = "agentcart.onchain_registry_contract_events.v1"
 ONCHAIN_CONTRACT_INDEX_SCHEMA = "agentcart.onchain_registry_contract_index.v1"
 ONCHAIN_LEDGER_PROOF_SCHEMA = "agentcart.onchain_registry_ledger_proof.v1"
+MIN_PUBLIC_CREDENTIAL_CHARACTERS = 32
+AUTH_SESSION_CONTEXT = b"agentcart-browser-session-v1"
+SENSITIVE_QUERY_KEYS = {"token", "access_token", "api_key", "secret"}
 
 
 class AgentCartError(Exception):
@@ -202,14 +205,16 @@ class Config:
     ops_event_smtp_password: str
     ops_event_smtp_starttls: bool
     ops_event_min_severity: str
+    allow_query_token_bootstrap: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
         data_dir = pathlib.Path(os.getenv("AGENTCART_DATA_DIR", "./data"))
         policy_path = os.getenv("AGENTCART_POLICY_PATH", "")
         project_id = os.getenv("VIKUNJA_PROJECT_ID", "")
+        bind = os.getenv("AGENTCART_BIND", "127.0.0.1")
         return cls(
-            bind=os.getenv("AGENTCART_BIND", "127.0.0.1"),
+            bind=bind,
             port=int(os.getenv("AGENTCART_PORT", "8099")),
             timezone=os.getenv("AGENTCART_TIMEZONE", "Europe/Berlin"),
             public_url=os.getenv("AGENTCART_PUBLIC_URL", "http://127.0.0.1:8099").rstrip("/"),
@@ -345,6 +350,10 @@ class Config:
             ops_event_smtp_password=os.getenv("AGENTCART_OPS_EVENT_SMTP_PASSWORD", ""),
             ops_event_smtp_starttls=bool_env("AGENTCART_OPS_EVENT_SMTP_STARTTLS", True),
             ops_event_min_severity=os.getenv("AGENTCART_OPS_EVENT_MIN_SEVERITY", "warning").strip().lower(),
+            allow_query_token_bootstrap=bool_env(
+                "AGENTCART_ALLOW_QUERY_TOKEN_BOOTSTRAP",
+                is_loopback_host(bind),
+            ),
         )
 
     def startup_security_errors(self, effective_bind: str | None = None) -> list[str]:
@@ -355,14 +364,39 @@ class Config:
         errors: list[str] = []
         if not self.agentcart_token:
             errors.append("AGENTCART_TOKEN is required when AgentCart binds outside loopback")
+        elif not production_credential_is_strong(self.agentcart_token):
+            errors.append(
+                f"AGENTCART_TOKEN must contain at least {MIN_PUBLIC_CREDENTIAL_CHARACTERS} characters "
+                "and must not be a placeholder when AgentCart binds outside loopback"
+            )
+        if self.allow_query_token_bootstrap:
+            errors.append("query-token bootstrap must be disabled when AgentCart binds outside loopback")
         if self.hosted_registry_enabled:
             if not self.hosted_registry_submit_token:
                 errors.append(
                     "AGENTCART_REGISTRY_SUBMIT_TOKEN or AGENTCART_HOSTED_REGISTRY_TOKEN is required "
                     "when hosted registry submission is enabled outside loopback"
                 )
+            elif not production_credential_is_strong(self.hosted_registry_submit_token):
+                errors.append(
+                    "AGENTCART_REGISTRY_SUBMIT_TOKEN must contain at least "
+                    f"{MIN_PUBLIC_CREDENTIAL_CHARACTERS} characters and must not be a placeholder "
+                    "when hosted registry submission is enabled outside loopback"
+                )
             elif self.agentcart_token and hmac.compare_digest(self.hosted_registry_submit_token, self.agentcart_token):
                 errors.append("hosted registry submit token must be distinct from AGENTCART_TOKEN outside loopback")
+        if self.delivery_calendar_enabled:
+            if not production_credential_is_strong(self.delivery_calendar_token):
+                errors.append(
+                    "AGENTCART_DELIVERY_CALENDAR_TOKEN must contain at least "
+                    f"{MIN_PUBLIC_CREDENTIAL_CHARACTERS} characters and must not be a placeholder "
+                    "when the delivery calendar is enabled outside loopback"
+                )
+            elif any(
+                candidate and hmac.compare_digest(self.delivery_calendar_token, candidate)
+                for candidate in (self.agentcart_token, self.hosted_registry_submit_token)
+            ):
+                errors.append("delivery calendar token must be distinct from AgentCart service and registry tokens")
         return errors
 
     def validate_startup_security(self, effective_bind: str | None = None) -> None:
@@ -392,6 +426,36 @@ def is_loopback_host(host: str) -> bool:
         return ipaddress.ip_address(normalized).is_loopback
     except ValueError:
         return False
+
+
+def production_credential_is_strong(value: str) -> bool:
+    normalized = (value or "").strip()
+    if len(normalized) < MIN_PUBLIC_CREDENTIAL_CHARACTERS:
+        return False
+    lowered = normalized.lower()
+    return not any(marker in lowered for marker in ("replace-with-", "changeme", "placeholder", "todo"))
+
+
+def browser_session_token(service_token: str) -> str:
+    return hmac.new(service_token.encode(), AUTH_SESSION_CONTEXT, hashlib.sha256).hexdigest()
+
+
+def redact_sensitive_query_values(message: str) -> str:
+    def redact_target(match: re.Match[str]) -> str:
+        target = match.group(0)
+        parsed = urllib.parse.urlsplit(target)
+        if not parsed.query:
+            return target
+        pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        redacted = [
+            (key, "<redacted>" if key.lower() in SENSITIVE_QUERY_KEYS else value)
+            for key, value in pairs
+        ]
+        return urllib.parse.urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(redacted), parsed.fragment)
+        )
+
+    return re.sub(r"(?:https?://[^\s\"]+|/[^\s\"]*\?[^\s\"]+)", redact_target, str(message))
 
 
 def utcnow() -> dt.datetime:
@@ -6280,7 +6344,7 @@ class AgentCartService:
                     "post": {
                         "operationId": "submitHostedRegistryRecord",
                         "summary": "Submit or revoke a ShopBridge merchant registry record",
-                        "security": [{"AgentCartToken": []}, {"BearerAuth": []}],
+                        "security": [{"RegistryToken": []}, {"BearerAuth": []}],
                         "requestBody": {
                             "required": True,
                             "content": {"application/json": {"schema": {"type": "object"}}},
@@ -6660,6 +6724,7 @@ class AgentCartService:
             "components": {
                 "securitySchemes": {
                     "AgentCartToken": {"type": "apiKey", "in": "header", "name": "X-AgentCart-Token"},
+                    "RegistryToken": {"type": "apiKey", "in": "header", "name": "X-AgentCart-Registry-Token"},
                     "BearerAuth": {"type": "http", "scheme": "bearer"},
                 },
                 "schemas": self.openapi_schemas(),
@@ -9823,7 +9888,8 @@ separate human confirmation.
 
 
 class AgentCartHandler(BaseHTTPRequestHandler):
-    server_version = "AgentCart/0.1"
+    server_version = "AgentCart"
+    sys_version = ""
 
     def do_GET(self) -> None:
         self.handle_request("GET")
@@ -9840,6 +9906,8 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
             if method == "GET":
+                if self.maybe_redirect_query_token_bootstrap(path, parsed):
+                    return
                 self.route_get(path, parsed)
             elif method == "POST":
                 self.route_post(path, parsed)
@@ -9853,6 +9921,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
 
     def route_get(self, path: str, parsed: urllib.parse.ParseResult) -> None:
         query = urllib.parse.parse_qs(parsed.query)
+        if path == "/auth/login":
+            self.send_html(self.render_login_page(first_query(query, "next", "/")))
+            return
         if path == "/health":
             self.send_json({"ok": True, "service": "agentcart", "time": isoformat(utcnow())})
             return
@@ -10079,6 +10150,15 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         self.send_ical(self.service.render_delivery_calendar())
 
     def route_post(self, path: str, _parsed: urllib.parse.ParseResult) -> None:
+        if path == "/auth/session":
+            form = self.read_form()
+            token = self.service.config.agentcart_token
+            supplied = form.get("token", "")
+            if not token or not supplied or not hmac.compare_digest(supplied, token):
+                raise Unauthorized("invalid AgentCart login token")
+            self._set_auth_session_cookie = True
+            self.redirect(self.safe_local_redirect_target(form.get("next", "/")))
+            return
         if path == "/demo/trigger-low-tea":
             self.require_auth_if_configured()
             result = self.service.demo_trigger_low_tea()
@@ -10212,9 +10292,61 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         raise NotFound("route not found")
 
     def read_form(self) -> dict[str, str]:
-        raw = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0")).decode()
+        content_length = int(self.headers.get("Content-Length", "0") or "0")
+        if content_length > 16 * 1024:
+            raise BadRequest("form body is too large")
+        raw = self.rfile.read(content_length).decode()
         parsed = urllib.parse.parse_qs(raw)
         return {key: values[0] for key, values in parsed.items()}
+
+    def render_login_page(self, next_target: str) -> str:
+        safe_next = self.safe_local_redirect_target(next_target)
+        return f"""<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AgentCart login</title></head>
+<body>
+  <main>
+    <h1>AgentCart login</h1>
+    <p>Enter the AgentCart service token. It is submitted in the request body and exchanged for an HttpOnly browser session cookie.</p>
+    <form method="post" action="/auth/session">
+      <input type="hidden" name="next" value="{html.escape(safe_next, quote=True)}">
+      <label>Service token <input type="password" name="token" required autocomplete="current-password"></label>
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>"""
+
+    def safe_local_redirect_target(self, target: str) -> str:
+        value = (target or "/").strip()
+        parsed = urllib.parse.urlsplit(value)
+        if parsed.scheme or parsed.netloc or not parsed.path.startswith("/") or parsed.path.startswith("//"):
+            return "/"
+        pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        clean_pairs = [(key, item) for key, item in pairs if key.lower() not in SENSITIVE_QUERY_KEYS]
+        query = urllib.parse.urlencode(clean_pairs)
+        return urllib.parse.urlunsplit(("", "", parsed.path or "/", query, ""))
+
+    def maybe_redirect_query_token_bootstrap(
+        self,
+        path: str,
+        parsed: urllib.parse.ParseResult,
+    ) -> bool:
+        if not self.service.config.allow_query_token_bootstrap:
+            return False
+        if path == DELIVERY_CALENDAR_ROUTE or APPROVAL_PAGE_ROUTE.match(path):
+            return False
+        token = self.service.config.agentcart_token
+        query_pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        supplied = next((value for key, value in query_pairs if key == "token"), "")
+        if not token or not supplied or not hmac.compare_digest(supplied, token):
+            return False
+        clean_pairs = [(key, value) for key, value in query_pairs if key != "token"]
+        clean_query = urllib.parse.urlencode(clean_pairs)
+        location = urllib.parse.urlunsplit(("", "", path or "/", clean_query, ""))
+        self._set_auth_session_cookie = True
+        self.redirect(location)
+        return True
 
     def require_auth_if_configured(self) -> None:
         token = self.service.config.agentcart_token
@@ -10225,7 +10357,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             return
         if supplied:
             raise Forbidden("invalid AgentCart token")
-        raise Unauthorized("Bearer authorization, X-AgentCart-Token, or token query parameter is required")
+        raise Unauthorized("Bearer authorization, X-AgentCart-Token, or an authenticated browser session is required")
 
     def require_registry_submit_auth_if_configured(self) -> None:
         token = self.service.config.hosted_registry_submit_token
@@ -10242,53 +10374,85 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         header_token = self.headers.get("X-AgentCart-Registry-Token", "").strip()
         if header_token:
             return header_token
-        return self.supplied_auth_token()
+        return self.bearer_auth_token()
+
+    def bearer_auth_token(self) -> str:
+        auth = self.headers.get("Authorization", "")
+        match = re.fullmatch(r"Bearer\s+(.+)", auth.strip(), flags=re.IGNORECASE)
+        return match.group(1).strip() if match else ""
 
     def supplied_auth_token(self) -> str:
         header_token = self.headers.get("X-AgentCart-Token", "").strip()
         if header_token:
             return header_token
-        auth = self.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            return auth[len("Bearer ") :].strip()
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        query_token = first_query(query, "token")
+        bearer_token = self.bearer_auth_token()
+        if bearer_token:
+            return bearer_token
         configured = self.service.config.agentcart_token
-        if query_token and (not configured or hmac.compare_digest(query_token, configured)):
-            return query_token
+        if self.service.config.allow_query_token_bootstrap:
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            query_token = first_query(query, "token")
+            if query_token:
+                return query_token
         cookie_header = self.headers.get("Cookie", "")
-        if cookie_header:
+        if cookie_header and configured:
             try:
                 cookies = http.cookies.SimpleCookie(cookie_header)
-                morsel = cookies.get("agentcart_token")
-                if morsel:
-                    return str(morsel.value)
+                expected_session = browser_session_token(configured)
+                for cookie_name in ("__Host-agentcart_session", "agentcart_session", "agentcart_token"):
+                    morsel = cookies.get(cookie_name)
+                    if not morsel:
+                        continue
+                    supplied_cookie = str(morsel.value)
+                    if hmac.compare_digest(supplied_cookie, expected_session):
+                        return configured
+                    if cookie_name == "agentcart_token" and hmac.compare_digest(supplied_cookie, configured):
+                        return configured
             except http.cookies.CookieError:
                 return ""
-        if query_token:
-            return query_token
         return ""
 
     def maybe_set_auth_cookie(self) -> None:
         token = self.service.config.agentcart_token
         if not token:
             return
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        supplied = first_query(query, "token")
-        if not supplied or not hmac.compare_digest(supplied, token):
+        should_set = bool(getattr(self, "_set_auth_session_cookie", False))
+        if not should_set and self.service.config.allow_query_token_bootstrap:
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            supplied = first_query(query, "token")
+            should_set = bool(supplied and hmac.compare_digest(supplied, token))
+        if not should_set:
             return
+        secure = self.service.config.public_url.lower().startswith("https://")
+        cookie_name = "__Host-agentcart_session" if secure else "agentcart_session"
         cookie = http.cookies.SimpleCookie()
-        cookie["agentcart_token"] = supplied
-        cookie["agentcart_token"]["path"] = "/"
-        cookie["agentcart_token"]["httponly"] = True
-        cookie["agentcart_token"]["samesite"] = "Lax"
+        cookie[cookie_name] = browser_session_token(token)
+        cookie[cookie_name]["path"] = "/"
+        cookie[cookie_name]["httponly"] = True
+        cookie[cookie_name]["samesite"] = "Strict"
+        if secure:
+            cookie[cookie_name]["secure"] = True
         self.send_header("Set-Cookie", cookie.output(header="").strip())
+
+    def send_security_headers(self, provided_headers: dict[str, str] | None = None) -> None:
+        provided = {key.lower() for key in (provided_headers or {})}
+        defaults = {
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        }
+        for key, value in defaults.items():
+            if key.lower() not in provided:
+                self.send_header(key, value)
 
     def send_json(self, payload: Any, *, status: int = 200, headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload, indent=2, sort_keys=True, default=json_default).encode()
         self.send_response(status)
         self.send_header("Content-Type", JSON_MIME)
         self.send_header("Content-Length", str(len(body)))
+        self.send_security_headers(headers)
         self.maybe_set_auth_cookie()
         for key, value in (headers or {}).items():
             self.send_header(key, value)
@@ -10300,6 +10464,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", HTML_MIME)
         self.send_header("Content-Length", str(len(body)))
+        self.send_security_headers()
         self.maybe_set_auth_cookie()
         self.end_headers()
         self.wfile.write(body)
@@ -10309,6 +10474,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", TEXT_MIME)
         self.send_header("Content-Length", str(len(body)))
+        self.send_security_headers()
         self.maybe_set_auth_cookie()
         self.end_headers()
         self.wfile.write(body)
@@ -10317,8 +10483,8 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         body = text.encode()
         self.send_response(status)
         self.send_header("Content-Type", "text/calendar; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
+        self.send_security_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -10326,6 +10492,7 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         self.send_response(303)
         self.send_header("Location", location)
         self.send_header("Content-Length", "0")
+        self.send_security_headers()
         self.maybe_set_auth_cookie()
         self.end_headers()
 
@@ -10333,7 +10500,8 @@ class AgentCartHandler(BaseHTTPRequestHandler):
         self.send_json({"error": {"message": message, "detail": detail, "status": status}}, status=status)
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        sys.stderr.write("client=<redacted> - - [%s] %s\n" % (self.log_date_time_string(), fmt % args))
+        message = redact_sensitive_query_values(fmt % args)
+        sys.stderr.write("client=<redacted> - - [%s] %s\n" % (self.log_date_time_string(), message))
 
 
 def first_query(query: dict[str, list[str]], key: str, default: str = "") -> str:

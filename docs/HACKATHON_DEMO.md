@@ -31,11 +31,11 @@ Default local judging URLs:
 - Household OS chat: `http://localhost:8088/chat`
 - WooCommerce admin: `http://localhost:8098/wp-admin/` when running `demo/woocommerce`
 
-If `AGENTCART_TOKEN` is configured, open AgentCart browser pages once with the
-token from `.env`, for example:
+If `AGENTCART_TOKEN` is configured, submit the token from `.env` through the
+browser login:
 
 ```text
-http://localhost:8099/demo?token=replace-with-random-agentcart-token
+http://localhost:8099/auth/login?next=%2Fdemo
 ```
 
 ## Preflight
