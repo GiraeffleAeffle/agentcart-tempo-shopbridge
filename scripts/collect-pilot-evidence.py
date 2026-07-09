@@ -12,6 +12,11 @@ from typing import Any
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from evidence_quality import evidence_file_errors
 
 
 def load_tool(name: str, path: pathlib.Path) -> ModuleType:
@@ -47,7 +52,17 @@ def rel(path: pathlib.Path) -> str:
         return str(path)
 
 
-def evidence_item(scope: str, owner_id: str, evidence_id: str, path: pathlib.Path, exists: bool) -> dict[str, Any]:
+def evidence_item(scope: str, owner_id: str, evidence_id: str, path: pathlib.Path) -> dict[str, Any]:
+    exists = path.exists()
+    quality_errors = (
+        evidence_file_errors(
+            path,
+            expected_scope=scope,
+            expected_owner_id=owner_id,
+        )
+        if exists
+        else []
+    )
     return {
         "scope": scope,
         "owner_id": owner_id,
@@ -55,6 +70,8 @@ def evidence_item(scope: str, owner_id: str, evidence_id: str, path: pathlib.Pat
         "path": str(path),
         "path_hint": rel(path),
         "exists": exists,
+        "valid": exists and not quality_errors,
+        "quality_errors": quality_errors,
     }
 
 
@@ -70,7 +87,7 @@ def pilot_evidence_items(checklist: dict[str, Any], evidence_dir: pathlib.Path) 
         for evidence_id in required_evidence:
             evidence_name = str(evidence_id)
             path = evidence_dir / gate_id / f"{evidence_name}.md"
-            items.append(evidence_item("pilot_gate", gate_id, evidence_name, path, path.exists()))
+            items.append(evidence_item("pilot_gate", gate_id, evidence_name, path))
     return items
 
 
@@ -86,16 +103,20 @@ def buyer_evidence_items(matrix: dict[str, Any], evidence_dir: pathlib.Path) -> 
         for evidence_id in required_evidence:
             evidence_name = str(evidence_id)
             path = evidence_dir / runtime_id / f"{evidence_name}.md"
-            items.append(evidence_item("buyer_agent_runtime", runtime_id, evidence_name, path, path.exists()))
+            items.append(evidence_item("buyer_agent_runtime", runtime_id, evidence_name, path))
     return items
 
 
 def summarize_items(items: list[dict[str, Any]]) -> dict[str, int]:
     missing = [item for item in items if not item["exists"]]
+    invalid = [item for item in items if item["exists"] and not item["valid"]]
+    valid = [item for item in items if item["valid"]]
     return {
         "required": len(items),
         "present": len(items) - len(missing),
         "missing": len(missing),
+        "valid": len(valid),
+        "invalid": len(invalid),
     }
 
 
@@ -109,10 +130,17 @@ def result(
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     missing = [item for item in evidence or [] if not item["exists"]]
+    invalid = [item for item in evidence or [] if item["exists"] and not item["valid"]]
     actionable_errors = list(errors)
     actionable_errors.extend(
         f"missing evidence for {item['scope']} {item['owner_id']}: {item['evidence_id']} -> {item['path']}"
         for item in missing
+    )
+    actionable_errors.extend(
+        f"invalid evidence for {item['scope']} {item['owner_id']}: {item['evidence_id']} "
+        f"-> {item['path']}: {quality_error}"
+        for item in invalid
+        for quality_error in item["quality_errors"]
     )
     return {
         "id": gate_id,
@@ -122,6 +150,7 @@ def result(
         "errors": actionable_errors,
         "evidence": evidence or [],
         "missing_evidence": missing,
+        "invalid_evidence": invalid,
         "evidence_summary": summarize_items(evidence or []),
         "details": details or {},
     }
@@ -167,9 +196,14 @@ def validate_buyer_agents(args: argparse.Namespace) -> dict[str, Any]:
 
 def validate_payment_profile(args: argparse.Namespace) -> dict[str, Any]:
     errors: list[str] = []
-    details: dict[str, Any] = {"env_files": [rel(path) for path in args.payment_env_file]}
+    deployment_profile = getattr(args, "payment_profile", "standard")
+    details: dict[str, Any] = {
+        "env_files": [rel(path) for path in args.payment_env_file],
+        "deployment_profile": deployment_profile,
+    }
     try:
         values = payment_profile_tool.parse_env_files(args.payment_env_file)
+        values = payment_profile_tool.apply_deployment_profile(values, deployment_profile)
     except ValueError as exc:
         errors.append(str(exc))
         values = {}
@@ -184,6 +218,7 @@ def validate_payment_profile(args: argparse.Namespace) -> dict[str, Any]:
         details["replay_store_driver"] = values.get("AGENTCART_VERIFIER_REPLAY_STORE_DRIVER", "")
         details["woocommerce_mode"] = values.get("WOOCOMMERCE_MODE", "")
     payment_args = " ".join(f"--env-file {path}" for path in args.payment_env_file)
+    payment_args += f" --deployment-profile {deployment_profile}"
     if args.allow_payment_placeholders:
         payment_args += " --allow-placeholders"
     return result(
@@ -240,6 +275,7 @@ def release_decision_summary(gates: list[dict[str, Any]]) -> dict[str, Any]:
         "blocking_gate_count": len(failed),
         "failed_gate_ids": [gate["id"] for gate in failed],
         "missing_evidence_count": sum(gate["evidence_summary"]["missing"] for gate in gates),
+        "invalid_evidence_count": sum(gate["evidence_summary"]["invalid"] for gate in gates),
         "attach_this_report": True,
     }
 
@@ -277,8 +313,10 @@ def markdown_template(scope: str, owner_id: str, evidence_id: str) -> str:
             "# Non-Maintainer Merchant Setup Walkthrough Notes\n\n"
             f"- Scope: `{scope}`\n"
             f"- Owner id: `{owner_id}`\n"
+            "- Recorded at: TODO\n"
             "- Operator: TODO\n"
             "- Observer: TODO\n"
+            "- Command or source: TODO\n"
             "- Merchant/staging URL: TODO\n"
             "- Started at: TODO\n"
             "- Finished at: TODO\n"
@@ -382,6 +420,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--buyer-agent-matrix", type=pathlib.Path, default=ROOT / "gateway" / "config" / "buyer_agent_test_matrix.json")
     parser.add_argument("--buyer-agent-evidence-dir", type=pathlib.Path, help="Buyer-agent runtime evidence root.")
     parser.add_argument("--payment-env-file", action="append", type=pathlib.Path, help="Production payment env file. Pass multiple files to apply overrides.")
+    parser.add_argument(
+        "--payment-profile",
+        choices=sorted(payment_profile_tool.DEPLOYMENT_PROFILES),
+        default="standard",
+        help="Normalize deployment-specific provisioning keys before validating the payment profile.",
+    )
     parser.add_argument("--allow-payment-placeholders", action="store_true", help="Accept placeholder payment env values for checked-in samples only.")
     parser.add_argument("--woocommerce-matrix", type=pathlib.Path, default=ROOT / "gateway" / "config" / "woocommerce_compatibility_matrix.json")
     parser.add_argument("--run-woocommerce-smoke", action="store_true", help="Run selected WooCommerce compatibility Docker smoke entries.")

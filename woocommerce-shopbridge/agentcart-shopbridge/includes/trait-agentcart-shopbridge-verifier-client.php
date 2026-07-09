@@ -256,7 +256,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         if ($url === '') {
             return new WP_Error(
                 'agentcart_payment_verifier_url_invalid',
-                'Payment verifier URL must be a public HTTP(S) URL without embedded credentials.',
+                'Payment verifier URL must be a public HTTP(S) URL without embedded credentials. Deployment-pinned internal verifier URLs are also accepted.',
                 ['status' => 400]
             );
         }

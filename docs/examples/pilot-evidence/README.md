@@ -10,6 +10,10 @@ python3 scripts/collect-pilot-evidence.py --write-sample pilot-evidence/example-
 
 Then replace every generated `TODO` with real transcripts, command output,
 screenshot references, hashes, URLs, or decision records.
+Each file must retain its generated `Scope` and `Owner id`, and fill in
+`Recorded at`, `Operator`, and `Command or source`, followed by substantive
+content under a level-two heading. The validator rejects draft markers,
+template prompts, and trivial pass statements even when the file exists.
 The operator workflow and replacement rules live in
 `docs/PILOT_EXECUTION_PLAYBOOK.md`.
 
@@ -24,8 +28,8 @@ python3 scripts/collect-pilot-evidence.py \
 ```
 
 Attach `pilot-evidence-report.json` to the release decision. It contains the
-gate ids, missing evidence paths, WooCommerce compatibility result, payment
-profile result, and pass/fail summary.
+gate ids, missing and invalid evidence paths, WooCommerce compatibility result,
+payment profile result, and pass/fail summary.
 
 ## Pilot Evidence Paths
 

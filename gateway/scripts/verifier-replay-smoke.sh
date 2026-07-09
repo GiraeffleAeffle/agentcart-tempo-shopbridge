@@ -86,8 +86,8 @@ AGENTCART_VERIFIER_REPLAY_STORE_PATH="$tmpdir/replay/store.json" \
 AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH="$tmpdir/replay/journal.jsonl" \
 STRIPE_SANDBOX_SECRET_KEY=sk_test_dummy \
 STRIPE_PROFILE_ID=profile_test_dummy \
-MPP_SECRET_KEY=mpp_dummy_secret \
-AGENTCART_PAYMENT_VERIFIER_TOKEN=verifier_dummy \
+MPP_SECRET_KEY=mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm \
+AGENTCART_PAYMENT_VERIFIER_TOKEN=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv \
 AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true \
 AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL=true \
 AGENTCART_VERIFIER_ALERT_WEBHOOK_URL="http://127.0.0.1:$alert_port/agentcart-verifier-alerts" \
@@ -160,7 +160,7 @@ def post(name: str, body: dict) -> tuple[int, dict]:
             "-w",
             "\n%{http_code}",
             "-H",
-            "authorization: Bearer verifier_dummy",
+            "authorization: Bearer vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
             "-H",
             "content-type: application/json",
             "--data-binary",
@@ -193,7 +193,7 @@ unauthorized_metrics = subprocess.run(
 assert unauthorized_metrics.stdout == "401", unauthorized_metrics.stdout
 
 metrics_result = subprocess.run(
-    ["curl", "-fsS", "-H", "authorization: Bearer verifier_dummy", f"http://127.0.0.1:{port}/metrics"],
+    ["curl", "-fsS", "-H", "authorization: Bearer vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv", f"http://127.0.0.1:{port}/metrics"],
     check=True,
     text=True,
     stdout=subprocess.PIPE,

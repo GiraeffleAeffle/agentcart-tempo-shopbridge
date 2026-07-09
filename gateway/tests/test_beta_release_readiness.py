@@ -26,7 +26,18 @@ def write_pilot_evidence(checklist: dict[str, object], root: pathlib.Path) -> No
         gate_dir = root / str(gate["id"])
         gate_dir.mkdir(parents=True)
         for evidence_id in gate["required_evidence"]:
-            (gate_dir / f"{evidence_id}.md").write_text("recorded evidence\n", encoding="utf-8")
+            (gate_dir / f"{evidence_id}.md").write_text(
+                f"# {evidence_id}\n\n"
+                "- Scope: `pilot_gate`\n"
+                f"- Owner id: `{gate['id']}`\n"
+                "- Recorded at: 2026-07-09T18:00:00Z\n"
+                "- Operator: External pilot operator\n"
+                "- Command or source: `agentcart beta release fixture`\n\n"
+                "## Evidence\n\n"
+                "The operator captured the complete command output and verified the expected "
+                "result against the pilot acceptance criteria. The artifact is retained.\n",
+                encoding="utf-8",
+            )
 
 
 def write_buyer_agent_evidence(matrix: dict[str, object], root: pathlib.Path) -> None:
@@ -35,7 +46,18 @@ def write_buyer_agent_evidence(matrix: dict[str, object], root: pathlib.Path) ->
         runtime_dir = root / str(runtime["id"])
         runtime_dir.mkdir(parents=True)
         for evidence_id in runtime["required_evidence"]:
-            (runtime_dir / f"{evidence_id}.md").write_text("runtime evidence\n", encoding="utf-8")
+            (runtime_dir / f"{evidence_id}.md").write_text(
+                f"# {evidence_id}\n\n"
+                "- Scope: `buyer_agent_runtime`\n"
+                f"- Owner id: `{runtime['id']}`\n"
+                "- Recorded at: 2026-07-09T18:00:00Z\n"
+                "- Operator: External pilot operator\n"
+                "- Command or source: `agentcart buyer runtime fixture`\n\n"
+                "## Evidence\n\n"
+                "The runtime completed discovery, quote, approval, checkout handoff, aftercare, "
+                "and audit verification while preserving the required safety constraints.\n",
+                encoding="utf-8",
+            )
 
 
 def write_payment_env(path: pathlib.Path) -> None:
@@ -45,13 +67,13 @@ def write_payment_env(path: pathlib.Path) -> None:
                 "WOOCOMMERCE_MODE=plugin",
                 "AGENTCART_CHECKOUT_MODE=external_verifier_only",
                 "AGENTCART_PAYMENT_VERIFIER_URL=https://verifier.agentcart.test/stripe-mpp/verify",
-                "AGENTCART_PAYMENT_VERIFIER_TOKEN=verifier-token",
+                "AGENTCART_PAYMENT_VERIFIER_TOKEN=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
                 "AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=sqlite",
                 "AGENTCART_VERIFIER_REPLAY_STORE_PATH=/data/verifier/replay-store.sqlite",
                 "AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true",
                 "AGENTCART_SIGNED_REQUEST_MODE=require_mutations",
-                "AGENTCART_SIGNED_REQUEST_SECRET=shared-signing-secret",
-                "WOOCOMMERCE_SIGNED_REQUEST_SECRET=shared-signing-secret",
+                "AGENTCART_SIGNED_REQUEST_SECRET=ssssssssssssssssssssssssssssssssssssssss",
+                "WOOCOMMERCE_SIGNED_REQUEST_SECRET=ssssssssssssssssssssssssssssssssssssssss",
             ]
         )
         + "\n",

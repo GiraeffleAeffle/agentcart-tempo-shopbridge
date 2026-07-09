@@ -1,0 +1,44 @@
+{
+  "artifacts": [
+    {
+      "bytes": 93848,
+      "component": "woocommerce_shopbridge",
+      "file": "dist/agentcart-shopbridge.zip",
+      "sha256": "3eaea200f428b38e5462a116c75923027d9fd0d449c3d7a285b84a505c25c04b",
+      "version": "1.11.1"
+    },
+    {
+      "bytes": 38337,
+      "component": "shopbridge_direct_skill",
+      "file": "dist/shopbridge-direct-skill.zip",
+      "sha256": "0a601825ec44a2107b6d668ab564af8c9d5eec430e6aaf098e5c5c01a1cb6da2",
+      "version": "1.11.1"
+    }
+  ],
+  "components": {
+    "gateway": {
+      "source": "gateway/package.json",
+      "version": "1.11.1"
+    },
+    "shopbridge_direct_skill": {
+      "name": "shopbridge-direct",
+      "source": "gateway/shopbridge-direct-skill/SKILL.md",
+      "version": "1.11.1"
+    },
+    "woocommerce_shopbridge": {
+      "source": "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",
+      "version": "1.11.1"
+    }
+  },
+  "release": {
+    "source_git_commit": "a7a124abc5cbc520ebdcdbf6ce1f5c6ea97f0888",
+    "stability": "alpha",
+    "version": "1.11.1"
+  },
+  "schema": "agentcart.release.v1",
+  "upgrade": {
+    "plugin": "Upload dist/agentcart-shopbridge.zip in WordPress, or replace wp-content/plugins/agentcart-shopbridge after backing up settings.",
+    "rollback": "Keep the previous ZIPs and this manifest; reinstall the previous artifact if verification or smoke tests fail.",
+    "skill": "Replace the installed shopbridge-direct-skill folder or reinstall dist/shopbridge-direct-skill.zip in the buyer agent."
+  }
+}

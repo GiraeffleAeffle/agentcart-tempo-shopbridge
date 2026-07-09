@@ -27,12 +27,20 @@
           - staging.woo_smoke_currency == 'USD'
           - staging.woo_admin_password | length > 0
           - staging.db_password | length > 0
-          - staging.shopbridge_token | length > 0
+          - staging.shopbridge_token | length >= 32
           - staging.tempo_recipient_address | length > 0
-          - staging.payment_verifier_token | length > 0
+          - staging.payment_verifier_token | length >= 32
           - staging.stripe_sandbox_secret_key | length > 0
           - staging.stripe_profile_id | length > 0
-          - staging.mpp_secret_key | length > 0
+          - staging.mpp_secret_key | length >= 32
+          - staging.signed_request_mode in ['require_checkout', 'require_mutations', 'require_all']
+          - staging.signed_request_secret | length >= 32
+          - staging.shopbridge_token != staging.payment_verifier_token
+          - staging.shopbridge_token != staging.mpp_secret_key
+          - staging.shopbridge_token != staging.signed_request_secret
+          - staging.payment_verifier_token != staging.mpp_secret_key
+          - staging.payment_verifier_token != staging.signed_request_secret
+          - staging.mpp_secret_key != staging.signed_request_secret
         fail_msg: "Run deploy/hetzner-staging/scripts/generate-usd-staging-secrets.sh first."
       no_log: true
 
@@ -101,6 +109,12 @@
         - scripts/stripe-mpp-verifier.mjs
         - scripts/verifier-sqlite-replay-store.mjs
 
+    - name: Copy verifier container definition
+      ansible.builtin.copy:
+        src: "{{ verifier_src }}/Dockerfile.verifier"
+        dest: "{{ app_dir }}/verifier/Dockerfile"
+        mode: "0644"
+
     - name: Render USD Docker Compose file
       ansible.builtin.template:
         src: usd-docker-compose.yml.j2
@@ -119,6 +133,31 @@
         cmd: docker compose up -d db
         chdir: "{{ app_dir }}"
       changed_when: true
+
+    - name: Build USD verifier image with SQLite support
+      ansible.builtin.command:
+        cmd: docker compose build verifier
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Stop checkout services before replay-store migration
+      ansible.builtin.command:
+        cmd: docker compose stop wordpress verifier
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    - name: Import legacy JSON replay claims into SQLite when present
+      ansible.builtin.command:
+        cmd: >-
+          docker compose run --rm --no-deps verifier sh -c
+          'if [ -f /data/replay-store.json ]; then
+          node scripts/verifier-sqlite-replay-store.mjs import-json
+          --source /data/replay-store.json --db /data/replay-store.sqlite;
+          else node scripts/verifier-sqlite-replay-store.mjs diagnostics
+          --db /data/replay-store.sqlite; fi'
+        chdir: "{{ app_dir }}"
+      register: replay_migration
+      changed_when: "'\"imported\": 0' not in replay_migration.stdout"
 
     - name: Recreate USD verifier and WordPress staging stack
       ansible.builtin.command:

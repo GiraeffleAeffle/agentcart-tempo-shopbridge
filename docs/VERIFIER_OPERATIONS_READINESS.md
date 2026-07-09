@@ -43,6 +43,11 @@ Required metrics fields:
 
 Use the production payment overlay as the shape for real pilot env files:
 
+All shared secrets in that profile must contain at least 32 characters. Keep
+the payment-verifier bearer token, merchant gateway token, MPP secret, and
+signed-request HMAC secret distinct; only the matching merchant and buyer HMAC
+copies are intentionally equal.
+
 ```env
 AGENTCART_CHECKOUT_MODE=external_verifier_only
 AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=sqlite

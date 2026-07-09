@@ -22,6 +22,11 @@ python3 scripts/check-pilot-readiness.py \
   --require-evidence
 ```
 
+The gate validates content as well as file names. Each evidence file must record
+its expected scope and owner id, timestamp, operator, command or source, and a
+substantive level-two evidence section. Files containing `TODO`, draft markers,
+template prompts, or trivial pass statements are reported as invalid.
+
 For an external beta/release decision, use the stricter gate. It requires pilot
 evidence, buyer-agent runtime evidence, a production-shaped payment profile, and
 the WooCommerce compatibility matrix. It also writes a JSON report that can be
@@ -55,6 +60,10 @@ Generate a sample evidence folder first when setting up a new pilot:
 ```sh
 python3 scripts/collect-pilot-evidence.py --write-sample pilot-evidence/example-shop
 ```
+
+The generated folder is intentionally invalid until the operator replaces every
+placeholder with real evidence. The JSON report distinguishes missing, invalid,
+and valid evidence counts.
 
 The checked-in folder guide at `docs/examples/pilot-evidence/README.md`
 documents the expected transcript names and evidence path layout.

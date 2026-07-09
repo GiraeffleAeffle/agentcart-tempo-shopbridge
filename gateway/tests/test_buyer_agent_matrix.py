@@ -22,6 +22,20 @@ def load_matrix() -> dict[str, object]:
     return json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
 
 
+def valid_evidence(evidence_id: str, owner_id: str) -> str:
+    return (
+        f"# {evidence_id}\n\n"
+        "- Scope: `buyer_agent_runtime`\n"
+        f"- Owner id: `{owner_id}`\n"
+        "- Recorded at: 2026-07-09T18:00:00Z\n"
+        "- Operator: External pilot operator\n"
+        "- Command or source: `agentcart buyer runtime fixture`\n\n"
+        "## Evidence\n\n"
+        "The runtime completed discovery, quote, approval, checkout handoff, aftercare, "
+        "and audit verification while preserving all required hashes and safety constraints.\n"
+    )
+
+
 class BuyerAgentMatrixTest(unittest.TestCase):
     def test_checked_in_matrix_is_valid(self) -> None:
         errors = buyer_agent_matrix_tool.validate_matrix(load_matrix())
@@ -75,11 +89,38 @@ class BuyerAgentMatrixTest(unittest.TestCase):
             runtime_dir = evidence_dir / first_runtime["id"]
             runtime_dir.mkdir(parents=True)
             for evidence_id in first_runtime["required_evidence"]:
-                (runtime_dir / f"{evidence_id}.md").write_text("ok\n", encoding="utf-8")
+                (runtime_dir / f"{evidence_id}.md").write_text(
+                    valid_evidence(evidence_id, first_runtime["id"]),
+                    encoding="utf-8",
+                )
 
             errors = buyer_agent_matrix_tool.validate_evidence(matrix, evidence_dir)
 
         self.assertEqual([], errors)
+
+    def test_evidence_check_rejects_placeholder_runtime_files(self) -> None:
+        matrix = load_matrix()
+        first_runtime = matrix["runtimes"][0]
+        first_evidence_id = first_runtime["required_evidence"][0]
+        first_runtime["required_evidence"] = [first_evidence_id]
+        matrix["runtimes"] = [first_runtime]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = pathlib.Path(tmp)
+            runtime_dir = evidence_dir / first_runtime["id"]
+            runtime_dir.mkdir(parents=True)
+            (runtime_dir / f"{first_evidence_id}.md").write_text(
+                f"# {first_evidence_id}\n\n"
+                "- Recorded at: TODO\n"
+                "- Operator: TODO\n"
+                "- Command or source: TODO\n\n"
+                "## Evidence\n\nPaste the transcript here.\n",
+                encoding="utf-8",
+            )
+
+            errors = buyer_agent_matrix_tool.validate_evidence(matrix, evidence_dir)
+
+        self.assertTrue(any("incomplete marker" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

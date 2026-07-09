@@ -300,6 +300,141 @@ SELECT json_object(
   };
 }
 
+function legacyReplayMetadata(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw Object.assign(new Error("legacy replay entry must be an object"), { status: 400 });
+  }
+  const metadata = { ...entry };
+  delete metadata.first_seen_at;
+  delete metadata.last_seen_at;
+  delete metadata.replay_count;
+  delete metadata.request_hash;
+  return normalizeReplayMetadata(metadata);
+}
+
+export function importJsonReplayStore({
+  sourcePath,
+  dbPath,
+  busyTimeoutMs = DEFAULT_BUSY_TIMEOUT_MS,
+}) {
+  if (!sourcePath) throw Object.assign(new Error("legacy JSON replay store path is required"), { status: 400 });
+  if (!fs.existsSync(sourcePath)) {
+    throw Object.assign(new Error("legacy JSON replay store does not exist"), { status: 404 });
+  }
+  let legacy;
+  try {
+    legacy = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
+  } catch (error) {
+    throw Object.assign(new Error(`legacy JSON replay store is invalid: ${error.message}`), { status: 400 });
+  }
+  if (!legacy || typeof legacy !== "object" || Array.isArray(legacy)) {
+    throw Object.assign(new Error("legacy JSON replay store must be an object"), { status: 400 });
+  }
+  if (legacy.schema && legacy.schema !== "agentcart.verifierReplay.v1") {
+    throw Object.assign(new Error(`unsupported legacy replay schema: ${legacy.schema}`), { status: 400 });
+  }
+
+  ensureSQLiteReplayStore(dbPath, { busyTimeoutMs });
+  const result = {
+    ok: true,
+    schema: "agentcart.verifierReplay.sqlite-import.v1",
+    imported: 0,
+    skipped: 0,
+    counts: { payments: 0, refund_requests: 0, refunds: 0 },
+  };
+  const claims = [];
+  for (const bucket of BUCKETS) {
+    const entries = legacy[bucket] ?? {};
+    if (!entries || typeof entries !== "object" || Array.isArray(entries)) {
+      throw Object.assign(new Error(`legacy replay bucket must be an object: ${bucket}`), { status: 400 });
+    }
+    for (const [reference, entry] of Object.entries(entries)) {
+      const key = String(reference || "").trim();
+      if (!key) throw Object.assign(new Error(`legacy replay reference is empty in ${bucket}`), { status: 400 });
+      const metadata = legacyReplayMetadata(entry);
+      const referenceHash = replayReferenceHash(key);
+      const requestHash = String(entry.request_hash || replayRequestHash(bucket, key, metadata));
+      if (!/^[a-f0-9]{64}$/i.test(requestHash)) {
+        throw Object.assign(new Error(`legacy replay request hash is invalid in ${bucket}`), { status: 400 });
+      }
+      const firstSeenAt = String(entry.first_seen_at || new Date().toISOString());
+      const lastSeenAt = String(entry.last_seen_at || firstSeenAt);
+      const replayCount = Math.max(0, Number.parseInt(entry.replay_count ?? 0, 10) || 0);
+      claims.push({
+        bucket,
+        referenceHash,
+        requestHash,
+        metadataJson: JSON.stringify(metadata),
+        firstSeenAt,
+        lastSeenAt,
+        replayCount,
+      });
+      result.counts[bucket] += 1;
+    }
+  }
+
+  // Check the complete source before writing any claim. With checkout services
+  // stopped during migration, this makes a known conflict fail without a
+  // partial import; an interrupted insert remains safe to resume idempotently.
+  for (const claim of claims) {
+    const existing = sqliteJsonRows(
+      dbPath,
+      `SELECT request_hash FROM replay_claims
+       WHERE bucket = ${sqlString(claim.bucket)}
+         AND reference_hash = ${sqlString(claim.referenceHash)};`,
+    );
+    if (existing.length && existing[0].request_hash !== claim.requestHash) {
+      throw Object.assign(
+        new Error(`legacy replay import conflicts with an existing ${claim.bucket} claim`),
+        { status: 409 },
+      );
+    }
+  }
+
+  for (const claim of claims) {
+      const row = sqliteLastJsonObject(
+        dbPath,
+        `
+PRAGMA busy_timeout=${Number(busyTimeoutMs) || DEFAULT_BUSY_TIMEOUT_MS};
+BEGIN IMMEDIATE;
+INSERT OR IGNORE INTO replay_claims(
+  bucket,
+  reference_hash,
+  request_hash,
+  metadata_json,
+  first_seen_at,
+  last_seen_at,
+  replay_count
+) VALUES (
+  ${sqlString(claim.bucket)},
+  ${sqlString(claim.referenceHash)},
+  ${sqlString(claim.requestHash)},
+  ${sqlString(claim.metadataJson)},
+  ${sqlString(claim.firstSeenAt)},
+  ${sqlString(claim.lastSeenAt)},
+  ${claim.replayCount}
+);
+CREATE TEMP TABLE import_result AS SELECT changes() AS inserted;
+COMMIT;
+SELECT json_object(
+  'inserted', (SELECT inserted FROM import_result),
+  'request_hash', request_hash
+) FROM replay_claims
+WHERE bucket = ${sqlString(claim.bucket)} AND reference_hash = ${sqlString(claim.referenceHash)};
+`,
+      );
+      if (row.request_hash !== claim.requestHash) {
+        throw Object.assign(
+          new Error(`legacy replay import conflicts with an existing ${claim.bucket} claim`),
+          { status: 409 },
+        );
+      }
+      if (Number(row.inserted) === 1) result.imported += 1;
+      else result.skipped += 1;
+  }
+  return result;
+}
+
 function parseArgs(argv) {
   const args = { _: [] };
   for (let index = 0; index < argv.length; index += 1) {
@@ -349,7 +484,21 @@ function cli() {
       );
       return 0;
     }
-    console.error("usage: verifier-sqlite-replay-store.mjs <claim|diagnostics> --db PATH [options]");
+    if (command === "import-json") {
+      console.log(
+        JSON.stringify(
+          importJsonReplayStore({
+            sourcePath: args.source || "",
+            dbPath: args.db || "",
+            busyTimeoutMs: Number(args["busy-timeout-ms"] || DEFAULT_BUSY_TIMEOUT_MS),
+          }),
+          null,
+          2,
+        ),
+      );
+      return 0;
+    }
+    console.error("usage: verifier-sqlite-replay-store.mjs <claim|diagnostics|import-json> --db PATH [options]");
     return 2;
   } catch (error) {
     console.error(

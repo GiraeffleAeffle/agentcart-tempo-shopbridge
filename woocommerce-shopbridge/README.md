@@ -117,6 +117,10 @@ define('AGENTCART_PRODUCT_EXPOSURE_MODE', 'tag'); // manual, tag, category, or a
 define('AGENTCART_PRODUCT_EXPOSURE_TAG', 'agentcart-safe');
 ```
 
+For production-shaped testing, generate at least 32 random characters for each
+shared secret. The merchant token, payment-verifier bearer token, and
+signed-request secret must be distinct credentials.
+
 Constants override values saved from the WordPress admin settings page.
 Merchants who do not manage settings through deployment config can set the same
 stable merchant id from `WooCommerce -> AgentCart`. The id is published in the

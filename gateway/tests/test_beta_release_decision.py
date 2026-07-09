@@ -39,18 +39,39 @@ def write_payment_env(path: pathlib.Path) -> None:
                 "WOOCOMMERCE_MODE=plugin",
                 "AGENTCART_CHECKOUT_MODE=external_verifier_only",
                 "AGENTCART_PAYMENT_VERIFIER_URL=https://verifier.agentcart.test/stripe-mpp/verify",
-                "AGENTCART_PAYMENT_VERIFIER_TOKEN=verifier-token",
+                "AGENTCART_PAYMENT_VERIFIER_TOKEN=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
                 "AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=sqlite",
                 "AGENTCART_VERIFIER_REPLAY_STORE_PATH=/data/verifier/replay-store.sqlite",
                 "AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true",
                 "AGENTCART_SIGNED_REQUEST_MODE=require_mutations",
-                "AGENTCART_SIGNED_REQUEST_SECRET=shared-signing-secret",
-                "WOOCOMMERCE_SIGNED_REQUEST_SECRET=shared-signing-secret",
+                "AGENTCART_SIGNED_REQUEST_SECRET=ssssssssssssssssssssssssssssssssssssssss",
+                "WOOCOMMERCE_SIGNED_REQUEST_SECRET=ssssssssssssssssssssssssssssssssssssssss",
             ]
         )
         + "\n",
         encoding="utf-8",
     )
+
+
+def fill_sample_evidence(sample_root: pathlib.Path) -> None:
+    for path in sample_root.rglob("*.md"):
+        if path.name == "README.md":
+            continue
+        scope = "buyer_agent_runtime" if "buyer-agents" in path.parts else "pilot_gate"
+        owner_id = path.parent.name
+        evidence_id = path.stem
+        path.write_text(
+            f"# {evidence_id}\n\n"
+            f"- Scope: `{scope}`\n"
+            f"- Owner id: `{owner_id}`\n"
+            "- Recorded at: 2026-07-09T18:00:00Z\n"
+            "- Operator: Pilot release decision fixture operator\n"
+            "- Command or source: `agentcart beta release decision fixture`\n\n"
+            "## Evidence\n\n"
+            "The fixture records the complete command, observed result, acceptance criteria, "
+            "and retained artifact reference required for a valid release decision report.\n",
+            encoding="utf-8",
+        )
 
 
 def runner_args(
@@ -190,6 +211,7 @@ class BetaReleaseDecisionTest(unittest.TestCase):
                     write_sample=sample_root,
                 )
             )
+            fill_sample_evidence(sample_root)
             report = evidence_tool.collect_evidence(
                 runner_args(
                     pilot_evidence_dir=sample_root / "pilot",
@@ -231,7 +253,7 @@ class BetaReleaseDecisionTest(unittest.TestCase):
         self.assertIn("Support channel: support@example.test", decision)
         self.assertIn("Observation window: 14 days", decision)
         self.assertIn("sandbox evidence only in this fixture", decision)
-        self.assertIn("present at", decision)
+        self.assertIn("valid at", decision)
 
 
 if __name__ == "__main__":

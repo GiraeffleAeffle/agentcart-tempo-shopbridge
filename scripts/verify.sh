@@ -193,6 +193,9 @@ if [ "${AGENTCART_BETA_RELEASE_GATE:-0}" = "1" ]; then
   if [ -n "${AGENTCART_WOO_COMPATIBILITY_ENTRY:-}" ]; then
     evidence_args+=(--woocommerce-entry "$AGENTCART_WOO_COMPATIBILITY_ENTRY")
   fi
+  if [ -n "${AGENTCART_PAYMENT_DEPLOYMENT_PROFILE:-}" ]; then
+    evidence_args+=(--payment-profile "$AGENTCART_PAYMENT_DEPLOYMENT_PROFILE")
+  fi
   python3 "$ROOT_DIR/scripts/collect-pilot-evidence.py" \
     --pilot-evidence-dir "$AGENTCART_PILOT_EVIDENCE_DIR" \
     --buyer-agent-evidence-dir "$AGENTCART_BUYER_AGENT_EVIDENCE_DIR" \
@@ -238,7 +241,7 @@ bash -n "$ROOT_DIR/scripts/prepare-semantic-release.sh"
 node -e "const c=require(process.argv[1]); if (!Array.isArray(c.plugins) || !c.plugins.length) process.exit(1)" "$ROOT_DIR/release.config.cjs"
 
 section "Compose config"
-AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=verify-token AGENTCART_REGISTRY_SUBMIT_TOKEN=verify-registry-token \
+AGENTCART_PUBLIC_URL=http://localhost:8099 AGENTCART_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AGENTCART_REGISTRY_SUBMIT_TOKEN=rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr \
   docker compose -f "$ROOT_DIR/gateway/docker-compose.yml" config >/dev/null
 docker compose -f "$ROOT_DIR/demo/woocommerce/docker-compose.yml" config >/dev/null
 docker compose \
@@ -296,8 +299,8 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker run -d --rm --name "$container" \
     -e AGENTCART_BIND=0.0.0.0 \
-    -e AGENTCART_TOKEN=verify-token \
-    -e AGENTCART_REGISTRY_SUBMIT_TOKEN=verify-registry-token \
+    -e AGENTCART_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    -e AGENTCART_REGISTRY_SUBMIT_TOKEN=rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr \
     -p 127.0.0.1:18099:8099 "$image" >/dev/null
   cleanup() {
     docker rm -f "$container" >/dev/null 2>&1 || true

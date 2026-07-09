@@ -8,6 +8,13 @@ import sys
 from typing import Any
 
 
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from evidence_quality import evidence_file_errors
+
+
 REQUIRED_GATE_IDS = {
     "pilot-merchant-onboarding",
     "pilot-buyer-agent-setup",
@@ -117,6 +124,15 @@ def validate_evidence(data: dict[str, Any], evidence_dir: pathlib.Path) -> list[
             evidence_file = evidence_dir / gate_id / f"{evidence_id}.md"
             if not evidence_file.exists():
                 errors.append(f"missing evidence file: {evidence_file}")
+                continue
+            errors.extend(
+                f"invalid evidence file: {evidence_file}: {error}"
+                for error in evidence_file_errors(
+                    evidence_file,
+                    expected_scope="pilot_gate",
+                    expected_owner_id=gate_id,
+                )
+            )
     return errors
 
 
@@ -131,9 +147,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--evidence-dir",
         type=pathlib.Path,
-        help="Optional pilot evidence directory. With --require-evidence, each required evidence item must exist as <gate>/<evidence>.md.",
+        help=(
+            "Optional pilot evidence directory. With --require-evidence, each required evidence item must exist "
+            "as <gate>/<evidence>.md and pass placeholder, metadata, and substantive-content validation."
+        ),
     )
-    parser.add_argument("--require-evidence", action="store_true", help="Require all evidence files under --evidence-dir.")
+    parser.add_argument(
+        "--require-evidence",
+        action="store_true",
+        help="Require all evidence files under --evidence-dir and reject templates, drafts, and trivial content.",
+    )
     args = parser.parse_args(argv)
 
     data = load_json(args.checklist)

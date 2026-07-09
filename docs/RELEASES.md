@@ -181,6 +181,11 @@ python3 scripts/collect-pilot-evidence.py \
   --report-out pilot-evidence-report.json
 ```
 
+This gate validates evidence content, not only path presence. Evidence must have
+the expected scope and owner id, timestamp, operator, command or source, and a
+substantive markdown section. `TODO`, draft, template, and trivial files are
+counted as invalid in the report and block a passing release decision.
+
 After the evidence report is written, generate the supervised decision record:
 
 ```sh
@@ -201,6 +206,9 @@ Start a new evidence folder with:
 ```sh
 python3 scripts/collect-pilot-evidence.py --write-sample pilot-evidence/example-shop
 ```
+
+Generated samples are deliberately release-invalid until their placeholders are
+replaced with real staging artifacts.
 
 Use `docs/PILOT_EXECUTION_PLAYBOOK.md` before the first staging merchant run.
 It includes the no-credential dry run, the real-pilot evidence command, and the

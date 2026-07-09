@@ -48,6 +48,8 @@ python3 scripts/collect-pilot-evidence.py \
 The release owner attaches `pilot-evidence-report.json` to the decision record.
 The report is useful only when every evidence file points to real staging
 commands, transcripts, screenshots, hashes, URLs, or operator notes.
+The runner rejects files that merely exist but still contain placeholders,
+unsigned draft markers, mismatched scope/owner metadata, or trivial content.
 
 ## Decision Record
 

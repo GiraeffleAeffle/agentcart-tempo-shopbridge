@@ -156,6 +156,15 @@ Smoke-test the USD quote path:
 scripts/woocommerce-usd-staging-smoke.sh
 ```
 
+After deploying a release candidate, run the non-mutating release gate. It
+validates the local Hetzner USD provisioning secrets as their rendered payment
+profile and requires the live shop capability document to report production
+readiness:
+
+```sh
+scripts/woocommerce-usd-staging-smoke.sh --release-gate
+```
+
 Run the mutable endpoint harness after checking that the shop can be reset:
 
 ```sh
@@ -176,9 +185,18 @@ must enable.
 
 The Hetzner staging compose templates set
 `AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL=1` because WordPress calls the
-verifier through an internal Docker service name. That override is for
-supervised staging only; production payment profiles must use a verifier URL
-that resolves to public IP addresses and leave the override unset or false.
+verifier through an internal Docker service name. They also set
+`AGENTCART_PAYMENT_VERIFIER_TRUST_MODE=pinned_internal` through deployment-managed
+WordPress constants. This narrow profile is accepted only for the fixed internal
+service; normal production profiles still require a public verifier URL and
+must leave the private-network override unset or false.
+
+The verifier replay store is SQLite. During upgrades, the playbook imports an
+existing `/data/replay-store.json` into `/data/replay-store.sqlite` before it
+recreates the verifier. WordPress and the verifier are stopped for this short
+migration window so no checkout can add a replay claim after the snapshot.
+Re-running the importer skips identical claims and fails on conflicting claims,
+preserving replay protection across the change.
 
 The USD endpoint harness uses a quote-bound demo Tempo proof so checkout,
 status, cancellation, idempotency, signed checkout enforcement, and verifier
