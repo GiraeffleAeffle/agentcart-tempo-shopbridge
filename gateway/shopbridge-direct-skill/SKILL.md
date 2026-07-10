@@ -1,7 +1,8 @@
 ---
 name: shopbridge-direct
 description: Buy from an AgentCart ShopBridge WooCommerce merchant directly, without running the AgentCart buyer service. Use for lightweight buyer integration where approval happens in chat and the merchant exposes manifest, catalog, quote, order, and status endpoints.
-version: 0.1.0-alpha
+metadata:
+  version: "0.1.0-alpha"
 ---
 
 # ShopBridge Direct Skill
@@ -10,6 +11,18 @@ Use this skill when the buyer does not run the AgentCart service. The agent
 talks directly to a merchant's ShopBridge plugin. In alpha mode the merchant is
 selected with `SHOPBRIDGE_BASE_URL`; in production this should be resolved from
 a verified merchant registry record before any catalog or quote call.
+
+The portable runtime contract is model- and harness-neutral: `SKILL.md`
+contains the workflow, while `scripts/shopbridge-command.py` accepts JSON on
+stdin and returns JSON on stdout. Files under `agents/` are optional
+platform-presentation adapters. In particular, `agents/openai.yaml` may be
+ignored or removed outside Codex/OpenAI environments. The workflow and command
+helper do not call an OpenAI API.
+
+A harness with native skill-folder support can load this folder directly. A
+harness without that feature can provide `SKILL.md` as instructions and expose
+the command helper as a local process/tool; it does not need a separate
+ShopBridge buyer service.
 
 This is the lowest-friction buyer path. It is intentionally weaker than the
 AgentCart service path: approval is chat-local, and there is no durable

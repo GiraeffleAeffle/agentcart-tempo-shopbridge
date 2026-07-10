@@ -11,6 +11,7 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$")
+SKILL_VERSION_PATTERN = r'^(\s+version:\s*")[^"]+("\s*)$'
 
 
 def fail(message: str) -> None:
@@ -80,9 +81,9 @@ def stamp_all(version: str, *, check: bool) -> None:
     )
     stamp_text_file(
         ROOT / "gateway/shopbridge-direct-skill/SKILL.md",
-        r"^(version:\s*)[^\s]+(\s*)$",
+        SKILL_VERSION_PATTERN,
         rf"\g<1>{version}\g<2>",
-        "ShopBridge direct skill frontmatter",
+        "ShopBridge direct skill metadata",
         check=check,
     )
 

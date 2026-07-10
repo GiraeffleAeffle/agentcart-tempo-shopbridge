@@ -25,7 +25,7 @@ Version stamping updates the release workspace before packaging:
 - `gateway/package.json` and `gateway/package-lock.json`;
 - WooCommerce plugin `Version:` header;
 - WordPress plugin `readme.txt` `Stable tag`;
-- direct skill `version:` frontmatter.
+- direct skill `metadata.version` in `SKILL.md`.
 
 The generated ZIPs and manifest stay out of git. Git tags and GitHub Release
 assets are the distribution channel.
@@ -53,9 +53,15 @@ feat!: major release
 
 You can also add a `BREAKING CHANGE:` footer for a major release.
 
+Because GitHub squash merges use the pull-request title as the commit subject,
+PR titles must also use conventional-commit syntax. The PR-title workflow
+rejects untyped titles before merge. `feat`, `fix`, `perf`, and `revert`
+trigger releases; types such as `docs`, `test`, and `chore` are valid but
+intentionally do not.
+
 ## Release Notes
 
-### Next patch release
+### Next release
 
 - Ship the USD WooCommerce staging production-readiness fixes: signed checkout
   request enforcement, configured tax/shipping readiness, saved catalog exposure

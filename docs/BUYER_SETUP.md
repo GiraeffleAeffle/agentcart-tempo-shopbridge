@@ -10,7 +10,7 @@
 
 | Mode | Install | Best for | Tradeoff |
 | --- | --- | --- | --- |
-| Skill-only ShopBridge | Install the release ZIP `shopbridge-direct-skill.zip`; source installs can copy `gateway/shopbridge-direct-skill` into the agent's skill folder | A buyer agent that can run local scripts and talk directly to verified ShopBridge merchants | Approval and audit are local to the agent chat unless the agent provides persistence |
+| Skill-only ShopBridge | Install the release ZIP `shopbridge-direct-skill.zip`; source installs can copy `gateway/shopbridge-direct-skill` into the harness's skill folder or tool workspace | A buyer agent that can run local scripts and talk directly to verified ShopBridge merchants | Approval and audit are local to the agent chat unless the agent provides persistence |
 | AgentCart service | Run `deploy/home-server` and install `gateway/openclaw-skill` | Household policy, Home Assistant/Vikunja/calendar/audit integrations, durable approvals | More moving parts and a local service to operate |
 
 Both modes only use opt-in ShopBridge merchants. Do not scrape normal shop
@@ -46,8 +46,22 @@ This creates:
 dist/shopbridge-direct-skill.zip
 ```
 
-Install by extracting the ZIP into the buyer agent's skills directory. Source
-installs can copy this folder directly:
+The ZIP is only a download/transport archive. Its portable core is one
+`shopbridge-direct-skill/` folder with the required `SKILL.md` and deterministic
+JSON-in/JSON-out HTTP command helper in `scripts/shopbridge-command.py`. It also
+includes optional Codex/OpenAI UI metadata in `agents/openai.yaml`; other
+harnesses may ignore or remove that file. The core does not import it or call an
+OpenAI API.
+
+There is no universal auto-install convention shared by every agent harness.
+Harnesses that load skill folders can import the extracted folder directly.
+For a harness without native skill support, provide `SKILL.md` as the model's
+workflow instructions and expose `scripts/shopbridge-command.py` as a local
+process/tool using JSON over stdin/stdout. This is a thin harness adapter, not
+an additional ShopBridge service.
+
+Install by extracting the ZIP into the buyer agent's skills directory or tool
+workspace. Source installs can copy this folder directly:
 
 ```text
 gateway/shopbridge-direct-skill
