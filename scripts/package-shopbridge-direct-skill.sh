@@ -17,6 +17,8 @@ if [ ! -f "$SKILL_DIR/scripts/shopbridge-command.py" ]; then
   exit 1
 fi
 
+python3 "$ROOT_DIR/scripts/check-shopbridge-direct-skill-package.py" --skill-dir "$SKILL_DIR"
+
 mkdir -p "$DIST_DIR"
 rm -f "$ZIP_PATH"
 
@@ -41,5 +43,9 @@ find "$STAGING_DIR" -exec touch -t 202001010000 {} +
   cd "$TMP_DIR"
   find "$SKILL_SLUG" -type f | LC_ALL=C sort | zip -X -q "$ZIP_PATH" -@
 )
+
+python3 "$ROOT_DIR/scripts/check-shopbridge-direct-skill-package.py" \
+  --skill-dir "$SKILL_DIR" \
+  --zip "$ZIP_PATH"
 
 echo "Created $ZIP_PATH"

@@ -38,8 +38,10 @@ py311_files=(
   gateway/shopbridge-direct-skill/scripts/shopbridge-command.py
   household-os/household_os.py
   scripts/build-release-manifest.py
+  scripts/check-conventional-title.py
   scripts/check-buyer-agent-adapter-examples.py
   scripts/check-shopbridge-endpoint-contract.py
+  scripts/check-shopbridge-direct-skill-package.py
   scripts/check-wordpress-plugin-package.py
   scripts/check-wordpress-plugin-review.py
   scripts/check-wordpress-official-gates.py
@@ -270,7 +272,10 @@ bash -n "$ROOT_DIR/scripts/package-shopbridge-direct-skill.sh"
 "$ROOT_DIR/scripts/package-shopbridge-direct-skill.sh"
 skill_zip_listing="$(unzip -l "$ROOT_DIR/dist/shopbridge-direct-skill.zip")"
 grep -q "shopbridge-direct-skill/SKILL.md" <<<"$skill_zip_listing"
+grep -q "shopbridge-direct-skill/agents/openai.yaml" <<<"$skill_zip_listing"
 grep -q "shopbridge-direct-skill/scripts/shopbridge-command.py" <<<"$skill_zip_listing"
+python3 "$ROOT_DIR/scripts/check-shopbridge-direct-skill-package.py" \
+  --zip "$ROOT_DIR/dist/shopbridge-direct-skill.zip"
 
 section "Build release manifest"
 python3 "$ROOT_DIR/scripts/build-release-manifest.py"

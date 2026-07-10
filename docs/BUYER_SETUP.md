@@ -46,6 +46,12 @@ This creates:
 dist/shopbridge-direct-skill.zip
 ```
 
+The ZIP is only a download/transport archive. It contains one installable
+`shopbridge-direct-skill/` folder with the required `SKILL.md`, UI metadata in
+`agents/openai.yaml`, and the deterministic HTTP command helper in
+`scripts/shopbridge-command.py`. Extract or import that folder into the buyer
+agent's skills directory; no ZIP runtime or AgentCart buyer daemon is involved.
+
 Install by extracting the ZIP into the buyer agent's skills directory. Source
 installs can copy this folder directly:
 
