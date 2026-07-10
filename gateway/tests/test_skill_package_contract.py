@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import shutil
 import sys
+import tempfile
 import unittest
+import zipfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -21,11 +24,30 @@ class SkillPackageContractTest(unittest.TestCase):
 
         self.assertEqual([], errors)
 
-    def test_required_files_define_folder_not_zip_runtime(self) -> None:
+    def test_required_files_define_portable_core(self) -> None:
         self.assertEqual(
-            {"SKILL.md", "agents/openai.yaml", "scripts/shopbridge-command.py"},
-            skill_package.REQUIRED_FILES,
+            {"SKILL.md", "scripts/shopbridge-command.py"},
+            skill_package.PORTABLE_REQUIRED_FILES,
         )
+
+    def test_openai_metadata_is_an_optional_adapter(self) -> None:
+        self.assertEqual({"agents/openai.yaml"}, skill_package.OPTIONAL_ADAPTER_FILES)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            portable_skill = pathlib.Path(temporary_directory) / "shopbridge-direct-skill"
+            shutil.copytree(ROOT / "gateway" / "shopbridge-direct-skill", portable_skill)
+            shutil.rmtree(portable_skill / "agents")
+
+            self.assertEqual([], skill_package.validate_skill_dir(portable_skill))
+
+    def test_portable_zip_does_not_require_openai_adapter(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            zip_path = pathlib.Path(temporary_directory) / "shopbridge-direct-skill.zip"
+            with zipfile.ZipFile(zip_path, "w") as archive:
+                archive.writestr("shopbridge-direct-skill/SKILL.md", "portable workflow")
+                archive.writestr("shopbridge-direct-skill/scripts/shopbridge-command.py", "")
+
+            self.assertEqual([], skill_package.validate_zip(zip_path))
 
 
 if __name__ == "__main__":

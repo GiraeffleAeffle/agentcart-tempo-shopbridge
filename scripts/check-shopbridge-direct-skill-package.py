@@ -10,11 +10,11 @@ import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "gateway" / "shopbridge-direct-skill"
-REQUIRED_FILES = {
+PORTABLE_REQUIRED_FILES = {
     "SKILL.md",
-    "agents/openai.yaml",
     "scripts/shopbridge-command.py",
 }
+OPTIONAL_ADAPTER_FILES = {"agents/openai.yaml"}
 FORBIDDEN_PARTS = {"__pycache__", ".DS_Store", "__MACOSX"}
 SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$")
 
@@ -28,7 +28,7 @@ def skill_frontmatter(source: str) -> str:
 
 def validate_skill_dir(skill_dir: pathlib.Path = SKILL_DIR) -> list[str]:
     errors: list[str] = []
-    for relative in sorted(REQUIRED_FILES):
+    for relative in sorted(PORTABLE_REQUIRED_FILES):
         if not (skill_dir / relative).is_file():
             errors.append(f"required skill file is missing: {relative}")
     skill_path = skill_dir / "SKILL.md"
@@ -74,7 +74,7 @@ def validate_zip(zip_path: pathlib.Path) -> list[str]:
     if any(not name.startswith(prefix) for name in names):
         errors.append("every ZIP entry must be inside shopbridge-direct-skill/")
     relative_names = {name.removeprefix(prefix) for name in names if name.startswith(prefix)}
-    missing = REQUIRED_FILES - relative_names
+    missing = PORTABLE_REQUIRED_FILES - relative_names
     if missing:
         errors.append(f"ZIP is missing required files: {', '.join(sorted(missing))}")
     for name in sorted(relative_names):
