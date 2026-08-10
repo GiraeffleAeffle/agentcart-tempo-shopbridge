@@ -1,0 +1,100 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-default-deny
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agentcart-shopbridge.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+---
+{{- if and .Values.ingress.enabled .Values.certificate.create }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-cert-manager-http01
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 8089}
+---
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-storefront
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agentcart-shopbridge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: storefront
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 14 }}
+        {{- range .Values.networkPolicy.ingressSourceCidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "agentcart-shopbridge.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: database
+      ports:
+        - {protocol: TCP, port: 3306}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsNamespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsPodSelector | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.networkPolicy.externalHttpsExceptCidrs | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-database
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agentcart-shopbridge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: database
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "agentcart-shopbridge.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: storefront
+      ports:
+        - {protocol: TCP, port: 3306}
+{{- end }}

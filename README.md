@@ -20,6 +20,7 @@ woocommerce-shopbridge/   WordPress/WooCommerce merchant plugin
 gateway/                  AgentCart registry, verifier-facing gateway, buyer API, demos
 gateway/shopbridge-direct-skill/  Service-free buyer skill for direct merchant calls
 deploy/home-server/       Self-hosted buyer-side stack for household agents
+charts/agentcart-shopbridge/  Public single-store Helm chart
 household-os/             Optional Home Assistant / Vikunja / chat bridge
 demo/woocommerce/         Local WooCommerce staging shop and seed script
 docs/                     Production roadmap, protocol contracts, release gates
@@ -33,6 +34,8 @@ For checked OpenClaw, Codex-style skill, and generic MCP buyer examples, see
 `docs/BUYER_AGENT_ADAPTERS.md`.
 For release artifacts, checksums, semantic-release publishing, upgrade, and
 rollback, see `docs/RELEASES.md`.
+For a sanitized Kubernetes deployment that keeps credentials and cluster
+topology outside the public repository, see `charts/agentcart-shopbridge/`.
 For the production payment/refund verifier seam, see
 `docs/VERIFIER_CONTRACT.md`.
 For final quote expiry, stock, price, shipping, and tax drift handling, see

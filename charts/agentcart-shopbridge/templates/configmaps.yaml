@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-bootstrap
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+data:
+  prepare-wordpress.sh: |
+{{ .Files.Get "files/bootstrap/prepare-wordpress.sh" | indent 4 }}
+  seed-before-start.sh: |
+{{ .Files.Get "files/bootstrap/seed-before-start.sh" | indent 4 }}
+  seed-products.sh: |
+{{ .Files.Get "files/bootstrap/seed-products.sh" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-nginx
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+{{ .Files.Get "files/nginx.conf" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-plugin
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+data:
+  agentcart-shopbridge.php: |
+{{ .Files.Get "files/plugin/agentcart-shopbridge.php" | indent 4 }}
+  readme.txt: |
+{{ .Files.Get "files/plugin/readme.txt" | indent 4 }}
+  uninstall.php: |
+{{ .Files.Get "files/plugin/uninstall.php" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-plugin-includes
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+data:
+  trait-agentcart-shopbridge-verifier-client.php: |
+{{ .Files.Get "files/plugin/includes/trait-agentcart-shopbridge-verifier-client.php" | indent 4 }}

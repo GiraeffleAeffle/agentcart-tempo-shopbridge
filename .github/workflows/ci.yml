@@ -31,6 +31,11 @@ jobs:
           php-version: "8.2"
           coverage: none
 
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.17.3
+
       - name: Install release Node dependencies
         run: npm ci
 

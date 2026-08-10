@@ -1,0 +1,41 @@
+# Copy this file to values.private.yaml before editing it. The private filename
+# is ignored by Git; never place credentials in Helm values.
+existingSecret: example-shopbridge-secrets
+
+store:
+  host: shop.example.test
+  title: Example AgentCart Shop
+  merchantId: example-shop
+  environmentType: staging
+  marketProfile: eur
+  varianceProfile: baseline-eu-tax-shipping
+  tempoNetwork: testnet
+  tempoRecipientAddress: "0x0000000000000000000000000000000000000000"
+  checkoutMode: trusted_token_or_verifier
+  signedRequestMode: "off"
+  productExposureMode: manual
+  returnsPath: /returns
+
+database:
+  persistence:
+    storageClass: standard
+    size: 10Gi
+
+persistence:
+  uploads:
+    storageClass: standard
+    size: 10Gi
+
+ingress:
+  className: haproxy
+  tlsSecretName: example-shopbridge-tls
+
+certificate:
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+
+networkPolicy:
+  # Add only source CIDRs emitted by your ingress controller when its namespace
+  # selector is insufficient. Keep real cluster CIDRs in values.private.yaml.
+  ingressSourceCidrs: []

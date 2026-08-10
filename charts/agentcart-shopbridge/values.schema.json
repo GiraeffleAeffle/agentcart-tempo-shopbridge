@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["existingSecret", "store", "ingress", "networkPolicy"],
+  "properties": {
+    "existingSecret": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of a separately provisioned Kubernetes Secret."
+    },
+    "store": {
+      "type": "object",
+      "required": ["host", "title", "merchantId", "environmentType", "marketProfile", "varianceProfile"],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "merchantId": {"type": "string", "minLength": 1},
+        "environmentType": {"type": "string", "enum": ["local", "development", "staging", "production"]},
+        "marketProfile": {"type": "string", "minLength": 1},
+        "varianceProfile": {"type": "string", "minLength": 1},
+        "tempoRecipientAddress": {"type": "string", "pattern": "^0x[0-9a-fA-F]{40}$"},
+        "returnsPath": {"type": "string", "pattern": "^/"}
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "required": ["enabled", "className"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "className": {
+          "type": "string",
+          "enum": ["haproxy"],
+          "description": "The chart's public admin-route controls are currently verified only with HAProxy Ingress."
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "ingressSourceCidrs": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  }
+}

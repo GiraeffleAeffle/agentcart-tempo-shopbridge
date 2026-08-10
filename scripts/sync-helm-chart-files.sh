@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+mode="${1:-sync}"
+[[ "$mode" == sync || "$mode" == --check ]] || {
+  printf 'usage: %s [--check]\n' "$0" >&2
+  exit 2
+}
+
+sources=(
+  woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php
+  woocommerce-shopbridge/agentcart-shopbridge/readme.txt
+  woocommerce-shopbridge/agentcart-shopbridge/uninstall.php
+  woocommerce-shopbridge/agentcart-shopbridge/includes/trait-agentcart-shopbridge-verifier-client.php
+  demo/woocommerce/seed-products.sh
+)
+destinations=(
+  charts/agentcart-shopbridge/files/plugin/agentcart-shopbridge.php
+  charts/agentcart-shopbridge/files/plugin/readme.txt
+  charts/agentcart-shopbridge/files/plugin/uninstall.php
+  charts/agentcart-shopbridge/files/plugin/includes/trait-agentcart-shopbridge-verifier-client.php
+  charts/agentcart-shopbridge/files/bootstrap/seed-products.sh
+)
+
+stale=0
+for index in "${!sources[@]}"; do
+  source_file="$root/${sources[$index]}"
+  destination_file="$root/${destinations[$index]}"
+  if [[ "$mode" == --check ]]; then
+    if ! cmp -s "$source_file" "$destination_file"; then
+      printf 'stale Helm chart copy: %s\n' "${destinations[$index]}" >&2
+      stale=1
+    fi
+  else
+    install -m 0644 "$source_file" "$destination_file"
+  fi
+done
+
+(( stale == 0 )) || exit 1

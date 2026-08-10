@@ -125,6 +125,11 @@ python3 "$ROOT_DIR/scripts/check-woocommerce-compatibility-matrix.py" \
   --matrix "$ROOT_DIR/gateway/config/woocommerce_compatibility_matrix.json" >/dev/null
 python3 -m unittest discover -s "$ROOT_DIR/woocommerce-shopbridge/tests"
 
+section "Public Helm chart"
+bash -n "$ROOT_DIR/scripts/sync-helm-chart-files.sh"
+bash -n "$ROOT_DIR/scripts/check-helm-chart.sh"
+bash "$ROOT_DIR/scripts/check-helm-chart.sh"
+
 section "WooCommerce ShopBridge live smoke"
 if [ -n "${AGENTCART_WOO_SMOKE_BASE_URL:-}" ]; then
   smoke_args=(--base-url "$AGENTCART_WOO_SMOKE_BASE_URL")
