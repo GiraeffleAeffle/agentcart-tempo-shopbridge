@@ -15,6 +15,23 @@ The repo has strong production intent: contract docs, machine-readable matrices,
 
 The tests are useful but skew toward contract/source assertions and pure unit checks. The highest production value now is to create deeper modules around the runtime seams that production will operate, monitor, and test.
 
+## Adoption Slice Delivered
+
+The first merchant-discovery adoption slice now uses two deliberately narrow
+interfaces instead of deploying the full gateway as public infrastructure:
+
+- a stateless, read-only registry chart owns only the public discovery routes
+  and keeps the existing OCI `/v2/` ingress boundary intact;
+- the Direct Skill owns buyer-side fetching and verification and uses the
+  public feed by default, while explicit merchant, private-registry, and
+  offline configuration still override that default.
+
+This is a useful deployment seam, not completion of the trust architecture.
+The shared Merchant Registry trust module below is still the highest-leverage
+code deepening opportunity. Stateful submissions, durable transparency, feed
+signing/anchoring, and onchain registration remain separate reviewed services
+or adapters rather than responsibilities of the pilot chart.
+
 ## Deepening Opportunities
 
 ### 1. Final Quote And Checkout Integrity Module
@@ -159,4 +176,3 @@ Split the household runtime around existing adapters: task/calendar, Home Assist
 ## Recommended First Candidate
 
 Start with the External Verifier client module or the Final Quote and checkout integrity module. They sit on the highest-risk production path: paid order creation and refunds. They also have existing contract docs and fixtures, so the test surface is already clear.
-

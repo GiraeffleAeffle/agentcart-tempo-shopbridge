@@ -129,6 +129,8 @@ section "Public Helm chart"
 bash -n "$ROOT_DIR/scripts/sync-helm-chart-files.sh"
 bash -n "$ROOT_DIR/scripts/check-helm-chart.sh"
 bash "$ROOT_DIR/scripts/check-helm-chart.sh"
+bash -n "$ROOT_DIR/scripts/check-shopbridge-registry-chart.sh"
+bash "$ROOT_DIR/scripts/check-shopbridge-registry-chart.sh"
 
 section "WooCommerce ShopBridge live smoke"
 if [ -n "${AGENTCART_WOO_SMOKE_BASE_URL:-}" ]; then

@@ -1,0 +1,9 @@
+.DS_Store
+*.private.yaml
+*.secret.yaml
+*-secret-values.yaml
+*.key
+*.pem
+*.env
+*.log
+*.tgz

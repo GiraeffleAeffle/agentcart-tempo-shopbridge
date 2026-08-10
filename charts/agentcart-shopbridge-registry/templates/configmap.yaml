@@ -1,0 +1,147 @@
+{{- $entryCount := len .Values.registry.entries -}}
+{{- $onchain := dict
+  "ethereum_mainnet" .Values.registry.onchain.ethereumMainnet
+  "tempo" .Values.registry.onchain.tempo
+-}}
+{{- $records := dict
+  "schema" "agentcart.hosted_merchant_registry_feed.v1"
+  "generated_at" .Values.registry.updatedAt
+  "updated_at" .Values.registry.updatedAt
+  "entries" .Values.registry.entries
+  "revocations" (list)
+  "entry_count" $entryCount
+  "revocation_count" 0
+  "submission_mode" .Values.registry.submissionMode
+  "onchain" $onchain
+-}}
+{{- $registry := dict
+  "schema" "agentcart.merchant_registry.v1"
+  "registry" (dict
+    "name" .Values.registry.name
+    "scope" "verified_shopbridge_merchant_discovery"
+    "stage" .Values.registry.stage
+    "updated_at" .Values.registry.updatedAt
+    "read_only" true
+    "submission_mode" .Values.registry.submissionMode)
+  "hosted_store" (dict
+    "enabled" true
+    "entry_count" $entryCount
+    "records_url" "/v1/registry/records"
+    "transparency_url" "/v1/registry/transparency")
+  "onchain" $onchain
+  "entries" .Values.registry.entries
+-}}
+{{- $health := dict
+  "schema" "agentcart.merchant_registry_health.v1"
+  "status" "ok"
+  "mode" .Values.registry.submissionMode
+  "stage" .Values.registry.stage
+  "updated_at" .Values.registry.updatedAt
+  "entry_count" $entryCount
+  "onchain" $onchain
+-}}
+{{- $transparency := dict
+  "schema" "agentcart.merchant_registry_transparency.v1"
+  "mode" "declarative_config"
+  "updated_at" .Values.registry.updatedAt
+  "entry_count" $entryCount
+  "note" "Pilot entries are maintainer-curated from merchant HTTPS domain-proof bundles."
+-}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge-registry.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr notice;
+
+    events { worker_connections 1024; }
+
+    http {
+      access_log /dev/stdout;
+      client_body_temp_path /tmp/client_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      server_tokens off;
+
+      server {
+        listen 8080;
+        server_name _;
+        root /usr/share/nginx/html;
+
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
+        add_header Cache-Control "public, max-age=60" always;
+
+        location = / {
+          try_files /index.html =404;
+        }
+        location = /registry {
+          try_files /index.html =404;
+        }
+        location = /v1/registry {
+          default_type application/json;
+          try_files /registry.json =404;
+        }
+        location = /v1/registry/records {
+          default_type application/json;
+          try_files /records.json =404;
+        }
+        location = /v1/registry/health {
+          default_type application/json;
+          try_files /health.json =404;
+        }
+        location = /v1/registry/transparency {
+          default_type application/json;
+          try_files /transparency.json =404;
+        }
+        location = /v1/registry/onchain {
+          default_type application/json;
+          try_files /onchain.json =404;
+        }
+        location / { return 404; }
+      }
+    }
+  index.html: |
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>AgentCart ShopBridge Registry</title>
+      <style>
+        :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+        body { max-width: 760px; margin: 4rem auto; padding: 0 1.25rem; line-height: 1.55; }
+        code { padding: .15rem .35rem; border-radius: .25rem; background: color-mix(in srgb, CanvasText 10%, Canvas); }
+        a { color: LinkText; }
+      </style>
+    </head>
+    <body>
+      <main>
+        <h1>AgentCart ShopBridge Registry</h1>
+        <p>This pilot registry lets buyer agents discover ShopBridge merchants from HTTPS domain-bound records.</p>
+        <p><a href="/v1/registry/records">Merchant records</a> · <a href="/v1/registry/health">Registry status</a> · <a href="/v1/registry/onchain">Onchain status</a></p>
+        <p>Install the buyer skill, then ask your agent to discover a ShopBridge merchant:</p>
+        <p><code>npx -y skills@latest add https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/gateway/shopbridge-direct-skill -g -y</code></p>
+        <p>The Ethereum mainnet and Tempo registry status is reported explicitly by the onchain endpoint. No undeployed contract is presented as live.</p>
+        <p>The OCI image registry continues to use <code>/v2/</code>; this discovery service does not handle that path.</p>
+      </main>
+    </body>
+    </html>
+  records.json: |
+{{ $records | toPrettyJson | indent 4 }}
+  registry.json: |
+{{ $registry | toPrettyJson | indent 4 }}
+  health.json: |
+{{ $health | toPrettyJson | indent 4 }}
+  transparency.json: |
+{{ $transparency | toPrettyJson | indent 4 }}
+  onchain.json: |
+{{ $onchain | toPrettyJson | indent 4 }}

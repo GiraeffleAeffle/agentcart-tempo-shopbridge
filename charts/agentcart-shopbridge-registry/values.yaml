@@ -1,0 +1,54 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 2
+
+image:
+  repository: docker.io/library/nginx
+  digest: sha256:3bcf852aed06467cf075c6105892e4d5a6ebbbafa0ce22d35062db9e90ddef4c
+  pullPolicy: IfNotPresent
+
+registry:
+  host: registry.example.test
+  tlsSecretName: registry-tls
+  name: AgentCart ShopBridge Merchant Registry
+  stage: pilot
+  updatedAt: "1970-01-01T00:00:00Z"
+  submissionMode: maintainer_curated
+  entries: []
+  onchain:
+    ethereumMainnet:
+      status: not_deployed
+      chainId: "1"
+      contractAddress: ""
+      explorerUrl: ""
+    tempo:
+      status: not_deployed
+      chainId: ""
+      contractAddress: ""
+      explorerUrl: ""
+
+service:
+  port: 80
+
+ingress:
+  enabled: true
+  className: haproxy
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-system
+  ingressSourceCidrs: []
+
+podLabels:
+  agentcart.eu/data-classification: public-pilot-registry
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 24Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi

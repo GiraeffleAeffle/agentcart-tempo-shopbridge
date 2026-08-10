@@ -1,8 +1,9 @@
 # AgentCart Production Tracks
 
-> Status: production-candidate alpha with explicit production gaps. This
-> document separates implemented capabilities from the remaining gates required
-> before live merchant pilots.
+> Status: production-candidate alpha with explicit production gaps. Public
+> staging discovery is live for installability feedback, but paid production
+> transactions are not enabled. This document separates implemented
+> capabilities from the remaining gates required before paid merchant pilots.
 
 This file turns the production roadmap into concrete engineering tracks.
 Production use requires the remaining items below.
@@ -21,6 +22,21 @@ ERC-8128, ERC-8183, AP2, ACP, UCP, MCP, and A2A at explicit seams.
 | Merchant discovery registry | Gateway and direct skill verify stable claims, domain proofs, endpoint scope, payment binding, stale records, merchant-hosted revocation documents, and optional ERC-8004-style onchain identity mappings; registry helper emits a checked smart-contract-facing projection for existing records and live ShopBridge manifests; registry helper can write and index an append-only JSONL ledger and replay a Solidity-interface contract-event fixture, mirroring future onchain registry events without storing catalog, buyer, order, or payment data; ShopBridge publishes a registry onboarding bundle that loaders can ingest as a feed; merchant admin can refresh/check public registry endpoints, submit/revoke records to the hosted alpha registry, and fetch registry-side health/monitor state plus alert delivery results; gateway entries expose `registry_status`; registry health summarizes stale/failed/revoked records and operator action items; hosted submit/refresh/revoke actions append to a public hash-chained transparency log; the hosted feed exposes a canonical feed proof over active records, revocations, and transparency head, with optional RSA-SHA256 signature, signer/key-rotation governance metadata, and external/onchain anchor metadata; authenticated monitor runs persist snapshots, alert deltas, alert delivery history, and compact delivery metrics while delivering alerts through webhook, Home Assistant, or SMTP email | Public identity/integrity registry with no private demand or catalog data on-chain, with a clean path to ERC-8004 registration metadata | Run a supervised registry alert drill against staging and attach pilot evidence |
 | Delivery tracking/refunds | Woo status endpoint returns merchant-estimated delivery plus a normalized tracking adapter contract for Woo Shipment Tracking, AfterShip-style, ParcelPanel-style, and generic order meta; delayed, failed, returned, and partial-delivery carrier exceptions now update aftercare and calendar state; refund endpoint records verifier-backed provider refund references and rejects non-real verifier responses; aftercare normalizes cancellable, locked, cancelled-refund-required, partially refunded, and refunded lifecycle states; Woo, AgentCart service, and the direct skill generate buyer aftercare messages from structured state without claiming money returned unless real refund evidence is verified | Carrier API polling/webhooks, reschedule adapters, and managed rail-specific refund operations | Add carrier-specific status polling/webhook adapters and durable refund state machine |
 | Home-server package | Single-household deployment exists; clean repo has gateway + plugin, home-server compose package, buyer setup guide, packaged skill-only ZIP, portable approval records, skill-only audit packets, idempotent `/v1/audit/import`, `/v1/audit/{purchase_id}/export`, imported-packet dashboard/order proof visibility, approval-bound payment handoff command, checked buyer-agent adapter examples for OpenClaw-style service use, Codex-style direct skill use, and generic MCP-style clients, redacted commerce ops event delivery for quote/checkout/refund/delivery-exception audit events, release manifest, release verifier, optional detached HMAC manifest signatures for private channels, upgrade/rollback notes, an external beta checklist with a validation gate, an evidence-required beta release gate with an attachable release-decision report, a production-payment env profile checker, a buyer-agent runtime test matrix covering service, direct skill, and MCP-style clients, and a prompt-injection corpus for merchant-controlled text | Self-hostable NUC/Dappnode-style stack for AgentCart, Household OS, Vikunja, Home Assistant integration, optional Woo demo | Add public asymmetric release signing or managed updates, stronger audit retention/search/permissions, plus a non-technical setup wizard |
+
+### Current Merchant-Discovery Pilot Boundary
+
+The live deployment at `registry.agentcart.eu` is the read-only,
+maintainer-curated slice of the merchant-discovery track. It lists two staging
+shops and gives the Direct Skill a zero-configuration discovery source. The
+larger gateway capabilities described in the table are present in the repo but
+are not all exposed by this stateless public service.
+
+The immediate next evidence slice is a supervised external merchant
+installability run plus a non-maintainer, skill-only discovery/quote run. A
+transaction pilot remains gated on a production-shaped verifier/payment
+profile. Onchain work should start with controller-bound proof, indexer/replay
+fixtures, and a testnet drill; Ethereum mainnet or Tempo production deployment
+comes only after the chain and governance decision.
 
 ## Non-Negotiables
 

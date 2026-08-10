@@ -1,0 +1,46 @@
+{{- if .Values.ingress.enabled }}
+{{- $secureAnnotations := dict
+  "haproxy-ingress.github.io/ssl-redirect" "true"
+  "haproxy-ingress.github.io/config-backend-early" "http-request deny deny_status 405 unless { method GET HEAD }\n"
+  "haproxy-ingress.github.io/config-backend" "http-response set-header Strict-Transport-Security \"max-age=31536000; includeSubDomains\"\nhttp-response set-header X-Content-Type-Options nosniff\nhttp-response set-header X-Frame-Options DENY\nhttp-response set-header Referrer-Policy no-referrer\nhttp-response set-header X-Robots-Tag noindex,nofollow,noarchive\n"
+}}
+{{- $annotations := merge $secureAnnotations .Values.ingress.annotations }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge-registry.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.registry.host }}
+      http:
+        paths:
+          - path: /v1/registry
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+                port:
+                  name: http
+          - path: /registry
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+                port:
+                  name: http
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+                port:
+                  name: http
+  tls:
+    - hosts: [{{ .Values.registry.host }}]
+      secretName: {{ .Values.registry.tlsSecretName }}
+{{- end }}

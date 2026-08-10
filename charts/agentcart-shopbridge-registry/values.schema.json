@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["image", "registry", "ingress", "networkPolicy"],
+  "properties": {
+    "replicaCount": {"type": "integer", "minimum": 1, "maximum": 10},
+    "image": {
+      "type": "object",
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "registry": {
+      "type": "object",
+      "required": ["host", "tlsSecretName", "name", "stage", "updatedAt", "submissionMode", "entries", "onchain"],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "tlsSecretName": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "stage": {"type": "string", "enum": ["pilot", "production"]},
+        "updatedAt": {"type": "string", "format": "date-time"},
+        "submissionMode": {"type": "string", "enum": ["maintainer_curated"]},
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["merchant_id", "name", "domain", "manifest_url", "proof_url", "revocation_url", "updated_at"],
+            "properties": {
+              "merchant_id": {"type": "string", "minLength": 1},
+              "name": {"type": "string", "minLength": 1},
+              "domain": {"type": "string", "minLength": 1},
+              "manifest_url": {"type": "string", "pattern": "^https://"},
+              "proof_url": {"type": "string", "pattern": "^https://"},
+              "revocation_url": {"type": "string", "pattern": "^https://"},
+              "updated_at": {"type": "string", "format": "date-time"}
+            }
+          }
+        },
+        "onchain": {
+          "type": "object",
+          "required": ["ethereumMainnet", "tempo"],
+          "properties": {
+            "ethereumMainnet": {"$ref": "#/definitions/onchainDeployment"},
+            "tempo": {"$ref": "#/definitions/onchainDeployment"}
+          }
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "required": ["enabled", "className"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "className": {"type": "string", "enum": ["haproxy"]}
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "required": ["enabled", "ingressSourceCidrs"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "ingressSourceCidrs": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "onchainDeployment": {
+      "type": "object",
+      "required": ["status", "chainId", "contractAddress", "explorerUrl"],
+      "properties": {
+        "status": {"type": "string", "enum": ["not_deployed", "testnet_only", "live"]},
+        "chainId": {"type": "string"},
+        "contractAddress": {"type": "string", "pattern": "^(|0x[0-9a-fA-F]{40})$"},
+        "explorerUrl": {"type": "string"}
+      }
+    }
+  }
+}

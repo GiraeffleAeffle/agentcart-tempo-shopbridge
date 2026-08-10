@@ -11648,10 +11648,13 @@ def render_approval_page(service: AgentCartService, approval_id: str, token: str
 class AgentCartServer(ThreadingHTTPServer):
     def __init__(self, server_address: tuple[str, int], service: AgentCartService) -> None:
         service.config.validate_startup_security(server_address[0])
-        super().__init__(server_address, AgentCartHandler)
         self.service = service
         self.registry_monitor_stop = threading.Event()
         self.registry_monitor_thread: threading.Thread | None = None
+        # socketserver may call the overridden server_close() when bind or
+        # activation fails inside the base constructor. Initialize every field
+        # used by cleanup before handing control to that constructor.
+        super().__init__(server_address, AgentCartHandler)
         self.start_registry_monitor_if_configured()
 
     def start_registry_monitor_if_configured(self) -> None:
