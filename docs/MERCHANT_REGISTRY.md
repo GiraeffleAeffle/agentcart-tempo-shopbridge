@@ -1,11 +1,11 @@
 # Merchant Registry And Discovery
 
-> Status: alpha implemented. The current gateway can load a signed off-chain
-> registry JSON feed, verify claim/domain/payment/shipping/revocation bindings,
-> and exclude unverified external merchants from quote tournaments by default.
-> The same verifier interface is intended to sit behind an onchain or
-> append-only registry later.
-
+> Status: alpha implemented. A read-only public discovery feed is live for the
+> two staging merchants. The gateway can also load a signed off-chain registry
+> JSON feed, verify claim/domain/payment/shipping/revocation bindings, and
+> exclude unverified external merchants from quote tournaments by default. The
+> same verifier interface is intended to sit behind an onchain or append-only
+> registry later.
 
 AgentCart's registry should be an identity and integrity anchor, not an ad
 marketplace and not a product catalog.
@@ -15,6 +15,38 @@ future ERC-8004-style registration file for ShopBridge merchants or hosted
 service providers. The registry should identify and validate merchant endpoints;
 it should not require public registration of a household's private shopping
 agent.
+
+## Public Pilot Deployment
+
+The public pilot discovery plane is available at:
+
+```text
+https://registry.agentcart.eu/v1/registry/records
+```
+
+It is a small, stateless, read-only deployment of
+`charts/agentcart-shopbridge-registry/`. It currently publishes the EUR and USD
+staging merchants and accepts only `GET` and `HEAD`. The buyer skill verifies
+each record against the merchant's HTTPS manifest, domain proof, and revocation
+document before using it. Merchant enrollment during this phase is a reviewed,
+maintainer-curated chart update; there is no public self-service submission API.
+
+The same hostname continues to serve the OCI Distribution registry at `/v2/`.
+The ShopBridge chart owns only `/`, `/registry`, and `/v1/registry...`, so the
+two registry meanings remain separate at the ingress boundary.
+
+This deployment intentionally does not claim stronger trust than it provides:
+
+- it has no database or durable append-only transparency log;
+- the public feed itself is not yet signed or anchored, although every record
+  is checked against merchant-hosted proof and revocation material;
+- neither an Ethereum mainnet registry nor a Tempo registry is deployed;
+- `/v1/registry/onchain` reports both networks as `not_deployed` until reviewed
+  contract addresses and explorer links are configured.
+
+Before moving registration on-chain, complete controller-bound domain proof,
+the event indexer adapter and replay fixtures, a testnet deployment/drill, and
+the chain, upgrade, and governance decision recorded in ADR 0007.
 
 ## Goals
 

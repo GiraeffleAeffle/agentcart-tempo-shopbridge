@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge-registry.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "agentcart-shopbridge-registry.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge-registry.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "agentcart-shopbridge-registry.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/registry: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "agentcart-shopbridge-registry.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: merchant-registry
+        app.kubernetes.io/part-of: agentcart
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry
+          image: {{ include "agentcart-shopbridge-registry.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [nginx, -g, daemon off;]
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet: {path: /v1/registry/health, port: http}
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /v1/registry/health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /v1/registry/health, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: registry-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: registry-config
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: registry-config
+          configMap:
+            name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+---
+{{- if gt (int .Values.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "agentcart-shopbridge-registry.fullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge-registry.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "agentcart-shopbridge-registry.selectorLabels" . | nindent 6 }}
+{{- end }}

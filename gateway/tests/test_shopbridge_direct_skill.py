@@ -496,6 +496,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             mock.patch.dict(shopbridge_direct.os.environ, {}, clear=True),
             mock.patch.object(shopbridge_direct, "REGISTRY_URL", ""),
             mock.patch.object(shopbridge_direct, "REGISTRY_PATH", ""),
+            mock.patch.object(shopbridge_direct, "DISABLE_DEFAULT_REGISTRY", True),
             mock.patch.object(shopbridge_direct, "BASE_URL", shopbridge_direct.DEFAULT_BASE_URL),
             mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")),
         ):
@@ -505,6 +506,36 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["mode"], "unconfigured")
         self.assertIn("buyer_configuration", [check["id"] for check in result["checks"]])
         self.assertFalse(result["configuration"]["base_url"]["configured"])
+
+    def test_doctor_uses_public_registry_by_default(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            return_value={"entries": [record]},
+        ) as fetch:
+            result = shopbridge_direct.command_doctor({})
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["mode"], "registry")
+        self.assertTrue(result["configuration"]["using_default_registry"])
+        self.assertEqual(
+            result["configuration"]["registry_url"],
+            "https://registry.agentcart.eu/v1/registry/records",
+        )
+        fetch.assert_called_once_with(shopbridge_direct.DEFAULT_REGISTRY_URL)
+
+    def test_explicit_single_merchant_override_suppresses_default_registry(self) -> None:
+        self.assertEqual(
+            shopbridge_direct.configured_registry_url({"base_url": "https://merchant.example"}),
+            "",
+        )
+
+    def test_default_registry_can_be_disabled_for_offline_use(self) -> None:
+        self.assertEqual(
+            shopbridge_direct.configured_registry_url({"disable_default_registry": True}),
+            "",
+        )
 
     def test_single_merchant_public_http_origin_is_rejected_before_request(self) -> None:
         with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):

@@ -1,16 +1,18 @@
 ---
 name: shopbridge-direct
-description: Buy from an AgentCart ShopBridge WooCommerce merchant directly, without running the AgentCart buyer service. Use for lightweight buyer integration where approval happens in chat and the merchant exposes manifest, catalog, quote, order, and status endpoints.
+description: Discover shops that support AgentCart ShopBridge, compare their verified WooCommerce catalogs and quotes, and prepare approval-safe direct checkout without running the AgentCart buyer service. Use when a buyer asks an agent to find, compare, or buy from ShopBridge merchants.
 metadata:
   version: "0.1.0-alpha"
 ---
 
 # ShopBridge Direct Skill
 
-Use this skill when the buyer does not run the AgentCart service. The agent
-talks directly to a merchant's ShopBridge plugin. In alpha mode the merchant is
-selected with `SHOPBRIDGE_BASE_URL`; in production this should be resolved from
-a verified merchant registry record before any catalog or quote call.
+Use this skill when a buyer wants to discover or buy from shops that implement
+ShopBridge without running the AgentCart service. Start with `doctor`, which
+loads the read-only public registry at
+`https://registry.agentcart.eu/v1/registry/records`. Resolve and verify a
+merchant record before any catalog or quote call. Use `SHOPBRIDGE_BASE_URL`
+only when the buyer explicitly supplies one known merchant or for local tests.
 
 The portable runtime contract is model- and harness-neutral: `SKILL.md`
 contains the workflow, while `scripts/shopbridge-command.py` accepts JSON on
@@ -29,17 +31,22 @@ AgentCart service path: approval is chat-local, and there is no durable
 household policy store, shared audit trail, delivery calendar, or task sync
 unless the calling agent provides those features.
 
-Required environment for single-merchant alpha/testing:
+No environment variables are required for normal public discovery.
+
+Optional environment for a known single merchant or local testing:
 
 - `SHOPBRIDGE_BASE_URL`: optional merchant WordPress origin override. Public
   merchant origins must be HTTPS.
 - `SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN`: set to `1` only for loopback, homelab, or
   other private-network demos such as `http://192.168.178.150:8098`.
 
-Optional environment for verified merchant discovery:
+Optional environment for private, self-hosted, or offline registry discovery:
 
-- `SHOPBRIDGE_REGISTRY_URL`: trusted HTTPS registry feed with `entries[]`
+- `SHOPBRIDGE_REGISTRY_URL`: replace the default with a trusted HTTPS registry
+  feed containing `entries[]`
 - `SHOPBRIDGE_REGISTRY_PATH`: local registry JSON file for self-hosted or test fixtures
+- `SHOPBRIDGE_DISABLE_DEFAULT_REGISTRY`: set to `1` only when an offline run
+  must not contact the public AgentCart registry
 - `SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS`: registry record freshness window; default
   `180`, set `0` only for local fixtures
 
@@ -75,10 +82,10 @@ Install/configuration doctor:
 {"command":"doctor","args":{"format":"toon"}}
 ```
 
-This is the first command to run after installing the skill. It is read-only and
-does not call merchant endpoints unless `probe:true` is supplied. It reports
-whether the skill is configured for verified registry discovery, explicit
-single-merchant testing, or neither.
+This is the first command to run after installing the skill. It is read-only.
+It fetches the public registry by default but does not call merchant endpoints
+unless `probe:true` or `verify_merchants:true` is supplied. A successful result
+has `"ok": true`, `"mode": "registry"`, and at least one registry record.
 
 For a local registry file:
 
@@ -105,8 +112,9 @@ For a registry JSON document with multiple `entries`, pass a URL and optional me
 {"command":"resolve_merchant","args":{"registry_record_url":"https://registry.example/agentcart.json","merchant_id":"merchant-tea-shop"}}
 ```
 
-If `SHOPBRIDGE_REGISTRY_URL` or `SHOPBRIDGE_REGISTRY_PATH` is configured, the
-agent can resolve by merchant id without passing a record each time:
+With the default public registry, or when a private registry override is
+configured, the agent can resolve by merchant id without passing a record each
+time:
 
 ```json
 {"command":"resolve_merchant","args":{"merchant_id":"merchant-tea-shop"}}

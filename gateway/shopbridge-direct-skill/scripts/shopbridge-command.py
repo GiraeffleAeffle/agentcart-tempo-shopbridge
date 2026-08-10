@@ -42,6 +42,8 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8098"
 BASE_URL = os.getenv("SHOPBRIDGE_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+DEFAULT_REGISTRY_URL = "https://registry.agentcart.eu/v1/registry/records"
+DISABLE_DEFAULT_REGISTRY = env_bool("SHOPBRIDGE_DISABLE_DEFAULT_REGISTRY", False)
 ALLOW_PRIVATE_ORIGIN = env_bool(
     "SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN",
     env_bool("AGENTCART_ALLOW_PRIVATE_ORIGIN", False),
@@ -1162,13 +1164,39 @@ def registry_records_from_onchain_contract_events(document: Any) -> list[dict[st
     return [record for _, record in active_entries]
 
 
-def configured_registry_url(args: dict[str, Any]) -> str:
+def explicit_registry_url(args: dict[str, Any]) -> str:
     return str(
         args.get("registry_url")
         or args.get("registry_feed_url")
         or REGISTRY_URL
         or ""
     ).strip()
+
+
+def default_registry_disabled(args: dict[str, Any]) -> bool:
+    return boolish(args.get("disable_default_registry"), DISABLE_DEFAULT_REGISTRY)
+
+
+def configured_registry_url(args: dict[str, Any]) -> str:
+    explicit = explicit_registry_url(args)
+    if explicit:
+        return explicit
+    if default_registry_disabled(args):
+        return ""
+    if any(
+        args.get(key)
+        for key in ("registry_records", "registry", "registry_record", "registry_record_url")
+    ):
+        return ""
+    if configured_base_url(args)["configured"]:
+        return ""
+    if (
+        configured_registry_path(args)
+        or configured_onchain_registry_events_url(args)
+        or configured_onchain_registry_events_path(args)
+    ):
+        return ""
+    return DEFAULT_REGISTRY_URL
 
 
 def configured_registry_path(args: dict[str, Any]) -> str:
@@ -2435,6 +2463,10 @@ def registry_source_configured(args: dict[str, Any]) -> bool:
 
 
 def registry_source_label(args: dict[str, Any]) -> str:
+    if args.get("registry_records") or args.get("registry") or args.get("registry_record"):
+        return "inline"
+    if args.get("registry_record_url"):
+        return str(args["registry_record_url"])
     if configured_registry_path(args):
         return configured_registry_path(args)
     if configured_registry_url(args):
@@ -2598,6 +2630,9 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
         "configuration": {
             "base_url": base,
             "registry_url_configured": bool(configured_registry_url(args)),
+            "registry_url": configured_registry_url(args),
+            "using_default_registry": configured_registry_url(args) == DEFAULT_REGISTRY_URL,
+            "default_registry_disabled": default_registry_disabled(args),
             "registry_path_configured": bool(configured_registry_path(args)),
             "onchain_registry_events_url_configured": bool(configured_onchain_registry_events_url(args)),
             "onchain_registry_events_path_configured": bool(configured_onchain_registry_events_path(args)),

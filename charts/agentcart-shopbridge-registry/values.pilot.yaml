@@ -1,0 +1,92 @@
+registry:
+  host: registry.agentcart.eu
+  tlsSecretName: stadtstack-registry-tls
+  name: AgentCart ShopBridge Merchant Registry
+  stage: pilot
+  updatedAt: "2026-08-10T19:33:34Z"
+  submissionMode: maintainer_curated
+  entries:
+    - merchant_id: woocommerce-demo-shop-eur
+      name: AgentCart EUR Demo Shop
+      domain: woo-staging.agentcart.eu
+      manifest_url: https://woo-staging.agentcart.eu/.well-known/agentcart.json
+      endpoints:
+        catalog: https://woo-staging.agentcart.eu/wp-json/agentcart/v1/catalog
+        quote: https://woo-staging.agentcart.eu/wp-json/agentcart/v1/quote
+        orders: https://woo-staging.agentcart.eu/wp-json/agentcart/v1/orders
+        order_status: https://woo-staging.agentcart.eu/wp-json/agentcart/v1/orders/{id}/status
+        refunds: https://woo-staging.agentcart.eu/wp-json/agentcart/v1/orders/{id}/refunds
+      supported_protocols:
+        - agentcart-shopbridge
+        - tempo-mpp
+      protocol_profile_ids:
+        - agentcart-shopbridge
+        - erc8004-ready
+      payment_network: testnet
+      payment_recipient: "0x0000000000000000000000000000000000000000"
+      stripe_profile_id: ""
+      ship_to_countries:
+        - DE
+        - AT
+        - NL
+        - BE
+        - LU
+        - FR
+      returns_url: https://woo-staging.agentcart.eu/returns
+      merchant_policy_hash: 7c47b087050379a452e1c800b59fac6b9a2f02521b16c3d04f24e8b2927e4579
+      proof_url: https://woo-staging.agentcart.eu/.well-known/agentcart-registry-proof.json
+      revocation_url: https://woo-staging.agentcart.eu/.well-known/agentcart-registry-revocations.json
+      registry_claim_hash_alg: sha-256
+      registry_claim_hash: 89df08702a89846467defe4f11985f3517b309e7425cf4bb13453b84e451fe59
+      updated_at: "2026-08-09T12:06:00Z"
+      revoked_at: null
+      signature_alg: https-domain-proof
+      signature: ""
+      proof:
+        type: https-well-known
+        url: https://woo-staging.agentcart.eu/.well-known/agentcart-registry-proof.json
+    - merchant_id: woocommerce-demo-shop-usd
+      name: AgentCart USD Tempo Demo Shop
+      domain: woo-usd.agentcart.eu
+      manifest_url: https://woo-usd.agentcart.eu/.well-known/agentcart.json
+      endpoints:
+        catalog: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/catalog
+        quote: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/quote
+        orders: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders
+        order_status: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders/{id}/status
+        refunds: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders/{id}/refunds
+      supported_protocols:
+        - agentcart-shopbridge
+        - tempo-mpp
+      protocol_profile_ids:
+        - agentcart-shopbridge
+        - erc8004-ready
+      payment_network: testnet
+      payment_recipient: "0x0000000000000000000000000000000000000000"
+      stripe_profile_id: ""
+      ship_to_countries:
+        - US
+      returns_url: https://woo-usd.agentcart.eu/returns
+      merchant_policy_hash: ef313ebccaeff1b8d52adaebc4efae54a1702123688af670dc53f78cff7027e7
+      proof_url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-proof.json
+      revocation_url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-revocations.json
+      registry_claim_hash_alg: sha-256
+      registry_claim_hash: fd7a23c56baeab8743771a1ce9decbca7caa328935a43524e1a2e1259b080b2d
+      updated_at: "2026-08-09T12:14:28Z"
+      revoked_at: null
+      signature_alg: https-domain-proof
+      signature: ""
+      proof:
+        type: https-well-known
+        url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-proof.json
+  onchain:
+    ethereumMainnet:
+      status: not_deployed
+      chainId: "1"
+      contractAddress: ""
+      explorerUrl: ""
+    tempo:
+      status: not_deployed
+      chainId: ""
+      contractAddress: ""
+      explorerUrl: ""

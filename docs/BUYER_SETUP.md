@@ -10,7 +10,7 @@
 
 | Mode | Install | Best for | Tradeoff |
 | --- | --- | --- | --- |
-| Skill-only ShopBridge | Install the release ZIP `shopbridge-direct-skill.zip`; source installs can copy `gateway/shopbridge-direct-skill` into the harness's skill folder or tool workspace | A buyer agent that can run local scripts and talk directly to verified ShopBridge merchants | Approval and audit are local to the agent chat unless the agent provides persistence |
+| Skill-only ShopBridge | Run the one-command skill installer below; ZIP and source installs remain available | A buyer agent that can run local scripts and talk directly to verified ShopBridge merchants | Approval and audit are local to the agent chat unless the agent provides persistence |
 | AgentCart service | Run `deploy/home-server` and install `gateway/openclaw-skill` | Household policy, Home Assistant/Vikunja/calendar/audit integrations, durable approvals | More moving parts and a local service to operate |
 
 Both modes only use opt-in ShopBridge merchants. Do not scrape normal shop
@@ -33,8 +33,20 @@ python3 scripts/check-shopbridge-endpoint-contract.py
 
 ## Skill-Only Setup
 
-Install the `shopbridge-direct-skill.zip` release artifact, or build it from
-source:
+Install globally for the agent tools detected on your machine:
+
+```sh
+npx -y skills@latest add \
+  https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/gateway/shopbridge-direct-skill \
+  -g -y
+```
+
+Omit `-g` for a project-local install. This follows the open `skills` package
+format, so supported agent harnesses can discover the same `SKILL.md` without a
+custom AgentCart installer.
+
+The release ZIP remains available for harnesses that do not use the skills
+CLI. Build it from source with:
 
 ```sh
 ./scripts/package-shopbridge-direct-skill.sh
@@ -53,8 +65,7 @@ includes optional Codex/OpenAI UI metadata in `agents/openai.yaml`; other
 harnesses may ignore or remove that file. The core does not import it or call an
 OpenAI API.
 
-There is no universal auto-install convention shared by every agent harness.
-Harnesses that load skill folders can import the extracted folder directly.
+Harnesses that load skill folders can also import the extracted folder directly.
 For a harness without native skill support, provide `SKILL.md` as the model's
 workflow instructions and expose `scripts/shopbridge-command.py` as a local
 process/tool using JSON over stdin/stdout. This is a thin harness adapter, not
@@ -77,12 +88,17 @@ export SHOPBRIDGE_BASE_URL=http://127.0.0.1:8098
 export SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN=1
 ```
 
-For production-style multi-merchant discovery, pass verified registry records to
-the skill commands instead of relying on `SHOPBRIDGE_BASE_URL`. A verified
-record binds the merchant domain, manifest URL, payment destination, proof URL,
-and revocation URL before the skill calls catalog or quote.
+Normal multi-merchant discovery needs no configuration. The skill reads the
+public, read-only feed at:
 
-For a normal skill-only install, configure one trusted registry source once:
+```text
+https://registry.agentcart.eu/v1/registry/records
+```
+
+A verified record binds the merchant domain, manifest URL, payment destination,
+proof URL, and revocation URL before the skill calls catalog or quote.
+
+To replace the public feed with a trusted private registry:
 
 ```sh
 export SHOPBRIDGE_REGISTRY_URL=https://registry.example/agentcart.json
@@ -93,6 +109,9 @@ For local/self-hosted testing without a public registry:
 ```sh
 export SHOPBRIDGE_REGISTRY_PATH=/path/to/merchant-registry.json
 ```
+
+For a deliberately offline run with no registry source, set
+`SHOPBRIDGE_DISABLE_DEFAULT_REGISTRY=1`.
 
 For an onchain-registry indexer snapshot, configure the contract-event feed
 instead:
@@ -169,9 +188,10 @@ python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
 JSON
 ```
 
-That command uses `SHOPBRIDGE_REGISTRY_URL` or `SHOPBRIDGE_REGISTRY_PATH`.
-Alternatively, pass `registry_records`, `registry_url`, or `registry_path` in the
-command args for one-off tests. Registry sources can be a normal feed with
+That command uses the public registry by default. Alternatively, configure
+`SHOPBRIDGE_REGISTRY_URL` or `SHOPBRIDGE_REGISTRY_PATH`, or pass
+`registry_records`, `registry_url`, or `registry_path` in the command args for
+one-off tests. Registry sources can be a normal feed with
 `entries[]`, a single registry record, or a ShopBridge registry bundle from:
 
 ```text

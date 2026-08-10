@@ -16,6 +16,7 @@ import urllib.error
 import unittest
 import urllib.parse
 import urllib.request
+from unittest import mock
 
 
 MODULE_PATH = pathlib.Path(__file__).resolve().parents[1] / "agentcart.py"
@@ -659,6 +660,21 @@ class AgentCartTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "AGENTCART_TOKEN is required"):
                 agentcart.AgentCartServer(("0.0.0.0", 0), service)
+
+    def test_server_cleanup_is_safe_when_base_initialization_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+
+            def failing_base_init(server, *_args, **_kwargs):
+                server.server_close()
+                raise OSError("synthetic bind failure")
+
+            with (
+                mock.patch.object(agentcart.ThreadingHTTPServer, "server_close", new=lambda _server: None),
+                mock.patch.object(agentcart.ThreadingHTTPServer, "__init__", new=failing_base_init),
+                self.assertRaisesRegex(OSError, "synthetic bind failure"),
+            ):
+                agentcart.AgentCartServer(("127.0.0.1", 0), service)
 
     def test_server_rejects_public_hosted_registry_without_distinct_submit_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

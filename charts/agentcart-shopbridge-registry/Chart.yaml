@@ -1,0 +1,15 @@
+apiVersion: v2
+name: agentcart-shopbridge-registry
+description: Read-only public discovery registry for AgentCart ShopBridge merchants
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge
+sources:
+  - https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge
+keywords:
+  - agentcart
+  - shopbridge
+  - merchant-registry
+maintainers:
+  - name: AgentCart maintainers

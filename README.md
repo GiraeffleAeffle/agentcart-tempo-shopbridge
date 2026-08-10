@@ -7,9 +7,13 @@ tax and shipping, buyer approval, quote-bound payment verification,
 WooCommerce order creation, delivery visibility, refunds/cancellations, and
 audit records.
 
-Current status: production-candidate alpha. The WooCommerce plugin, buyer skill,
+Current status: production-candidate alpha. A read-only, maintainer-curated
+ShopBridge merchant-discovery pilot is live at
+`https://registry.agentcart.eu/v1/registry/records` with the two public staging
+shops. This supports merchant installability and buyer-agent discovery testing;
+it is not a production-payment pilot. The WooCommerce plugin, buyer skill,
 registry, verifier contract, package scripts, and release checks are present.
-Before a real public merchant pilot, the external beta evidence gate,
+Before a paid public merchant pilot, the external beta evidence gate,
 production payment profile, live production-ready smoke, legal terms, and real
 payment rail operations must pass.
 
@@ -21,6 +25,7 @@ gateway/                  AgentCart registry, verifier-facing gateway, buyer API
 gateway/shopbridge-direct-skill/  Service-free buyer skill for direct merchant calls
 deploy/home-server/       Self-hosted buyer-side stack for household agents
 charts/agentcart-shopbridge/  Public single-store Helm chart
+charts/agentcart-shopbridge-registry/  Read-only public discovery Helm chart
 household-os/             Optional Home Assistant / Vikunja / chat bridge
 demo/woocommerce/         Local WooCommerce staging shop and seed script
 docs/                     Production roadmap, protocol contracts, release gates
@@ -34,8 +39,9 @@ For checked OpenClaw, Codex-style skill, and generic MCP buyer examples, see
 `docs/BUYER_AGENT_ADAPTERS.md`.
 For release artifacts, checksums, semantic-release publishing, upgrade, and
 rollback, see `docs/RELEASES.md`.
-For a sanitized Kubernetes deployment that keeps credentials and cluster
-topology outside the public repository, see `charts/agentcart-shopbridge/`.
+For sanitized Kubernetes deployments that keep credentials and cluster
+topology outside the public repository, see `charts/agentcart-shopbridge/` and
+`charts/agentcart-shopbridge-registry/`.
 For the production payment/refund verifier seam, see
 `docs/VERIFIER_CONTRACT.md`.
 For final quote expiry, stock, price, shipping, and tax drift handling, see
@@ -175,17 +181,19 @@ This starts AgentCart, Household OS, Vikunja, and optional Home Assistant /
 WooCommerce demo services. OpenClaw is expected to run separately or on the same
 network with the provided skills installed.
 
-For the lowest-friction buyer path without running AgentCart, package and
-install the direct ShopBridge skill:
+For the lowest-friction buyer path without running AgentCart, install the
+Direct Skill with one command:
 
 ```sh
-./scripts/package-shopbridge-direct-skill.sh
+npx -y skills@latest add \
+  https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/gateway/shopbridge-direct-skill \
+  -g -y
 ```
 
-This creates `dist/shopbridge-direct-skill.zip`. See `docs/BUYER_SETUP.md` for
-skill-only and service-backed setup. For verified multi-merchant discovery in
-skill-only mode, configure `SHOPBRIDGE_REGISTRY_URL` or
-`SHOPBRIDGE_REGISTRY_PATH` once instead of passing registry records every time.
+The skill uses `https://registry.agentcart.eu/v1/registry/records` for verified
+multi-merchant discovery by default. See `docs/BUYER_SETUP.md` for project-local,
+ZIP, source, private-registry, and service-backed setup. To build the portable
+ZIP instead, run `./scripts/package-shopbridge-direct-skill.sh`.
 If a merchant enables signed request mode, configure either the
 merchant-provided `SHOPBRIDGE_SIGNED_REQUEST_SECRET` or your
 `SHOPBRIDGE_SIGNED_REQUEST_PRIVATE_KEY`. The RSA path is preferred for public
