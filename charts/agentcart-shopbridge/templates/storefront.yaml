@@ -1,0 +1,220 @@
+{{- if not .Values.persistence.uploads.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}-uploads
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: uploads
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.persistence.uploads.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.uploads.size }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storefront
+spec:
+  selector:
+    {{- include "agentcart-shopbridge.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: storefront
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storefront
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "agentcart-shopbridge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: storefront
+  template:
+    metadata:
+      annotations:
+        checksum/bootstrap: {{ printf "%s%s%s" (.Files.Get "files/bootstrap/prepare-wordpress.sh") (.Files.Get "files/bootstrap/seed-before-start.sh") (.Files.Get "files/bootstrap/seed-products.sh") | sha256sum }}
+        checksum/nginx: {{ .Files.Get "files/nginx.conf" | sha256sum }}
+        checksum/plugin: {{ printf "%s%s%s%s" (.Files.Get "files/plugin/agentcart-shopbridge.php") (.Files.Get "files/plugin/readme.txt") (.Files.Get "files/plugin/uninstall.php") (.Files.Get "files/plugin/includes/trait-agentcart-shopbridge-verifier-client.php") | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "agentcart-shopbridge.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: storefront
+        app.kubernetes.io/part-of: agentcart
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 33
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: prepare-clean-wordpress
+          image: {{ include "agentcart-shopbridge.image" .Values.images.prepare }}
+          imagePullPolicy: {{ .Values.images.prepare.pullPolicy }}
+          command: [/bin/sh, /bootstrap/prepare-wordpress.sh]
+          resources:
+            {{- toYaml .Values.resources.prepare | nindent 12 }}
+          securityContext:
+            runAsUser: 33
+            runAsGroup: 33
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: site, mountPath: /var/www/html}
+            - {name: uploads, mountPath: /uploads}
+            - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
+            - {name: plugin, mountPath: /source/agentcart-shopbridge, readOnly: true}
+            - {name: plugin-includes, mountPath: /source/agentcart-shopbridge/includes, readOnly: true}
+        - name: seed-clean-store
+          image: {{ include "agentcart-shopbridge.image" .Values.images.prepare }}
+          imagePullPolicy: {{ .Values.images.prepare.pullPolicy }}
+          command: [/bin/bash, /bootstrap/seed-before-start.sh]
+          env:
+            {{- range $key := list "WORDPRESS_DB_PASSWORD" "WOO_ADMIN_USER" "WOO_ADMIN_PASSWORD" "WOO_ADMIN_EMAIL" "AGENTCART_SHOPBRIDGE_TOKEN" "AGENTCART_SIGNED_REQUEST_SECRET" "WORDPRESS_AUTH_KEY" "WORDPRESS_SECURE_AUTH_KEY" "WORDPRESS_LOGGED_IN_KEY" "WORDPRESS_NONCE_KEY" "WORDPRESS_AUTH_SALT" "WORDPRESS_SECURE_AUTH_SALT" "WORDPRESS_LOGGED_IN_SALT" "WORDPRESS_NONCE_SALT" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.existingSecret }}
+                  key: {{ $key }}
+            {{- end }}
+            - {name: WORDPRESS_DB_HOST, value: "{{ include "agentcart-shopbridge.dbFullname" . }}:3306"}
+            - {name: WORDPRESS_DB_USER, value: {{ .Values.database.user | quote }}}
+            - {name: WORDPRESS_DB_NAME, value: {{ .Values.database.name | quote }}}
+            - {name: WOO_PUBLIC_URL, value: {{ include "agentcart-shopbridge.publicUrl" . | quote }}}
+            - {name: AGENTCART_REQUIRE_DEPLOYMENT_SECRETS, value: "1"}
+            - {name: AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO, value: "1"}
+            - {name: WP_ENVIRONMENT_TYPE, value: {{ .Values.store.environmentType | quote }}}
+            - {name: AGENTCART_WOO_MARKET_PROFILE, value: {{ .Values.store.marketProfile | quote }}}
+            - {name: AGENTCART_WOO_VARIANCE_PROFILE, value: {{ .Values.store.varianceProfile | quote }}}
+            - {name: AGENTCART_WOO_SHOP_TITLE, value: {{ .Values.store.title | quote }}}
+            - {name: AGENTCART_MERCHANT_ID, value: {{ .Values.store.merchantId | quote }}}
+            - {name: AGENTCART_TEMPO_NETWORK, value: {{ .Values.store.tempoNetwork | quote }}}
+            - {name: AGENTCART_TEMPO_RECIPIENT_ADDRESS, value: {{ .Values.store.tempoRecipientAddress | quote }}}
+            - {name: AGENTCART_CHECKOUT_MODE, value: {{ .Values.store.checkoutMode | quote }}}
+            - {name: AGENTCART_SIGNED_REQUEST_MODE, value: {{ .Values.store.signedRequestMode | quote }}}
+            - {name: AGENTCART_PRODUCT_EXPOSURE_MODE, value: {{ .Values.store.productExposureMode | quote }}}
+            - {name: AGENTCART_RETURNS_URL, value: {{ printf "%s%s" (include "agentcart-shopbridge.publicUrl" .) .Values.store.returnsPath | quote }}}
+          resources:
+            {{- toYaml .Values.resources.seed | nindent 12 }}
+          securityContext:
+            runAsUser: 33
+            runAsGroup: 33
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: site, mountPath: /var/www/html}
+            - {name: uploads, mountPath: /uploads}
+            - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      containers:
+        - name: wordpress
+          image: {{ include "agentcart-shopbridge.image" .Values.images.wordpress }}
+          imagePullPolicy: {{ .Values.images.wordpress.pullPolicy }}
+          ports:
+            - {name: fpm, containerPort: 9000}
+          startupProbe:
+            tcpSocket: {port: fpm}
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            tcpSocket: {port: fpm}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: fpm}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.resources.wordpress | nindent 12 }}
+          securityContext:
+            runAsUser: 33
+            runAsGroup: 33
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: site, mountPath: /var/www/html}
+            - {name: uploads, mountPath: /uploads}
+            - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+        - name: nginx
+          image: {{ include "agentcart-shopbridge.image" .Values.images.nginx }}
+          imagePullPolicy: {{ .Values.images.nginx.pullPolicy }}
+          command: [nginx, -g, daemon off;]
+          ports:
+            - {name: http, containerPort: 8080}
+          startupProbe:
+            httpGet: {path: /wp-json/agentcart/v1/capability, port: http}
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: {path: /wp-json/agentcart/v1/capability, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.resources.nginx | nindent 12 }}
+          securityContext:
+            runAsUser: 101
+            runAsGroup: 101
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: site, mountPath: /var/www/html, readOnly: true}
+            - {name: uploads, mountPath: /uploads, readOnly: true}
+            - {name: nginx-config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: site
+          emptyDir: {}
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-uploads" (include "agentcart-shopbridge.fullname" .)) .Values.persistence.uploads.existingClaim }}
+        - name: bootstrap
+          configMap:
+            name: {{ include "agentcart-shopbridge.fullname" . }}-bootstrap
+            defaultMode: 0555
+        - name: plugin
+          configMap:
+            name: {{ include "agentcart-shopbridge.fullname" . }}-plugin
+        - name: plugin-includes
+          configMap:
+            name: {{ include "agentcart-shopbridge.fullname" . }}-plugin-includes
+        - name: nginx-config
+          configMap:
+            name: {{ include "agentcart-shopbridge.fullname" . }}-nginx
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

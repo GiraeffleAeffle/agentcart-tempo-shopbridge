@@ -1,0 +1,9 @@
+AgentCart ShopBridge was rendered for https://{{ .Values.store.host }}.
+
+The chart does not create credentials. Confirm that Secret
+{{ .Values.existingSecret }} exists in namespace {{ .Release.Namespace }} and
+contains every key listed in charts/agentcart-shopbridge/README.md.
+
+Public WordPress administration is intentionally denied by HAProxy Ingress.
+Use an approved private Kubernetes access path and port-forward Service
+{{ include "agentcart-shopbridge.fullname" . }} when administration is needed.

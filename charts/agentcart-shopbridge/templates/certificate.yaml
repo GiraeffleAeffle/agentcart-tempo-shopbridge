@@ -1,0 +1,20 @@
+{{- if and .Values.ingress.enabled .Values.certificate.create }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "agentcart-shopbridge.tlsSecretName" . }}
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tls
+spec:
+  secretName: {{ include "agentcart-shopbridge.tlsSecretName" . }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - {{ .Values.store.host }}
+  issuerRef:
+    name: {{ .Values.certificate.issuerRef.name }}
+    kind: {{ .Values.certificate.issuerRef.kind }}
+{{- end }}

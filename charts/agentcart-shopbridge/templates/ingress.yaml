@@ -1,0 +1,33 @@
+{{- if .Values.ingress.enabled }}
+{{- $secureAnnotations := dict
+  "haproxy-ingress.github.io/ssl-redirect" "true"
+  "haproxy-ingress.github.io/config-backend-early" "http-request deny deny_status 404 if { path_beg /wp-admin }\nhttp-request deny deny_status 404 if { path /wp-login.php }\nhttp-request deny deny_status 404 if { path /xmlrpc.php }\nhttp-request deny deny_status 404 if { path_beg /wp-json/wp/v2/users }\n"
+  "haproxy-ingress.github.io/config-backend" "http-response set-header Strict-Transport-Security \"max-age=31536000; includeSubDomains\"\nhttp-response set-header X-Content-Type-Options nosniff\nhttp-response set-header X-Frame-Options DENY\nhttp-response set-header Referrer-Policy strict-origin-when-cross-origin\nhttp-response set-header X-Robots-Tag noindex,nofollow,noarchive\n"
+}}
+{{- $annotations := merge $secureAnnotations .Values.ingress.annotations }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "agentcart-shopbridge.fullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.store.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "agentcart-shopbridge.fullname" . }}
+                port:
+                  name: http
+  tls:
+    - hosts: [{{ .Values.store.host }}]
+      secretName: {{ include "agentcart-shopbridge.tlsSecretName" . }}
+{{- end }}

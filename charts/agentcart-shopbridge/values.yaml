@@ -1,0 +1,124 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+images:
+  prepare:
+    repository: docker.io/library/wordpress
+    digest: sha256:51ff6b7643d9b4c29d74d83b2c3fe12e706812e7add075f189535f498dd5201d
+    pullPolicy: IfNotPresent
+  wordpress:
+    repository: docker.io/library/wordpress
+    digest: sha256:1570b5183277e78a97429b8b1bd5d008fa9eed386588f0f0de52db8286a5b3fa
+    pullPolicy: IfNotPresent
+  nginx:
+    repository: docker.io/library/nginx
+    digest: sha256:3bcf852aed06467cf075c6105892e4d5a6ebbbafa0ce22d35062db9e90ddef4c
+    pullPolicy: IfNotPresent
+  mariadb:
+    repository: docker.io/library/mariadb
+    digest: sha256:d3515fc42e3600f785d434c1c5a385326a0f9a21431f2d9a81609789d25ce830
+    pullPolicy: IfNotPresent
+
+existingSecret: agentcart-shopbridge-secrets
+
+store:
+  host: shop.example.test
+  title: AgentCart Demo Shop
+  merchantId: example-shop
+  environmentType: staging
+  marketProfile: eur
+  varianceProfile: baseline-eu-tax-shipping
+  tempoNetwork: testnet
+  tempoRecipientAddress: "0x0000000000000000000000000000000000000000"
+  checkoutMode: trusted_token_or_verifier
+  signedRequestMode: "off"
+  productExposureMode: manual
+  returnsPath: /returns
+
+database:
+  name: wordpress
+  user: wordpress
+  persistence:
+    storageClass: ""
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 384Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+persistence:
+  uploads:
+    existingClaim: ""
+    storageClass: ""
+    size: 10Gi
+
+service:
+  port: 80
+
+ingress:
+  enabled: true
+  className: haproxy
+  annotations: {}
+  tlsSecretName: ""
+
+certificate:
+  create: true
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-system
+  ingressSourceCidrs: []
+  dnsNamespaceSelector:
+    kubernetes.io/metadata.name: kube-system
+  dnsPodSelector:
+    k8s-app: kube-dns
+  externalHttpsExceptCidrs:
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+podAnnotations: {}
+podLabels:
+  agentcart.eu/data-classification: synthetic-demo-only
+
+resources:
+  prepare:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  seed:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+  wordpress:
+    requests:
+      cpu: 200m
+      memory: 384Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nginx:
+    requests:
+      cpu: 25m
+      memory: 48Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
