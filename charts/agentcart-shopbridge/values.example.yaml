@@ -11,10 +11,23 @@ store:
   varianceProfile: baseline-eu-tax-shipping
   tempoNetwork: testnet
   tempoRecipientAddress: "0x0000000000000000000000000000000000000000"
+  # Set all four only after a testnet registry contract exists and the stable
+  # record id has been computed for this domain/controller pair.
+  registryOnchain:
+    controller: ""
+    chainId: ""
+    registryAddress: ""
+    recordId: ""
   checkoutMode: trusted_token_or_verifier
   signedRequestMode: "off"
   productExposureMode: manual
   returnsPath: /returns
+
+# Enable only after publishing a pinned verifier image and adding
+# AGENTCART_PAYMENT_VERIFIER_TOKEN plus AGENTCART_TEMPO_REFUND_PRIVATE_KEY to
+# the external Secret. Tempo refundMode=live requires the refund key.
+verifier:
+  enabled: false
 
 database:
   persistence:

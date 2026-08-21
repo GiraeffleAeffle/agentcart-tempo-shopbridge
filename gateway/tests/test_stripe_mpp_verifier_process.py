@@ -200,6 +200,58 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
         self.assertFalse(reused_health["ok"])
         self.assertTrue(any("distinct credentials" in error for error in reused_health["configuration_errors"]))
 
+    def test_tempo_only_profile_does_not_require_stripe_credentials(self) -> None:
+        self.restart_process(
+            {
+                "AGENTCART_VERIFIER_ENABLED_RAILS": "tempo-mpp",
+                "STRIPE_SANDBOX_SECRET_KEY": "",
+                "STRIPE_PROFILE_ID": "",
+                "MPP_SECRET_KEY": "",
+            }
+        )
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=2) as response:
+            health = json.loads(response.read().decode("utf-8"))
+
+        self.assertTrue(health["ok"], health)
+        self.assertEqual(health["enabled_rails"], ["tempo-mpp"])
+        self.assertNotIn("STRIPE_SANDBOX_SECRET_KEY", health["missing"])
+        self.assertNotIn("STRIPE_PROFILE_ID", health["missing"])
+        self.assertNotIn("MPP_SECRET_KEY", health["missing"])
+
+        status, body = self.post_verify(
+            {
+                "operation": "payment",
+                "quote_hash": "a" * 64,
+                "payment_contract_hash": "b" * 64,
+                "payment_receipt": {"method": "stripe-card-mpp"},
+                "expected": {
+                    "amount_cents": 1490,
+                    "currency": "USD",
+                    "merchant_id": "agentcart-usd-staging-shop",
+                    "rail": "stripe-card-mpp",
+                    "payment_contract_hash": "b" * 64,
+                },
+            }
+        )
+        self.assertEqual(status, 400, body)
+        self.assertIn("disabled", body["error"])
+
+    def test_unknown_enabled_rail_fails_readiness(self) -> None:
+        self.restart_process(
+            {"AGENTCART_VERIFIER_ENABLED_RAILS": "tempo-mpp,typo-rail"},
+            require_ready=False,
+        )
+
+        health = self.wait_for_health_response()
+
+        self.assertFalse(health["ok"])
+        self.assertEqual(health["enabled_rails"], ["tempo-mpp"])
+        self.assertTrue(
+            any("unsupported rails: typo-rail" in error for error in health["configuration_errors"]),
+            health,
+        )
+
     def test_verifier_auth_is_checked_before_json_parsing(self) -> None:
         request = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/agentcart/verify",

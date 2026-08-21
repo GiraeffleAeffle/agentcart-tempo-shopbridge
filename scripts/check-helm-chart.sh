@@ -14,9 +14,40 @@ bash "$root/scripts/sync-helm-chart-files.sh" --check
 "$helm_bin" lint "$chart" >/dev/null
 
 rendered="$(mktemp "${TMPDIR:-/tmp}/agentcart-helm.XXXXXX")"
-cleanup() { rm -f -- "$rendered"; }
+rendered_verifier="$(mktemp "${TMPDIR:-/tmp}/agentcart-helm-verifier.XXXXXX")"
+cleanup() { rm -f -- "$rendered" "$rendered_verifier"; }
 trap cleanup EXIT INT TERM
 "$helm_bin" template public-check "$chart" --namespace public-check >"$rendered"
+"$helm_bin" template verifier-check "$chart" --namespace verifier-check \
+  --set store.checkoutMode=external_verifier_only \
+  --set store.signedRequestMode=require_mutations \
+  --set verifier.enabled=true \
+  --set 'verifier.enabledRails[0]=tempo-mpp' \
+  --set 'verifier.enabledRails[1]=stripe-card-mpp' \
+  --set verifier.tempo.settlementMode=verify \
+  --set images.verifier.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  --set store.registryOnchain.controller=0x1111111111111111111111111111111111111111 \
+  --set store.registryOnchain.chainId=eip155:42431 \
+  --set store.registryOnchain.registryAddress=0x2222222222222222222222222222222222222222 \
+  --set store.registryOnchain.recordId=0x3333333333333333333333333333333333333333333333333333333333333333 \
+  >"$rendered_verifier"
+
+if "$helm_bin" lint "$chart" \
+  --set store.checkoutMode=external_verifier_only \
+  --set store.signedRequestMode=require_mutations \
+  --set verifier.enabled=true \
+  --set images.verifier.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  >/dev/null 2>&1; then
+  printf 'Tempo verifier without settlement verification unexpectedly passed chart validation\n' >&2
+  exit 1
+fi
+
+if "$helm_bin" lint "$chart" \
+  --set store.registryOnchain.recordId=0x3333333333333333333333333333333333333333333333333333333333333333 \
+  >/dev/null 2>&1; then
+  printf 'partial onchain registry identity unexpectedly passed chart validation\n' >&2
+  exit 1
+fi
 
 for forbidden in \
   '/Users/' \
@@ -43,11 +74,11 @@ if find "$chart" -type f -perm -002 | grep -q .; then
   exit 1
 fi
 
-if grep -Eq '^kind: Secret$|^stringData:' "$rendered"; then
+if grep -Eq '^kind: Secret$|^stringData:' "$rendered" "$rendered_verifier"; then
   printf 'public chart must not render Kubernetes Secret objects\n' >&2
   exit 1
 fi
-if grep -E '^ *image:' "$rendered" | grep -v '@sha256:' >/dev/null; then
+if grep -E '^ *image:' "$rendered" "$rendered_verifier" | grep -v '@sha256:' >/dev/null; then
   printf 'public chart rendered an unpinned container image\n' >&2
   exit 1
 fi
@@ -60,6 +91,20 @@ grep -Fq 'location = /.well-known/agentcart.json' "$rendered"
 grep -Fq 'automountServiceAccountToken: false' "$rendered"
 grep -Fq 'AGENTCART_REQUIRE_DEPLOYMENT_SECRETS' "$rendered"
 grep -Fq 'AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO' "$rendered"
+
+grep -Fq 'AGENTCART_VERIFIER_REPLAY_STORE_DRIVER' "$rendered_verifier"
+grep -Fq 'AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY' "$rendered_verifier"
+grep -Fq 'AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL' "$rendered_verifier"
+grep -Fq 'AGENTCART_PAYMENT_VERIFIER_TOKEN' "$rendered_verifier"
+grep -Fq 'STRIPE_SANDBOX_SECRET_KEY' "$rendered_verifier"
+grep -Fq 'STRIPE_PROFILE_ID' "$rendered_verifier"
+grep -Fq 'MPP_SECRET_KEY' "$rendered_verifier"
+grep -Fq 'external_verifier_only' "$rendered_verifier"
+grep -Fq 'pinned_internal' "$rendered_verifier"
+grep -Fq 'kind: PersistentVolumeClaim' "$rendered_verifier"
+grep -Fq 'app.kubernetes.io/component: verifier' "$rendered_verifier"
+grep -Fq 'AGENTCART_REGISTRY_ONCHAIN_CONTROLLER' "$rendered_verifier"
+grep -Fq 'eip155:42431' "$rendered_verifier"
 
 rendered_bytes="$(wc -c <"$rendered" | tr -d ' ')"
 (( rendered_bytes < 900000 )) || {

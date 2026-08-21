@@ -438,17 +438,17 @@
       <article class="panel next">
         <h3>Next Slice</h3>
         <ul>
-          <li>External beta evidence pack: collect merchant onboarding, live Woo smoke, compatibility, buyer-agent runtime, prompt-injection, production payment profile, support, rollback, privacy, and pilot exit evidence under the checklist schemas.</li>
-          <li>Live runtime rehearsals: run the service path, direct skill path, MCP-style path, and optional PHP 8.1 Woo matrix entry against the same staging merchant and save transcripts.</li>
-          <li>Payment verifier hardening: managed replay backend, durable metrics store, provider alert routing, and clearer real-settlement failure states.</li>
+          <li>Publish and deploy the already-built non-root verifier image by immutable digest, then save Tempo payment, refund, replay, and persistent-volume restart evidence.</li>
+          <li>Run the prepared Moderato merchant through finalized registration, skill-only discovery, revocation, and new-hash recovery; keep the contract visibly testnet and trusted-operator.</li>
+          <li>Only after those technical drills, collect a non-maintainer buyer transcript and invite the first external merchant for installability feedback.</li>
         </ul>
       </article>
       <article class="panel risk">
         <h3>Highest Risks</h3>
         <ul>
-          <li>Payment rails can be demo-valid while still not representing real EUR settlement or provider-grade refunds.</li>
-          <li>Merchant discovery needs authenticity, freshness, and prompt-injection resistant data handling before broad indexing.</li>
-          <li>Buyer-side adoption depends on a skill-only path or very small local runtime, not a heavy separate service.</li>
+          <li>The verifier image is locally reproducible but not live until an authenticated writable image registry is available.</li>
+          <li>The Moderato registry is deployed but empty; its recurring finalized-feed runtime is packaged but cannot be activated until the pinned image is published, and no merchant lifecycle or independent-indexer evidence exists yet.</li>
+          <li>Buyer-side adoption still needs a non-maintainer skill-only transcript and an external merchant installability run.</li>
         </ul>
       </article>
       <article class="panel standard">
@@ -523,12 +523,12 @@
           <tr>
             <td>Trust</td>
             <td>Agents can verify merchant identity, endpoint freshness, signed sensitive calls, and quote/order integrity without trusting arbitrary page text.</td>
-            <td>Registry, hosted submit/revoke persistence, hash-chained transparency export, compact feed proof pinning, optional onchain identity mapping, health summaries, persisted monitor snapshots, signed request gates and audit trail, prompt-injection corpus, webhook/Home Assistant/SMTP alerts, and Woo admin delivery status are present. Onchain backing and stronger governance remain.</td>
+            <td>Shared trust rules, controller-bound proof, finalized lifecycle projection, immutable historical records, a reference RPC indexer, hosted transparency, signed requests, and alerting are implemented. The Moderato contract is deployed but empty; lifecycle evidence, a second indexer, independent review, and production governance remain.</td>
           </tr>
           <tr>
             <td>Payments</td>
             <td>Payment proof is quote-bound, amount-correct, replay-safe, provider-verifiable, refundable, and auditable across settlement rails.</td>
-            <td>Demo rails, verifier contracts, replay checks, verifier metrics, and verifier failure webhooks are implemented. Real provider operations and managed production metrics remain.</td>
+            <td>The Tempo-capable external verifier, transactional SQLite replay protection, Helm workload, metrics, and alerts are implemented and packaged. Publishing the image and recording live settlement/refund/restart evidence remain.</td>
           </tr>
           <tr>
             <td>Operations</td>
@@ -543,8 +543,8 @@
   <script>
     const areas = [
       { name: "Core Commerce", value: 93, note: "catalog, quote, approval, order, stock, tax, shipping, exposure preview with saved catalog diffs, restricted-goods default blocking, soft holds, hard reservation adapter contract, frozen endpoint contract, compatibility matrix, and checked stale-quote/money-drift recovery" },
-      { name: "Trust And Registry", value: 91, note: "manifest profiles, domain proof, hosted live-proof ingestion, hosted record feed, compact feed proof pinning, hash-chained transparency log, optional ERC-8004-style identity mapping, persisted health snapshots, prompt-injection corpus, webhook/Home Assistant/SMTP alert delivery, Woo admin delivery status, revocations, strict HMAC/RSA signer matching, and audit trail" },
-      { name: "Payments", value: 72, note: "quote-bound verifier contract hash, receipt validation, refund evidence validation, replay conflict checks, append-only replay journal, metrics, alert webhooks, fixtures, and CLI value-proof boundaries exist; managed rail ops still open" },
+      { name: "Trust And Registry", value: 93, note: "shared trust rules, controller-bound proof, finalized onchain projection, immutable historical records, recurring least-privilege RPC indexer, hosted feed/transparency, revocations, strict HMAC/RSA signer matching, and alerts exist; feed activation, live lifecycle evidence, and production governance remain" },
+      { name: "Payments", value: 72, note: "quote-bound verifier contract, transactional SQLite replay protection, Tempo-only deployment profile, non-root image, metrics, alerts, fixtures, and refund evidence checks exist; image publication and live rail evidence remain" },
       { name: "Merchant UX", value: 74, note: "settings, setup wizard, plain-language setup explainer, readiness, registry actions, registry health summary, product exposure diff checkpoints, support diagnostics, compatibility docs, and approval-bound sandbox quote/checkout tests exist" },
       { name: "Buyer Skill Path", value: 83, note: "service path, packaged direct skill with HTTPS/public origin checks, origin-bound approvals, direct audit import, MCP-style runtime matrix, and checked OpenClaw/Codex/MCP adapter examples cover discovery, quote, approval, checkout handoff, state-derived aftercare messages, and audit packets; live external runtime evidence remains" },
       { name: "Standards Adapters", value: 56, note: "x402 shim, MCP-style tool catalog, AP2-style mandate mapping, and checked UCP/A2A profile mappings exist; native runtime adapters remain" },
@@ -598,14 +598,17 @@
         title: "Merchant registry",
         status: "active",
         value: 95,
-        scope: "Registry records, domain proof, manifest hash, profile discovery, hosted live-proof ingestion, hosted submit/revoke persistence, raw hosted feed, compact feed proof, hash-chained transparency export, optional ERC-8004-style identity mapping, health endpoint/page, persisted monitor snapshots, webhook/Home Assistant/SMTP alert delivery, WordPress admin delivery status, revocations, and quote tournament entry point.",
-        remaining: "Add public feed signing or onchain anchoring, stronger governance, and alert runbooks before broad merchant pilots.",
+        scope: "Shared registry trust rules, controller-bound domain proof, finalized contract-event projection, immutable historical records, recurring least-privilege RPC indexer, hosted feed/transparency, health/alerts, revocations, and quote tournament entry point.",
+        remaining: "Publish the pinned runtime and activate the finalized feed, run the first registration/revoke/recovery lifecycle, reproduce it with an independent indexer, and harden governance before production.",
         items: [
           { id: "IAM-001", priority: "P0", title: "Registry alert delivery", description: "Implemented: monitor alert delivery supports webhook, Home Assistant, and SMTP email, while the registry page and ShopBridge WordPress admin surface last delivery state and failures." },
           { id: "IAM-002", priority: "P1", title: "Transparency log export", description: "Implemented: hosted submit, refresh, and revoke operations append hash-chained events exposed at /v1/registry/transparency with chain verification metadata." },
           { id: "IAM-003", priority: "P2", title: "Onchain identity mapping", description: "Implemented: registry records can carry optional ERC-8004-style onchain_identity metadata, which the gateway validates, binds to registry claims when present, and exposes without requiring onchain registration." },
           { id: "IAM-004", priority: "P1", title: "Hosted live-proof ingestion", description: "Implemented: hosted public submissions strip submitted snapshots, fetch merchant-owned manifest/proof/revocation URLs live, and store snapshot-free records in the hosted feed." },
-          { id: "IAM-005", priority: "P1", title: "Feed proof pinning", description: "Implemented: /v1/registry/feed-proof exposes a canonical payload hash over active record hashes, revoked record hashes, and the transparency head for external monitors and future signing/onchain anchoring." }
+          { id: "IAM-005", priority: "P1", title: "Feed proof pinning", description: "Implemented: /v1/registry/feed-proof exposes a canonical payload hash over active record hashes, revoked record hashes, and the transparency head for external monitors and future signing/onchain anchoring." },
+          { id: "IAM-006", priority: "P0", title: "Shared trust and projection modules", description: "Implemented: service, Direct Skill, and tooling reuse one registry-trust contract, while one finalized projection owns lifecycle replay, suspension, attestation, revocation, and recovery semantics." },
+          { id: "IAM-007", priority: "P0", title: "Finalized RPC indexer", description: "Implemented and exercised on Moderato: the reference indexer caps reads at the RPC finalized block, pins validated public DNS addresses during record fetches, records block identity/range, and fails closed. Chart 0.3.0 adds a no-service-account recurring sidecar, atomic complete-snapshot publication, deployment chain/address binding, public-HTTPS-only egress, readiness gating, and ten-minute remote-buyer expiry." },
+          { id: "IAM-008", priority: "P0", title: "Moderato lifecycle evidence", description: "Open: the trusted-operator contract is deployed empty on Tempo Moderato. Register the prepared merchant, verify finalized discovery, revoke it, recover with a new hash, and reproduce the result independently." }
         ]
       },
       {
@@ -627,13 +630,14 @@
         title: "Payment verifier",
         status: "partial",
         value: 72,
-        scope: "Verifier contract, payment contract hash, fixture validation, production payment env profile check, replay request hashes, conflict checks, receipt checks, append-only replay journal, JSON metrics, structured logs, failure alert webhooks, and CLI value-proof handling exist.",
-        remaining: "Move the sandbox file store, replay journal, and metrics to managed transactional storage, add deeper refund execution, and wire provider dashboards.",
+        scope: "Verifier contract, payment contract hash, Tempo and Stripe proof adapters, transactional SQLite replay protection, receipt/refund checks, non-root image, Helm deployment, JSON metrics, logs, alerts, and CLI value-proof handling exist.",
+        remaining: "Publish the image by digest, deploy it with persistent replay state, prove payment/refund/restart behavior, and wire managed dashboards.",
         items: [
           { id: "PAY-001", priority: "P0", title: "Amount-bound verifier", description: "Plugin and Stripe verifier now bind quote total, currency/FX policy, recipient/profile, quote hash, rail, and receipt via a payment_contract_hash." },
           { id: "PAY-002", priority: "P1", title: "Durable replay store", description: "Sandbox verifier now stores request hashes, exact idempotent replays, conflict rejection, lock checks, writeability health, and an optional sanitized append-only replay journal; the production payment profile gate requires durable replay before beta/release claims. Replace the file store with managed transactional storage for production." },
           { id: "PAY-003", priority: "P1", title: "Provider metrics", description: "Sandbox verifier now exposes success rate, rejection reasons, provider errors, latency, settlement/refund counters, replay counters, replay journal health, structured request logs, and throttled failure webhooks; add managed dashboards next." },
-          { id: "PAY-004", priority: "P1", title: "CLI proof boundary", description: "Implemented: Tempo/x402 CLI proof helpers record value_transfer evidence only and never mark real_settlement without an external verifier response bound to amount, currency/FX, recipient/profile, quote hash, payment contract hash, and replay-safe transaction reference." }
+          { id: "PAY-004", priority: "P1", title: "CLI proof boundary", description: "Implemented: Tempo/x402 CLI proof helpers record value_transfer evidence only and never mark real_settlement without an external verifier response bound to amount, currency/FX, recipient/profile, quote hash, payment contract hash, and replay-safe transaction reference." },
+          { id: "PAY-005", priority: "P0", title: "USD verifier deployment evidence", description: "Open operational gate: a checked OCI image and restricted Helm workload exist, but publication requires renewed writable-registry authentication before the Talos payment/refund/restart drill can run." }
         ]
       },
       {
@@ -747,14 +751,15 @@
         title: "Pilot launch",
         status: "planned",
         value: 41,
-        scope: "Local demo and homelab deployment prove the flow; external beta checklist, evidence-required beta release gate, production payment profile gate, live production-readiness smoke, and buyer-agent matrix define merchant, runtime, payment, support, rollback, privacy, and exit evidence.",
-        remaining: "Collect real pilot evidence, run external beta shops, rehearse external buyer agents, complete docs-driven setup, and measure checkout success.",
+        scope: "Local demo and homelab deployment prove the flow; the technical testnet package now includes the verifier workload, shared buyer trust path, finalized indexer, immutable records, and an empty Moderato registry deployment.",
+        remaining: "Finish the USD and registry lifecycle drills, then collect a non-maintainer buyer transcript and external merchant installability evidence.",
         items: [
           { id: "PIL-001", priority: "P0", title: "External beta checklist", description: "Implemented: machine-readable checklist, documentation, validator, live Woo smoke evidence ID, production payment profile evidence ID, and schema gate for merchant onboarding, buyer-agent setup, payment mode, support, rollback, safety/privacy, and pilot exit criteria." },
           { id: "PIL-002", priority: "P0", title: "Evidence-required release gate", description: "Implemented: external beta release checker fails without recorded pilot evidence, buyer-agent runtime evidence, and a production-shaped payment profile that disables token-only checkout fallback." },
           { id: "PIL-003", priority: "P1", title: "Buyer-agent test matrix", description: "Implemented alpha: service-backed OpenClaw/AgentCart, direct ShopBridge skill, and generic MCP-style clients now have a documented runtime matrix, required capabilities, safety rules, evidence IDs, and a verify pipeline gate." },
           { id: "PIL-004", priority: "P2", title: "Success metrics", description: "Track discovery-to-order success rate, failure reasons, merchant setup time, refund rate, and support volume." },
-          { id: "PIL-005", priority: "P1", title: "Live production setup smoke", description: "Implemented: Woo live smoke can fail on production-required setup blockers such as merchant identity, external verifier mode, shipping/VAT, and registry proof before a shop enters a pilot." }
+          { id: "PIL-005", priority: "P1", title: "Live production setup smoke", description: "Implemented: Woo live smoke can fail on production-required setup blockers such as merchant identity, external verifier mode, shipping/VAT, and registry proof before a shop enters a pilot." },
+          { id: "PIL-006", priority: "P0", title: "Technical pilot sequence", description: "In progress: publish and deploy verifier, prove payment/refund/restart, prove finalized register/revoke/recovery, then hand the Direct Skill to a non-maintainer buyer before merchant outreach." }
         ]
       }
     ];

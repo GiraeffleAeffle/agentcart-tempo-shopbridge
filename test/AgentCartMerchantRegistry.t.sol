@@ -74,10 +74,11 @@ contract AgentCartMerchantRegistryTest {
         bytes32 recordId = _registerAndAttest();
 
         VM.prank(MERCHANT);
-        registry.setController(recordId, NEW_CONTROLLER);
+        registry.setController(recordId, NEW_CONTROLLER, RECORD_HASH_2, RECORD_URI);
 
         IAgentCartMerchantRegistry.Record memory stored = registry.record(recordId);
         require(stored.controller == NEW_CONTROLLER, "controller not rotated");
+        require(stored.recordHash == RECORD_HASH_2, "controller-bound record hash not rotated");
         require(stored.attestedAt == 0, "attestation timestamp not cleared");
         require(stored.attestationExpiresAt == 0, "attestation expiry not cleared");
         require(stored.attestationCount == 0, "attestation count not cleared");

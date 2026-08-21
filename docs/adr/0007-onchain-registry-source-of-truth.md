@@ -2,7 +2,31 @@
 
 ## Status
 
-Proposed
+Accepted for the testnet pilot; production eligibility remains gated by ADR
+0008 and the evidence below.
+
+## Implementation Status
+
+As of 2026-08-21, the technical testnet baseline is implemented:
+
+- `AgentCartMerchantRegistry` implements registration, immutable hash-level
+  revocation, suspension, validator attestations, atomic controller rotation,
+  and delayed supersession/recovery;
+- the AgentCart Service, Direct Skill, and registry tooling consume one shared
+  registry-trust module for claim, proof, endpoint, payment, freshness,
+  revocation, and controller-bound onchain checks;
+- one shared onchain projection replays lifecycle events, retains historical
+  record hashes, and fails closed on malformed or non-finalized envelopes;
+- the reference indexer reads through the RPC `finalized` tag and records the
+  finalized block number and hash, while the registry chart can refresh and
+  atomically publish only complete snapshots without Kubernetes API access; and
+- the public-registry chart can expose immutable, content-addressed full-record
+  documents for event replay and recovery.
+
+The contract is deployed empty on Tempo Moderato as described in ADR 0008.
+No merchant registration, revoke/recovery lifecycle, independent review, or
+production/mainnet deployment is complete yet. Those are acceptance evidence,
+not missing data-model design.
 
 ## Context
 
@@ -125,7 +149,11 @@ Authority matrix:
 | Controller key is lost, domain is held | Merchant-hosted revocation document, then domain-proof supersession to re-key |
 | Both domain and key are lost, or fraud is detected | Validator-quorum suspension with public evidence |
 
-The contract needs `setController` for routine key rotation. Public production
+The contract needs an atomic `setController` for routine key rotation. It also
+commits the replacement full-record hash and URI so the controller-bound domain
+proof cannot continue to describe the old controller after rotation. The stable
+record id remains the identity being rotated; its original deterministic
+derivation is not recomputed. Public production
 also needs a domain-proof-driven supersession path for lost keys and
 registration squatting: a new controller publishes fresh domain proof, enters a
 pending request, emits events for monitoring, and becomes active only after

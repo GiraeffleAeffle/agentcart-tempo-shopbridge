@@ -1,0 +1,14 @@
+{{- if and .Values.registry.onchainEvents.enabled (eq .Values.registry.onchainEvents.source "rpc_indexer") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentcart-shopbridge-registry.fullname" . }}-indexer
+  labels:
+    {{- include "agentcart-shopbridge-registry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: finalized-registry-indexer
+data:
+  onchain-registry-indexer.mjs: |
+{{ .Files.Get "files/indexer/onchain-registry-indexer.mjs" | indent 4 }}
+  onchain-registry-indexer-loop.mjs: |
+{{ .Files.Get "files/indexer/onchain-registry-indexer-loop.mjs" | indent 4 }}
+{{- end }}

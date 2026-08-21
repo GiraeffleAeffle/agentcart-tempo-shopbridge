@@ -132,6 +132,31 @@ class RegistryTrustFixtureTests(unittest.TestCase):
                     self.assertEqual(result["ok"], expected_ok, f"{name}: {result}")
                     errors = set(result["verification"].get("errors", []))
                     self.assertTrue(expected_errors.issubset(errors), f"{name}: expected {expected_errors}, got {errors}")
+                    self.assertEqual(
+                        result["verification"].get("contract"),
+                        "agentcart.registry_trust_contract.v1",
+                        f"{name}: {result}",
+                    )
+                    self.assertEqual(
+                        result["verification"].get("implementation"),
+                        "shopbridge_registry_trust.v1",
+                        f"{name}: {result}",
+                    )
+
+    def test_unicode_record_hash_is_identical_across_consumers(self) -> None:
+        record = copy.deepcopy(fixture_contract()["base"]["record"])
+        record["name"] = "Teehaus Strausberg – Grüner Tee"
+
+        expected = shopbridge_direct.registry_trust.registry_record_hash(record)
+        self.assertEqual(shopbridge_direct.registry_record_hash(record), expected)
+        self.assertEqual(agentcart.registry_record_hash(record), expected)
+        self.assertEqual(registry_record_tool.agentcart.registry_record_hash(record), expected)
+
+    def test_onchain_projection_is_shared_across_service_skill_and_tool(self) -> None:
+        expected = "shopbridge_onchain_projection.v1"
+        self.assertEqual(shopbridge_direct.onchain_projection.PROJECTION_IMPLEMENTATION, expected)
+        self.assertEqual(agentcart.onchain_projection.PROJECTION_IMPLEMENTATION, expected)
+        self.assertEqual(registry_record_tool.agentcart.onchain_projection.PROJECTION_IMPLEMENTATION, expected)
 
     def test_public_http_registry_feeds_are_rejected_before_fetching(self) -> None:
         with mock.patch.object(shopbridge_direct, "fetch_json_url", side_effect=AssertionError("unexpected direct skill fetch")):

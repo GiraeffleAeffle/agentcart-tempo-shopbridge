@@ -21,6 +21,11 @@ platform-presentation adapters. In particular, `agents/openai.yaml` may be
 ignored or removed outside Codex/OpenAI environments. The workflow and command
 helper do not call an OpenAI API.
 
+All registry and merchant JSON requests use the bundled safe HTTP transport.
+For public URLs it rejects redirects and non-global DNS results, pins the
+connection to the validated address, and limits responses to 1 MiB. Private or
+plain-HTTP targets require the explicit local-demo opt-in below.
+
 A harness with native skill-folder support can load this folder directly. A
 harness without that feature can provide `SKILL.md` as instructions and expose
 the command helper as a local process/tool; it does not need a separate
@@ -49,6 +54,12 @@ Optional environment for private, self-hosted, or offline registry discovery:
   must not contact the public AgentCart registry
 - `SHOPBRIDGE_REGISTRY_MAX_AGE_DAYS`: registry record freshness window; default
   `180`, set `0` only for local fixtures
+- `SHOPBRIDGE_ONCHAIN_REGISTRY_MAX_AGE_SECONDS`: maximum age of a remote
+  finalized-event snapshot; default `600`. Keep this short because revocation
+  enforcement is only as current as the snapshot.
+
+For a deliberately private HTTP registry in a local demo, also set
+`SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN=1`. Do not enable it for public discovery.
 
 Optional environment for merchants that require signed requests:
 
@@ -86,6 +97,9 @@ This is the first command to run after installing the skill. It is read-only.
 It fetches the public registry by default but does not call merchant endpoints
 unless `probe:true` or `verify_merchants:true` is supplied. A successful result
 has `"ok": true`, `"mode": "registry"`, and at least one registry record.
+If that feed advertises a same-origin finalized onchain-event snapshot, the
+skill consumes it automatically and filters out unregistered, suspended, or
+revoked onchain-bound records. No extra buyer configuration is required.
 
 For a local registry file:
 
@@ -174,12 +188,17 @@ With a configured registry source, omit `registry_records`:
 {"command":"discover_quotes","args":{"query":"tea","country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
 ```
 
-Registry sources can also be onchain contract-event snapshots. Configure
-`SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL` or pass `onchain_registry_events_path`
-for local tests. Register/update events should include both the compact
-`onchain_record` projection and the resolved full `registry_record`; the skill
-checks both hashes against the contract `recordHash` before normal registry
-verification.
+The public registry advertises its onchain contract-event snapshot when one is
+active. For a different trusted source, configure
+`SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL`; pass
+`onchain_registry_events_path` only for local fixtures. Remote snapshots must
+be fresh, complete outputs from the AgentCart RPC indexer capped at the RPC
+`finalized` block. Register, update, controller-rotation, and
+supersession-activation events include the resolved full `registry_record`;
+the skill verifies its commitment and controller binding, replays
+revocation/suspension/supersession state with the same projection module as the
+service and registry tool, and then runs normal domain proof, endpoint,
+payment, freshness, and revocation verification.
 
 This resolves each registry record first, rejects failed registry/domain-proof
 or revocation checks, stale records, and future-dated records before catalog or

@@ -1,5 +1,22 @@
-FROM node:22-alpine
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 
-RUN apk add --no-cache sqlite
+RUN apk add --no-cache sqlite=3.53.2-r0
 
 WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts \
+  && npm cache clean --force
+
+COPY scripts/stripe-mpp-verifier.mjs scripts/stripe-mpp-verifier.mjs
+COPY scripts/verifier-sqlite-replay-store.mjs scripts/verifier-sqlite-replay-store.mjs
+
+RUN mkdir -p /data \
+  && chown -R node:node /app /data
+
+USER node
+EXPOSE 4260
+
+CMD ["node", "scripts/stripe-mpp-verifier.mjs"]

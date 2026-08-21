@@ -13,6 +13,9 @@ SKILL_DIR = ROOT / "gateway" / "shopbridge-direct-skill"
 PORTABLE_REQUIRED_FILES = {
     "SKILL.md",
     "scripts/shopbridge-command.py",
+    "scripts/shopbridge_safe_http.py",
+    "scripts/shopbridge_registry_trust.py",
+    "scripts/shopbridge_onchain_projection.py",
 }
 OPTIONAL_ADAPTER_FILES = {"agents/openai.yaml"}
 FORBIDDEN_PARTS = {"__pycache__", ".DS_Store", "__MACOSX"}

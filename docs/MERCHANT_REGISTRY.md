@@ -174,6 +174,7 @@ AGENTCART_MERCHANT_REGISTRY_PATH=/data/merchant-registry.json
 AGENTCART_MERCHANT_REGISTRY_URL=
 AGENTCART_ONCHAIN_REGISTRY_EVENTS_PATH=
 AGENTCART_ONCHAIN_REGISTRY_EVENTS_URL=
+AGENTCART_ALLOW_PRIVATE_REGISTRY_URLS=false
 AGENTCART_MERCHANT_REGISTRY_HMAC_SECRET=replace-with-shared-registry-secret
 AGENTCART_REQUIRE_VERIFIED_REGISTRY=true
 AGENTCART_MERCHANT_REGISTRY_MAX_AGE_DAYS=180
@@ -449,12 +450,44 @@ attest, event-only flag, suspend, and unsuspend flows. The indexer fails closed
 when a `MerchantRegistered` or `MerchantUpdated` log does not match the fetched
 offchain record projection.
 
+Production-facing event feeds use
+`gateway/scripts/onchain-registry-indexer.mjs`. It reads only through the RPC
+`finalized` block, records the finalized block hash and indexed range, fetches
+record URIs without redirects or private-network access, verifies the record
+commitment and controller-bound identity, and fails closed on any incomplete
+event. The public records feed advertises the same-origin snapshot at
+`onchain_events_url`; buyer skills consume it automatically.
+
+The Direct Skill and gateway registry adapter use the portable
+`shopbridge_safe_http.py` boundary for those public JSON requests. It rejects
+redirects and non-global DNS results, pins connections to validated addresses,
+and enforces bounded request/response sizes. Local/private targets require an
+explicit development opt-in.
+
+The public registry chart can produce that snapshot continuously with
+`registry.onchainEvents.source=rpc_indexer`. Each pod runs an unprivileged
+sidecar with no service-account token, validates the RPC chain against the
+selected deployment descriptor, and atomically replaces the pod-local event
+file only after a complete finalized replay. Transient failures preserve the
+last good file; remote buyers reject it after 600 seconds. Static documents are
+retained for fixtures and one-shot drills, not as the live operating mode.
+
+The recurring indexer is deliberately full-replay for the supervised pilot.
+It trades efficiency for deterministic reconstruction without a writable
+checkpoint database. A production deployment with significant history must
+introduce independently reproducible checkpointing and a second indexer path
+under the promotion gates in ADR 0008.
+
 The gateway can consume the same event snapshot as a discovery source:
 
 ```env
 AGENTCART_ONCHAIN_REGISTRY_EVENTS_PATH=/data/onchain-registry-events.json
 AGENTCART_ONCHAIN_REGISTRY_EVENTS_URL=
 ```
+
+Remote registry, record, manifest, proof, revocation, and finalized-event URLs
+use the safe HTTP boundary. Keep `AGENTCART_ALLOW_PRIVATE_REGISTRY_URLS=false`;
+enable it only for an operator-controlled local fixture network.
 
 For usable merchant discovery, the indexer snapshot should include the compact
 `onchain_record` projection and the resolved full `registry_record` for each
@@ -553,11 +586,15 @@ Once that interface is stable, the source of records can move from local JSON or
 a signed hosted feed to an onchain/append-only registry without changing buyer
 or merchant adapters.
 
-## Open Questions
+## Deferred Policy And Pilot Questions
 
-- Should registry updates be wallet-signed, DNS-based, onchain events, or a
-  combination?
-- How should merchants rotate payment recipients?
+- Registry identity updates are controller-authorized onchain changes paired
+  with a new immutable HTTPS record and controller-bound domain proof. The
+  remaining question is how much of that transaction flow should be sponsored
+  for small merchants.
+- Payment-recipient rotation uses the same new-record update and invalidates
+  prior attestation state. A real merchant rotation and rollback still need to
+  be captured as pilot evidence.
 - Should there be a neutral allowlist for consumer-protection-compliant shops?
 - How can small merchants stay discoverable without recreating ad-market
   dynamics?

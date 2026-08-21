@@ -127,19 +127,27 @@ contract AgentCartMerchantRegistry is IAgentCartMerchantRegistry {
         emit MerchantUpdated(recordId, recordHash, recordURI);
     }
 
-    function setController(bytes32 recordId, address newController) external whenWritesOpen onlyController(recordId) {
+    function setController(
+        bytes32 recordId,
+        address newController,
+        bytes32 newRecordHash,
+        string calldata recordURI
+    ) external whenWritesOpen onlyController(recordId) {
         if (newController == address(0)) revert ZeroAddress();
+        _requireActiveRecordHash(newRecordHash);
+        _requireNonEmptyUri(recordURI);
 
         Record storage stored = _records[recordId];
         _requireStatus(stored, Status.Active);
         stored.controller = newController;
+        stored.recordHash = newRecordHash;
         stored.updatedAt = _now64();
         stored.attestedAt = 0;
         stored.attestationExpiresAt = 0;
         stored.attestationGeneration += 1;
         stored.attestationCount = 0;
 
-        emit ControllerChanged(recordId, newController);
+        emit ControllerChanged(recordId, newController, newRecordHash, recordURI);
     }
 
     function revoke(bytes32 recordId, bytes32 reasonHash) external whenWritesOpen onlyController(recordId) {

@@ -1,4 +1,9 @@
 {{- $entryCount := len .Values.registry.entries -}}
+{{- $onchainEventsUrl := "" -}}
+{{- $rpcIndexerEnabled := and .Values.registry.onchainEvents.enabled (eq .Values.registry.onchainEvents.source "rpc_indexer") -}}
+{{- if .Values.registry.onchainEvents.enabled -}}
+{{- $onchainEventsUrl = printf "https://%s/v1/registry/onchain/events" .Values.registry.host -}}
+{{- end -}}
 {{- $onchain := dict
   "ethereum_mainnet" .Values.registry.onchain.ethereumMainnet
   "tempo" .Values.registry.onchain.tempo
@@ -14,6 +19,9 @@
   "submission_mode" .Values.registry.submissionMode
   "onchain" $onchain
 -}}
+{{- if $onchainEventsUrl -}}
+{{- $_ := set $records "onchain_events_url" $onchainEventsUrl -}}
+{{- end -}}
 {{- $registry := dict
   "schema" "agentcart.merchant_registry.v1"
   "registry" (dict
@@ -106,6 +114,22 @@ data:
           default_type application/json;
           try_files /onchain.json =404;
         }
+        location = /v1/registry/onchain/events {
+          default_type application/json;
+          add_header Cache-Control "no-store" always;
+{{- if $rpcIndexerEnabled }}
+          alias /var/run/agentcart-registry/onchain-events.json;
+{{- else }}
+          try_files /onchain-events.json =404;
+{{- end }}
+        }
+{{- range .Values.registry.onchainRecords }}
+        location = /v1/registry/onchain/records/{{ .recordHash }} {
+          default_type application/json;
+          add_header Cache-Control "public, max-age=31536000, immutable" always;
+          try_files /onchain-record-{{ .recordHash }}.json =404;
+        }
+{{- end }}
         location / { return 404; }
       }
     }
@@ -127,7 +151,7 @@ data:
       <main>
         <h1>AgentCart ShopBridge Registry</h1>
         <p>This pilot registry lets buyer agents discover ShopBridge merchants from HTTPS domain-bound records.</p>
-        <p><a href="/v1/registry/records">Merchant records</a> · <a href="/v1/registry/health">Registry status</a> · <a href="/v1/registry/onchain">Onchain status</a></p>
+        <p><a href="/v1/registry/records">Merchant records</a> · <a href="/v1/registry/health">Registry status</a> · <a href="/v1/registry/onchain">Onchain status</a>{{ if .Values.registry.onchainEvents.enabled }} · <a href="/v1/registry/onchain/events">Finalized events</a>{{ end }}</p>
         <p>Install the buyer skill, then ask your agent to discover a ShopBridge merchant:</p>
         <p><code>npx -y skills@latest add https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/gateway/shopbridge-direct-skill -g -y</code></p>
         <p>The Ethereum mainnet and Tempo registry status is reported explicitly by the onchain endpoint. No undeployed contract is presented as live.</p>
@@ -145,3 +169,11 @@ data:
 {{ $transparency | toPrettyJson | indent 4 }}
   onchain.json: |
 {{ $onchain | toPrettyJson | indent 4 }}
+{{- if and .Values.registry.onchainEvents.enabled (eq .Values.registry.onchainEvents.source "static") }}
+  onchain-events.json: |
+{{ .Values.registry.onchainEvents.document | toPrettyJson | indent 4 }}
+{{- end }}
+{{- range .Values.registry.onchainRecords }}
+  onchain-record-{{ .recordHash }}.json: |
+{{ .document | toPrettyJson | indent 4 }}
+{{- end }}

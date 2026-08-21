@@ -1,3 +1,11 @@
+{{- $rpcIndexerEnabled := and .Values.registry.onchainEvents.enabled (eq .Values.registry.onchainEvents.source "rpc_indexer") -}}
+{{- $onchainDeployment := dict -}}
+{{- if $rpcIndexerEnabled -}}
+{{- $onchainDeployment = index .Values.registry.onchain .Values.registry.onchainEvents.rpcIndexer.deployment -}}
+{{- if eq $onchainDeployment.status "not_deployed" -}}
+{{- fail "registry.onchainEvents.rpcIndexer.deployment must select a deployed registry" -}}
+{{- end -}}
+{{- end -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -27,6 +35,9 @@ spec:
     metadata:
       annotations:
         checksum/registry: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if $rpcIndexerEnabled }}
+        checksum/indexer: {{ include (print $.Template.BasePath "/indexer-configmap.yaml") . | sha256sum }}
+        {{- end }}
       labels:
         {{- include "agentcart-shopbridge-registry.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: merchant-registry
@@ -53,11 +64,15 @@ spec:
             - name: http
               containerPort: 8080
           startupProbe:
-            httpGet: {path: /v1/registry/health, port: http}
+            httpGet:
+              path: {{ ternary "/v1/registry/onchain/events" "/v1/registry/health" $rpcIndexerEnabled }}
+              port: http
             periodSeconds: 2
-            failureThreshold: 30
+            failureThreshold: {{ ternary 180 30 $rpcIndexerEnabled }}
           readinessProbe:
-            httpGet: {path: /v1/registry/health, port: http}
+            httpGet:
+              path: {{ ternary "/v1/registry/onchain/events" "/v1/registry/health" $rpcIndexerEnabled }}
+              port: http
             periodSeconds: 10
           livenessProbe:
             httpGet: {path: /v1/registry/health, port: http}
@@ -80,6 +95,45 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            {{- if $rpcIndexerEnabled }}
+            - name: onchain-events
+              mountPath: /var/run/agentcart-registry
+              readOnly: true
+            {{- end }}
+        {{- if $rpcIndexerEnabled }}
+        - name: finalized-registry-indexer
+          image: {{ include "agentcart-shopbridge-registry.indexerImage" . }}
+          imagePullPolicy: {{ .Values.registry.onchainEvents.rpcIndexer.image.pullPolicy }}
+          command: [node, /app/indexer/onchain-registry-indexer-loop.mjs]
+          env:
+            - name: AGENTCART_ONCHAIN_RPC_URL
+              value: {{ .Values.registry.onchainEvents.rpcIndexer.rpcUrl | quote }}
+            - name: AGENTCART_ONCHAIN_REGISTRY_ADDRESS
+              value: {{ $onchainDeployment.contractAddress | quote }}
+            - name: AGENTCART_ONCHAIN_EXPECTED_CHAIN_ID
+              value: {{ $onchainDeployment.chainId | quote }}
+            - name: AGENTCART_ONCHAIN_FROM_BLOCK
+              value: {{ .Values.registry.onchainEvents.rpcIndexer.fromBlock | quote }}
+            - name: AGENTCART_ONCHAIN_LOG_CHUNK_SIZE
+              value: {{ .Values.registry.onchainEvents.rpcIndexer.chunkSize | quote }}
+            - name: AGENTCART_ONCHAIN_REFRESH_SECONDS
+              value: {{ .Values.registry.onchainEvents.rpcIndexer.refreshSeconds | quote }}
+            - name: AGENTCART_ONCHAIN_EVENTS_OUTPUT
+              value: /var/run/agentcart-registry/onchain-events.json
+          resources:
+            {{- toYaml .Values.registry.onchainEvents.rpcIndexer.resources | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: indexer-code
+              mountPath: /app/indexer
+              readOnly: true
+            - name: onchain-events
+              mountPath: /var/run/agentcart-registry
+        {{- end }}
       volumes:
         - name: registry-config
           configMap:
@@ -87,6 +141,14 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 32Mi
+        {{- if $rpcIndexerEnabled }}
+        - name: indexer-code
+          configMap:
+            name: {{ include "agentcart-shopbridge-registry.fullname" . }}-indexer
+        - name: onchain-events
+          emptyDir:
+            sizeLimit: 16Mi
+        {{- end }}
 ---
 {{- if gt (int .Values.replicaCount) 1 }}
 apiVersion: policy/v1

@@ -275,19 +275,15 @@ def install_domain_proof_http_json(
 
     def fake_http_json(
         url: str,
-        method: str = "GET",
-        token: str = "",
-        payload: dict[str, object] | None = None,
-        headers_extra: dict[str, str] | None = None,
         timeout: int = 10,
     ) -> dict[str, object]:
-        del method, token, payload, headers_extra, timeout
+        del timeout
         calls.append(url)
         if url not in urls:
             raise agentcart.UpstreamError(f"unexpected registry URL: {url}")
         return urls[url]
 
-    service.http_json = fake_http_json  # type: ignore[attr-defined]
+    service.registry_http_json = fake_http_json  # type: ignore[attr-defined]
     return calls
 
 
@@ -1062,6 +1058,30 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(health["summary"]["source_error_count"], 1)
             self.assertIn("registry_source_error", {alert["code"] for alert in health["alerts"]})
 
+    def test_onchain_projection_overlays_hosted_revocation_in_service(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+            record = {
+                "merchant_id": "revoked-hosted-shop",
+                "domain": "revoked.example",
+                "manifest_url": "https://revoked.example/.well-known/agentcart.json",
+            }
+            index = {
+                "chain_id": "eip155:42431",
+                "registry_address": "0x1111111111111111111111111111111111111111",
+                "records": [],
+                "revocations": [{"record_hash": agentcart.registry_record_hash(record)}],
+                "suspensions": [],
+            }
+            with (
+                mock.patch.object(service, "hosted_registry_records", return_value=[record]),
+                mock.patch.object(service, "onchain_registry_source_configured", return_value=True),
+                mock.patch.object(service, "load_onchain_registry_index", return_value=index),
+            ):
+                records = service.load_registry_records()
+
+        self.assertEqual(records, [])
+
     def test_onchain_registry_events_url_rejects_public_http_before_fetching(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             service = make_service(
@@ -1077,6 +1097,23 @@ class AgentCartTests(unittest.TestCase):
                 service.load_onchain_registry_index()
 
             self.assertIn("onchain_registry_events_url_requires_https", str(error.exception))
+
+    def test_registry_fetch_uses_safe_redirect_free_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+            with mock.patch.object(
+                agentcart.safe_http,
+                "fetch_json_object",
+                return_value={"entries": []},
+            ) as fetch:
+                result = service.registry_http_json("https://registry.example/records.json", timeout=7)
+
+        self.assertEqual(result, {"entries": []})
+        fetch.assert_called_once_with(
+            "https://registry.example/records.json",
+            timeout_seconds=7,
+            allow_private=False,
+        )
 
     def test_registry_record_exposes_optional_erc8004_identity_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

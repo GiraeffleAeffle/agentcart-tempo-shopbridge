@@ -104,6 +104,13 @@ spec:
                   name: {{ $.Values.existingSecret }}
                   key: {{ $key }}
             {{- end }}
+            {{- if .Values.verifier.enabled }}
+            - name: AGENTCART_PAYMENT_VERIFIER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: AGENTCART_PAYMENT_VERIFIER_TOKEN
+            {{- end }}
             - {name: WORDPRESS_DB_HOST, value: "{{ include "agentcart-shopbridge.dbFullname" . }}:3306"}
             - {name: WORDPRESS_DB_USER, value: {{ .Values.database.user | quote }}}
             - {name: WORDPRESS_DB_NAME, value: {{ .Values.database.name | quote }}}
@@ -117,8 +124,15 @@ spec:
             - {name: AGENTCART_MERCHANT_ID, value: {{ .Values.store.merchantId | quote }}}
             - {name: AGENTCART_TEMPO_NETWORK, value: {{ .Values.store.tempoNetwork | quote }}}
             - {name: AGENTCART_TEMPO_RECIPIENT_ADDRESS, value: {{ .Values.store.tempoRecipientAddress | quote }}}
+            - {name: AGENTCART_REGISTRY_ONCHAIN_CONTROLLER, value: {{ .Values.store.registryOnchain.controller | quote }}}
+            - {name: AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID, value: {{ .Values.store.registryOnchain.chainId | quote }}}
+            - {name: AGENTCART_REGISTRY_ONCHAIN_ADDRESS, value: {{ .Values.store.registryOnchain.registryAddress | quote }}}
+            - {name: AGENTCART_REGISTRY_ONCHAIN_RECORD_ID, value: {{ .Values.store.registryOnchain.recordId | quote }}}
             - {name: AGENTCART_CHECKOUT_MODE, value: {{ .Values.store.checkoutMode | quote }}}
             - {name: AGENTCART_SIGNED_REQUEST_MODE, value: {{ .Values.store.signedRequestMode | quote }}}
+            - {name: AGENTCART_PAYMENT_VERIFIER_URL, value: {{ ternary (printf "http://%s:%v/agentcart/verify" (include "agentcart-shopbridge.verifierFullname" .) .Values.verifier.port) "" .Values.verifier.enabled | quote }}}
+            - {name: AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL, value: {{ ternary "true" "false" .Values.verifier.enabled | quote }}}
+            - {name: AGENTCART_PAYMENT_VERIFIER_TRUST_MODE, value: {{ ternary "pinned_internal" "public" .Values.verifier.enabled | quote }}}
             - {name: AGENTCART_PRODUCT_EXPOSURE_MODE, value: {{ .Values.store.productExposureMode | quote }}}
             - {name: AGENTCART_RETURNS_URL, value: {{ printf "%s%s" (include "agentcart-shopbridge.publicUrl" .) .Values.store.returnsPath | quote }}}
           resources:

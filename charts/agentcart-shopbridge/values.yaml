@@ -20,6 +20,10 @@ images:
     repository: docker.io/library/mariadb
     digest: sha256:d3515fc42e3600f785d434c1c5a385326a0f9a21431f2d9a81609789d25ce830
     pullPolicy: IfNotPresent
+  verifier:
+    repository: ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier
+    digest: ""
+    pullPolicy: IfNotPresent
 
 existingSecret: agentcart-shopbridge-secrets
 
@@ -32,10 +36,48 @@ store:
   varianceProfile: baseline-eu-tax-shipping
   tempoNetwork: testnet
   tempoRecipientAddress: "0x0000000000000000000000000000000000000000"
+  registryOnchain:
+    controller: ""
+    chainId: ""
+    registryAddress: ""
+    recordId: ""
   checkoutMode: trusted_token_or_verifier
   signedRequestMode: "off"
   productExposureMode: manual
   returnsPath: /returns
+
+verifier:
+  enabled: false
+  port: 4260
+  enabledRails:
+    - tempo-mpp
+  replay:
+    driver: sqlite
+    requireDurable: true
+    requireJournal: true
+    lockTimeoutMs: 5000
+  persistence:
+    existingClaim: ""
+    storageClass: ""
+    size: 1Gi
+  tempo:
+    settlementMode: disabled
+    settlementRpcUrl: ""
+    settlementAsset: pathUSD
+    settlementTokenAddress: "0x20c0000000000000000000000000000000000000"
+    settlementConfirmations: 1
+    refundMode: disabled
+    refundRpcUrl: ""
+    refundAsset: pathUSD
+    refundTokenAddress: "0x20c0000000000000000000000000000000000000"
+    refundConfirmations: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
 
 database:
   name: wordpress

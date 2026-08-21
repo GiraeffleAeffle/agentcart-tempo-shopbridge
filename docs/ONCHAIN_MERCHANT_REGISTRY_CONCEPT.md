@@ -102,7 +102,9 @@ interface IMerchantRegistry {
 
     function setController(
         bytes32 recordId,
-        address newController
+        address newController,
+        bytes32 newRecordHash,
+        string calldata recordURI
     ) external;
 
     function revoke(
