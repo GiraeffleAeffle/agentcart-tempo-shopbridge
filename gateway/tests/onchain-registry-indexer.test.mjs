@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { encodeAbiParameters, encodeEventTopics, keccak256, toBytes } from "viem";
 
@@ -15,6 +19,7 @@ import {
   registryRecordHash,
 } from "../scripts/onchain-registry-indexer.mjs";
 import {
+  isMainInvocation,
   refreshFinalizedSnapshot,
   runIndexerLoop,
   runtimeConfig,
@@ -27,6 +32,19 @@ const recordId = `0x${"44".repeat(32)}`;
 const domainHash = keccak256(toBytes("fixture-shop.example"));
 const transactionHash = `0x${"aa".repeat(32)}`;
 const blockHash = `0x${"bb".repeat(32)}`;
+
+test("recognizes a ConfigMap-style symlink as the main module", async (context) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "agentcart-indexer-main-"));
+  context.after(() => rm(directory, { force: true, recursive: true }));
+  const modulePath = path.join(directory, "..2026_08_23", "onchain-registry-indexer-loop.mjs");
+  const invocationPath = path.join(directory, "onchain-registry-indexer-loop.mjs");
+  await mkdir(path.dirname(modulePath));
+  await writeFile(modulePath, "", { flag: "wx" });
+  await symlink(modulePath, invocationPath);
+
+  assert.equal(await isMainInvocation(pathToFileURL(modulePath).href, invocationPath), true);
+  assert.equal(await isMainInvocation(pathToFileURL(modulePath).href, undefined), false);
+});
 
 function fakeClient(logs, finalized = 120n) {
   return {

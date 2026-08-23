@@ -7,7 +7,7 @@ Accepted for the testnet pilot; production eligibility remains gated by ADR
 
 ## Implementation Status
 
-As of 2026-08-21, the technical testnet baseline is implemented:
+As of 2026-08-23, the technical testnet baseline is implemented:
 
 - `AgentCartMerchantRegistry` implements registration, immutable hash-level
   revocation, suspension, validator attestations, atomic controller rotation,
@@ -23,10 +23,12 @@ As of 2026-08-21, the technical testnet baseline is implemented:
 - the public-registry chart can expose immutable, content-addressed full-record
   documents for event replay and recovery.
 
-The contract is deployed empty on Tempo Moderato as described in ADR 0008.
-No merchant registration, revoke/recovery lifecycle, independent review, or
-production/mainnet deployment is complete yet. Those are acceptance evidence,
-not missing data-model design.
+The contract is deployed empty on Tempo Moderato as described in ADR 0008. The
+public registry now serves a recurring, complete snapshot from the RPC
+`finalized` boundary, and the Direct Skill discovers that same-origin feed
+without buyer configuration. No merchant registration, revoke/recovery
+lifecycle, independent review, or production/mainnet deployment is complete
+yet. Those are acceptance evidence, not missing data-model design.
 
 ## Context
 
