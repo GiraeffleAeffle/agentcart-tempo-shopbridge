@@ -1,6 +1,6 @@
 # Technical Pilot Status
 
-> Snapshot: 2026-08-21. This is a testnet engineering status, not a production
+> Snapshot: 2026-08-23. This is a testnet engineering status, not a production
 > or mainnet-readiness claim.
 
 ## Outcome
@@ -11,7 +11,9 @@ hosted registry adapter, and onchain indexer now share the same trust and
 lifecycle semantics. The external verifier has a production-shaped,
 Tempo-capable deployment package with persistent replay protection.
 
-The next work is operational evidence, not another registry redesign.
+The recurring finalized feed is now live on the public testnet registry. The
+next work is the recorded merchant lifecycle, payment/refund evidence, and
+non-maintainer usability sessions, not another registry redesign.
 
 ## Package Status
 
@@ -21,11 +23,11 @@ The next work is operational evidence, not another registry redesign.
 | Buyer discovery HTTP boundary | Implemented as a portable redirect-free, size-bounded, DNS-pinned transport | Private/local targets require explicit opt-in |
 | Finalized onchain projection | Implemented and fail-closed | Covers registration, update, controller rotation, suspension, attestation, revoke, and supersession/recovery |
 | Immutable full-record archive | Implemented in the public-registry chart | Old content hashes remain fetchable after revoke/recovery |
-| Reference RPC indexer | Implemented, including recurring chart runtime | Reads no newer than `finalized`, records block identity/range, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it |
-| Buyer auto-discovery | Implemented | Direct Skill discovers a same-origin `onchain_events_url` and rejects invalid or non-finalized feeds |
+| Reference RPC indexer | Implemented and live on the public testnet registry | Reads no newer than `finalized`, records block identity/range, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it |
+| Buyer auto-discovery | Implemented and live | Direct Skill discovers the public same-origin `onchain_events_url` and rejects invalid, incomplete, stale, or non-finalized feeds |
 | Registry contract | Deployed empty on Tempo Moderato | First live record lifecycle is intentionally pending |
 | Registry write operator | Implemented with explicit command/chain/contract acknowledgement | Ethereum and Tempo mainnet writes remain blocked by default |
-| External verifier | Implemented and packaged as a pinned, non-root OCI image | Publish to a writable registry, deploy by digest, then record live USD evidence |
+| External verifier | Implemented; pinned non-root image published to GHCR with provenance and SBOM | Deploy the USD verifier profile by digest, then record live payment, refund, replay, and restart evidence |
 | Helm operations | Implemented | Verifier-only external mode, secret references, PVC-backed SQLite replay state, and restricted network policy |
 | Ethereum/Tempo production | Not approved | Requires the promotion gates in ADR 0008 and a new production-network ADR |
 
@@ -43,32 +45,28 @@ The deployment receipt records a local/runtime bytecode hash match. Explorer
 source verification remains outstanding and must not be confused with bytecode
 matching.
 
-The public HTTPS registry was checked and upgraded on 2026-08-21. Health and
-records return HTTP 200 with the two curated staging entries; Helm revision 2
-has two ready replicas and reports the real Tempo contract as `testnet_only`.
-Ethereum remains `not_deployed`, OCI `/v2/` remains available, and registry
-mutations remain HTTP 405. The finalized-events route stays disabled in Helm
-revision 2. Its automatic, least-privilege refresh path is now implemented in
-chart version 0.3.0, but activation still requires publishing the pinned
-runtime image and completing the first merchant lifecycle drill.
+The public HTTPS registry was upgraded to chart 0.3.0 on 2026-08-23. Helm
+revision 11 is deployed with two ready replicas and two ready service endpoints.
+Health and records return HTTP 200 with the two curated staging entries and
+advertise the real Tempo contract as `testnet_only`. Ethereum remains
+`not_deployed`, OCI `/v2/` remains available, registry mutations remain HTTP
+405, and the same-origin finalized-events route is live. Each pod runs the
+least-privilege recurring indexer without a Kubernetes service-account token.
 
-The reference indexer also replayed the real contract from deployment through
-finalized block `31831769`. It returned a complete, error-free envelope with
-the constructor ownership event and no merchant records or revocations. Remote
-buyers reject finalized snapshots older than 600 seconds, so enabling the feed
-requires a recurring refresher. The chart's sidecar supplies it without
-Kubernetes API credentials. It checks the selected deployment's chain id and
-address, writes
-only complete snapshots atomically, permits egress only to DNS and public
-HTTPS, and leaves stale-feed rejection to the shared ten-minute buyer trust
-window. It is configured but deliberately disabled in `values.pilot.yaml`
-until the image digest is available.
+The final deployment receipt records a complete, zero-error replay through
+finalized block `32131761`; an earlier independent public check observed the
+same recurring feed advancing normally.
+Both snapshots contain the constructor ownership event and no merchant record,
+because the prepared pilot merchant is still deliberately unregistered. The
+sidecar checks the selected chain id and contract address, writes only complete
+snapshots atomically, permits egress only to DNS and public HTTPS, and leaves
+stale-feed rejection to the shared ten-minute buyer trust window.
 
-The exact recurring wrapper was then exercised against the public Moderato RPC
-through finalized block `31833475`
-(`0x1c866d3afc58b44e5d8495c2bb1c64ce368b4ff3f22d86a74a97a7d68058b823`).
-It enforced `eip155:42431` and the deployed registry address and atomically
-wrote a complete snapshot with one ownership event and zero errors.
+The chart mounts the indexer program from a ConfigMap. A deployment regression
+test now covers that symlinked entrypoint explicitly: the loop resolves both
+the ESM module URL and invocation path before deciding whether to run. This
+prevents a clean exit without indexing when Kubernetes presents the script
+through its `..data` symlink layout.
 
 After the buyer HTTP boundary was hardened, the packaged Direct Skill `doctor`
 was run against the live public registry. It loaded both entries through the
@@ -77,30 +75,25 @@ domain proof, payment binding, and revocation document with zero trust errors.
 
 ## Ordered Completion Gate
 
-1. Merge or manually run `.github/workflows/verifier-image.yml`. Its GitHub
-   runner smoke-tests the verifier, publishes it to GHCR with provenance and an
-   SBOM, and records the immutable digest without building on a developer
-   machine. Deploy that digest and activate the recurring finalized feed.
-2. Deploy the hardened USD ShopBridge profile to Talos and capture a real
+1. Deploy the hardened USD ShopBridge profile to Talos and capture a real
    quote-bound payment, real verifier-backed refund, replay rejection, and PVC
    restart/recovery result.
-3. Register the prepared Moderato merchant record and index it only after
+2. Register the prepared Moderato merchant record and index it only after
    finality.
-4. Prove Direct Skill discovery from the finalized feed, revoke the first hash,
+3. Prove Direct Skill discovery from the finalized feed, revoke the first hash,
    and recover through a new immutable record hash.
-5. Reproduce the same finalized state through an independent RPC/indexer path.
-6. Hand the packaged skill to a non-maintainer buyer agent. After that succeeds,
+4. Reproduce the same finalized state through an independent RPC/indexer path.
+5. Hand the packaged skill to a non-maintainer buyer agent. After that succeeds,
    begin external merchant installability sessions.
 
 ## Current External Gate
 
-Local GitHub CLI or registry authentication is no longer required for the
-image build. `.github/workflows/verifier-image.yml` uses the repository's
-short-lived `GITHUB_TOKEN` with job-scoped `packages: write` permission. Pull
-requests build and smoke-test without package-write permission; pushes to
-`main` and manual runs publish an amd64 GHCR image, SBOM, provenance, and
-GitHub attestation. The workflow must first be pushed and merged, and the
-resulting package must either be public or have a Talos image-pull secret
-before deployment. Kubernetes security controls remain intact, no production
-chain was touched, and no temporary in-cluster uploader is part of the
-deployment.
+PR #60 is merged and `.github/workflows/verifier-image.yml` published the
+public amd64 image with provenance, SBOM, and GitHub attestation. The immutable
+runtime used by both registry pods is
+`ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier@sha256:689e62705ec34112b053fbfc0461e26477055678cb3eb00ccfa1437c79de75e8`.
+Anonymous manifest access and the Talos pull both succeeded; no developer-machine
+container build or temporary in-cluster uploader was used. The remaining
+external gate is operational evidence from the USD verifier deployment and the
+merchant registration/revocation/recovery drill. No production chain was
+touched.

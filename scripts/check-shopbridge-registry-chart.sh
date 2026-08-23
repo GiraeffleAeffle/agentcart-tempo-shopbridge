@@ -64,6 +64,10 @@ grep -Fq 'value: "42431"' "$rendered"
 grep -Fq 'path: /v1/registry/onchain/events' "$rendered"
 grep -Fq 'cidr: 0.0.0.0/0' "$rendered"
 grep -Fq 'cidr: ::/0' "$rendered"
+if grep -Fq -- '- ::ffff:0:0/96' "$rendered"; then
+  printf 'registry chart rendered an IPv4-mapped range in an IPv6 ipBlock\n' >&2
+  exit 1
+fi
 grep -Fq 'onchain-registry-indexer-loop.mjs' "$rendered"
 grep -Fq 'location = /v1/registry/onchain/records/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' "$rendered"
 grep -Fq 'Cache-Control "public, max-age=31536000, immutable"' "$rendered"

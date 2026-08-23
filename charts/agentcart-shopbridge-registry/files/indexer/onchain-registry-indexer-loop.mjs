@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
+import { realpath } from "node:fs/promises";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import {
   collectFinalizedEvents,
@@ -100,6 +102,15 @@ async function main() {
   await runIndexerLoop(runtimeConfig());
 }
 
-if (import.meta.url === new URL(process.argv[1], "file:").href) {
+export async function isMainInvocation(moduleUrl, invocationPath) {
+  if (!invocationPath) return false;
+  const [modulePath, executablePath] = await Promise.all([
+    realpath(fileURLToPath(moduleUrl)),
+    realpath(invocationPath),
+  ]);
+  return modulePath === executablePath;
+}
+
+if (await isMainInvocation(import.meta.url, process.argv[1])) {
   await main();
 }

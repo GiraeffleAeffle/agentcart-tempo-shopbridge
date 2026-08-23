@@ -86,16 +86,24 @@ through finalized block `31831769` (`0x8efe988fa5c66ebf7786c18d42833398e35e67de4
 The envelope was complete with no errors and projected one constructor
 ownership event, zero merchant records, and zero revocations.
 
-Chart version 0.3.0 packages the recurring indexer runtime and its restricted
-egress policy. The pilot values select the real Moderato deployment and RPC but
-leave the feed disabled until the runtime image is published by digest. This
-keeps the live revision truthful: it reports the testnet contract, but does not
-advertise a feed that cannot yet refresh.
+Chart version 0.3.0 and the recurring feed were activated on the public Talos
+registry on 2026-08-23. Helm revision 11 reports `deployed`; both registry pods
+are Ready with zero container restarts and use the pinned runtime:
 
-The exact recurring wrapper was also run once against Moderato and produced a
-complete, zero-error snapshot through finalized block `31833475`
-(`0x1c866d3afc58b44e5d8495c2bb1c64ce368b4ff3f22d86a74a97a7d68058b823`),
-while enforcing the expected chain id and registry address.
+`ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier@sha256:689e62705ec34112b053fbfc0461e26477055678cb3eb00ccfa1437c79de75e8`
+
+The final deployment receipt records a complete, zero-error snapshot through
+finalized block `32131761`. Independent public requests observed the feed
+advancing with the expected chain id, registry address, `finalized` tag, and
+constructor ownership event. The public records feed advertises the
+same-origin events URL, while both currently curated merchants remain offchain
+until the recorded merchant lifecycle drill.
+
+Kubernetes mounts ConfigMap files through symlinks. The recurring wrapper now
+canonicalizes both its ESM module URL and invocation path before running, and a
+regression test reproduces the ConfigMap-style symlink layout. The sidecar has
+no Kubernetes credentials and the NetworkPolicy permits only cluster DNS and
+public HTTPS egress.
 
 ## Production Promotion Gates
 
