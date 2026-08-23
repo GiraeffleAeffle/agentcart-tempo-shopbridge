@@ -7,12 +7,15 @@ tax and shipping, buyer approval, quote-bound payment verification,
 WooCommerce order creation, delivery visibility, refunds/cancellations, and
 audit records.
 
-Current status: production-candidate alpha. A read-only, maintainer-curated
-ShopBridge merchant-discovery pilot is live at
-`https://registry.agentcart.eu/v1/registry/records` with the two public staging
-shops. This supports merchant installability and buyer-agent discovery testing;
-it is not a production-payment pilot. The WooCommerce plugin, buyer skill,
-registry, verifier contract, package scripts, and release checks are present.
+Current status: production-candidate alpha. The USD pilot merchant is active in
+the ShopBridge registry contract on Tempo Moderato; the Direct Skill queries
+that contract over JSON-RPC for buyer discovery. The read-only
+`https://registry.agentcart.eu/v1/registry/records` endpoint remains a
+maintainer-curated compatibility/cache view with two public staging shops, not
+the authority for onchain candidate membership or lifecycle. This supports merchant installability and
+buyer-agent discovery testing; it is not a production-payment pilot. The
+WooCommerce plugin, buyer skill, registry contract, verifier contract, package
+scripts, and release checks are present.
 Before a paid public merchant pilot, the external beta evidence gate,
 production payment profile, live production-ready smoke, legal terms, and real
 payment rail operations must pass.
@@ -190,10 +193,20 @@ npx -y skills@latest add \
   -g -y
 ```
 
-The skill uses `https://registry.agentcart.eu/v1/registry/records` for verified
-multi-merchant discovery by default. See `docs/BUYER_SETUP.md` for project-local,
-ZIP, source, private-registry, and service-backed setup. To build the portable
-ZIP instead, run `./scripts/package-shopbridge-direct-skill.sh`.
+The skill queries the Tempo Moderato registry contract directly from deployment
+block `30731101` through the RPC `finalized` head, reconstructs the complete
+lifecycle, then fetches and verifies only each currently active record version.
+A broken or malicious candidate becomes ineligible without hiding other
+merchants. See `docs/BUYER_SETUP.md` for
+project-local, ZIP, source, alternate-RPC, compatibility-feed, and
+service-backed setup. To build the portable ZIP instead, run
+`./scripts/package-shopbridge-direct-skill.sh`.
+For a future Ethereum or Gnosis deployment, the same reader has a fail-closed
+[Myotis](https://github.com/biafra23/myotis) profile for a local verified
+light-client RPC and contract-scoped log index, avoiding a hosted RPC or full
+node. The currently inspected Myotis Rust adapter still needs to expose its
+parsed finalized execution block over JSON-RPC before this path is usable;
+Myotis also does not support Tempo.
 If a merchant enables signed request mode, configure either the
 merchant-provided `SHOPBRIDGE_SIGNED_REQUEST_SECRET` or your
 `SHOPBRIDGE_SIGNED_REQUEST_PRIVATE_KEY`. The RSA path is preferred for public

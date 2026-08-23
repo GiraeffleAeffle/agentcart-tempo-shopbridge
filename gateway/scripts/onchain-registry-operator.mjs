@@ -23,7 +23,7 @@ const abi = parseAbi([
   "function update(bytes32 recordId, bytes32 recordHash, string recordURI)",
   "function revoke(bytes32 recordId, bytes32 reasonHash)",
 ]);
-const productionChainIds = new Set([1, 4217]);
+const productionChainIds = new Set([1, 100, 4217]);
 
 function usage() {
   return `Usage:
@@ -35,7 +35,7 @@ function usage() {
 Mutations read AGENTCART_ONCHAIN_PRIVATE_KEY from the environment and require:
   AGENTCART_ONCHAIN_ACK=<command>:<chain-id>:<lowercase-registry-address>
 
-Ethereum and Tempo mainnet mutations are additionally blocked unless
+Ethereum, Gnosis, and Tempo mainnet mutations are additionally blocked unless
 AGENTCART_ONCHAIN_ALLOW_MAINNET=true. Never place a private key on the command line.
 `;
 }

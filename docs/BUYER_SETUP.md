@@ -79,11 +79,12 @@ gateway/shopbridge-direct-skill
 ```
 
 The skill has no long-running service dependency. It needs `python3` and network
-access to the merchant's ShopBridge origin.
+access to the configured EVM JSON-RPC endpoint, the record URIs committed by the
+registry contract, and the merchant's ShopBridge origin.
 
 Its bundled HTTP transport rejects redirects and private/non-global DNS targets
 for public URLs, pins each connection to the validated DNS result, and bounds
-JSON responses. This applies to registry, manifest, proof, catalog, quote,
+JSON responses. This applies to RPC, record, manifest, proof, catalog, quote,
 checkout, and status requests.
 
 For a known single merchant in local development, set:
@@ -93,21 +94,130 @@ export SHOPBRIDGE_BASE_URL=http://127.0.0.1:8098
 export SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN=1
 ```
 
-Normal multi-merchant discovery needs no configuration. The skill reads the
-public, read-only feed at:
+Normal multi-merchant discovery needs no configuration. The buyer skill queries
+the registry smart contract directly using:
 
 ```text
-https://registry.agentcart.eu/v1/registry/records
+RPC: https://rpc.moderato.tempo.xyz
+Chain: eip155:42431
+Contract: 0x0965961617c5B0898167AA4034C5511dB0EfcA07
+Deployment block: 30731101
 ```
 
-A verified record binds the merchant domain, manifest URL, payment destination,
-proof URL, and revocation URL before the skill calls catalog or quote.
-When the feed advertises a same-origin finalized contract-event URL, the skill
-loads it automatically and requires each onchain-bound merchant's exact record
-hash to be active. Revoked, suspended, incomplete, or non-finalized state fails
-closed.
+It requests the RPC `finalized` head, reads the eligibility-changing contract
+logs from the deployment block, and reconstructs current lifecycle state. It
+then chooses a bounded set of active candidates and fetches only each selected
+record's current `recordURI`; historical record documents do not have to remain
+online. The skill checks the committed hash, controller/domain binding,
+lifecycle projection, and the contract's current storage views at the verified
+boundary. Only after that does it verify the merchant domain proof, manifest,
+payment binding, freshness, and revocation document. Revoked, suspended,
+incomplete, wrong-chain, wrong-contract, or unfinalized state fails closed.
 
-To replace the public feed with a trusted private registry:
+To use a different deployment or RPC:
+
+```sh
+export SHOPBRIDGE_ONCHAIN_RPC_URL=https://rpc.example
+export SHOPBRIDGE_ONCHAIN_CHAIN_ID=42431
+export SHOPBRIDGE_ONCHAIN_REGISTRY_ADDRESS=0x...
+export SHOPBRIDGE_ONCHAIN_FROM_BLOCK=30731101
+# Optional for a standard historical RPC; mandatory with Myotis
+export SHOPBRIDGE_ONCHAIN_DEPLOYMENT_BLOCK_HASH=0x...
+export SHOPBRIDGE_ONCHAIN_RPC_PROFILE=auto
+# Optional override; defaults: Ethereum 1800, Gnosis/Tempo 600 seconds
+export SHOPBRIDGE_ONCHAIN_FINALITY_MAX_AGE_SECONDS=600
+```
+
+### Verified light-client RPC with Myotis
+
+For a future registry deployment on Ethereum mainnet or Gnosis, the skill has a
+fail-closed [Myotis](https://github.com/biafra23/myotis) transport profile so a
+buyer can use a local verified light client instead of a hosted RPC or full
+node. Myotis exposes the Ethereum JSON-RPC methods the skill needs and, on its
+Rust engine, maintains an opt-in receipt-root-verified `eth_getLogs` index for
+selected contracts.
+
+There is one upstream blocker in Myotis commit
+`1cc9f09a854846c20b0ca03b517f0ac6a0712ebd`: the Rust adapter parses
+`finalizedBlockNumber`, but `RustChainHandle.beaconStatus()` currently exports
+`executionBlockNumber` as `0`. The ShopBridge profile intentionally rejects
+that with `myotis_finalized_block_unavailable`; it will not substitute the
+optimistic head and call it finalized. The minimal Myotis fix is to populate
+that `BeaconStatus` field from `s.finalizedBlockNumber()`. The latest inspected
+pre-release, v0.1.7, also predates the generic log-index build commands below,
+so pin a later fixed commit or release before treating this as usable.
+
+Once that field is fixed, Myotis must know the exact registry contract and its
+deployment block, and its log-index backfill must finish before discovery can
+succeed. Following the current main-branch daemon interface, prepare Gnosis and
+start the Rust daemon in one terminal:
+
+```sh
+./gradlew refreshCheckpoint -Pnetwork=gnosis
+./gradlew :app:run -Pnetwork=gnosis -Pengine=rust
+```
+
+In a second terminal, build the index locally and wait for coverage to reach the
+deployment block:
+
+```sh
+./gradlew :app:run -Pnetwork=gnosis \
+  -Pargs="build-logindex 0xREGISTRY_CONTRACT --from DEPLOYMENT_BLOCK"
+./gradlew :app:run -Pnetwork=gnosis -Pargs=logindex-status
+```
+
+Then configure the skill on the same machine:
+
+```sh
+export SHOPBRIDGE_ONCHAIN_RPC_URL=http://127.0.0.1:8546
+export SHOPBRIDGE_ALLOW_PRIVATE_RPC=1
+export SHOPBRIDGE_ONCHAIN_RPC_PROFILE=myotis
+export SHOPBRIDGE_ONCHAIN_CHAIN_ID=100
+export SHOPBRIDGE_ONCHAIN_REGISTRY_ADDRESS=0xREGISTRY_CONTRACT
+export SHOPBRIDGE_ONCHAIN_FROM_BLOCK=DEPLOYMENT_BLOCK
+export SHOPBRIDGE_ONCHAIN_DEPLOYMENT_BLOCK_HASH=0xINDEPENDENTLY_RECORDED_BLOCK_HASH
+# Gnosis default: 600 seconds
+export SHOPBRIDGE_ONCHAIN_FINALITY_MAX_AGE_SECONDS=600
+```
+
+For Ethereum mainnet, use Myotis network `mainnet`, loopback port `8545`, chain
+id `1`, and the default 1800-second finalized-block age bound. The default
+`auto` profile also detects Myotis, but explicitly setting `myotis` makes a
+wrong local endpoint fail immediately. Myotis currently supports Ethereum
+mainnet, Sepolia, and Gnosis, not Tempo; the current Moderato registry therefore
+still uses its HTTPS RPC.
+
+The deployment block hash is mandatory with Myotis. Record it independently
+from the successful deployment receipt—ideally in an immutable deployment
+manifest—before the block leaves Myotis's short historical-header window. For
+an older deployment, verify it through an independent archival source. At run
+time the skill does not ask Myotis for the ancient header: it matches the
+pinned hash against the receipt-root-verified constructor
+`OwnershipTransferred(address(0), owner)` log and requires log-index coverage
+from that exact block.
+
+The skill gets the actual finalized execution height from
+`myotis_beaconStatus`, queries the verified log index only through that height,
+and verifies current contract views at Myotis's newer verified head. A newer
+revoke, suspension, controller change, or record update causes a conservative
+failure until it finalizes; a newly registered merchant is simply omitted
+until finality. Incomplete log-index coverage is an error, never an empty
+merchant list.
+
+This removes the trusted hosted-RPC/full-node requirement, not all local work:
+Myotis still runs a P2P light client and stores a per-contract log index whose
+size grows with that contract's logs. The HTTPS `recordURI` documents and
+merchant endpoints remain offchain and must still be reachable. Pin and test a
+specific Myotis release or commit before production because the project is
+still evolving. Build the log index locally for the trustless path; do not treat
+an imported portable snapshot as independently verified provenance.
+Myotis binds its unauthenticated RPC to loopback intentionally. If the buyer
+agent runs inside a container, `127.0.0.1` must be in the same network namespace
+or connected through a narrowly scoped local bridge; do not expose the raw RPC
+on a public interface.
+
+To deliberately use a trusted hosted compatibility feed instead of querying a
+contract:
 
 ```sh
 export SHOPBRIDGE_REGISTRY_URL=https://registry.example/agentcart.json
@@ -123,10 +233,11 @@ For local/self-hosted testing without a public registry:
 export SHOPBRIDGE_REGISTRY_PATH=/path/to/merchant-registry.json
 ```
 
-For a deliberately offline run with no registry source, set
+For a deliberately offline run with no default RPC source, set
 `SHOPBRIDGE_DISABLE_DEFAULT_REGISTRY=1`.
 
-To override the advertised contract-event feed, configure one explicitly:
+The prior hosted finalized-event format remains available as a compatibility
+source:
 
 ```sh
 export SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL=https://registry.example/onchain-events.json
@@ -134,13 +245,19 @@ export SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL=https://registry.example/onchain-e
 export SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_PATH=/path/to/onchain-events.json
 ```
 
-Remote snapshots must be fresh, complete
+Remote compatibility snapshots must be fresh, complete
 `agentcart.onchain_registry_rpc_indexer.v1` documents capped at an RPC
 `finalized` block. The direct skill validates record commitments and binds the
 full `registry_record` to the snapshot chain, registry, controller, and record
 ID, then applies the normal domain-proof, manifest, payment, freshness, and
-revocation checks. The default snapshot freshness window is 600 seconds and can
-be tightened with `SHOPBRIDGE_ONCHAIN_REGISTRY_MAX_AGE_SECONDS`.
+revocation checks. Hosted snapshot generation has a 600-second default window,
+configurable with `SHOPBRIDGE_ONCHAIN_REGISTRY_MAX_AGE_SECONDS`. Direct RPC
+finality uses a separate chain policy: 1800 seconds on Ethereum mainnet and 600
+seconds on Gnosis and Tempo, overridable per deployment with
+`SHOPBRIDGE_ONCHAIN_FINALITY_MAX_AGE_SECONDS`. This prevents a frozen RPC from
+keeping a revoked merchant eligible while still accepting Ethereum's normally
+older finalized head. A finalized timestamp more than five minutes in the
+future also fails closed.
 
 The direct skill rejects records with missing/invalid timestamps, records dated
 more than 10 minutes in the future, and records older than
@@ -162,8 +279,9 @@ export SHOPBRIDGE_SIGNED_REQUEST_PRIVATE_KEY="$(cat /secure/path/agentcart-signe
 export SHOPBRIDGE_SIGNED_REQUEST_SIGNER=sig_active_signer_from_profile
 ```
 
-Check the skill install and configuration first. This is read-only and does not
-call merchant endpoints unless `probe:true` is supplied:
+Check the skill install and configuration first. This is read-only. It queries
+the contract and committed record URI but does not call merchant manifest,
+catalog, quote, or checkout endpoints unless verification/probing is requested:
 
 ```sh
 python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
@@ -203,10 +321,10 @@ python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
 JSON
 ```
 
-That command uses the public registry by default. Alternatively, configure
+That command uses direct onchain discovery by default. Alternatively, configure
 `SHOPBRIDGE_REGISTRY_URL` or `SHOPBRIDGE_REGISTRY_PATH`, or pass
 `registry_records`, `registry_url`, or `registry_path` in the command args for
-one-off tests. Registry sources can be a normal feed with
+explicit compatibility/offline tests. Those sources can be a feed with
 `entries[]`, a single registry record, or a ShopBridge registry bundle from:
 
 ```text
@@ -275,7 +393,10 @@ resolve_merchant -> catalog/quote -> approval_packet -> human approval
 ```
 
 `resolve_merchant` must reject stale records, failed domain proofs, off-domain
-endpoints, and matching merchant-hosted revocation documents.
+endpoints, and matching merchant-hosted revocation documents. Direct discovery
+uses a bounded query-seeded sample before merchant HTTP calls; use
+`merchant_domain` or the public onchain `record_id` for an exact lookup when a
+merchant is not in the current sample.
 
 ## AgentCart Service Setup
 

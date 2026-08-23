@@ -16,6 +16,7 @@ PORTABLE_REQUIRED_FILES = {
     "scripts/shopbridge_safe_http.py",
     "scripts/shopbridge_registry_trust.py",
     "scripts/shopbridge_onchain_projection.py",
+    "scripts/shopbridge_onchain_rpc.py",
 }
 OPTIONAL_ADAPTER_FILES = {"agents/openai.yaml"}
 FORBIDDEN_PARTS = {"__pycache__", ".DS_Store", "__MACOSX"}

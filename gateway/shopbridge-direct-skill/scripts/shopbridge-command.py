@@ -82,6 +82,54 @@ ONCHAIN_REGISTRY_MAX_AGE_SECONDS = max(
         env_int("AGENTCART_ONCHAIN_REGISTRY_MAX_AGE_SECONDS", 600),
     ),
 )
+ONCHAIN_FINALITY_MAX_AGE_SECONDS = env_int(
+    "SHOPBRIDGE_ONCHAIN_FINALITY_MAX_AGE_SECONDS",
+    env_int("AGENTCART_ONCHAIN_FINALITY_MAX_AGE_SECONDS", 0),
+)
+ONCHAIN_RPC_URL = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_RPC_URL")
+    or os.getenv("AGENTCART_ONCHAIN_RPC_URL")
+    or ""
+).strip()
+ONCHAIN_RPC_CHAIN_ID = env_int(
+    "SHOPBRIDGE_ONCHAIN_CHAIN_ID",
+    env_int("AGENTCART_ONCHAIN_CHAIN_ID", 42431),
+)
+ONCHAIN_RPC_REGISTRY_ADDRESS = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_REGISTRY_ADDRESS")
+    or os.getenv("AGENTCART_ONCHAIN_REGISTRY_ADDRESS")
+    or "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+).strip()
+ONCHAIN_RPC_FROM_BLOCK = env_int(
+    "SHOPBRIDGE_ONCHAIN_FROM_BLOCK",
+    env_int("AGENTCART_ONCHAIN_FROM_BLOCK", 30_731_101),
+)
+ONCHAIN_RPC_DEPLOYMENT_BLOCK_HASH = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_DEPLOYMENT_BLOCK_HASH")
+    or os.getenv("AGENTCART_ONCHAIN_DEPLOYMENT_BLOCK_HASH")
+    or ""
+).strip()
+ONCHAIN_RPC_LOG_CHUNK_SIZE = env_int(
+    "SHOPBRIDGE_ONCHAIN_LOG_CHUNK_SIZE",
+    env_int("AGENTCART_ONCHAIN_LOG_CHUNK_SIZE", 100_000),
+)
+ONCHAIN_RPC_PROFILE = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_RPC_PROFILE")
+    or os.getenv("AGENTCART_ONCHAIN_RPC_PROFILE")
+    or "auto"
+).strip()
+ONCHAIN_RECORD_FETCH_TIMEOUT_SECONDS = max(
+    1,
+    min(30, env_int("SHOPBRIDGE_ONCHAIN_RECORD_FETCH_TIMEOUT_SECONDS", 5)),
+)
+ONCHAIN_RECORD_CANDIDATE_LIMIT = max(
+    1,
+    min(
+        50,
+        env_int("SHOPBRIDGE_ONCHAIN_RECORD_CANDIDATE_LIMIT", 12),
+    ),
+)
+ALLOW_PRIVATE_RPC = env_bool("SHOPBRIDGE_ALLOW_PRIVATE_RPC", False)
 AGENTCART_SERVICE_URL = (
     os.getenv("SHOPBRIDGE_AGENTCART_URL")
     or os.getenv("AGENTCART_URL")
@@ -188,6 +236,34 @@ def load_onchain_projection_module():
 
 
 onchain_projection = load_onchain_projection_module()
+
+
+def load_onchain_rpc_module():
+    candidates = (
+        pathlib.Path(__file__).resolve().with_name("shopbridge_onchain_rpc.py"),
+        pathlib.Path(__file__).resolve().parents[2]
+        / "shopbridge-direct-skill"
+        / "scripts"
+        / "shopbridge_onchain_rpc.py",
+    )
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        module_name = "shopbridge_onchain_rpc"
+        loaded = sys.modules.get(module_name)
+        if loaded is not None:
+            return loaded
+        spec = importlib.util.spec_from_file_location(module_name, candidate)
+        if spec is None or spec.loader is None:
+            continue
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return module
+    raise RuntimeError("ShopBridge direct onchain RPC module is missing from the skill package")
+
+
+onchain_rpc = load_onchain_rpc_module()
 
 
 def boolish(value: Any, default: bool = False) -> bool:
@@ -553,14 +629,14 @@ def utcnow() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
-def fetch_json_url(url: str) -> dict[str, Any]:
+def fetch_json_url(url: str, *, timeout_seconds: int = 30) -> dict[str, Any]:
     parsed = parsed_url(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise SystemExit(f"{url} must be an HTTP(S) JSON URL")
     try:
         return safe_http.fetch_json_object(
             url,
-            timeout_seconds=30,
+            timeout_seconds=timeout_seconds,
             allow_private=ALLOW_PRIVATE_ORIGIN,
         )
     except safe_http.SafeHttpError as exc:
@@ -1068,6 +1144,10 @@ def registry_record_from_args(args: dict[str, Any]) -> dict[str, Any]:
         raise SystemExit("registry_record_url did not contain the requested merchant_id")
     records = registry_records_from_source(args)
     merchant_id = str(args.get("merchant_id") or "")
+    merchant_domain = registry_trust.normalized_domain(args.get("merchant_domain"))
+    requested_record_id = str(
+        args.get("record_id") or args.get("onchain_record_id") or ""
+    ).lower()
     if not records:
         raise SystemExit("configured registry source did not contain any records")
     if merchant_id:
@@ -1075,9 +1155,22 @@ def registry_record_from_args(args: dict[str, Any]) -> dict[str, Any]:
             if str(entry.get("merchant_id") or "") == merchant_id:
                 return entry
         raise SystemExit("configured registry source did not contain the requested merchant_id")
+    if merchant_domain:
+        for entry in records:
+            if registry_trust.normalized_domain(entry.get("domain")) == merchant_domain:
+                return entry
+        raise SystemExit("configured registry source did not contain the requested merchant_domain")
+    if requested_record_id:
+        for entry in records:
+            identity = registry_trust.onchain_identity_payload(entry)
+            if str(identity.get("record_id") or "").lower() == requested_record_id:
+                return entry
+        raise SystemExit("configured registry source did not contain the requested record_id")
     if len(records) == 1:
         return records[0]
-    raise SystemExit("merchant_id is required when the configured registry source has multiple records")
+    raise SystemExit(
+        "merchant_id, merchant_domain, or record_id is required when the configured registry source has multiple records"
+    )
 
 
 def registry_records_from_document(document: Any) -> list[dict[str, Any]]:
@@ -1092,6 +1185,10 @@ def registry_records_from_document(document: Any) -> list[dict[str, Any]]:
         registry_record = document.get("registry_record")
         if isinstance(registry_record, dict):
             return [registry_record]
+        for key in ("registry_onboarding_bundle", "bundle"):
+            nested = document.get(key)
+            if isinstance(nested, dict) and isinstance(nested.get("registry_record"), dict):
+                return [nested["registry_record"]]
         if document.get("merchant_id") and document.get("manifest_url"):
             return [document]
     raise SystemExit("registry source must be a record, a list of records, an object with entries[], or a ShopBridge registry bundle")
@@ -1109,12 +1206,18 @@ def onchain_registry_index_from_document(
     document: Any,
     *,
     require_finality: bool = False,
+    expected_chain_id: str = "",
+    expected_registry_address: str = "",
+    expected_implementation: str = onchain_projection.RPC_INDEXER_IMPLEMENTATION,
 ) -> dict[str, Any]:
     index = onchain_projection.index_contract_document(
         document,
         record_hash=registry_record_hash,
         require_finality=require_finality,
+        expected_chain_id=expected_chain_id,
+        expected_registry_address=expected_registry_address,
         max_age_seconds=ONCHAIN_REGISTRY_MAX_AGE_SECONDS if require_finality else 0,
+        expected_implementation=expected_implementation,
     )
     verification = index["verification"]
     if not verification["chain_valid"]:
@@ -1175,22 +1278,7 @@ def configured_registry_url(args: dict[str, Any]) -> str:
     explicit = explicit_registry_url(args)
     if explicit:
         return explicit
-    if default_registry_disabled(args):
-        return ""
-    if any(
-        args.get(key)
-        for key in ("registry_records", "registry", "registry_record", "registry_record_url")
-    ):
-        return ""
-    if configured_base_url(args)["configured"]:
-        return ""
-    if (
-        configured_registry_path(args)
-        or configured_onchain_registry_events_url(args)
-        or configured_onchain_registry_events_path(args)
-    ):
-        return ""
-    return DEFAULT_REGISTRY_URL
+    return DEFAULT_REGISTRY_URL if boolish(args.get("use_hosted_registry"), False) else ""
 
 
 def configured_registry_path(args: dict[str, Any]) -> str:
@@ -1220,13 +1308,230 @@ def configured_onchain_registry_events_path(args: dict[str, Any]) -> str:
     ).strip()
 
 
-def registry_records_from_source(args: dict[str, Any]) -> list[dict[str, Any]]:
+def explicit_onchain_rpc_url(args: dict[str, Any]) -> str:
+    return str(
+        args.get("onchain_rpc_url")
+        or args.get("rpc_url")
+        or ONCHAIN_RPC_URL
+        or ""
+    ).strip()
+
+
+def configured_onchain_rpc_url(args: dict[str, Any]) -> str:
+    explicit = explicit_onchain_rpc_url(args)
+    if explicit:
+        return explicit
+    if default_registry_disabled(args):
+        return ""
+    if any(
+        args.get(key)
+        for key in ("registry_records", "registry", "registry_record", "registry_record_url")
+    ):
+        return ""
+    if configured_base_url(args)["configured"]:
+        return ""
+    if (
+        configured_registry_path(args)
+        or configured_registry_url(args)
+        or configured_onchain_registry_events_url(args)
+        or configured_onchain_registry_events_path(args)
+    ):
+        return ""
+    return onchain_rpc.DEFAULT_RPC_URL
+
+
+def onchain_config_int(
+    value: Any,
+    *,
+    default: int,
+    code: str,
+    allow_caip2: bool = False,
+) -> int:
+    supplied = default if value in (None, "") else value
+    if isinstance(supplied, bool):
+        raise onchain_rpc.OnchainRpcError(code)
+    text = str(supplied).strip()
+    if allow_caip2 and text.lower().startswith("eip155:"):
+        text = text.split(":", 1)[1]
+    if not re.fullmatch(r"[0-9]+", text):
+        raise onchain_rpc.OnchainRpcError(code)
+    return int(text)
+
+
+def merchant_candidate_limit(args: dict[str, Any]) -> int:
+    value = onchain_config_int(
+        args.get("merchant_candidate_limit") or args.get("record_candidate_limit"),
+        default=ONCHAIN_RECORD_CANDIDATE_LIMIT,
+        code="record_candidate_limit_invalid",
+    )
+    if value < 1 or value > onchain_rpc.MAX_RECORD_CANDIDATES:
+        raise onchain_rpc.OnchainRpcError(
+            "record_candidate_limit_invalid",
+            f"must be 1..{onchain_rpc.MAX_RECORD_CANDIDATES}",
+        )
+    return value
+
+
+def merchant_candidate_seed(args: dict[str, Any]) -> str:
+    explicit = str(args.get("candidate_seed") or "").strip()
+    if explicit:
+        return explicit
+    payload = {
+        "query": str(args.get("query") or args.get("q") or args.get("search") or "").strip().lower(),
+        "basket": args.get("basket") if isinstance(args.get("basket"), list) else [],
+        "ship_to": args.get("ship_to") if isinstance(args.get("ship_to"), dict) else {},
+        "country": str(args.get("country") or "").upper(),
+        "postal_code": str(args.get("postal_code") or ""),
+        "merchant_id": str(args.get("merchant_id") or ""),
+        "merchant_domain": str(args.get("merchant_domain") or ""),
+        "record_id": str(args.get("record_id") or args.get("onchain_record_id") or ""),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def preferred_onchain_candidates(args: dict[str, Any]) -> tuple[set[str], set[str]]:
+    record_ids: set[str] = set()
+    supplied_record_id = str(
+        args.get("record_id") or args.get("onchain_record_id") or ""
+    ).lower()
+    if supplied_record_id:
+        if not re.fullmatch(r"0x[0-9a-f]{64}", supplied_record_id):
+            raise onchain_rpc.OnchainRpcError("record_id_invalid")
+        record_ids.add(supplied_record_id)
+    domain_hashes: set[str] = set()
+    supplied_domain = str(args.get("merchant_domain") or "").strip()
+    if supplied_domain:
+        domain_hashes.add(onchain_rpc.domain_hash(supplied_domain))
+    return record_ids, domain_hashes
+
+
+def configured_onchain_deployment(args: dict[str, Any]) -> Any:
+    chain_id = onchain_config_int(
+        args.get("onchain_chain_id") or args.get("chain_id"),
+        default=ONCHAIN_RPC_CHAIN_ID,
+        code="chain_id_invalid",
+        allow_caip2=True,
+    )
+    finality_age_raw = (
+        args.get("onchain_finality_max_age_seconds")
+        if args.get("onchain_finality_max_age_seconds") not in (None, "")
+        else ONCHAIN_FINALITY_MAX_AGE_SECONDS
+    )
+    max_finality_age_seconds = None
+    if finality_age_raw not in (None, "", 0, "0"):
+        max_finality_age_seconds = onchain_config_int(
+            finality_age_raw,
+            default=0,
+            code="max_finality_age_seconds_invalid",
+        )
+    return onchain_rpc.RegistryDeployment(
+        rpc_url=configured_onchain_rpc_url(args),
+        chain_id=chain_id,
+        registry_address=str(
+            args.get("onchain_registry_address")
+            or args.get("registry_address")
+            or ONCHAIN_RPC_REGISTRY_ADDRESS
+        ),
+        from_block=onchain_config_int(
+            args.get("onchain_from_block") or args.get("from_block"),
+            default=ONCHAIN_RPC_FROM_BLOCK,
+            code="from_block_invalid",
+        ),
+        log_chunk_size=onchain_config_int(
+            args.get("onchain_log_chunk_size") or args.get("log_chunk_size"),
+            default=ONCHAIN_RPC_LOG_CHUNK_SIZE,
+            code="log_chunk_size_invalid",
+        ),
+        allow_private_rpc=boolish(args.get("allow_private_rpc"), ALLOW_PRIVATE_RPC),
+        rpc_profile=str(
+            args.get("onchain_rpc_profile")
+            or args.get("rpc_profile")
+            or ONCHAIN_RPC_PROFILE
+        ),
+        max_finality_age_seconds=max_finality_age_seconds,
+        deployment_block_hash=str(
+            args.get("onchain_deployment_block_hash")
+            or args.get("deployment_block_hash")
+            or ONCHAIN_RPC_DEPLOYMENT_BLOCK_HASH
+        ),
+    )
+
+
+def committed_registry_record(record_uri: str, expected_hash: str) -> dict[str, Any]:
+    validate_registry_source_url(record_uri, field="onchain_record_uri")
+    document = fetch_json_url(
+        record_uri,
+        timeout_seconds=ONCHAIN_RECORD_FETCH_TIMEOUT_SECONDS,
+    )
+    expected = str(expected_hash or "").removeprefix("0x").lower()
+    matches = [
+        record
+        for record in registry_records_from_document(document)
+        if hmac.compare_digest(registry_record_hash(record).lower(), expected)
+    ]
+    if not matches:
+        raise RuntimeError("onchain_record_hash_mismatch")
+    if len(matches) > 1:
+        raise RuntimeError("onchain_record_hash_ambiguous")
+    return matches[0]
+
+
+def registry_records_from_source(
+    args: dict[str, Any],
+    *,
+    diagnostics: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     registry_path = configured_registry_path(args)
     registry_url = configured_registry_url(args)
     onchain_events_path = configured_onchain_registry_events_path(args)
     onchain_events_url = configured_onchain_registry_events_url(args)
+    onchain_rpc_url = configured_onchain_rpc_url(args)
     records: list[dict[str, Any]] = []
     advertised_events_url = ""
+    if onchain_rpc_url:
+        try:
+            deployment = configured_onchain_deployment(args)
+            preferred_record_ids, preferred_domain_hashes = preferred_onchain_candidates(args)
+            document = onchain_rpc.collect_finalized_events(
+                deployment,
+                record_loader=committed_registry_record,
+                record_candidate_limit=merchant_candidate_limit(args),
+                record_candidate_seed=merchant_candidate_seed(args),
+                preferred_record_ids=preferred_record_ids,
+                preferred_domain_hashes=preferred_domain_hashes,
+            )
+        except onchain_rpc.OnchainRpcError as exc:
+            raise SystemExit(onchain_rpc.error_document(exc)) from exc
+        expected_chain = f"eip155:{deployment.chain_id}"
+        index = onchain_registry_index_from_document(
+            document,
+            require_finality=True,
+            expected_chain_id=expected_chain,
+            expected_registry_address=deployment.registry_address,
+            expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION,
+        )
+        if diagnostics is not None:
+            rpc_details = document.get("rpc") if isinstance(document.get("rpc"), dict) else {}
+            diagnostics.update(
+                {
+                    "authority": "smart_contract",
+                    "transport": str(document.get("source") or "direct_json_rpc"),
+                    "rpc_profile": str(rpc_details.get("profile") or deployment.rpc_profile),
+                    "rpc_finality_source": str(rpc_details.get("finality_source") or ""),
+                    "rpc_url": onchain_rpc.rpc_url_label(deployment.rpc_url),
+                    "chain_id": expected_chain,
+                    "registry_address": deployment.registry_address,
+                    "deployment_block": deployment.from_block,
+                    "deployment_verification": document["deployment_verification"],
+                    "finalized_block": document["finality"]["block_number"],
+                    "finalized_block_hash": document["finality"]["block_hash"],
+                    "finality_max_age_seconds": document["finality"].get("max_age_seconds"),
+                    "contract_storage_verification": document["contract_storage_verification"],
+                    "record_resolution_errors": document.get("record_errors", []),
+                    "record_selection": document.get("record_selection", {}),
+                }
+            )
+        return [record for record in index["records"] if isinstance(record, dict)]
     if registry_path:
         records.extend(registry_records_from_document(load_json_path(registry_path)))
     elif registry_url:
@@ -1266,10 +1571,21 @@ def registry_records_from_source(args: dict[str, Any]) -> list[dict[str, Any]]:
             index,
             record_hash=registry_record_hash,
         )
+    if diagnostics is not None:
+        diagnostics.update(
+            {
+                "authority": "compatibility_source",
+                "transport": "local_file" if registry_path or onchain_events_path else "hosted_https",
+            }
+        )
     return records
 
 
-def registry_records_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
+def registry_records_from_args(
+    args: dict[str, Any],
+    *,
+    diagnostics: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     raw_records = args.get("registry_records")
     if isinstance(raw_records, list):
         records = registry_records_from_document(raw_records)
@@ -1283,13 +1599,14 @@ def registry_records_from_args(args: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             records = [registry_record_from_args(args)]
     else:
-        records = registry_records_from_source(args)
+        records = registry_records_from_source(args, diagnostics=diagnostics)
         if not records:
             raise SystemExit(
                 "registry_records, registry.entries, registry_record, registry_record_url, "
-                "registry_url, registry_path, onchain_registry_events_url, onchain_registry_events_path, "
-                "SHOPBRIDGE_REGISTRY_URL, SHOPBRIDGE_REGISTRY_PATH, SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL, "
-                "or SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_PATH is required"
+                "onchain_rpc_url, registry_url, registry_path, onchain_registry_events_url, "
+                "onchain_registry_events_path, SHOPBRIDGE_ONCHAIN_RPC_URL, SHOPBRIDGE_REGISTRY_URL, "
+                "SHOPBRIDGE_REGISTRY_PATH, SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL, or "
+                "SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_PATH is required"
             )
     merchant_ids = {
         str(value)
@@ -2436,6 +2753,7 @@ def registry_source_configured(args: dict[str, Any]) -> bool:
         or args.get("registry_record_url")
         or configured_registry_url(args)
         or configured_registry_path(args)
+        or configured_onchain_rpc_url(args)
         or configured_onchain_registry_events_url(args)
         or configured_onchain_registry_events_path(args)
     )
@@ -2448,6 +2766,9 @@ def registry_source_label(args: dict[str, Any]) -> str:
         return str(args["registry_record_url"])
     if configured_registry_path(args):
         return configured_registry_path(args)
+    if configured_onchain_rpc_url(args):
+        deployment = configured_onchain_deployment(args)
+        return f"{deployment.chain_id}:{deployment.registry_address}@{onchain_rpc.rpc_url_label(deployment.rpc_url)}"
     if configured_registry_url(args):
         return configured_registry_url(args)
     if configured_onchain_registry_events_path(args):
@@ -2521,16 +2842,24 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
         }
     ]
     records: list[dict[str, Any]] = []
+    source_diagnostics: dict[str, Any] = {}
+    deployment_config = None
+    if configured_onchain_rpc_url(args):
+        try:
+            deployment_config = configured_onchain_deployment(args)
+        except onchain_rpc.OnchainRpcError:
+            pass
 
     if registry_configured:
         try:
-            records = registry_records_from_args(args)
+            records = registry_records_from_args(args, diagnostics=source_diagnostics)
             checks.append(
                 {
                     "id": "registry_source",
                     "ok": bool(records),
                     "record_count": len(records),
                     "source": registry_source_label(args),
+                    **source_diagnostics,
                 }
             )
         except SystemExit as exc:
@@ -2610,9 +2939,30 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "base_url": base,
             "registry_url_configured": bool(configured_registry_url(args)),
             "registry_url": configured_registry_url(args),
-            "using_default_registry": configured_registry_url(args) == DEFAULT_REGISTRY_URL,
+            "using_default_registry": False,
+            "using_default_onchain_registry": configured_onchain_rpc_url(args) == onchain_rpc.DEFAULT_RPC_URL
+            and not explicit_onchain_rpc_url(args),
             "default_registry_disabled": default_registry_disabled(args),
             "registry_path_configured": bool(configured_registry_path(args)),
+            "onchain_rpc_configured": bool(configured_onchain_rpc_url(args)),
+            "onchain_rpc_url": onchain_rpc.rpc_url_label(configured_onchain_rpc_url(args))
+            if configured_onchain_rpc_url(args)
+            else "",
+            "onchain_chain_id": f"eip155:{deployment_config.chain_id}"
+            if deployment_config is not None
+            else "",
+            "onchain_registry_address": deployment_config.registry_address
+            if deployment_config is not None
+            else "",
+            "onchain_deployment_block": deployment_config.from_block
+            if deployment_config is not None
+            else None,
+            "onchain_deployment_block_hash_configured": bool(
+                deployment_config and deployment_config.deployment_block_hash
+            ),
+            "onchain_rpc_profile": deployment_config.rpc_profile
+            if deployment_config is not None
+            else "",
             "onchain_registry_events_url_configured": bool(configured_onchain_registry_events_url(args)),
             "onchain_registry_events_path_configured": bool(configured_onchain_registry_events_path(args)),
             "registry_max_age_days": registry_max_age_days(args),
@@ -2643,7 +2993,7 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "aftercare_summary",
         ],
         "safety_notes": [
-            "Use verified registry records for multi-merchant discovery before catalog or quote calls.",
+            "Use finalized smart-contract discovery and verified committed records before catalog or quote calls.",
             "Use SHOPBRIDGE_BASE_URL only as a local or human-specified single-shop override.",
             "Do not call checkout until a human approves the approval_packet hash and an external payment receipt satisfies payment_handoff receipt requirements.",
         ],
@@ -3110,6 +3460,51 @@ def quote_rank_reasons(
     return reasons
 
 
+def prequote_candidate_sample(
+    records: list[dict[str, Any]],
+    args: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    try:
+        limit = merchant_candidate_limit(args)
+    except onchain_rpc.OnchainRpcError as exc:
+        raise SystemExit(onchain_rpc.error_document(exc)) from exc
+    seed = merchant_candidate_seed(args)
+
+    def stable_identity(record: dict[str, Any]) -> str:
+        return "|".join(
+            (
+                str(record.get("merchant_id") or ""),
+                registry_trust.normalized_domain(record.get("domain")),
+                registry_record_hash(record),
+            )
+        )
+
+    ordered = sorted(
+        records,
+        key=lambda record: hashlib.sha256(
+            f"{seed}\0{stable_identity(record)}".encode("utf-8")
+        ).digest(),
+    )
+    selected = ordered[:limit]
+    return selected, {
+        "schema": "agentcart.prequote_candidate_selection.v1",
+        "algorithm": "sha256-query-seeded-merchant-sample",
+        "seed_sha256": hashlib.sha256(seed.encode("utf-8")).hexdigest(),
+        "eligible_pool_count": len(records),
+        "candidate_limit": limit,
+        "selected_count": len(selected),
+        "selected_merchants": [
+            {
+                "merchant_id": str(record.get("merchant_id") or ""),
+                "domain": registry_trust.normalized_domain(record.get("domain")),
+            }
+            for record in selected
+        ],
+        "before_catalog_and_quote_requests": True,
+        "paid_placement": False,
+    }
+
+
 def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query") or args.get("q") or args.get("search") or "").strip()
     if not query:
@@ -3125,8 +3520,10 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     seen_quotes: set[str] = set()
+    registry_records = registry_records_from_args(args)
+    selected_records, candidate_selection = prequote_candidate_sample(registry_records, args)
 
-    for record in registry_records_from_args(args):
+    for record in selected_records:
         merchant_id = str(record.get("merchant_id") or "")
         try:
             resolved = resolve_record_for_discovery(record, args)
@@ -3299,6 +3696,7 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
             "quote_request": "private RFQ to verified merchants",
             "ranking": "local agent ranking by unit value when requested, then final price, delivery, payment readiness, and policy; no paid placement",
             "rank_by": "unit_price" if rank_by_unit_price else "total",
+            "candidate_selection": candidate_selection,
         },
         "candidates": public_candidates,
         "winner": winner,
@@ -3376,8 +3774,10 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
     allow_partial = args.get("allow_partial", False) is True
     candidates: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
+    registry_records = registry_records_from_args(args)
+    selected_records, candidate_selection = prequote_candidate_sample(registry_records, args)
 
-    for record in registry_records_from_args(args):
+    for record in selected_records:
         merchant_id = str(record.get("merchant_id") or "")
         try:
             resolved = resolve_record_for_discovery(record, args)
@@ -3570,6 +3970,7 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
             "quote_request": "private whole-basket RFQ to verified merchants",
             "ranking": "full baskets first, then final price, delivery, payment readiness, and policy; no paid placement",
             "allow_partial": allow_partial,
+            "candidate_selection": candidate_selection,
         },
         "candidates": public_candidates,
         "winner": winner,

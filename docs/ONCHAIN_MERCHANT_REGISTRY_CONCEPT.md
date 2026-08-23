@@ -288,8 +288,7 @@ A buyer agent or indexer treats a merchant as eligible only when all checks pass
 1. read active onchain record after the configured finality depth;
 2. fetch the full record from the latest event URI or merchant bundle;
 3. verify full record hash equals `recordHash`;
-4. normalize domain consistently, including IDN/punycode and public-suffix-list
-   handling;
+4. normalize the exact hostname consistently under the versioned policy;
 5. verify the full record domain hashes to `domainHash`;
 6. fetch `manifest_url`;
 7. verify manifest host matches the registered domain;
@@ -357,7 +356,8 @@ Subdomain Sybil protection requires a registrable-domain policy:
 - normalize domains before hashing;
 - use public-suffix-list/eTLD+1 rules for default uniqueness;
 - define an explicit exception path for legitimate multi-tenant subdomain shops;
-- handle IDN/punycode and homograph warnings in validators and indexers.
+- keep IDN/punycode registrations fail-closed until validators and indexers use
+  one shared UTS-46 implementation and expose homograph warnings.
 
 ## Revocation And Recovery
 

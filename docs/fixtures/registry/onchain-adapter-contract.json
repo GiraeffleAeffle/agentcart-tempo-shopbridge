@@ -128,7 +128,7 @@
     "wait_for_configured_finality_depth",
     "reject_missing_required_projection_fields",
     "verify_record_hash_against_canonical_registry_record_when_full_record_is_available",
-    "normalize_domain_with_idn_punycode_and_public_suffix_rules",
+    "normalize_exact_hostname_with_versioned_pilot_ldh_policy_and_reject_idn",
     "verify_record_domain_matches_onchain_domain_hash",
     "fetch_manifest_from_manifest_url",
     "verify_manifest_domain_matches_registered_domain",

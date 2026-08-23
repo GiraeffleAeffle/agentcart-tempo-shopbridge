@@ -24,9 +24,11 @@ interfaces instead of deploying the full gateway as public infrastructure:
   and keeps the existing OCI `/v2/` ingress boundary intact; its optional
   sidecar projects finalized chain events into a pod-local file without
   Kubernetes API credentials or a stateful public submission service;
-- the Direct Skill owns buyer-side fetching and verification and uses the
-  public feed by default, while explicit merchant, private-registry, and
-  offline configuration still override that default.
+- the Direct Skill owns buyer-side fetching and verification and now derives
+  candidate membership and lifecycle from the registry contract, then derives
+  eligibility through offchain trust checks. The public feed is an explicit
+  compatibility/cache input, while explicit merchant and offline configuration
+  remain available.
 
 This remains a deliberately small deployment seam. The trust architecture is
 now deeper behind it:
@@ -36,6 +38,9 @@ now deeper behind it:
   controller-binding rules;
 - `shopbridge_onchain_projection.py` owns fail-closed finalized-envelope and
   lifecycle replay semantics;
+- `shopbridge_onchain_rpc.py` owns portable JSON-RPC discovery, log decoding,
+  finalized-range collection, record-URI binding, and contract-view
+  cross-checks, including a fail-closed Myotis transport profile;
 - `shopbridge_safe_http.py` owns bounded, redirect-free, DNS-pinned public JSON
   fetching for buyer discovery and registry verification; and
 - the AgentCart Service, Direct Skill, registry helper, and reference indexer
@@ -127,7 +132,11 @@ The same fixtures exercise service, skill, helper, and onchain recovery paths.
 
 The shared Python source is vendored into the portable skill package rather
 than released as a separately versioned library. Keep its package-contract
-test mandatory until a real distribution boundary exists.
+test mandatory until a real distribution boundary exists. A follow-up cleanup
+should also delete the now-unused pre-module Registry Trust helpers still
+present in `shopbridge-command.py`, then derive RPC ABI constants, deployment
+defaults, and candidate-selection descriptors from single artifacts. These are
+Locality improvements, not blockers for the direct-registry pilot.
 
 ### 4. Approval And Audit Evidence Module
 

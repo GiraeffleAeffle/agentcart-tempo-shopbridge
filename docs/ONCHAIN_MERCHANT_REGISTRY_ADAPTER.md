@@ -239,8 +239,8 @@ Agents should:
 2. Wait for the configured finality depth before accepting a payment binding.
 3. Reject records missing required projection fields.
 4. Verify the canonical record hash when the full record is available.
-5. Normalize and hash the domain with the configured IDN/punycode and
-   public-suffix-list rules.
+5. Normalize and hash the exact hostname with the configured versioned policy;
+   the pilot rejects IDN/punycode until one shared UTS-46 implementation exists.
 6. Verify the full record domain matches the onchain domain hash.
 7. Fetch the merchant manifest from `manifest_url`.
 8. Verify the manifest domain matches the registered domain.

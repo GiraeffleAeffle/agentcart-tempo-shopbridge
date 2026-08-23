@@ -32,6 +32,7 @@ class SkillPackageContractTest(unittest.TestCase):
                 "scripts/shopbridge_safe_http.py",
                 "scripts/shopbridge_registry_trust.py",
                 "scripts/shopbridge_onchain_projection.py",
+                "scripts/shopbridge_onchain_rpc.py",
             },
             skill_package.PORTABLE_REQUIRED_FILES,
         )
@@ -55,6 +56,7 @@ class SkillPackageContractTest(unittest.TestCase):
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_safe_http.py", "")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_registry_trust.py", "")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_onchain_projection.py", "")
+                archive.writestr("shopbridge-direct-skill/scripts/shopbridge_onchain_rpc.py", "")
 
             self.assertEqual([], skill_package.validate_zip(zip_path))
 

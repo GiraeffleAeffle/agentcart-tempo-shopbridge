@@ -1,0 +1,55 @@
+{
+  "schema": "agentcart.registry_onchain_identity_aliases.v1",
+  "expected": {
+    "chain_id": "eip155:42431",
+    "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "registry_address": "0x0965961617c5b0898167aa4034c5511db0efca07",
+    "record_id": "0x4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "cases": [
+    {
+      "id": "canonical",
+      "container": "onchain_identity",
+      "identity": {
+        "chain_id": "eip155:42431",
+        "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "registry_address": "0x0965961617c5b0898167aa4034c5511db0efca07",
+        "record_id": "0x4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "valid": true
+    },
+    {
+      "id": "legacy_aliases",
+      "container": "onchain_identity",
+      "identity": {
+        "chain": "eip155:42431",
+        "merchant_controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "contract": "0x0965961617c5b0898167aa4034c5511db0efca07",
+        "id": "0x4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "valid": true
+    },
+    {
+      "id": "erc8004_aliases",
+      "container": "erc8004_identity",
+      "identity": {
+        "chainId": "eip155:42431",
+        "controller_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "registry_contract": "0x0965961617c5b0898167aa4034c5511db0efca07",
+        "id": "0x4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "valid": true
+    },
+    {
+      "id": "top_level_identity_rejected",
+      "container": "top_level",
+      "identity": {
+        "chain_id": "eip155:42431",
+        "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "registry_address": "0x0965961617c5b0898167aa4034c5511db0efca07",
+        "record_id": "0x4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "valid": false
+    }
+  ]
+}

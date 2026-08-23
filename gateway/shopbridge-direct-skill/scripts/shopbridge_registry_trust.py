@@ -90,17 +90,32 @@ def parsed_url(value: Any) -> urllib.parse.ParseResult:
 
 
 def normalized_domain(value: Any) -> str:
-    domain = str(value or "").strip().rstrip(".").lower()
+    domain = str(value or "").strip().lower()
+    if domain.endswith("."):
+        domain = domain[:-1]
     if not domain:
         return ""
-    if "://" in domain:
-        domain = parsed_url(domain).hostname or ""
-    elif domain.startswith("[") or ":" in domain:
-        domain = urllib.parse.urlparse(f"//{domain}").hostname or domain
     try:
-        return domain.encode("idna").decode("ascii")
-    except UnicodeError:
+        domain.encode("ascii")
+    except UnicodeEncodeError:
         return ""
+    if len(domain) > 253:
+        return ""
+    labels = domain.split(".")
+    for label in labels:
+        if (
+            not label
+            or len(label) > 63
+            or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+        ):
+            return ""
+        # Python's built-in IDNA 2003 mapping and Node's UTS-46 mapping are not
+        # equivalent. Until the portable skill ships one shared UTS-46
+        # implementation, rejecting IDN A-labels is safer than hashing them
+        # differently in two verifier runtimes.
+        if label.startswith("xn--"):
+            return ""
+    return domain
 
 
 def domain_matches_url(domain: Any, url: urllib.parse.ParseResult | str) -> bool:

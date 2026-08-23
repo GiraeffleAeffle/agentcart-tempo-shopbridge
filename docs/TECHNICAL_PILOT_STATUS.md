@@ -30,13 +30,14 @@ rail was used.
 | Finalized onchain projection | Implemented and fail-closed | Covers registration, update, controller rotation, suspension, attestation, revoke, and supersession/recovery |
 | Immutable full-record archive | Implemented in the public-registry chart | Old content hashes remain fetchable after revoke/recovery |
 | Reference RPC indexer | Implemented and live on the public testnet registry; independent witness mode is packaged | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it. Optional witness mode publishes only the common matched range and rejects stalled or divergent paths |
-| Buyer auto-discovery | Implemented and live | Direct Skill discovers the public same-origin `onchain_events_url` and rejects invalid, incomplete, stale, or non-finalized feeds |
+| Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; hosted event feeds remain compatibility inputs |
+| Buyer verified-light-client transport | Implemented fail-closed profile; upstream compatibility blocked | Myotis supports the required verified logs and contract reads on Ethereum/Gnosis, but inspected Rust main currently exports finalized execution block `0`; ShopBridge refuses it pending the one-line adapter fix and a pinned-release drill |
 | Registry contract | Live on Tempo Moderato with a finalized register/revoke/recover drill | The recovered USD record is active; source publication and independent security review remain open |
-| Registry write operator | Implemented with explicit command/chain/contract acknowledgement | Ethereum and Tempo mainnet writes remain blocked by default |
+| Registry write operator | Implemented with explicit command/chain/contract acknowledgement | Ethereum, Gnosis, and Tempo mainnet writes remain blocked by default |
 | External verifier | Implemented and live on Talos from the pinned GHCR digest | Payment, refund, replay-conflict, backup, and restart evidence pass; alert-webhook delivery remains open |
 | Helm operations | Implemented and exercised | Verifier-only external mode, Bound PVC-backed SQLite replay state, restricted network policy, and opt-in Secret-backed alert delivery are packaged; the live receiver is still unconfigured |
 | Independent reconstruction | Passed manually with dRPC and Tenderly; automatic comparison and webhook alerting implemented | Activate it with an independently operated full-history RPC and real receiver, then retain matched, firing, and resolved delivery evidence. Conduit's pruned history cannot replay from deployment |
-| Ethereum/Tempo production | Not approved | Requires the promotion gates in ADR 0008 and a new production-network ADR |
+| Ethereum/Gnosis/Tempo production | Not approved | Requires the promotion gates in ADR 0008 and a new production-network ADR |
 
 ## Testnet Deployment
 
@@ -82,7 +83,8 @@ SHA-256 `f5322c1cd41d6e1bf34c28604b10fc97f6801ae4793d575a3ef4c343170440c0`
 on every path. Conduit correctly failed closed because its available history
 started after the deployment block. The sidecars continue to check chain and
 contract identity, publish only complete snapshots atomically, and rely on the
-shared ten-minute freshness boundary to expire an extended outage.
+shared ten-minute snapshot and finalized-block freshness boundary to expire an
+extended outage or frozen RPC response.
 
 The chart mounts the indexer program from a ConfigMap. A deployment regression
 test now covers that symlinked entrypoint explicitly: the loop resolves both
@@ -103,10 +105,18 @@ proof or alert payload.
 The packaged Direct Skill demonstrated all three externally visible lifecycle
 states. It resolved the first registered hash after finality, removed the USD
 merchant from eligibility immediately after onchain revocation, and resolved
-the recovered hash after re-registration. The final `doctor` run loaded two
-records and verified both merchants' manifests, domain proofs, payment
-bindings, and revocation documents with zero trust errors. No registry
-environment variable was needed.
+the recovered hash after re-registration. It now queries the Tempo RPC directly
+instead of obtaining candidate membership and lifecycle from the hosted
+`/records` or `onchain_events_url` views. A live `doctor` run on 2026-08-23 read
+the contract from deployment block `30731101` through finalized block
+`32158760`, proved the historical contract-creation boundary, matched the
+recovered record against contract storage, and verified the USD merchant's
+manifest, domain proof, payment binding, and revocation document with zero
+trust errors. A live `discover_quotes` call then discovered Hazel's Chocolate
+Tea, correctly rejected delivery to DE, and produced a 15.78 USD Tempo-MPP
+testnet quote plus human-approval packet for US delivery. No registry
+environment variable was needed. The curated EUR staging entry is therefore no
+longer returned by default because it is not registered onchain.
 
 ## Talos USD Verifier
 
@@ -160,7 +170,9 @@ The remaining gates are explicit:
   decision;
 - complete a non-maintainer buyer-agent session and an external merchant
   installation session; and
-- accept a new ADR before any Ethereum or Tempo production deployment.
+- resolve and drill the Myotis finalized-height adapter only if the verified
+  light-client path is part of the Ethereum/Gnosis network evaluation; and
+- accept a new ADR before any Ethereum, Gnosis, or Tempo production deployment.
 
 Detailed redacted evidence is in
 `pilot-evidence/woo-usd-staging/attachments/talos-usd-verifier-live-drill-2026-08-23.md`
