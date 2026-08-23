@@ -14,6 +14,8 @@ sources=(
   woocommerce-shopbridge/agentcart-shopbridge/uninstall.php
   woocommerce-shopbridge/agentcart-shopbridge/includes/trait-agentcart-shopbridge-verifier-client.php
   demo/woocommerce/seed-products.sh
+  gateway/scripts/onchain-registry-indexer.mjs
+  gateway/scripts/onchain-registry-indexer-loop.mjs
 )
 destinations=(
   charts/agentcart-shopbridge/files/plugin/agentcart-shopbridge.php
@@ -21,6 +23,8 @@ destinations=(
   charts/agentcart-shopbridge/files/plugin/uninstall.php
   charts/agentcart-shopbridge/files/plugin/includes/trait-agentcart-shopbridge-verifier-client.php
   charts/agentcart-shopbridge/files/bootstrap/seed-products.sh
+  charts/agentcart-shopbridge-registry/files/indexer/onchain-registry-indexer.mjs
+  charts/agentcart-shopbridge-registry/files/indexer/onchain-registry-indexer-loop.mjs
 )
 
 stale=0
@@ -33,6 +37,7 @@ for index in "${!sources[@]}"; do
       stale=1
     fi
   else
+    mkdir -p "$(dirname -- "$destination_file")"
     install -m 0644 "$source_file" "$destination_file"
   fi
 done

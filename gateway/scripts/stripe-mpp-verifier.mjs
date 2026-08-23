@@ -26,6 +26,19 @@ const stripeSecretKey = (
 const stripeProfileId = (process.env.STRIPE_PROFILE_ID || process.env.AGENTCART_STRIPE_PROFILE_ID || "").trim();
 const mppSecretKey = (process.env.MPP_SECRET_KEY || "").trim();
 const verifierToken = (process.env.AGENTCART_PAYMENT_VERIFIER_TOKEN || "").trim();
+const supportedVerifierRails = new Set(["stripe-card-mpp", "tempo-mpp"]);
+const configuredVerifierRails = (
+  process.env.AGENTCART_VERIFIER_ENABLED_RAILS || "stripe-card-mpp,tempo-mpp"
+)
+  .split(",")
+  .map((value) => normalizeRail(value))
+  .filter(Boolean);
+const unsupportedVerifierRails = [
+  ...new Set(configuredVerifierRails.filter((value) => !supportedVerifierRails.has(value))),
+].sort();
+const enabledVerifierRails = new Set(
+  configuredVerifierRails.filter((value) => supportedVerifierRails.has(value)),
+);
 const minimumCredentialCharacters = 32;
 const replayStorePath = (
   process.env.AGENTCART_VERIFIER_REPLAY_STORE_PATH ||
@@ -564,9 +577,12 @@ async function recordVerifierResponse(request, url, payload, response, startedNs
 
 function missingConfig() {
   const missing = [];
-  if (!stripeSecretKey) missing.push("STRIPE_SANDBOX_SECRET_KEY");
-  if (!stripeProfileId) missing.push("STRIPE_PROFILE_ID");
-  if (!mppSecretKey) missing.push("MPP_SECRET_KEY");
+  if (enabledVerifierRails.size === 0) missing.push("AGENTCART_VERIFIER_ENABLED_RAILS");
+  if (enabledVerifierRails.has("stripe-card-mpp")) {
+    if (!stripeSecretKey) missing.push("STRIPE_SANDBOX_SECRET_KEY");
+    if (!stripeProfileId) missing.push("STRIPE_PROFILE_ID");
+    if (!mppSecretKey) missing.push("MPP_SECRET_KEY");
+  }
   if (!verifierToken) missing.push("AGENTCART_PAYMENT_VERIFIER_TOKEN");
   if (requireDurableReplayStore && !replayStorePath) {
     missing.push("AGENTCART_VERIFIER_REPLAY_STORE_PATH");
@@ -579,6 +595,11 @@ function missingConfig() {
 
 function credentialConfigurationErrors() {
   const errors = [];
+  if (unsupportedVerifierRails.length > 0) {
+    errors.push(
+      `AGENTCART_VERIFIER_ENABLED_RAILS contains unsupported rails: ${unsupportedVerifierRails.join(", ")}.`,
+    );
+  }
   for (const [name, value] of [
     ["AGENTCART_PAYMENT_VERIFIER_TOKEN", verifierToken],
     ["MPP_SECRET_KEY", mppSecretKey],
@@ -612,6 +633,7 @@ function readiness() {
     ok,
     service: "agentcart-stripe-mpp-verifier",
     mode: "sandbox",
+    enabled_rails: [...enabledVerifierRails].sort(),
     endpoints: {
       health: `http://${host}:${port}/health`,
       metrics: `http://${host}:${port}/metrics`,
@@ -671,6 +693,18 @@ function requireReady() {
     );
   }
   return null;
+}
+
+function requireEnabledRail(rail) {
+  if (enabledVerifierRails.has(rail)) return null;
+  return jsonResponse(
+    {
+      ok: false,
+      error: `Verifier rail is disabled: ${rail}`,
+      enabled_rails: [...enabledVerifierRails].sort(),
+    },
+    400,
+  );
 }
 
 async function parseJsonRequest(request) {
@@ -1692,6 +1726,8 @@ function credentialFromReceipt(receipt) {
 async function challenge(payload) {
   const ready = requireReady();
   if (ready) return ready;
+  const enabled = requireEnabledRail("stripe-card-mpp");
+  if (enabled) return enabled;
   const expected = expectedFromPayload(payload);
   const mppx = createMppx(expected);
   const challenge = await mppx.challenge.stripe.charge(chargeOptions(expected));
@@ -1713,6 +1749,8 @@ async function verifyPayment(payload) {
   const ready = requireReady();
   if (ready) return ready;
   const expected = expectedFromPayload(payload);
+  const enabled = requireEnabledRail(expected.rail);
+  if (enabled) return enabled;
   const receipt =
     payload.payment_receipt && typeof payload.payment_receipt === "object" ? payload.payment_receipt : {};
   assertReceiptMatchesExpected(receipt, expected);
@@ -2151,6 +2189,8 @@ async function verifyRefund(payload) {
       "",
   );
   const rail = normalizeRail(refund.rail || payload.rail || "stripe-card-mpp");
+  const enabled = requireEnabledRail(rail);
+  if (enabled) return enabled;
   if (rail === "tempo-mpp") {
     if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
       return jsonResponse({ ok: false, error: "refund.amount_cents must be a positive integer." }, 400);
@@ -2234,6 +2274,8 @@ async function verifyRefund(payload) {
 async function paid(request, payload) {
   const ready = requireReady();
   if (ready) return ready;
+  const enabled = requireEnabledRail("stripe-card-mpp");
+  if (enabled) return enabled;
   const expected = expectedFromPayload(payload);
   if (expected.rail !== "stripe-card-mpp") {
     return jsonResponse({ ok: false, error: `Unsupported paid endpoint rail: ${expected.rail}` }, 400);

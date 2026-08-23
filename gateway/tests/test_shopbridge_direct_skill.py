@@ -255,6 +255,61 @@ def onchain_events_document(record, *, event_record_hash: str | None = None):
     }
 
 
+def finalized_onchain_events_document(record, *, revoked: bool = False, complete: bool = True):
+    document = onchain_events_document(record)
+    registry_address = "0x1111111111111111111111111111111111111111"
+    record_id = "0x" + "4" * 64
+    controller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    identity = record["onchain_identity"]
+    identity.update(
+        {
+            "chain_id": "eip155:42431",
+            "registry_address": registry_address,
+            "record_id": record_id,
+            "controller": controller,
+        }
+    )
+    record_hash = shopbridge_direct.registry_record_hash(record)
+    registered = document["events"][0]
+    registered["block_hash"] = "0x" + "b" * 64
+    registered["args"]["recordHash"] = "0x" + record_hash
+    registered["registry_record"] = record
+    registered["onchain_record"]["record_hash"] = record_hash
+    document.update(
+        {
+            "implementation": "agentcart.onchain_registry_rpc_indexer.v1",
+            "chain_id": "eip155:42431",
+            "registry_address": registry_address,
+            "finality": {
+                "block_tag": "finalized",
+                "block_number": 120,
+                "block_hash": "0x" + "c" * 64,
+                "indexed_from_block": 100,
+                "indexed_to_block": 110 if revoked else 100,
+            },
+            "indexed_at": registry_updated_at(),
+            "complete": complete,
+            "errors": [] if complete else [{"code": "record_fetch_failed"}],
+        }
+    )
+    if revoked:
+        document["events"].append(
+            {
+                "event": "MerchantRevoked",
+                "block_number": 110,
+                "block_hash": "0x" + "d" * 64,
+                "block_time": "2026-06-01T00:10:00Z",
+                "transaction_hash": "0x" + "e" * 64,
+                "log_index": 0,
+                "args": {
+                    "recordId": record_id,
+                    "reasonHash": "0x" + "f" * 64,
+                },
+            }
+        )
+    return document
+
+
 def attach_revocation_url(manifest, record, proof, *, domain: str = "merchant.example"):
     revocation_url = f"https://{domain}/.well-known/agentcart-registry-revocations.json"
     claim = manifest["discovery"]["registry_claim"]
@@ -525,6 +580,95 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         )
         fetch.assert_called_once_with(shopbridge_direct.DEFAULT_REGISTRY_URL)
 
+    def test_default_registry_applies_advertised_finalized_onchain_projection(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        events = finalized_onchain_events_document(record)
+        registry_document = {
+            "entries": [record],
+            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+        }
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            side_effect=[registry_document, events],
+        ) as fetch:
+            records = shopbridge_direct.registry_records_from_source({})
+
+        self.assertEqual([entry["merchant_id"] for entry in records], ["merchant-tea-shop"])
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_default_registry_filters_onchain_revoked_hosted_record(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        events = finalized_onchain_events_document(record, revoked=True)
+        registry_document = {
+            "entries": [record],
+            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+        }
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            side_effect=[registry_document, events],
+        ):
+            records = shopbridge_direct.registry_records_from_source({})
+
+        self.assertEqual(records, [])
+
+    def test_advertised_onchain_snapshot_fails_closed_when_incomplete(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        events = finalized_onchain_events_document(record, complete=False)
+        registry_document = {
+            "entries": [record],
+            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+        }
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            side_effect=[registry_document, events],
+        ):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_source({})
+
+        self.assertIn("contract_events_snapshot_incomplete", str(raised.exception))
+
+    def test_advertised_onchain_snapshot_fails_closed_when_stale(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        events = finalized_onchain_events_document(record)
+        events["indexed_at"] = "2026-01-01T00:00:00Z"
+        registry_document = {
+            "entries": [record],
+            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+        }
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            side_effect=[registry_document, events],
+        ):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_source({})
+
+        self.assertIn("contract_events_snapshot_stale", str(raised.exception))
+
+    def test_advertised_onchain_snapshot_must_share_registry_origin(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        registry_document = {
+            "entries": [record],
+            "onchain_events_url": "https://events.example/v1/registry/onchain/events",
+        }
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            return_value=registry_document,
+        ) as fetch:
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_source({})
+
+        self.assertEqual(str(raised.exception), "onchain_registry_events_url_must_share_registry_origin")
+        fetch.assert_called_once_with(shopbridge_direct.DEFAULT_REGISTRY_URL)
+
     def test_explicit_single_merchant_override_suppresses_default_registry(self) -> None:
         self.assertEqual(
             shopbridge_direct.configured_registry_url({"base_url": "https://merchant.example"}),
@@ -778,21 +922,11 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
         calls = []
 
-        class Response:
-            def __enter__(self):
-                return self
+        def fake_request(url, **kwargs):
+            calls.append({"url": url, **kwargs})
+            return {"ok": True}
 
-            def __exit__(self, exc_type, exc, tb):
-                return False
-
-            def read(self):
-                return b'{"ok":true}'
-
-        def fake_urlopen(request, timeout=0):
-            calls.append({"request": request, "timeout": timeout})
-            return Response()
-
-        with mock.patch.object(shopbridge_direct.urllib.request, "urlopen", side_effect=fake_urlopen):
+        with mock.patch.object(shopbridge_direct.safe_http, "request_json", side_effect=fake_request):
             result = shopbridge_direct.agentcart_service_request_json(
                 "/v1/audit/import",
                 method="POST",
@@ -802,11 +936,12 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             )
 
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(calls[0]["timeout"], 30)
-        self.assertEqual(calls[0]["request"].full_url, "http://127.0.0.1:8099/v1/audit/import")
-        self.assertEqual(calls[0]["request"].get_method(), "POST")
-        self.assertEqual(calls[0]["request"].get_header("Authorization"), "Bearer agentcart-token")
-        self.assertEqual(calls[0]["request"].get_header("Content-type"), "application/json")
+        self.assertEqual(calls[0]["timeout_seconds"], 30)
+        self.assertEqual(calls[0]["url"], "http://127.0.0.1:8099/v1/audit/import")
+        self.assertEqual(calls[0]["method"], "POST")
+        self.assertEqual(calls[0]["headers"]["Authorization"], "Bearer agentcart-token")
+        self.assertEqual(calls[0]["headers"]["Content-Type"], "application/json")
+        self.assertTrue(calls[0]["allow_private"])
 
     def test_approval_packet_binds_stripe_payment_destination(self) -> None:
         packet = shopbridge_direct.approval_packet(sample_quote(), payment_rail="stripe-card-mpp")
@@ -1170,6 +1305,25 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["base_url"], "https://merchant.example")
         self.assertEqual(result["merchant"]["id"], "merchant-tea-shop")
+
+    def test_local_onchain_events_overlay_removes_revoked_hosted_record(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        events = finalized_onchain_events_document(record, revoked=True)
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            registry_path = Path(raw_tmp) / "registry.json"
+            events_path = Path(raw_tmp) / "onchain-events.json"
+            registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
+            events_path.write_text(json.dumps(events), encoding="utf-8")
+
+            records = shopbridge_direct.registry_records_from_source(
+                {
+                    "registry_path": str(registry_path),
+                    "onchain_registry_events_path": str(events_path),
+                }
+            )
+
+        self.assertEqual(records, [])
 
     def test_onchain_registry_events_reject_hash_mismatch_before_resolution(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()

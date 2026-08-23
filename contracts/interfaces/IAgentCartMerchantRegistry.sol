@@ -46,7 +46,12 @@ interface IAgentCartMerchantRegistry {
 
     function update(bytes32 recordId, bytes32 recordHash, string calldata recordURI) external;
 
-    function setController(bytes32 recordId, address newController) external;
+    function setController(
+        bytes32 recordId,
+        address newController,
+        bytes32 newRecordHash,
+        string calldata recordURI
+    ) external;
 
     function revoke(bytes32 recordId, bytes32 reasonHash) external;
 
@@ -142,7 +147,12 @@ interface IAgentCartMerchantRegistry {
 
     event MerchantUpdated(bytes32 indexed recordId, bytes32 recordHash, string recordURI);
 
-    event ControllerChanged(bytes32 indexed recordId, address indexed newController);
+    event ControllerChanged(
+        bytes32 indexed recordId,
+        address indexed newController,
+        bytes32 newRecordHash,
+        string recordURI
+    );
 
     event MerchantRevoked(bytes32 indexed recordId, bytes32 reasonHash);
 

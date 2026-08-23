@@ -1,6 +1,6 @@
 # Architecture Readiness Review
 
-Status: adoption pass created from the current production-candidate alpha codebase.
+Status: adoption pass updated after the registry-trust deepening slice.
 
 This review uses the project terms in `CONTEXT.md` and the architecture terms module, interface, seam, adapter, depth, leverage, and locality. It is intentionally a candidate list, not a refactor plan. The next step is to pick one candidate and grill the design before changing code.
 
@@ -21,16 +21,31 @@ The first merchant-discovery adoption slice now uses two deliberately narrow
 interfaces instead of deploying the full gateway as public infrastructure:
 
 - a stateless, read-only registry chart owns only the public discovery routes
-  and keeps the existing OCI `/v2/` ingress boundary intact;
+  and keeps the existing OCI `/v2/` ingress boundary intact; its optional
+  sidecar projects finalized chain events into a pod-local file without
+  Kubernetes API credentials or a stateful public submission service;
 - the Direct Skill owns buyer-side fetching and verification and uses the
   public feed by default, while explicit merchant, private-registry, and
   offline configuration still override that default.
 
-This is a useful deployment seam, not completion of the trust architecture.
-The shared Merchant Registry trust module below is still the highest-leverage
-code deepening opportunity. Stateful submissions, durable transparency, feed
-signing/anchoring, and onchain registration remain separate reviewed services
-or adapters rather than responsibilities of the pilot chart.
+This remains a deliberately small deployment seam. The trust architecture is
+now deeper behind it:
+
+- `shopbridge_registry_trust.py` owns registry-record hashing and the reusable
+  claim, domain-proof, endpoint, payment, freshness, revocation, and
+  controller-binding rules;
+- `shopbridge_onchain_projection.py` owns fail-closed finalized-envelope and
+  lifecycle replay semantics;
+- `shopbridge_safe_http.py` owns bounded, redirect-free, DNS-pinned public JSON
+  fetching for buyer discovery and registry verification; and
+- the AgentCart Service, Direct Skill, registry helper, and reference indexer
+  retain only their runtime-specific fetching, persistence, and presentation
+  adapters.
+
+Immutable offchain records remain available by content hash, so a revoked
+record can be audited after a successor becomes active. Stateful submissions,
+operational signing, contract writes, and governance remain separate reviewed
+services rather than responsibilities of the public read-only chart.
 
 ## Deepening Opportunities
 
@@ -82,6 +97,8 @@ Extract an External Verifier client module for request construction, redirect-sa
 
 ### 3. Merchant Registry Trust Module
 
+**Status: Delivered for the testnet pilot**
+
 **Files**
 
 - `gateway/agentcart.py`
@@ -91,19 +108,26 @@ Extract an External Verifier client module for request construction, redirect-sa
 - `gateway/tests/test_registry_record_tool.py`
 - `gateway/tests/test_shopbridge_direct_skill.py`
 
-**Problem**
+**Outcome**
 
-Registry verification logic exists in the AgentCart Service, Direct Skill, and registry tooling. Similar concepts appear in multiple places: claim binding, domain proof, endpoint scope, payment binding, freshness, revocation, and optional onchain identity metadata. This duplicates trust rules across runtime paths.
-
-**Solution**
-
-Create a shared Merchant Registry trust module, or at minimum a shared executable contract fixture suite, that both the AgentCart Service and Direct Skill consume. Keep runtime-specific fetching and output formatting outside the module.
+Registry-record hashing and trust verification now live in one portable Python
+module consumed by the AgentCart Service, Direct Skill, and registry helper.
+Finalized contract-envelope validation and lifecycle replay live in a second
+portable module used by the buyer and registry adapters. Fetching, URL policy,
+command-line I/O, and response formatting remain outside those domain modules.
+The same fixtures exercise service, skill, helper, and onchain recovery paths.
 
 **Benefits**
 
 - Locality: trust-rule changes do not need parallel edits in service, skill, and tooling.
-- Leverage: future append-only or onchain registry adapters can reuse the same verification interface.
+- Leverage: hosted, append-only, and onchain registry adapters reuse the same verification interface.
 - Test improvement: the same positive and negative registry cases can run against every adapter.
+
+**Remaining limitation**
+
+The shared Python source is vendored into the portable skill package rather
+than released as a separately versioned library. Keep its package-contract
+test mandatory until a real distribution boundary exists.
 
 ### 4. Approval And Audit Evidence Module
 

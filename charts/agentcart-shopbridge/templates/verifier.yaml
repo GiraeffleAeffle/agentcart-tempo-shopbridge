@@ -1,0 +1,156 @@
+{{- if .Values.verifier.enabled }}
+{{- if not .Values.images.verifier.digest }}
+{{- fail "images.verifier.digest is required when verifier.enabled=true" }}
+{{- end }}
+{{- if not .Values.verifier.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "agentcart-shopbridge.verifierFullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: verifier
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.verifier.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.verifier.persistence.size }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agentcart-shopbridge.verifierFullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: verifier
+spec:
+  selector:
+    {{- include "agentcart-shopbridge.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: verifier
+  ports:
+    - {name: http, port: {{ .Values.verifier.port }}, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentcart-shopbridge.verifierFullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: verifier
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "agentcart-shopbridge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: verifier
+  template:
+    metadata:
+      labels:
+        {{- include "agentcart-shopbridge.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: verifier
+        app.kubernetes.io/part-of: agentcart
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: verifier
+          image: {{ include "agentcart-shopbridge.image" .Values.images.verifier }}
+          imagePullPolicy: {{ .Values.images.verifier.pullPolicy }}
+          ports:
+            - {name: http, containerPort: {{ .Values.verifier.port }}}
+          env:
+            - {name: STRIPE_MPP_VERIFIER_BIND, value: "0.0.0.0"}
+            - {name: STRIPE_MPP_VERIFIER_PORT, value: {{ .Values.verifier.port | quote }}}
+            - {name: AGENTCART_VERIFIER_ENABLED_RAILS, value: {{ join "," .Values.verifier.enabledRails | quote }}}
+            - {name: AGENTCART_VERIFIER_REPLAY_STORE_DRIVER, value: {{ .Values.verifier.replay.driver | quote }}}
+            - {name: AGENTCART_VERIFIER_REPLAY_STORE_PATH, value: "/data/replay-store.sqlite"}
+            - {name: AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS, value: {{ .Values.verifier.replay.lockTimeoutMs | quote }}}
+            - {name: AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY, value: {{ .Values.verifier.replay.requireDurable | quote }}}
+            - {name: AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH, value: "/data/replay-journal.jsonl"}
+            - {name: AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL, value: {{ .Values.verifier.replay.requireJournal | quote }}}
+            - {name: AGENTCART_TEMPO_SETTLEMENT_MODE, value: {{ .Values.verifier.tempo.settlementMode | quote }}}
+            - {name: AGENTCART_TEMPO_SETTLEMENT_RPC_URL, value: {{ .Values.verifier.tempo.settlementRpcUrl | quote }}}
+            - {name: AGENTCART_TEMPO_SETTLEMENT_ASSET, value: {{ .Values.verifier.tempo.settlementAsset | quote }}}
+            - {name: AGENTCART_TEMPO_SETTLEMENT_TOKEN_ADDRESS, value: {{ .Values.verifier.tempo.settlementTokenAddress | quote }}}
+            - {name: AGENTCART_TEMPO_SETTLEMENT_CONFIRMATIONS, value: {{ .Values.verifier.tempo.settlementConfirmations | quote }}}
+            - {name: AGENTCART_TEMPO_REFUND_MODE, value: {{ .Values.verifier.tempo.refundMode | quote }}}
+            - {name: AGENTCART_TEMPO_REFUND_RPC_URL, value: {{ .Values.verifier.tempo.refundRpcUrl | quote }}}
+            - {name: AGENTCART_TEMPO_REFUND_ASSET, value: {{ .Values.verifier.tempo.refundAsset | quote }}}
+            - {name: AGENTCART_TEMPO_REFUND_TOKEN_ADDRESS, value: {{ .Values.verifier.tempo.refundTokenAddress | quote }}}
+            - {name: AGENTCART_TEMPO_REFUND_CONFIRMATIONS, value: {{ .Values.verifier.tempo.refundConfirmations | quote }}}
+            - name: AGENTCART_PAYMENT_VERIFIER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: AGENTCART_PAYMENT_VERIFIER_TOKEN
+            {{- if has "stripe-card-mpp" .Values.verifier.enabledRails }}
+            - name: STRIPE_SANDBOX_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: STRIPE_SANDBOX_SECRET_KEY
+            - name: STRIPE_PROFILE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: STRIPE_PROFILE_ID
+            - name: MPP_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: MPP_SECRET_KEY
+            {{- end }}
+            {{- if eq .Values.verifier.tempo.refundMode "live" }}
+            - name: AGENTCART_TEMPO_REFUND_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: AGENTCART_TEMPO_REFUND_PRIVATE_KEY
+            {{- end }}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.verifier.resources | nindent 12 }}
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ default (include "agentcart-shopbridge.verifierFullname" .) .Values.verifier.persistence.existingClaim }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+{{- end }}

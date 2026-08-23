@@ -3,7 +3,7 @@ registry:
   tlsSecretName: stadtstack-registry-tls
   name: AgentCart ShopBridge Merchant Registry
   stage: pilot
-  updatedAt: "2026-08-10T19:33:34Z"
+  updatedAt: "2026-08-21T11:30:40Z"
   submissionMode: maintainer_curated
   entries:
     - merchant_id: woocommerce-demo-shop-eur
@@ -86,7 +86,29 @@ registry:
       contractAddress: ""
       explorerUrl: ""
     tempo:
-      status: not_deployed
-      chainId: ""
-      contractAddress: ""
-      explorerUrl: ""
+      status: testnet_only
+      chainId: "42431"
+      contractAddress: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+      explorerUrl: https://explore.tempo.xyz/address/0x0965961617c5B0898167AA4034C5511dB0EfcA07
+  onchainEvents:
+    enabled: false
+    source: rpc_indexer
+    document: {}
+    rpcIndexer:
+      deployment: tempo
+      rpcUrl: https://rpc.moderato.tempo.xyz
+      fromBlock: "30731101"
+      chunkSize: 10000
+      refreshSeconds: 240
+      image:
+        repository: ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier
+        digest: ""
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 25m
+          memory: 96Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+  onchainRecords: []

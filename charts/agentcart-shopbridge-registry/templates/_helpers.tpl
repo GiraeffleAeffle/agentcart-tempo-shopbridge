@@ -27,3 +27,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "agentcart-shopbridge-registry.image" -}}
 {{- printf "%s@%s" .Values.image.repository .Values.image.digest }}
 {{- end }}
+
+{{- define "agentcart-shopbridge-registry.indexerImage" -}}
+{{- printf "%s@%s" .Values.registry.onchainEvents.rpcIndexer.image.repository .Values.registry.onchainEvents.rpcIndexer.image.digest }}
+{{- end }}

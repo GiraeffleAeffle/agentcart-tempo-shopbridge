@@ -59,6 +59,15 @@ spec:
               app.kubernetes.io/component: database
       ports:
         - {protocol: TCP, port: 3306}
+    {{- if .Values.verifier.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "agentcart-shopbridge.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: verifier
+      ports:
+        - {protocol: TCP, port: {{ .Values.verifier.port }}}
+    {{- end }}
     - to:
         - namespaceSelector:
             matchLabels:
@@ -97,4 +106,45 @@ spec:
               app.kubernetes.io/component: storefront
       ports:
         - {protocol: TCP, port: 3306}
+{{- if .Values.verifier.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agentcart-shopbridge.verifierFullname" . }}
+  labels:
+    {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agentcart-shopbridge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: verifier
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "agentcart-shopbridge.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: storefront
+      ports:
+        - {protocol: TCP, port: {{ .Values.verifier.port }}}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsNamespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsPodSelector | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.networkPolicy.externalHttpsExceptCidrs | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 443}
+{{- end }}
 {{- end }}

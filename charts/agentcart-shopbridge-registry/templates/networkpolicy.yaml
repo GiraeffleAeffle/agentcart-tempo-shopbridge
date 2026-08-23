@@ -21,5 +21,33 @@ spec:
         {{- end }}
       ports:
         - {protocol: TCP, port: 8080}
-  egress: []
+  egress:
+{{- if and .Values.registry.onchainEvents.enabled (eq .Values.registry.onchainEvents.source "rpc_indexer") }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsNamespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsPodSelector | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.networkPolicy.externalHttpsExceptCidrs | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 443}
+    - to:
+        - ipBlock:
+            cidr: ::/0
+            except:
+              {{- toYaml .Values.networkPolicy.externalHttpsExceptCidrsV6 | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 443}
+{{- else }}
+    []
+{{- end }}
 {{- end }}

@@ -13,6 +13,8 @@ The public surface is limited to:
 - `/v1/registry/health` — deployment/feed status;
 - `/v1/registry/transparency` — curation mode and update status;
 - `/v1/registry/onchain` — explicit Ethereum mainnet and Tempo deployment status.
+- `/v1/registry/onchain/events` — optional finalized RPC-indexer snapshot for
+  buyer-side registration, suspension, and revocation enforcement.
 
 The ingress intentionally does not claim `/v2/`. A Kubernetes ingress
 controller can therefore route the same host's more-specific `/v2/` path to an
@@ -47,3 +49,62 @@ the namespace that owns the TLS Secret named by `registry.tlsSecretName`.
 `maintainer_curated` is the only supported submission mode in this pilot
 chart. Merchant self-service, durable append-only transparency, and onchain
 registration require a separate reviewed stateful registry service.
+
+When `registry.onchainEvents.enabled=true`, the records feed advertises the
+same-origin event URL. Two explicit sources are supported:
+
+- `source: static` serves the reviewed `document` value. This is useful for
+  fixtures and one-shot drills, but it becomes unusable when its `indexed_at`
+  age crosses the buyer's ten-minute freshness limit.
+- `source: rpc_indexer` runs the bundled finalized indexer loop as a sidecar.
+  It writes only complete snapshots atomically, retains the last complete
+  snapshot across transient refresh errors, and makes a pod ready only after
+  its first snapshot exists. Persistent failures therefore fail closed when
+  the last snapshot becomes stale.
+
+For an RPC-backed feed, select the matching `ethereumMainnet` or `tempo`
+deployment, set its public HTTPS RPC URL and deployment block, and pin the
+indexer runtime image by digest:
+
+```yaml
+registry:
+  onchainEvents:
+    enabled: true
+    source: rpc_indexer
+    rpcIndexer:
+      deployment: tempo
+      rpcUrl: https://rpc.moderato.tempo.xyz
+      fromBlock: "30731101"
+      chunkSize: 10000
+      refreshSeconds: 240
+      image:
+        repository: ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier
+        digest: sha256:<reviewed-image-digest>
+        pullPolicy: IfNotPresent
+```
+
+The selected deployment must already have a chain id, contract address, and
+explorer URL. Runtime output is rejected if the RPC chain id or registry
+address differs. The sidecar receives no service-account token; its network
+policy permits only cluster DNS and public TCP/443 while excluding private,
+link-local, documentation, multicast, and reserved address ranges. Record
+fetches additionally resolve and pin public DNS addresses before connecting.
+
+The pinned indexer image must provide Node.js plus the repository's locked
+`viem` dependency under `/app/node_modules`. The current pilot reuses the
+non-root verifier runtime for that purpose; the reviewed indexer source itself
+is mounted from this chart at `/app/indexer`.
+
+Every published document must be a complete
+`agentcart.onchain_registry_rpc_indexer.v1` snapshot capped at an RPC
+`finalized` block. Buyer skills fail closed if it is stale, incomplete, or
+does not bind an attached merchant record to its chain, registry, controller,
+and record ID.
+
+Onchain events should reference immutable registry documents instead of a
+merchant's mutable well-known bundle. Add every historical document to
+`registry.onchainRecords` and use
+`https://<registry-host>/v1/registry/onchain/records/<recordHash>` as the
+contract `recordURI`. Responses use immutable caching, and old entries must
+remain published after updates or revocations so a fresh finalized replay can
+still validate the original event.

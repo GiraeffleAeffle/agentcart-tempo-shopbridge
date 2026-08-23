@@ -28,6 +28,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-db" (include "agentcart-shopbridge.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{- define "agentcart-shopbridge.verifierFullname" -}}
+{{- printf "%s-verifier" (include "agentcart-shopbridge.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "agentcart-shopbridge.tlsSecretName" -}}
 {{- default (printf "%s-tls" (include "agentcart-shopbridge.fullname" .)) .Values.ingress.tlsSecretName }}
 {{- end }}

@@ -2,8 +2,8 @@ apiVersion: v2
 name: agentcart-shopbridge
 description: Hardened WordPress, WooCommerce, and AgentCart ShopBridge deployment
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 home: https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge
 sources:
   - https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge

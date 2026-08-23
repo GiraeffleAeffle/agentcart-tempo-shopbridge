@@ -533,9 +533,9 @@ class RegistryRecordToolTests(unittest.TestCase):
         events.append(
             {
                 "event": "MerchantRevoked",
-                "block_number": 105,
-                "block_time": "2026-06-01T00:25:00Z",
-                "transaction_hash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "block_number": 106,
+                "block_time": "2026-06-01T00:30:00Z",
+                "transaction_hash": "0x1616161616161616161616161616161616161616161616161616161616161616",
                 "log_index": 0,
                 "args": {
                     "recordId": "0x4444444444444444444444444444444444444444444444444444444444444444",
@@ -552,6 +552,200 @@ class RegistryRecordToolTests(unittest.TestCase):
         self.assertEqual(index["proof"]["record_hashes"], [])
         self.assertEqual(index["proof"]["revocation_record_hashes"], [contract["sample"]["onchain_record"]["record_hash"]])
 
+    def test_contract_events_recovery_keeps_revoked_hash_and_reactivates_record_id(self) -> None:
+        fixture = onchain_contract_events_fixture()
+        registered = fixture["events"][0]
+        record_id = registered["args"]["recordId"]
+        original_hash = registered["onchain_record"]["record_hash"]
+        recovered_hash = "26" * 32
+        recovered = copy.deepcopy(registered["onchain_record"])
+        recovered["record_hash"] = recovered_hash
+        recovered["updated_at"] = "2026-06-01T00:40:00Z"
+        events = [
+            registered,
+            {
+                "event": "MerchantRevoked",
+                "block_number": 106,
+                "block_time": "2026-06-01T00:30:00Z",
+                "transaction_hash": f"0x{'24' * 32}",
+                "log_index": 0,
+                "args": {"recordId": record_id, "reasonHash": f"0x{'25' * 32}"},
+            },
+            {
+                "event": "MerchantRegistered",
+                "block_number": 107,
+                "block_time": "2026-06-01T00:40:00Z",
+                "transaction_hash": f"0x{'27' * 32}",
+                "log_index": 0,
+                "args": {
+                    "recordId": record_id,
+                    "controller": registered["args"]["controller"],
+                    "domainHash": registered["args"]["domainHash"],
+                    "recordHash": f"0x{recovered_hash}",
+                    "recordURI": "https://registry.agentcart.eu/v1/registry/onchain/records/" + recovered_hash,
+                },
+                "onchain_record": recovered,
+            },
+        ]
+
+        index = registry_record_tool.index_onchain_contract_events(events)
+
+        self.assertTrue(index["verification"]["chain_valid"], index)
+        self.assertEqual(index["records"], [recovered])
+        self.assertEqual(index["proof"]["record_hashes"], [recovered_hash])
+        self.assertEqual(index["proof"]["revocation_record_hashes"], [original_hash])
+
+    def test_contract_events_rotate_controller_and_force_revoke_committed_record(self) -> None:
+        fixture = onchain_contract_events_fixture()
+        events = fixture["events"][:2]
+        record_id = fixture["events"][0]["args"]["recordId"]
+        rotated_hash = "17" * 32
+        rotated = copy.deepcopy(fixture["events"][0]["onchain_record"])
+        rotated["record_hash"] = rotated_hash
+        rotated["controller"] = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        events.extend(
+            [
+                {
+                    "event": "ControllerChanged",
+                    "block_number": 102,
+                    "block_time": "2026-06-01T00:10:00Z",
+                    "transaction_hash": "0x1717171717171717171717171717171717171717171717171717171717171717",
+                    "log_index": 0,
+                    "args": {
+                        "recordId": record_id,
+                        "newController": rotated["controller"],
+                        "newRecordHash": f"0x{rotated_hash}",
+                        "recordURI": rotated["registration_uri"],
+                    },
+                    "onchain_record": rotated,
+                },
+                {
+                    "event": "MerchantRevoked",
+                    "block_number": 103,
+                    "block_time": "2026-06-01T00:15:00Z",
+                    "transaction_hash": "0x1818181818181818181818181818181818181818181818181818181818181818",
+                    "log_index": 0,
+                    "args": {"recordId": record_id, "reasonHash": f"0x{'19' * 32}"},
+                },
+                {
+                    "event": "MerchantForceRevoked",
+                    "block_number": 103,
+                    "block_time": "2026-06-01T00:15:00Z",
+                    "transaction_hash": "0x1818181818181818181818181818181818181818181818181818181818181818",
+                    "log_index": 1,
+                    "args": {
+                        "recordId": record_id,
+                        "operator": "0xffffffffffffffffffffffffffffffffffffffff",
+                        "reasonHash": f"0x{'19' * 32}",
+                    },
+                },
+            ]
+        )
+
+        index = registry_record_tool.index_onchain_contract_events(events)
+
+        self.assertTrue(index["verification"]["chain_valid"], index)
+        self.assertEqual(index["records"], [])
+        self.assertEqual(index["attestations"], [])
+        self.assertEqual(index["revocations"][0]["record_hash"], rotated_hash)
+        self.assertTrue(index["revocations"][0]["forced"])
+        self.assertEqual(index["revocations"][0]["operator"], "0xffffffffffffffffffffffffffffffffffffffff")
+
+    def test_contract_events_project_approved_supersession_activation(self) -> None:
+        fixture = onchain_contract_events_fixture()
+        previous = fixture["events"][0]
+        previous_record_id = previous["args"]["recordId"]
+        pending_record_id = f"0x{'55' * 32}"
+        replacement_hash = "66" * 32
+        replacement = copy.deepcopy(previous["onchain_record"])
+        replacement["record_hash"] = replacement_hash
+        replacement["record_id"] = pending_record_id
+        replacement["controller"] = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        events = [
+            previous,
+            {
+                "event": "SupersessionRequested",
+                "block_number": 101,
+                "block_time": "2026-06-01T00:05:00Z",
+                "transaction_hash": "0x2020202020202020202020202020202020202020202020202020202020202020",
+                "log_index": 0,
+                "args": {
+                    "domainHash": previous["args"]["domainHash"],
+                    "previousRecordId": previous_record_id,
+                    "pendingRecordId": pending_record_id,
+                    "controller": replacement["controller"],
+                    "recordHash": f"0x{replacement_hash}",
+                    "reasonHash": f"0x{'21' * 32}",
+                    "availableAt": 1783037100,
+                    "recordURI": replacement["registration_uri"],
+                    "evidenceURI": "https://registry.agentcart.eu/evidence/supersession-request",
+                },
+            },
+            {
+                "event": "SupersessionApproved",
+                "block_number": 102,
+                "block_time": "2026-06-01T00:10:00Z",
+                "transaction_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+                "log_index": 0,
+                "args": {
+                    "domainHash": previous["args"]["domainHash"],
+                    "previousRecordId": previous_record_id,
+                    "pendingRecordId": pending_record_id,
+                    "approver": "0xffffffffffffffffffffffffffffffffffffffff",
+                    "recordHash": f"0x{replacement_hash}",
+                    "availableAt": 1783037400,
+                    "evidenceURI": "https://registry.agentcart.eu/evidence/supersession-approval",
+                },
+            },
+            {
+                "event": "MerchantRevoked",
+                "block_number": 103,
+                "block_time": "2026-06-03T00:10:00Z",
+                "transaction_hash": "0x2323232323232323232323232323232323232323232323232323232323232323",
+                "log_index": 0,
+                "args": {"recordId": previous_record_id, "reasonHash": f"0x{'21' * 32}"},
+            },
+            {
+                "event": "SupersessionActivated",
+                "block_number": 103,
+                "block_time": "2026-06-03T00:10:00Z",
+                "transaction_hash": "0x2323232323232323232323232323232323232323232323232323232323232323",
+                "log_index": 1,
+                "args": {
+                    "domainHash": previous["args"]["domainHash"],
+                    "previousRecordId": previous_record_id,
+                    "recordId": pending_record_id,
+                    "controller": replacement["controller"],
+                    "recordHash": f"0x{replacement_hash}",
+                    "recordURI": replacement["registration_uri"],
+                },
+                "onchain_record": replacement,
+            },
+            {
+                "event": "MerchantRegistered",
+                "block_number": 103,
+                "block_time": "2026-06-03T00:10:00Z",
+                "transaction_hash": "0x2323232323232323232323232323232323232323232323232323232323232323",
+                "log_index": 2,
+                "args": {
+                    "recordId": pending_record_id,
+                    "controller": replacement["controller"],
+                    "domainHash": previous["args"]["domainHash"],
+                    "recordHash": f"0x{replacement_hash}",
+                    "recordURI": replacement["registration_uri"],
+                },
+                "onchain_record": replacement,
+            },
+        ]
+
+        index = registry_record_tool.index_onchain_contract_events(events)
+
+        self.assertTrue(index["verification"]["chain_valid"], index)
+        self.assertEqual(index["records"], [replacement])
+        self.assertEqual(index["supersessions"][0]["state"], "activated")
+        self.assertEqual(index["revocations"][0]["record_id"], previous_record_id)
+        self.assertEqual(index["proof"]["record_hashes"], [replacement_hash])
+
     def test_contract_events_reject_record_hash_mismatch(self) -> None:
         fixture = onchain_contract_events_fixture()
         fixture["events"][0]["args"]["recordHash"] = "0" * 64
@@ -562,6 +756,43 @@ class RegistryRecordToolTests(unittest.TestCase):
         self.assertEqual(index["verification"]["errors"][0]["error"], "onchain_record_hash_mismatch")
         self.assertEqual(index["records"], [])
         self.assertEqual(index["revocations"], [])
+
+    def test_onchain_overlay_requires_an_exact_record_id_hash_version(self) -> None:
+        chain_id = "eip155:42431"
+        registry_address = "0x1111111111111111111111111111111111111111"
+        first_id = "0x" + "aa" * 32
+        second_id = "0x" + "bb" * 32
+        first_hash = "11" * 32
+        second_hash = "22" * 32
+
+        def anchored_record(merchant_id: str, record_id: str, version_hash: str) -> dict[str, object]:
+            return {
+                "merchant_id": merchant_id,
+                "domain": f"{merchant_id}.example",
+                "version_hash": version_hash,
+                "onchain_identity": {
+                    "chain_id": chain_id,
+                    "registry_address": registry_address,
+                    "record_id": record_id,
+                },
+            }
+
+        active_first = anchored_record("active-first", first_id, first_hash)
+        active_second = anchored_record("active-second", second_id, second_hash)
+        mismatched_hosted = anchored_record("mismatched-hosted", first_id, second_hash)
+        projected = registry_record_tool.agentcart.onchain_projection.overlay_records(
+            [mismatched_hosted],
+            {
+                "chain_id": chain_id,
+                "registry_address": registry_address,
+                "records": [active_first, active_second],
+                "revocations": [],
+                "suspensions": [],
+            },
+            record_hash=lambda record: str(record["version_hash"]),
+        )
+
+        self.assertEqual(projected, [active_first, active_second])
 
     def test_auto_managed_shopbridge_registry_claim_verifies(self) -> None:
         manifest = shopbridge_manifest_with_published_claim()

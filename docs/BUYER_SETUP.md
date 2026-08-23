@@ -81,6 +81,11 @@ gateway/shopbridge-direct-skill
 The skill has no long-running service dependency. It needs `python3` and network
 access to the merchant's ShopBridge origin.
 
+Its bundled HTTP transport rejects redirects and private/non-global DNS targets
+for public URLs, pins each connection to the validated DNS result, and bounds
+JSON responses. This applies to registry, manifest, proof, catalog, quote,
+checkout, and status requests.
+
 For a known single merchant in local development, set:
 
 ```sh
@@ -97,12 +102,20 @@ https://registry.agentcart.eu/v1/registry/records
 
 A verified record binds the merchant domain, manifest URL, payment destination,
 proof URL, and revocation URL before the skill calls catalog or quote.
+When the feed advertises a same-origin finalized contract-event URL, the skill
+loads it automatically and requires each onchain-bound merchant's exact record
+hash to be active. Revoked, suspended, incomplete, or non-finalized state fails
+closed.
 
 To replace the public feed with a trusted private registry:
 
 ```sh
 export SHOPBRIDGE_REGISTRY_URL=https://registry.example/agentcart.json
 ```
+
+If a local demo registry itself uses a private address or plain HTTP, set
+`SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN=1` as an explicit opt-in. Leave it unset for
+normal public discovery.
 
 For local/self-hosted testing without a public registry:
 
@@ -113,8 +126,7 @@ export SHOPBRIDGE_REGISTRY_PATH=/path/to/merchant-registry.json
 For a deliberately offline run with no registry source, set
 `SHOPBRIDGE_DISABLE_DEFAULT_REGISTRY=1`.
 
-For an onchain-registry indexer snapshot, configure the contract-event feed
-instead:
+To override the advertised contract-event feed, configure one explicitly:
 
 ```sh
 export SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL=https://registry.example/onchain-events.json
@@ -122,10 +134,13 @@ export SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL=https://registry.example/onchain-e
 export SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_PATH=/path/to/onchain-events.json
 ```
 
-The direct skill validates `MerchantRegistered` and `MerchantUpdated` hashes
-against both the compact `onchain_record` projection and the resolved full
-`registry_record`, then applies the normal domain-proof, manifest, payment,
-freshness, and revocation checks.
+Remote snapshots must be fresh, complete
+`agentcart.onchain_registry_rpc_indexer.v1` documents capped at an RPC
+`finalized` block. The direct skill validates record commitments and binds the
+full `registry_record` to the snapshot chain, registry, controller, and record
+ID, then applies the normal domain-proof, manifest, payment, freshness, and
+revocation checks. The default snapshot freshness window is 600 seconds and can
+be tightened with `SHOPBRIDGE_ONCHAIN_REGISTRY_MAX_AGE_SECONDS`.
 
 The direct skill rejects records with missing/invalid timestamps, records dated
 more than 10 minutes in the future, and records older than

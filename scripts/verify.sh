@@ -36,6 +36,9 @@ py311_files=(
   gateway/scripts/registry_record.py
   gateway/openclaw-skill/scripts/agentcart-command.py
   gateway/shopbridge-direct-skill/scripts/shopbridge-command.py
+  gateway/shopbridge-direct-skill/scripts/shopbridge_safe_http.py
+  gateway/shopbridge-direct-skill/scripts/shopbridge_registry_trust.py
+  gateway/shopbridge-direct-skill/scripts/shopbridge_onchain_projection.py
   household-os/household_os.py
   scripts/build-release-manifest.py
   scripts/check-conventional-title.py
@@ -54,6 +57,7 @@ py311_files=(
   scripts/check-ucp-a2a-profiles.py
   scripts/check-pilot-readiness.py
   scripts/check-production-payment-profile.py
+  scripts/push-oci-layout-resumable.py
   scripts/check-verifier-ops-pack.py
   scripts/check-prompt-injection-corpus.py
   scripts/check-quote-reliability-matrix.py
@@ -114,6 +118,7 @@ bash -n "$ROOT_DIR/scripts/pilot-evidence-dry-run.sh"
 bash -n "$ROOT_DIR/demo/woocommerce/seed-products.sh"
 bash -n "$ROOT_DIR/deploy/hetzner-staging/scripts/generate-usd-staging-secrets.sh"
 python3 -m py_compile "$ROOT_DIR/scripts/woocommerce-shopbridge-smoke.py"
+python3 -m py_compile "$ROOT_DIR/scripts/push-oci-layout-resumable.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
 python3 -m py_compile "$ROOT_DIR/scripts/check-wordpress-official-gates.py"
 python3 "$ROOT_DIR/scripts/check-wordpress-plugin-review.py"
@@ -156,6 +161,7 @@ section "Stripe MPP verifier syntax"
 (
   cd "$ROOT_DIR/gateway"
   npm run stripe:mpp:check
+  npm run onchain:indexer:check
   node --check scripts/mpp-smoke-server.mjs
   node --check scripts/verifier-sqlite-replay-store.mjs
   bash -n scripts/stripe-link-mpp-smoke.sh

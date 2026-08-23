@@ -49,6 +49,31 @@ WORDPRESS_LOGGED_IN_SALT
 WORDPRESS_NONCE_SALT
 ```
 
+When `verifier.enabled=true`, it must additionally contain:
+
+```text
+AGENTCART_PAYMENT_VERIFIER_TOKEN
+```
+
+When `verifier.enabledRails` includes `stripe-card-mpp`, it must also contain:
+
+```text
+STRIPE_SANDBOX_SECRET_KEY
+STRIPE_PROFILE_ID
+MPP_SECRET_KEY
+```
+
+When `verifier.tempo.refundMode=live`, it must also contain the dedicated
+testnet refund signer:
+
+```text
+AGENTCART_TEMPO_REFUND_PRIVATE_KEY
+```
+
+Do not reuse a deployer, registry controller, merchant treasury, or mainnet key
+as the refund signer. Give the pilot signer only the testnet balance required
+for bounded refund drills.
+
 For a local private file that already contains those keys:
 
 ```sh
@@ -75,6 +100,53 @@ helm upgrade --install example-shop charts/agentcart-shopbridge \
 Use a separate release, values file, Secret, and merchant ID for every store.
 Real ingress source CIDRs belong only in the ignored private values file.
 
+## External verifier pilot profile
+
+The verifier is disabled by default. Enabling it creates a single-replica,
+non-root verifier Deployment, a retained SQLite PVC, a cluster-local Service,
+and narrowly scoped NetworkPolicy rules. The storefront is then pinned to the
+cluster-local verifier and receives its verifier credential only from the
+pre-provisioned Secret.
+
+Build and publish `gateway/Dockerfile.verifier`, resolve the registry digest,
+and put that immutable digest in the ignored private values file. A pilot that
+accepts Tempo payments and performs real testnet refunds uses non-secret values
+like these:
+
+```yaml
+images:
+  verifier:
+    repository: registry.example.test/agentcart/shopbridge-verifier
+    digest: sha256:REPLACE_WITH_64_HEX_DIGEST
+
+store:
+  checkoutMode: external_verifier_only
+  signedRequestMode: require_mutations
+
+verifier:
+  enabled: true
+  enabledRails: [tempo-mpp]
+  tempo:
+    settlementMode: verify
+    settlementRpcUrl: https://REPLACE_WITH_TESTNET_RPC
+    refundMode: live
+    refundRpcUrl: https://REPLACE_WITH_TESTNET_RPC
+```
+
+The values schema rejects a verifier-enabled release unless checkout is
+verifier-only and mutation endpoints require signed requests. A release that
+enables `tempo-mpp` must also set settlement verification to `verify`; this
+prevents a healthy-looking deployment that can parse a proof but cannot verify
+the transfer onchain. Keep the replay driver, durable replay requirement, and
+append-only journal enabled; the retained PVC is the recovery boundary for
+payment-proof replay state.
+
+For a slow private registry tunnel, use
+`scripts/push-oci-layout-resumable.py` against a loopback port-forward. It
+verifies the OCI manifest and every blob locally, uploads in bounded resumable
+PATCH chunks, publishes the tag last, and verifies the registry's final
+manifest digest. This avoids relying on a single long-lived layer request.
+
 ## Security behavior
 
 - no service-account token is mounted;
@@ -85,6 +157,8 @@ Real ingress source CIDRs belong only in the ignored private values file.
   denied at HAProxy Ingress;
 - ShopBridge's four exact `/.well-known/` JSON documents remain public;
 - default-deny NetworkPolicies isolate storefront and database pods;
+- the optional verifier accepts traffic only from its own storefront and may
+  egress only to DNS and public HTTPS RPC endpoints;
 - egress to private, loopback, link-local, and carrier-grade NAT ranges is
   denied for public HTTPS calls;
 - persistent claims survive Helm uninstall and StatefulSet deletion.

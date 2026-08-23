@@ -26,7 +26,13 @@ class SkillPackageContractTest(unittest.TestCase):
 
     def test_required_files_define_portable_core(self) -> None:
         self.assertEqual(
-            {"SKILL.md", "scripts/shopbridge-command.py"},
+            {
+                "SKILL.md",
+                "scripts/shopbridge-command.py",
+                "scripts/shopbridge_safe_http.py",
+                "scripts/shopbridge_registry_trust.py",
+                "scripts/shopbridge_onchain_projection.py",
+            },
             skill_package.PORTABLE_REQUIRED_FILES,
         )
 
@@ -46,6 +52,9 @@ class SkillPackageContractTest(unittest.TestCase):
             with zipfile.ZipFile(zip_path, "w") as archive:
                 archive.writestr("shopbridge-direct-skill/SKILL.md", "portable workflow")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge-command.py", "")
+                archive.writestr("shopbridge-direct-skill/scripts/shopbridge_safe_http.py", "")
+                archive.writestr("shopbridge-direct-skill/scripts/shopbridge_registry_trust.py", "")
+                archive.writestr("shopbridge-direct-skill/scripts/shopbridge_onchain_projection.py", "")
 
             self.assertEqual([], skill_package.validate_zip(zip_path))
 

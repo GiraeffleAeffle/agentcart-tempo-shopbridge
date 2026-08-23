@@ -10,6 +10,7 @@ import hashlib
 import html
 import hmac
 import http.cookies
+import importlib.util
 import ipaddress
 import json
 import os
@@ -34,6 +35,40 @@ from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from zoneinfo import ZoneInfo
+
+
+GATEWAY_DIR = pathlib.Path(__file__).resolve().parent
+SAFE_HTTP_MODULE_PATH = GATEWAY_DIR / "shopbridge-direct-skill" / "scripts" / "shopbridge_safe_http.py"
+safe_http = sys.modules.get("shopbridge_safe_http")
+if safe_http is None:
+    SAFE_HTTP_MODULE_SPEC = importlib.util.spec_from_file_location("shopbridge_safe_http", SAFE_HTTP_MODULE_PATH)
+    if SAFE_HTTP_MODULE_SPEC is None or SAFE_HTTP_MODULE_SPEC.loader is None:
+        raise RuntimeError(f"cannot load ShopBridge safe HTTP module: {SAFE_HTTP_MODULE_PATH}")
+    safe_http = importlib.util.module_from_spec(SAFE_HTTP_MODULE_SPEC)
+    sys.modules["shopbridge_safe_http"] = safe_http
+    SAFE_HTTP_MODULE_SPEC.loader.exec_module(safe_http)
+
+TRUST_MODULE_PATH = GATEWAY_DIR / "shopbridge-direct-skill" / "scripts" / "shopbridge_registry_trust.py"
+registry_trust = sys.modules.get("shopbridge_registry_trust")
+if registry_trust is None:
+    TRUST_MODULE_SPEC = importlib.util.spec_from_file_location("shopbridge_registry_trust", TRUST_MODULE_PATH)
+    if TRUST_MODULE_SPEC is None or TRUST_MODULE_SPEC.loader is None:
+        raise RuntimeError(f"cannot load Merchant Registry Trust module: {TRUST_MODULE_PATH}")
+    registry_trust = importlib.util.module_from_spec(TRUST_MODULE_SPEC)
+    sys.modules["shopbridge_registry_trust"] = registry_trust
+    TRUST_MODULE_SPEC.loader.exec_module(registry_trust)
+
+ONCHAIN_PROJECTION_PATH = GATEWAY_DIR / "shopbridge-direct-skill" / "scripts" / "shopbridge_onchain_projection.py"
+onchain_projection = sys.modules.get("shopbridge_onchain_projection")
+if onchain_projection is None:
+    ONCHAIN_PROJECTION_SPEC = importlib.util.spec_from_file_location(
+        "shopbridge_onchain_projection", ONCHAIN_PROJECTION_PATH
+    )
+    if ONCHAIN_PROJECTION_SPEC is None or ONCHAIN_PROJECTION_SPEC.loader is None:
+        raise RuntimeError(f"cannot load onchain registry projection module: {ONCHAIN_PROJECTION_PATH}")
+    onchain_projection = importlib.util.module_from_spec(ONCHAIN_PROJECTION_SPEC)
+    sys.modules["shopbridge_onchain_projection"] = onchain_projection
+    ONCHAIN_PROJECTION_SPEC.loader.exec_module(onchain_projection)
 
 
 PRODUCT_ROUTE = re.compile(r"^/v1/products/([A-Za-z0-9_.-]+)$")
@@ -66,9 +101,11 @@ ENERGY_DEFAULT_MARKET_REFERENCE_CENTS_PER_KWH = 30
 ENERGY_DEFAULT_FEED_IN_REFERENCE_CENTS_PER_KWH = 8
 ENERGY_OFFER_DEFAULT_DURATION_MINUTES = 30
 ENERGY_OFFER_DEFAULT_VALID_MINUTES = 15
-ONCHAIN_CONTRACT_EVENTS_SCHEMA = "agentcart.onchain_registry_contract_events.v1"
 ONCHAIN_CONTRACT_INDEX_SCHEMA = "agentcart.onchain_registry_contract_index.v1"
-ONCHAIN_LEDGER_PROOF_SCHEMA = "agentcart.onchain_registry_ledger_proof.v1"
+ONCHAIN_REGISTRY_MAX_AGE_SECONDS = max(
+    60,
+    int(os.getenv("AGENTCART_ONCHAIN_REGISTRY_MAX_AGE_SECONDS", "600")),
+)
 MIN_PUBLIC_CREDENTIAL_CHARACTERS = 32
 AUTH_SESSION_CONTEXT = b"agentcart-browser-session-v1"
 SENSITIVE_QUERY_KEYS = {"token", "access_token", "api_key", "secret"}
@@ -600,19 +637,7 @@ def ap2_style_mandate_mapping(material: dict[str, Any], approval_hash: str, *, m
 
 
 def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in record.items()
-        if key
-        not in {
-            "signature",
-            "verification",
-            "manifest",
-            "manifest_snapshot",
-            "proof_snapshot",
-            "revocation_snapshot",
-        }
-    }
+    return registry_trust.registry_signature_payload(record)
 
 
 REGISTRY_LOCAL_SNAPSHOT_FIELDS = {
@@ -633,7 +658,7 @@ def registry_record_without_local_snapshots(record: dict[str, Any]) -> dict[str,
 
 
 def registry_record_hash(record: dict[str, Any]) -> str:
-    return canonical_json_hash(registry_signature_payload(record))
+    return registry_trust.registry_record_hash(record)
 
 
 def registry_records_from_document(document: Any) -> list[dict[str, Any]]:
@@ -655,295 +680,12 @@ def registry_records_from_document(document: Any) -> list[dict[str, Any]]:
     )
 
 
-def is_sha256_hex(value: Any) -> bool:
-    return bool(re.fullmatch(r"[0-9a-fA-F]{64}", str(value or "")))
-
-
-def is_bytes32_hex(value: Any) -> bool:
-    return bool(re.fullmatch(r"(0x)?[0-9a-fA-F]{64}", str(value or "")))
-
-
-def normalize_bytes32_hex(value: Any, *, with_prefix: bool = False) -> str:
-    text = str(value or "").strip().lower()
-    if text.startswith("0x"):
-        text = text[2:]
-    if not re.fullmatch(r"[0-9a-f]{64}", text):
-        return ""
-    return f"0x{text}" if with_prefix else text
-
-
-def onchain_contract_events_from_document(document: Any) -> list[dict[str, Any]]:
-    if isinstance(document, dict):
-        if str(document.get("schema") or "") != ONCHAIN_CONTRACT_EVENTS_SCHEMA:
-            raise UpstreamError("onchain registry contract events schema mismatch")
-        events = document.get("events")
-    else:
-        events = document
-    if not isinstance(events, list):
-        raise UpstreamError("onchain registry contract events source must contain an events array")
-    result: list[dict[str, Any]] = []
-    for index, event in enumerate(events, start=1):
-        if not isinstance(event, dict):
-            raise UpstreamError(f"onchain registry contract event {index} must be an object")
-        result.append(event)
-    return result
-
-
-def contract_event_args(event: dict[str, Any]) -> dict[str, Any]:
-    args = event.get("args")
-    return args if isinstance(args, dict) else {}
-
-
-def contract_event_arg(args: dict[str, Any], *names: str) -> str:
-    for name in names:
-        value = args.get(name)
-        if value not in (None, ""):
-            return str(value)
-    return ""
-
-
-def contract_event_record_id(event: dict[str, Any]) -> str:
-    args = contract_event_args(event)
-    return normalize_bytes32_hex(contract_event_arg(args, "recordId", "record_id"), with_prefix=True)
-
-
-def contract_event_record_hash(event: dict[str, Any]) -> str:
-    args = contract_event_args(event)
-    return normalize_bytes32_hex(contract_event_arg(args, "recordHash", "record_hash"), with_prefix=False)
-
-
-def contract_event_stream_hash(events: list[dict[str, Any]]) -> str:
-    return canonical_json_hash(events) if events else ""
-
-
-def onchain_registry_proof(
-    *,
-    record_hashes: list[str],
-    revocation_record_hashes: list[str],
-    verification: dict[str, Any],
-) -> dict[str, Any]:
-    payload = {
-        "schema": ONCHAIN_LEDGER_PROOF_SCHEMA,
-        "record_hashes": record_hashes,
-        "revocation_record_hashes": revocation_record_hashes,
-        "records_hash": canonical_json_hash(record_hashes),
-        "revocations_hash": canonical_json_hash(revocation_record_hashes),
-        "log_head_hash": str(verification.get("log_head_hash") or ""),
-        "event_count": int(verification.get("event_count") or 0),
-        "hash_alg": "sha-256",
-    }
-    return {
-        **payload,
-        "payload_hash": canonical_json_hash(payload),
-    }
-
-
-def registry_record_from_contract_event(event: dict[str, Any]) -> dict[str, Any] | None:
-    registry_record = event.get("registry_record")
-    if isinstance(registry_record, dict):
-        return copy.deepcopy(registry_record)
-    onchain_record = event.get("onchain_record")
-    if isinstance(onchain_record, dict):
-        return copy.deepcopy(onchain_record)
-    return None
-
-
 def verify_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any]:
-    errors: list[dict[str, Any]] = []
-    allowed_events = {
-        "MerchantRegistered",
-        "MerchantUpdated",
-        "ControllerChanged",
-        "MerchantRevoked",
-        "MerchantAttested",
-        "MerchantSuspended",
-        "MerchantUnsuspended",
-        "MerchantFlagged",
-    }
-    for sequence, event in enumerate(events, start=1):
-        event_name = str(event.get("event") or "")
-        args = contract_event_args(event)
-        if event_name not in allowed_events:
-            errors.append({"sequence": sequence, "error": "event_name_unsupported", "event": event_name})
-            continue
-        if not args:
-            errors.append({"sequence": sequence, "error": "event_args_missing", "event": event_name})
-            continue
-        record_id = contract_event_record_id(event)
-        if not is_bytes32_hex(record_id):
-            errors.append({"sequence": sequence, "error": "record_id_invalid", "event": event_name})
-        if event_name in {"MerchantRegistered", "MerchantUpdated", "MerchantAttested"}:
-            record_hash = contract_event_record_hash(event)
-            if not is_sha256_hex(record_hash):
-                errors.append({"sequence": sequence, "error": "record_hash_invalid", "event": event_name})
-        if event_name in {"MerchantRegistered", "MerchantUpdated"}:
-            record_hash = contract_event_record_hash(event)
-            onchain_record = event.get("onchain_record")
-            registry_record = event.get("registry_record")
-            if not isinstance(onchain_record, dict) and not isinstance(registry_record, dict):
-                errors.append({"sequence": sequence, "error": "registry_record_missing", "event": event_name})
-            if onchain_record is not None:
-                if not isinstance(onchain_record, dict):
-                    errors.append({"sequence": sequence, "error": "onchain_record_must_be_object", "event": event_name})
-                elif str(onchain_record.get("record_hash") or "").lower() != record_hash:
-                    errors.append({"sequence": sequence, "error": "onchain_record_hash_mismatch", "event": event_name})
-            if registry_record is not None:
-                if not isinstance(registry_record, dict):
-                    errors.append({"sequence": sequence, "error": "registry_record_must_be_object", "event": event_name})
-                elif registry_record_hash(registry_record).lower() != record_hash:
-                    errors.append({"sequence": sequence, "error": "registry_record_hash_mismatch", "event": event_name})
-        if event_name in {"MerchantRegistered", "ControllerChanged"}:
-            controller = contract_event_arg(args, "controller", "newController", "new_controller")
-            if controller and not re.fullmatch(r"0x[0-9a-fA-F]{40}", controller):
-                errors.append({"sequence": sequence, "error": "controller_invalid", "event": event_name})
-        if event_name == "MerchantRegistered":
-            domain_hash = contract_event_arg(args, "domainHash", "domain_hash")
-            if domain_hash and not is_bytes32_hex(domain_hash):
-                errors.append({"sequence": sequence, "error": "domain_hash_invalid", "event": event_name})
-        if event_name == "MerchantAttested":
-            validator = contract_event_arg(args, "validator")
-            if validator and not re.fullmatch(r"0x[0-9a-fA-F]{40}", validator):
-                errors.append({"sequence": sequence, "error": "validator_invalid", "event": event_name})
-        if event_name == "MerchantFlagged":
-            flagger = contract_event_arg(args, "flagger")
-            if flagger and not re.fullmatch(r"0x[0-9a-fA-F]{40}", flagger):
-                errors.append({"sequence": sequence, "error": "flagger_invalid", "event": event_name})
-    return {
-        "chain_valid": not errors,
-        "errors": errors,
-        "event_count": len(events),
-        "log_head_hash": contract_event_stream_hash(events) if events else "",
-        "hash_alg": "sha-256",
-    }
+    return onchain_projection.verify_contract_events(events, record_hash=registry_record_hash)
 
 
 def index_onchain_contract_events(events: list[dict[str, Any]]) -> dict[str, Any]:
-    verification = verify_onchain_contract_events(events)
-    if not verification["chain_valid"]:
-        return {
-            "schema": ONCHAIN_CONTRACT_INDEX_SCHEMA,
-            "generated_at": isoformat(utcnow()),
-            "source": "contract_events",
-            "event_count": len(events),
-            "log_head_hash": str(verification.get("log_head_hash") or ""),
-            "verification": verification,
-            "records": [],
-            "revocations": [],
-            "attestations": [],
-            "suspensions": [],
-            "flags": [],
-            "proof": onchain_registry_proof(
-                record_hashes=[],
-                revocation_record_hashes=[],
-                verification=verification,
-            ),
-        }
-
-    active_by_record_id: dict[str, dict[str, Any]] = {}
-    active_hash_by_record_id: dict[str, str] = {}
-    revocations: dict[str, dict[str, Any]] = {}
-    attestations: dict[str, dict[str, Any]] = {}
-    suspensions: dict[str, dict[str, Any]] = {}
-    flags: list[dict[str, Any]] = []
-    for sequence, event in enumerate(events, start=1):
-        event_name = str(event.get("event") or "")
-        args = contract_event_args(event)
-        record_id = contract_event_record_id(event)
-        record_hash = contract_event_record_hash(event)
-        event_ref = {
-            "event": event_name,
-            "sequence": sequence,
-            "block_number": int(event.get("block_number") or 0),
-            "transaction_hash": str(event.get("transaction_hash") or ""),
-            "log_index": int(event.get("log_index") or 0),
-        }
-        if event_name in {"MerchantRegistered", "MerchantUpdated"}:
-            record = registry_record_from_contract_event(event)
-            if record is not None:
-                active_by_record_id[record_id] = record
-                active_hash_by_record_id[record_id] = record_hash
-                revocations.pop(record_hash, None)
-                attestations.pop(record_id, None)
-                suspensions.pop(record_id, None)
-        elif event_name == "MerchantRevoked":
-            current = active_by_record_id.pop(record_id, None)
-            final_hash = active_hash_by_record_id.pop(record_id, None) or record_hash
-            if current is not None and final_hash:
-                revocations[final_hash] = {
-                    "record_hash": final_hash,
-                    "record_id": record_id,
-                    "revoked_at": str(event.get("block_time") or event.get("created_at") or ""),
-                    "reason_hash": contract_event_arg(args, "reasonHash", "reason_hash"),
-                    **event_ref,
-                }
-            attestations.pop(record_id, None)
-            suspensions.pop(record_id, None)
-        elif event_name == "MerchantAttested":
-            if record_id in active_by_record_id and active_hash_by_record_id.get(record_id) == record_hash:
-                attestations[record_id] = {
-                    "record_id": record_id,
-                    "record_hash": record_hash,
-                    "validator": contract_event_arg(args, "validator"),
-                    "result_hash": contract_event_arg(args, "resultHash", "result_hash"),
-                    "expires_at": str(contract_event_arg(args, "expiresAt", "expires_at")),
-                    "evidence_uri": str(contract_event_arg(args, "evidenceURI", "evidence_uri")),
-                    **event_ref,
-                }
-        elif event_name == "MerchantSuspended":
-            suspensions[record_id] = {
-                "record_id": record_id,
-                "reason_hash": contract_event_arg(args, "reasonHash", "reason_hash"),
-                **event_ref,
-            }
-        elif event_name == "MerchantUnsuspended":
-            suspensions.pop(record_id, None)
-        elif event_name == "MerchantFlagged":
-            flags.append(
-                {
-                    "record_id": record_id,
-                    "flagger": contract_event_arg(args, "flagger"),
-                    "challenge_type": contract_event_arg(args, "challengeType", "challenge_type"),
-                    "evidence_uri": contract_event_arg(args, "evidenceURI", "evidence_uri"),
-                    **event_ref,
-                }
-            )
-
-    active_entries = [
-        (record_id, record)
-        for record_id, record in active_by_record_id.items()
-        if record_id not in suspensions
-    ]
-    active_entries.sort(
-        key=lambda item: (
-            str(item[1].get("domain") or ""),
-            str(item[1].get("merchant_id") or ""),
-            active_hash_by_record_id.get(item[0], ""),
-        )
-    )
-    records = [record for _, record in active_entries]
-    revocation_list = sorted(revocations.values(), key=lambda item: str(item.get("record_hash") or ""))
-    attestation_list = sorted(attestations.values(), key=lambda item: str(item.get("record_id") or ""))
-    suspension_list = sorted(suspensions.values(), key=lambda item: str(item.get("record_id") or ""))
-    record_hashes = [active_hash_by_record_id.get(record_id, "") for record_id, _ in active_entries]
-    revocation_record_hashes = [str(item.get("record_hash") or "") for item in revocation_list]
-    return {
-        "schema": ONCHAIN_CONTRACT_INDEX_SCHEMA,
-        "generated_at": isoformat(utcnow()),
-        "source": "contract_events",
-        "event_count": len(events),
-        "log_head_hash": str(verification.get("log_head_hash") or ""),
-        "verification": verification,
-        "records": records,
-        "revocations": revocation_list,
-        "attestations": attestation_list,
-        "suspensions": suspension_list,
-        "flags": flags,
-        "proof": onchain_registry_proof(
-            record_hashes=record_hashes,
-            revocation_record_hashes=revocation_record_hashes,
-            verification=verification,
-        ),
-    }
+    return onchain_projection.index_contract_events(events, record_hash=registry_record_hash)
 
 
 def hmac_registry_signature(record: dict[str, Any], secret: str) -> str:
@@ -3533,24 +3275,38 @@ class AgentCartService:
             records.extend(registry_records_from_document(raw))
         elif self.config.merchant_registry_url:
             self.validate_merchant_registry_url(self.config.merchant_registry_url)
-            raw = self.http_json(self.config.merchant_registry_url, method="GET", token="", timeout=10)
+            raw = self.registry_http_json(self.config.merchant_registry_url, timeout=10)
             records.extend(registry_records_from_document(raw))
-        records.extend(self.onchain_registry_records())
         records.extend(self.hosted_registry_records())
+        index = self.load_onchain_registry_index() if self.onchain_registry_source_configured() else None
+        if index:
+            records = onchain_projection.overlay_records(
+                records,
+                index,
+                record_hash=registry_record_hash,
+            )
         return records
 
     def validate_merchant_registry_url(self, url: str) -> None:
         parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
             raise UpstreamError("merchant_registry_url_invalid")
-        if parsed.scheme != "https" and not self.is_local_registry_host(parsed.hostname or ""):
+        private_host = registry_trust.local_or_private_host(parsed.hostname or "")
+        allow_private = bool_env("AGENTCART_ALLOW_PRIVATE_REGISTRY_URLS", False)
+        if private_host and not allow_private:
+            raise UpstreamError("merchant_registry_url_private_origin_requires_opt_in")
+        if parsed.scheme != "https" and not (private_host and allow_private):
             raise UpstreamError("merchant_registry_url_requires_https")
 
     def validate_onchain_registry_events_url(self, url: str) -> None:
         parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
             raise UpstreamError("onchain_registry_events_url_invalid")
-        if parsed.scheme != "https" and not self.is_local_registry_host(parsed.hostname or ""):
+        private_host = registry_trust.local_or_private_host(parsed.hostname or "")
+        allow_private = bool_env("AGENTCART_ALLOW_PRIVATE_REGISTRY_URLS", False)
+        if private_host and not allow_private:
+            raise UpstreamError("onchain_registry_events_url_private_origin_requires_opt_in")
+        if parsed.scheme != "https" and not (private_host and allow_private):
             raise UpstreamError("onchain_registry_events_url_requires_https")
 
     def onchain_registry_source_configured(self) -> bool:
@@ -3570,12 +3326,18 @@ class AgentCartService:
                 ) from exc
         elif self.config.onchain_registry_events_url:
             self.validate_onchain_registry_events_url(self.config.onchain_registry_events_url)
-            raw = self.http_json(self.config.onchain_registry_events_url, method="GET", token="", timeout=10)
+            raw = self.registry_http_json(self.config.onchain_registry_events_url, timeout=10)
         else:
             return None
 
-        events = onchain_contract_events_from_document(raw)
-        index = index_onchain_contract_events(events)
+        index = onchain_projection.index_contract_document(
+            raw,
+            record_hash=registry_record_hash,
+            require_finality=bool(self.config.onchain_registry_events_url),
+            max_age_seconds=(
+                ONCHAIN_REGISTRY_MAX_AGE_SECONDS if self.config.onchain_registry_events_url else 0
+            ),
+        )
         verification = index.get("verification") if isinstance(index.get("verification"), dict) else {}
         if fail_closed and not verification.get("chain_valid"):
             raise UpstreamError("onchain registry contract events invalid", detail=verification)
@@ -3651,97 +3413,36 @@ class AgentCartService:
         return entries
 
     def verify_registry_record(self, record: dict[str, Any]) -> dict[str, Any]:
-        errors: list[str] = []
-        manifest: dict[str, Any] | None = None
-        merchant_id = str(record.get("merchant_id") or "")
-        manifest_url = str(record.get("manifest_url") or "")
-        domain = str(record.get("domain") or "")
-        parsed = urllib.parse.urlparse(manifest_url)
-
-        if not merchant_id:
-            errors.append("missing_merchant_id")
-        if not manifest_url:
-            errors.append("missing_manifest_url")
-        if not domain:
-            errors.append("missing_domain")
-        if record.get("revoked_at"):
-            errors.append("record_revoked")
-        errors.extend(self.verify_registry_revocation(record))
-        updated_at = str(record.get("updated_at") or "")
-        if not updated_at:
-            errors.append("missing_updated_at")
-        else:
+        def fetch_json(url: str) -> dict[str, Any]:
             try:
-                parsed_updated_at = parse_time(updated_at)
-                now = utcnow()
-                if parsed_updated_at > now + dt.timedelta(minutes=10):
-                    errors.append("updated_at_in_future")
-                max_age_days = self.config.merchant_registry_max_age_days
-                if max_age_days > 0 and parsed_updated_at < now - dt.timedelta(days=max_age_days):
-                    errors.append("record_stale")
-            except ValueError:
-                errors.append("updated_at_invalid")
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            errors.append("manifest_url_invalid")
-        elif parsed.scheme != "https" and not self.is_local_registry_host(parsed.hostname or ""):
-            errors.append("manifest_url_requires_https")
-        if parsed.netloc and domain and not self.registry_domain_matches(domain, parsed):
-            errors.append("manifest_domain_mismatch")
+                value = self.registry_http_json(url, timeout=10)
+            except AgentCartError as exc:
+                raise RuntimeError(str(exc)) from exc
+            if not isinstance(value, dict):
+                raise RuntimeError(f"{url} did not return an object")
+            return value
 
-        errors.extend(self.verify_registry_signature(record))
-        errors.extend(self.verify_registry_onchain_identity(record))
-
-        manifest_snapshot = record.get("manifest_snapshot")
-        if isinstance(manifest_snapshot, dict):
-            manifest = manifest_snapshot
-        elif manifest_url and not any(error in errors for error in {"manifest_url_invalid", "manifest_domain_mismatch"}):
-            try:
-                raw_manifest = self.http_json(manifest_url, method="GET", token="", timeout=10)
-                if isinstance(raw_manifest, dict):
-                    manifest = raw_manifest
-                else:
-                    errors.append("manifest_not_object")
-            except AgentCartError:
-                errors.append("manifest_fetch_failed")
-
-        if manifest is not None:
-            if record.get("registry_claim_hash"):
-                errors.extend(self.verify_registry_claim_binding(record, manifest))
-            else:
-                expected_hash = str(record.get("manifest_hash") or "")
-                hash_alg = str(record.get("manifest_hash_alg") or "sha-256").lower()
-                actual_hash = canonical_json_hash(manifest)
-                if hash_alg not in {"sha-256", "sha256"}:
-                    errors.append("manifest_hash_alg_unsupported")
-                if not expected_hash:
-                    errors.append("missing_manifest_hash")
-                elif not hmac.compare_digest(expected_hash, actual_hash):
-                    errors.append("manifest_hash_mismatch")
-
-            manifest_merchant = manifest.get("merchant") if isinstance(manifest.get("merchant"), dict) else {}
-            manifest_merchant_id = str(manifest_merchant.get("id") or "")
-            if merchant_id and manifest_merchant_id and merchant_id != manifest_merchant_id:
-                errors.append("merchant_id_mismatch")
-
-            payment_error = self.verify_registry_payment_binding(record, manifest)
-            if payment_error:
-                errors.append(payment_error)
-
-            shipping_error = self.verify_registry_shipping_scope(record, manifest)
-            if shipping_error:
-                errors.append(shipping_error)
-            errors.extend(self.verify_registry_endpoint_scope(record, manifest))
-
+        result = registry_trust.verify_registry_record(
+            record,
+            fetch_json=fetch_json,
+            policy=registry_trust.TrustPolicy(
+                max_age_days=self.config.merchant_registry_max_age_days,
+                hmac_secret=self.config.merchant_registry_hmac_secret,
+            ),
+        )
+        manifest = result.get("manifest") if isinstance(result.get("manifest"), dict) else None
         verification = {
-            "state": "verified" if not errors else "rejected",
-            "errors": errors,
-            "checked_at": isoformat(utcnow()),
+            "contract": result["contract"],
+            "implementation": result["implementation"],
+            "state": result["state"],
+            "errors": result["errors"],
+            "checked_at": result["checked_at"],
             "source": "merchant_registry",
             "manifest_fetched": manifest is not None,
-            "manifest_source": "snapshot" if isinstance(manifest_snapshot, dict) else "url",
-            "signature_alg": str(record.get("signature_alg") or ""),
-            "registry_record_hash": registry_record_hash(record),
-            "updated_at": updated_at,
+            "manifest_source": result["manifest_source"],
+            "signature_alg": result["signature_alg"],
+            "registry_record_hash": result["record_hash"],
+            "updated_at": str(record.get("updated_at") or ""),
         }
         return self.registry_entry_from_record(record, manifest, verification)
 
@@ -3791,7 +3492,7 @@ class AgentCartService:
             proof_document = proof_snapshot
         else:
             try:
-                raw_proof = self.http_json(proof_url, method="GET", token="", timeout=10)
+                raw_proof = self.registry_http_json(proof_url, timeout=10)
                 if isinstance(raw_proof, dict):
                     proof_document = raw_proof
                 else:
@@ -3860,7 +3561,7 @@ class AgentCartService:
         document: dict[str, Any] | None = revocation_snapshot if isinstance(revocation_snapshot, dict) else None
         if document is None:
             try:
-                raw_document = self.http_json(revocation_url, method="GET", token="", timeout=10)
+                raw_document = self.registry_http_json(revocation_url, timeout=10)
                 if isinstance(raw_document, dict):
                     document = raw_document
                 else:
@@ -8678,6 +8379,20 @@ separate human confirmation.
             raise UpstreamError(f"upstream HTTP {exc.code} for {url}", detail=detail) from exc
         except urllib.error.URLError as exc:
             raise UpstreamError(f"upstream request failed for {url}", detail=str(exc)) from exc
+
+    def registry_http_json(self, url: str, *, timeout: int = 10) -> dict[str, Any]:
+        allow_private = bool_env("AGENTCART_ALLOW_PRIVATE_REGISTRY_URLS", False)
+        try:
+            return safe_http.fetch_json_object(
+                url,
+                timeout_seconds=timeout,
+                allow_private=allow_private,
+            )
+        except safe_http.SafeHttpError as exc:
+            raise UpstreamError(
+                f"safe registry request failed for {url}: {exc.code}",
+                detail={"code": exc.code, "status": exc.status, "detail": exc.detail},
+            ) from exc
 
     def checkout(self, request: dict[str, Any], headers: dict[str, str], raw_body: bytes) -> tuple[int, dict[str, str], dict[str, Any]]:
         quote_id = str(request.get("quote_id") or "")

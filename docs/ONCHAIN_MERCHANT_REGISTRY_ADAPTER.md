@@ -57,6 +57,33 @@ The contract-event replay fixture is:
 docs/fixtures/registry/onchain-contract-events.json
 ```
 
+The production-shaped RPC collector is:
+
+```text
+gateway/scripts/onchain-registry-indexer.mjs
+```
+
+It refuses unfinalized upper bounds, records the finalized block number/hash,
+chunks log reads, rejects private or redirecting record URIs, pins each fetch
+to the public DNS addresses that passed validation, verifies every fetched
+full-record hash, and writes output atomically. Remote buyers also reject a
+snapshot older than ten minutes by default. A testnet operator run looks like:
+
+```sh
+node gateway/scripts/onchain-registry-indexer.mjs \
+  --rpc-url https://rpc.example \
+  --registry-address 0xREGISTRY \
+  --from-block DEPLOYMENT_BLOCK \
+  --output /var/lib/agentcart/onchain-contract-events.json
+
+python3 gateway/scripts/registry_record.py index-contract-events \
+  --events-file /var/lib/agentcart/onchain-contract-events.json \
+  --output /var/lib/agentcart/onchain-contract-index.json
+```
+
+`--allow-private-record-uri` exists only for isolated tests. Do not use it for
+a public indexer.
+
 Required fields:
 
 - `record_hash`
@@ -175,12 +202,15 @@ python3 gateway/scripts/registry_record.py index-contract-events \
 offchain record projection for the advertised `recordURI`; the indexer rejects
 the event stream if the projection hash does not match the event `recordHash`.
 `MerchantAttested` records attestation metadata for the current record hash,
-keyed by validator. `MerchantSuspended` removes the record from active discovery
-and clears attestation state until `MerchantUnsuspended` plus fresh
-attestation. Supersession request/approval/cancel/activate logs are monitoring
-inputs; activation is the first destructive step and requires validator or owner
-approval plus the post-approval delay. `MerchantFlagged` remains event-only so
-it never changes eligibility by itself.
+keyed by validator, and the projection calculates threshold/current state from
+validator lifecycle events and expiry. Controller rotation atomically binds a
+replacement record hash and URI and clears prior attestations.
+`MerchantSuspended` removes the record from active discovery and clears
+attestation state until `MerchantUnsuspended` plus fresh attestation.
+Force-revocation and supersession request/approval/cancel/activate logs remain
+explicit in the projection; activation is the first destructive supersession
+step and requires validator or owner approval plus the post-approval delay.
+`MerchantFlagged` remains event-only so it never changes eligibility by itself.
 
 The hosted registry feed proof can also be RSA-SHA256 signed. Operators should
 sign the canonical feed-proof signature payload and publish the public key URL
