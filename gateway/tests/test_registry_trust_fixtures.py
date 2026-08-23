@@ -12,6 +12,7 @@ from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "docs" / "fixtures" / "registry" / "trust-fixtures.json"
+DOMAIN_FIXTURE_PATH = ROOT / "docs" / "fixtures" / "registry" / "domain-normalization.json"
 DIRECT_SKILL_PATH = ROOT / "gateway" / "shopbridge-direct-skill" / "scripts" / "shopbridge-command.py"
 REGISTRY_TOOL_PATH = ROOT / "gateway" / "scripts" / "registry_record.py"
 
@@ -112,6 +113,15 @@ def registry_tool_result(record: dict, manifest: dict, proof: dict, revocation: 
 
 
 class RegistryTrustFixtureTests(unittest.TestCase):
+    def test_shared_domain_normalization_contract(self) -> None:
+        fixture = json.loads(DOMAIN_FIXTURE_PATH.read_text(encoding="utf-8"))
+        for case in fixture["cases"]:
+            with self.subTest(value=case["input"]):
+                self.assertEqual(
+                    shopbridge_direct.registry_trust.normalized_domain(case["input"]),
+                    case["normalized"],
+                )
+
     def test_shared_registry_fixtures_verify_consistently_across_runtimes(self) -> None:
         contract = fixture_contract()
 

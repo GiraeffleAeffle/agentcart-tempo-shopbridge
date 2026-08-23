@@ -20,6 +20,7 @@ CONTRACT_INDEX_SCHEMA = "agentcart.onchain_registry_contract_index.v1"
 LEDGER_PROOF_SCHEMA = "agentcart.onchain_registry_ledger_proof.v1"
 PROJECTION_IMPLEMENTATION = "shopbridge_onchain_projection.v1"
 RPC_INDEXER_IMPLEMENTATION = "agentcart.onchain_registry_rpc_indexer.v1"
+DIRECT_RPC_IMPLEMENTATION = "agentcart.onchain_registry_direct_rpc.v1"
 INDEPENDENT_VERIFICATION_SCHEMA = "agentcart.onchain_registry_independent_verification.v1"
 
 ALLOWED_EVENTS = {
@@ -191,6 +192,7 @@ def finalized_document_errors(
     expected_registry_address: str = "",
     max_age_seconds: int = 0,
     now: dt.datetime | None = None,
+    expected_implementation: str = RPC_INDEXER_IMPLEMENTATION,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     errors: list[dict[str, Any]] = []
     if not isinstance(document, dict):
@@ -213,7 +215,8 @@ def finalized_document_errors(
 
     if not require_finality:
         return events, errors
-    if str(document.get("implementation") or "") != RPC_INDEXER_IMPLEMENTATION:
+    implementation = str(document.get("implementation") or "")
+    if implementation != expected_implementation:
         errors.append({"error": "contract_events_indexer_implementation_mismatch"})
     if not re.fullmatch(r"eip155:[0-9]{1,20}", chain_id):
         errors.append({"error": "contract_events_chain_id_invalid"})
@@ -224,14 +227,14 @@ def finalized_document_errors(
     document_errors = document.get("errors")
     if not isinstance(document_errors, list) or document_errors:
         errors.append({"error": "contract_events_snapshot_has_errors"})
+    reference = now or dt.datetime.now(dt.timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=dt.timezone.utc)
+    reference = reference.astimezone(dt.timezone.utc)
     indexed_at = parse_time(document.get("indexed_at"))
     if indexed_at is None:
         errors.append({"error": "contract_events_indexed_at_invalid"})
     else:
-        reference = now or dt.datetime.now(dt.timezone.utc)
-        if reference.tzinfo is None:
-            reference = reference.replace(tzinfo=dt.timezone.utc)
-        reference = reference.astimezone(dt.timezone.utc)
         if indexed_at > reference + dt.timedelta(minutes=5):
             errors.append({"error": "contract_events_indexed_at_future"})
         elif max_age_seconds > 0 and indexed_at < reference - dt.timedelta(seconds=max_age_seconds):
@@ -248,6 +251,13 @@ def finalized_document_errors(
         errors.append({"error": "contract_events_finality_tag_invalid"})
     if block_number is None or not is_prefixed_hash(finality.get("block_hash")):
         errors.append({"error": "contract_events_finalized_block_invalid"})
+    finalized_at = parse_time(finality.get("block_time"))
+    if finalized_at is None:
+        errors.append({"error": "contract_events_finalized_block_time_invalid"})
+    elif finalized_at > reference + dt.timedelta(minutes=5):
+        errors.append({"error": "contract_events_finalized_block_time_future"})
+    elif max_age_seconds > 0 and finalized_at < reference - dt.timedelta(seconds=max_age_seconds):
+        errors.append({"error": "contract_events_finalized_block_stale"})
     if indexed_from is None or indexed_to is None:
         errors.append({"error": "contract_events_indexed_range_invalid"})
     elif indexed_from > indexed_to or (block_number is not None and indexed_to > block_number):
@@ -262,6 +272,130 @@ def finalized_document_errors(
                 errors.append({"sequence": sequence, "error": "contract_event_block_hash_invalid"})
             if not is_prefixed_hash(event.get("transaction_hash")):
                 errors.append({"sequence": sequence, "error": "contract_event_transaction_hash_invalid"})
+
+    if implementation == DIRECT_RPC_IMPLEMENTATION:
+        rpc = document.get("rpc")
+        storage = document.get("contract_storage_verification")
+        deployment_verification = document.get("deployment_verification")
+        profile = str(rpc.get("profile") or "") if isinstance(rpc, dict) else ""
+        source = str(document.get("source") or "")
+        expected_source = {
+            "standard": "direct_json_rpc",
+            "myotis": "myotis_verified_json_rpc",
+        }.get(profile, "")
+        if not expected_source or source != expected_source:
+            errors.append({"error": "contract_events_direct_source_profile_mismatch"})
+        if not isinstance(storage, dict) or storage.get("status") != "matched":
+            errors.append({"error": "contract_events_storage_verification_invalid"})
+        else:
+            checked_count = strict_nonnegative_int(storage.get("checked_record_count"))
+            lifecycle_count = strict_nonnegative_int(document.get("lifecycle_record_count"))
+            state_block = strict_nonnegative_int(storage.get("block_number"))
+            storage_finalized = strict_nonnegative_int(storage.get("finalized_block_number"))
+            if checked_count is None or lifecycle_count is None or checked_count != lifecycle_count:
+                errors.append({"error": "contract_events_storage_checked_count_mismatch"})
+            if storage_finalized != block_number:
+                errors.append({"error": "contract_events_storage_finalized_block_mismatch"})
+            if profile == "standard":
+                if storage.get("scope") != "same_finalized_block" or state_block != block_number:
+                    errors.append({"error": "contract_events_storage_scope_invalid"})
+            elif profile == "myotis":
+                if (
+                    storage.get("scope") != "myotis_verified_head_conservative_cross_check"
+                    or state_block is None
+                    or block_number is None
+                    or state_block < block_number
+                ):
+                    errors.append({"error": "contract_events_storage_scope_invalid"})
+        if (
+            not isinstance(deployment_verification, dict)
+            or deployment_verification.get("status") not in {"matched", "pinned"}
+            or strict_nonnegative_int(deployment_verification.get("block_number")) != indexed_from
+            or not is_prefixed_hash(deployment_verification.get("block_hash"))
+        ):
+            errors.append({"error": "contract_events_deployment_verification_invalid"})
+        elif profile == "standard" and deployment_verification.get("scope") != "historical_code_creation_boundary":
+            errors.append({"error": "contract_events_deployment_verification_scope_invalid"})
+        elif profile == "myotis" and (
+            deployment_verification.get("status") != "pinned"
+            or deployment_verification.get("scope")
+            != "pinned_descriptor_constructor_log_and_verified_index_coverage"
+            or deployment_verification.get("pinned_block_hash") is not True
+            or not is_prefixed_hash(deployment_verification.get("transaction_hash"))
+        ):
+            errors.append({"error": "contract_events_deployment_verification_scope_invalid"})
+        record_errors = document.get("record_errors")
+        if not isinstance(record_errors, list):
+            errors.append({"error": "contract_events_record_errors_invalid"})
+        else:
+            seen_record_errors: set[str] = set()
+            for item in record_errors:
+                if not isinstance(item, dict):
+                    errors.append({"error": "contract_events_record_error_invalid"})
+                    continue
+                failed_id = normalized_hash(item.get("record_id"), prefix=True)
+                if (
+                    not is_hash(failed_id)
+                    or failed_id in seen_record_errors
+                    or not is_hash(normalized_hash(item.get("record_hash"), prefix=True))
+                    or not str(item.get("code") or "")
+                ):
+                    errors.append({"error": "contract_events_record_error_invalid"})
+                seen_record_errors.add(failed_id)
+        selection = document.get("record_selection")
+        selected_record_ids: list[str] = []
+        active_record_ids: set[str] = set()
+        for event in events:
+            name = str(event.get("event") or "")
+            target_id = record_id(event)
+            if not target_id:
+                continue
+            if name == "MerchantRegistered":
+                active_record_ids.add(target_id)
+            elif name in {"MerchantRevoked", "MerchantSuspended"}:
+                active_record_ids.discard(target_id)
+            elif name == "MerchantUnsuspended":
+                active_record_ids.add(target_id)
+        if not isinstance(selection, dict):
+            errors.append({"error": "contract_events_record_selection_invalid"})
+        else:
+            raw_selected = selection.get("selected_record_ids")
+            active_count = strict_nonnegative_int(selection.get("active_candidate_count"))
+            scope_count = strict_nonnegative_int(selection.get("selection_scope_count"))
+            selected_count = strict_nonnegative_int(selection.get("selected_record_count"))
+            candidate_limit = strict_nonnegative_int(selection.get("candidate_limit"))
+            if (
+                selection.get("schema") != "agentcart.onchain_registry_candidate_selection.v1"
+                or selection.get("algorithm") != "sha256-query-seeded-record-id-sample"
+                or selection.get("selection_mode")
+                not in {"query_seeded_sample", "exact_record_or_domain"}
+                or not re.fullmatch(r"[0-9a-f]{64}", str(selection.get("seed_sha256") or ""))
+                or selection.get("before_record_fetch") is not True
+                or not isinstance(raw_selected, list)
+            ):
+                errors.append({"error": "contract_events_record_selection_invalid"})
+            else:
+                selected_record_ids = [
+                    normalized_hash(value, prefix=True) for value in raw_selected
+                ]
+                if (
+                    any(not is_hash(value) for value in selected_record_ids)
+                    or len(set(selected_record_ids)) != len(selected_record_ids)
+                    or selected_count != len(selected_record_ids)
+                    or active_count is None
+                    or scope_count is None
+                    or selected_count is None
+                    or candidate_limit is None
+                    or selected_count > active_count
+                    or selected_count > scope_count
+                    or scope_count > active_count
+                    or selected_count > candidate_limit
+                    or active_count != len(active_record_ids)
+                    or not set(selected_record_ids).issubset(active_record_ids)
+                ):
+                    errors.append({"error": "contract_events_record_selection_invalid"})
+                if any(failed_id not in set(selected_record_ids) for failed_id in seen_record_errors):
+                    errors.append({"error": "contract_events_record_error_outside_selection"})
 
     independent = document.get("independent_verification")
     if independent is not None:
@@ -346,12 +480,12 @@ def controller_binding_errors(
             if identity is None:
                 errors.append({"sequence": sequence, "error": "registry_record_onchain_identity_missing"})
             else:
-                supplied_chain = identity_value(identity, "chain_id", "chainId")
+                supplied_chain = identity_value(identity, "chain_id", "chain", "chainId")
                 supplied_registry = identity_value(
                     identity, "registry_address", "registry", "registry_contract", "contract"
                 )
                 supplied_record_id = normalized_hash(
-                    identity_value(identity, "record_id", "id", "service_id", "agent_id"), prefix=True
+                    identity_value(identity, "record_id", "id"), prefix=True
                 )
                 identity_controller = identity_value(
                     identity, "controller", "controller_address", "merchant_controller"
@@ -798,6 +932,7 @@ def index_contract_document(
     expected_registry_address: str = "",
     max_age_seconds: int = 0,
     now: dt.datetime | None = None,
+    expected_implementation: str = RPC_INDEXER_IMPLEMENTATION,
 ) -> dict[str, Any]:
     """Validate an event envelope and replay it through the shared projection.
 
@@ -812,6 +947,7 @@ def index_contract_document(
         expected_registry_address=expected_registry_address,
         max_age_seconds=max_age_seconds,
         now=now,
+        expected_implementation=expected_implementation,
     )
     generated_at = str(document.get("indexed_at") or "") if isinstance(document, dict) else ""
     index = index_contract_events(events, record_hash=record_hash, generated_at=generated_at or None)
@@ -834,6 +970,36 @@ def index_contract_document(
                     document["independent_verification"]
                 )
             index["complete"] = document.get("complete") is True if require_finality else True
+            if expected_implementation == DIRECT_RPC_IMPLEMENTATION:
+                record_errors = copy.deepcopy(document.get("record_errors") or [])
+                failed_ids = {
+                    normalized_hash(item.get("record_id"), prefix=True)
+                    for item in record_errors
+                    if isinstance(item, dict)
+                }
+                selection = copy.deepcopy(document.get("record_selection") or {})
+                selected_ids = {
+                    normalized_hash(value, prefix=True)
+                    for value in selection.get("selected_record_ids", [])
+                }
+
+                def projected_record_id(record: dict[str, Any]) -> str:
+                    identity = record_identity(record) or {}
+                    return normalized_hash(
+                        identity_value(identity, "record_id", "id")
+                        or record.get("record_id"),
+                        prefix=True,
+                    )
+
+                index["records"] = [
+                    record
+                    for record in index["records"]
+                    if isinstance(record, dict)
+                    and projected_record_id(record) in selected_ids
+                    and projected_record_id(record) not in failed_ids
+                ]
+                index["record_errors"] = record_errors
+                index["record_selection"] = selection
         return index
 
     verification = index.get("verification") if isinstance(index.get("verification"), dict) else {}
@@ -868,7 +1034,7 @@ def index_contract_document(
 def record_anchor(record: dict[str, Any]) -> tuple[str, str, str]:
     identity = record_identity(record) or {}
     return (
-        identity_value(identity, "chain_id", "chainId"),
+        identity_value(identity, "chain_id", "chain", "chainId"),
         identity_value(
             identity,
             "registry_address",
@@ -877,7 +1043,7 @@ def record_anchor(record: dict[str, Any]) -> tuple[str, str, str]:
             "contract",
         ).lower(),
         normalized_hash(
-            identity_value(identity, "record_id", "id", "service_id", "agent_id"),
+            identity_value(identity, "record_id", "id"),
             prefix=True,
         ),
     )

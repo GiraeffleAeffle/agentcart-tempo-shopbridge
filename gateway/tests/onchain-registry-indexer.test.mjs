@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -11,10 +11,12 @@ import { encodeAbiParameters, encodeEventTopics, keccak256, toBytes } from "viem
 import {
   CONTRACT_EVENTS_SCHEMA,
   INDEXER_IMPLEMENTATION,
+  assertControllerBoundIdentity,
   assertSafeRecordUri,
   collectFinalizedEvents,
   fetchRegistryRecord,
   pinnedLookup,
+  normalizedDomain,
   registryEventAbi,
   registryRecordHash,
 } from "../scripts/onchain-registry-indexer.mjs";
@@ -35,6 +37,41 @@ const recordId = `0x${"44".repeat(32)}`;
 const domainHash = keccak256(toBytes("fixture-shop.example"));
 const transactionHash = `0x${"aa".repeat(32)}`;
 const blockHash = `0x${"bb".repeat(32)}`;
+
+test("uses the shared lowercase ASCII LDH hostname normalization contract", async () => {
+  const fixture = JSON.parse(
+    await readFile(
+      new URL("../../docs/fixtures/registry/domain-normalization.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  for (const example of fixture.cases) {
+    assert.equal(normalizedDomain(example.input), example.normalized, example.input);
+  }
+});
+
+test("uses the shared nested onchain identity alias contract", async () => {
+  const fixture = JSON.parse(
+    await readFile(
+      new URL("../../docs/fixtures/registry/onchain-identity-aliases.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const expected = {
+    chainId: 42431,
+    controller: fixture.expected.controller,
+    registryAddress: fixture.expected.registry_address,
+    recordId: fixture.expected.record_id,
+    domainHash: keccak256(toBytes("fixture-shop.example")),
+  };
+  for (const example of fixture.cases) {
+    const record = { domain: "fixture-shop.example" };
+    if (example.container === "top_level") Object.assign(record, example.identity);
+    else record[example.container] = example.identity;
+    if (example.valid) assert.doesNotThrow(() => assertControllerBoundIdentity(record, expected));
+    else assert.throws(() => assertControllerBoundIdentity(record, expected));
+  }
+});
 
 test("recognizes a ConfigMap-style symlink as the main module", async (context) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "agentcart-indexer-main-"));
@@ -560,6 +597,7 @@ test("recurring witness mode throttles repeated divergence and emits resolution"
 test("registry mutations require an explicit production-network override", () => {
   assert.doesNotThrow(() => assertMutationNetworkAllowed(42431, {}));
   assert.throws(() => assertMutationNetworkAllowed(1, {}), /production-network mutations are disabled/);
+  assert.throws(() => assertMutationNetworkAllowed(100, {}), /production-network mutations are disabled/);
   assert.throws(() => assertMutationNetworkAllowed(4217, {}), /production-network mutations are disabled/);
   assert.doesNotThrow(() => (
     assertMutationNetworkAllowed(4217, { AGENTCART_ONCHAIN_ALLOW_MAINNET: "true" })

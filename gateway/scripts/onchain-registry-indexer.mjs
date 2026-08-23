@@ -7,7 +7,6 @@ import nodeHttps from "node:https";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
-import { domainToASCII } from "node:url";
 
 import {
   createPublicClient,
@@ -446,22 +445,43 @@ export async function registryRecordHash(record) {
   return sha256Hex(canonicalJson(registrySignaturePayload(record)));
 }
 
-function normalizedDomain(value) {
+export function normalizedDomain(value) {
   const raw = String(value || "").trim().replace(/\.$/, "").toLowerCase();
-  return domainToASCII(raw);
+  if (!raw || !/^[\x00-\x7f]+$/.test(raw) || raw.length > 253) return "";
+  const labels = raw.split(".");
+  if (
+    labels.some(
+      (label) =>
+        !label ||
+        label.length > 63 ||
+        label.startsWith("xn--") ||
+        !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label),
+    )
+  ) {
+    return "";
+  }
+  return raw;
 }
 
 function recordIdentity(record) {
   if (record?.onchain_identity && typeof record.onchain_identity === "object") return record.onchain_identity;
   if (record?.erc8004_identity && typeof record.erc8004_identity === "object") return record.erc8004_identity;
-  return record || {};
+  return {};
 }
 
 export function assertControllerBoundIdentity(record, expected) {
   const identity = recordIdentity(record);
-  const suppliedChainId = String(identity.chain_id || identity.chainId || "");
-  const suppliedController = String(identity.controller || identity.controller_address || "");
-  const suppliedRegistry = String(identity.registry_address || identity.registry || "");
+  const suppliedChainId = String(identity.chain_id || identity.chain || identity.chainId || "");
+  const suppliedController = String(
+    identity.controller || identity.controller_address || identity.merchant_controller || "",
+  );
+  const suppliedRegistry = String(
+    identity.registry_address ||
+      identity.registry ||
+      identity.registry_contract ||
+      identity.contract ||
+      "",
+  );
   const suppliedRecordId = String(identity.record_id || identity.id || "");
   if (suppliedChainId !== `eip155:${expected.chainId}`) throw new Error("controller_proof_chain_id_mismatch");
   if (suppliedController.toLowerCase() !== String(expected.controller || "").toLowerCase()) {

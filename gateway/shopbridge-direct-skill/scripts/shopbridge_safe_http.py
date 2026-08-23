@@ -12,8 +12,10 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import json
+import queue
 import socket
 import ssl
+import threading
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -166,50 +168,86 @@ def request_json(
     if body is not None and len(body) > max_request_bytes:
         raise SafeHttpError("request_too_large")
 
-    target = resolve_safe_target(url, allow_private=allow_private, resolver=resolver)
-    connection_type = _PinnedHttpsConnection if target.url.scheme == "https" else _PinnedHttpConnection
-    connection = connection_type(target, timeout=timeout_seconds)
     request_headers = {"Accept": "application/json", "Connection": "close", **(headers or {})}
     if body is not None and not any(name.lower() == "content-type" for name in request_headers):
         request_headers["Content-Type"] = "application/json"
-    try:
-        connection.request(
-            normalized_method,
-            _request_target(target.url),
-            body=body,
-            headers=request_headers,
-        )
-        response = connection.getresponse()
-        declared_length = response.getheader("Content-Length")
-        if declared_length:
-            try:
-                if int(declared_length) > max_response_bytes:
-                    raise SafeHttpError("response_too_large", status=response.status)
-            except ValueError as exc:
-                raise SafeHttpError("content_length_invalid", status=response.status) from exc
-        raw = response.read(max_response_bytes + 1)
-        if len(raw) > max_response_bytes:
-            raise SafeHttpError("response_too_large", status=response.status)
-        if 300 <= response.status < 400:
-            raise SafeHttpError("redirect_forbidden", status=response.status)
-        if response.status < 200 or response.status >= 300:
-            raise SafeHttpError(
-                "upstream_http_error",
-                status=response.status,
-                detail=raw.decode("utf-8", errors="replace")[:4096],
-            )
-        if not raw:
-            return None
+
+    result_queue: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+    active_connection: list[http.client.HTTPConnection] = []
+    connection_lock = threading.Lock()
+
+    def perform_request() -> None:
+        connection: http.client.HTTPConnection | None = None
         try:
-            return json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise SafeHttpError("response_json_invalid", status=response.status, detail=str(exc)) from exc
-    except SafeHttpError:
-        raise
-    except (OSError, http.client.HTTPException, ssl.SSLError) as exc:
-        raise SafeHttpError("request_failed", detail=str(exc)) from exc
-    finally:
-        connection.close()
+            target = resolve_safe_target(url, allow_private=allow_private, resolver=resolver)
+            connection_type = _PinnedHttpsConnection if target.url.scheme == "https" else _PinnedHttpConnection
+            connection = connection_type(target, timeout=timeout_seconds)
+            with connection_lock:
+                active_connection.append(connection)
+            connection.request(
+                normalized_method,
+                _request_target(target.url),
+                body=body,
+                headers=request_headers,
+            )
+            response = connection.getresponse()
+            declared_length = response.getheader("Content-Length")
+            if declared_length:
+                try:
+                    if int(declared_length) > max_response_bytes:
+                        raise SafeHttpError("response_too_large", status=response.status)
+                except ValueError as exc:
+                    raise SafeHttpError("content_length_invalid", status=response.status) from exc
+            raw = response.read(max_response_bytes + 1)
+            if len(raw) > max_response_bytes:
+                raise SafeHttpError("response_too_large", status=response.status)
+            if 300 <= response.status < 400:
+                raise SafeHttpError("redirect_forbidden", status=response.status)
+            if response.status < 200 or response.status >= 300:
+                raise SafeHttpError(
+                    "upstream_http_error",
+                    status=response.status,
+                    detail=raw.decode("utf-8", errors="replace")[:4096],
+                )
+            if not raw:
+                result_queue.put((True, None))
+                return
+            try:
+                result_queue.put((True, json.loads(raw.decode("utf-8"))))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise SafeHttpError("response_json_invalid", status=response.status, detail=str(exc)) from exc
+        except SafeHttpError as exc:
+            result_queue.put((False, exc))
+        except (OSError, http.client.HTTPException, ssl.SSLError) as exc:
+            result_queue.put((False, SafeHttpError("request_failed", detail=str(exc))))
+        except BaseException as exc:  # Preserve unexpected worker failures for the caller.
+            result_queue.put((False, exc))
+        finally:
+            if connection is not None:
+                with connection_lock:
+                    if connection in active_connection:
+                        active_connection.remove(connection)
+                connection.close()
+
+    worker = threading.Thread(target=perform_request, name="shopbridge-safe-http", daemon=True)
+    worker.start()
+    worker.join(timeout_seconds)
+    if worker.is_alive():
+        with connection_lock:
+            connection = active_connection[0] if active_connection else None
+        if connection is not None:
+            try:
+                if connection.sock is not None:
+                    connection.sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            connection.close()
+        raise SafeHttpError("request_timeout")
+
+    succeeded, value = result_queue.get_nowait()
+    if succeeded:
+        return value
+    raise value
 
 
 def fetch_json_object(

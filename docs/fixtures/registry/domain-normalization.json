@@ -1,0 +1,28 @@
+{
+  "schema": "agentcart.registry_domain_normalization.v1",
+  "policy": "lowercase-ascii-ldh-exact-host-no-idn",
+  "cases": [
+    {"input": "Example.COM.", "normalized": "example.com"},
+    {"input": "example.com..", "normalized": ""},
+    {"input": "XN--FA-HIA.DE", "normalized": ""},
+    {"input": "xn--a.com", "normalized": ""},
+    {"input": "xn--0.com", "normalized": ""},
+    {"input": "xn--abc.com", "normalized": ""},
+    {"input": "xn--a-wbb.com", "normalized": ""},
+    {"input": "xn--a-ymc.com", "normalized": ""},
+    {"input": "xn--ph7c.com", "normalized": ""},
+    {"input": "xn--a-zhc.com", "normalized": ""},
+    {"input": "xn--11b5i.com", "normalized": ""},
+    {"input": "xn--a-fda.com", "normalized": ""},
+    {"input": "xn--a-gda.com", "normalized": ""},
+    {"input": "faß.de", "normalized": ""},
+    {"input": "faß。de", "normalized": ""},
+    {"input": "https://shop.example", "normalized": ""},
+    {"input": "shop.example:443", "normalized": ""},
+    {"input": "user@shop.example", "normalized": ""},
+    {"input": "-bad.example", "normalized": ""},
+    {"input": "bad_.example", "normalized": ""},
+    {"input": "a..example", "normalized": ""},
+    {"input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example", "normalized": ""}
+  ]
+}

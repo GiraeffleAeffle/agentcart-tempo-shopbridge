@@ -6,6 +6,7 @@ import pathlib
 import socket
 import sys
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -28,12 +29,23 @@ class SafeHttpHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/large":
             body = json.dumps({"value": "x" * 2048}).encode("utf-8")
+        elif self.path == "/trickle":
+            body = b'{"ok":true}'
         else:
             body = b'{"ok":true}'
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        if self.path == "/trickle":
+            try:
+                for byte in body:
+                    self.wfile.write(bytes([byte]))
+                    self.wfile.flush()
+                    time.sleep(0.04)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         self.wfile.write(body)
 
     def log_message(self, _format: str, *args: object) -> None:
@@ -104,6 +116,18 @@ class ShopBridgeSafeHttpTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.code, "response_too_large")
+
+    def test_timeout_is_a_total_wall_clock_deadline(self) -> None:
+        started_at = time.monotonic()
+        with self.assertRaises(safe_http.SafeHttpError) as raised:
+            safe_http.fetch_json_object(
+                self.local_url("/trickle"),
+                allow_private=True,
+                timeout_seconds=0.12,
+            )
+
+        self.assertEqual(raised.exception.code, "request_timeout")
+        self.assertLess(time.monotonic() - started_at, 0.4)
 
 
 if __name__ == "__main__":

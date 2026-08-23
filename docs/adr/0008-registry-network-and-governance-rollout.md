@@ -14,9 +14,9 @@ production network and one permanent governance arrangement.
 
 The project needs a real-chain drill now, but it does not yet have external
 merchant evidence, an audited contract, independent validators, production
-RPC/indexer redundancy, or an agreed multisig. Ethereum mainnet and Tempo
-mainnet therefore have materially different costs and operational trade-offs
-that cannot be decided from the prototype alone.
+RPC/indexer redundancy, or an agreed multisig. Ethereum mainnet, Gnosis
+mainnet, and Tempo mainnet therefore have materially different costs and
+operational trade-offs that cannot be decided from the prototype alone.
 
 ## Decision
 
@@ -37,8 +37,8 @@ exercised locally and on testnet where their wall-clock delays permit, but they
 do not turn an EOA-owned deployment into decentralized governance.
 
 The reference write operator reads keys only from the environment, requires an
-explicit command/chain/contract acknowledgement, and blocks both Ethereum and
-Tempo mainnet mutations unless a separate production override is set.
+explicit command/chain/contract acknowledgement, and blocks Ethereum, Gnosis,
+and Tempo mainnet mutations unless a separate production override is set.
 
 The reference indexer must read only logs at the RPC `finalized` block tag,
 record the indexed range and finalized block hash, fetch full records through
@@ -55,10 +55,39 @@ buyer trust contract rejects that snapshot after ten minutes, so an extended
 outage cannot silently preserve eligibility. A static snapshot remains a
 fixture/drill mode, not the live operating mode.
 
-No Ethereum mainnet, Tempo mainnet, or other production deployment is approved
-by this ADR. The record and proof formats continue to use CAIP-style chain ids
-and explicit registry addresses so a later network decision is a deployment
-choice rather than a commerce-model rewrite.
+No Ethereum mainnet, Gnosis mainnet, Tempo mainnet, or other production
+deployment is approved by this ADR. The record and proof formats continue to
+use CAIP-style chain ids and explicit registry addresses so a later network
+decision is a deployment choice rather than a commerce-model rewrite.
+
+## Buyer RPC And Verified Light-Client Option
+
+The production chain decision is separate from how a buyer obtains chain data.
+The Direct Skill now reconstructs merchant eligibility itself through standard
+EVM JSON-RPC rather than accepting the hosted `/records` list as authority.
+For Ethereum or Gnosis, Myotis is a promising optional buyer-side transport:
+its Rust engine supports the required address/topic-filtered `eth_getLogs`,
+receipt-root verification, `eth_getCode`, `eth_call`, and loopback JSON-RPC
+ports `8545` and `8546` respectively. Its contract-scoped index refuses
+unwatched or incompletely covered ranges instead of returning a false empty
+result.
+
+Myotis does not currently support Tempo. It also does not remove every local
+cost: the buyer runs a P2P light client and builds a registry-specific log index
+from the deployment block. That index must be built locally for the trustless
+path; an imported snapshot is not independent provenance. The base light-client
+disk footprint is small, but the optional index grows with contract activity
+and its production resource profile still needs measurement.
+
+The inspected Myotis main commit
+`1cc9f09a854846c20b0ca03b517f0ac6a0712ebd` has one blocking adapter defect:
+the Rust status parser contains `finalizedBlockNumber`, while
+`RustChainHandle.beaconStatus()` exports `executionBlockNumber` as zero. The
+ShopBridge Myotis profile therefore fails closed. Mapping that field to
+`s.finalizedBlockNumber()` and releasing the newer generic log-index commands
+are prerequisites for an end-to-end compatibility drill. Until that drill is
+recorded, Myotis is an integration candidate, not a satisfied production RPC
+or witness gate.
 
 ## Testnet Deployment Evidence
 
@@ -80,7 +109,8 @@ remains an operational evidence item and must not be conflated with the
 runtime-bytecode match. A manual GitHub workflow pins the original compiler,
 optimizer, EVM target, source paths, and creation transaction; it requires a
 typed acknowledgement and accepts only `exact_match`. The workflow has not
-been triggered. Ethereum mainnet and Tempo production remain untouched.
+been triggered. Ethereum mainnet, Gnosis mainnet, and Tempo production remain
+untouched.
 
 On 2026-08-21, the reference indexer replayed deployment block `30731101`
 through finalized block `31831769` (`0x8efe988fa5c66ebf7786c18d42833398e35e67de4a49e388ce0462313c179d78`).
@@ -152,9 +182,11 @@ A production-network ADR may be accepted only after:
 7. the chosen deployment has a public rollback/migration plan and does not
    claim neutrality beyond its actual governance.
 
-Ethereum and Tempo should be evaluated against those gates. Registration bond,
-validator stake, slashing, paid placement, and ranking remain out of scope for
-the network decision.
+Ethereum, Gnosis, and Tempo should be evaluated against those gates. The
+evaluation must include whether ordinary buyers can self-verify discovery
+without a full node, but Myotis availability alone must not select the chain.
+Registration bond, validator stake, slashing, paid placement, and ranking
+remain out of scope for the network decision.
 
 ## Consequences
 
@@ -163,6 +195,9 @@ the network decision.
 - Pilot addresses and receipts are evidence, not stable production identifiers.
 - A future production choice requires a new ADR and cannot silently reuse the
   pilot owner EOA.
+- A verified light-client buyer path can reduce dependence on hosted RPCs on
+  supported networks, but it does not replace operator monitoring, deployment
+  evidence, or independent witness requirements until separately evidenced.
 - Merchant and buyer clients must display the chain, registry address, record
   status, and governance mode instead of reducing trust to a generic
   "onchain" badge.

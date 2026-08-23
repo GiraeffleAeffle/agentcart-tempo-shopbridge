@@ -17,6 +17,9 @@ As of 2026-08-23, the technical testnet baseline is implemented:
   revocation, and controller-bound onchain checks;
 - one shared onchain projection replays lifecycle events, retains historical
   record hashes, and fails closed on malformed or non-finalized envelopes;
+- the Direct Skill now reads eligibility-changing logs from the contract
+  deployment block itself, fetches only record documents committed by those
+  logs, and checks the projected lifecycle against current contract views;
 - the reference indexer reads through the RPC `finalized` tag and records the
   finalized block number and hash, while the registry chart can refresh and
   atomically publish only complete snapshots without Kubernetes API access; and
@@ -26,8 +29,12 @@ As of 2026-08-23, the technical testnet baseline is implemented:
 The contract is deployed on Tempo Moderato as described in ADR 0008. On
 2026-08-23 the USD pilot completed a finalized registration, revocation, and
 re-registration with a new immutable record hash. The public registry serves
-both historical documents and the recurring complete event snapshot, and the
-Direct Skill discovers that same-origin feed without buyer configuration.
+both historical documents and the recurring complete event snapshot. The
+Direct Skill no longer obtains candidate membership or lifecycle from that
+hosted snapshot: it reconstructs them directly from the contract without buyer
+configuration, then applies offchain trust checks to determine eligibility.
+The hosted surfaces remain an indexer/cache, monitoring path, and compatibility
+input.
 
 The skill admitted the first hash after registration, removed the merchant
 after onchain revocation, and admitted only the recovered hash after
@@ -85,6 +92,55 @@ bundle URL. Agents fetch it, verify the onchain `record_hash`, then run the
 existing registry trust contract checks against manifest, domain proof,
 revocation document, endpoint scope, freshness, and payment binding.
 
+“Directly from the contract” does not require every buyer to operate a full
+execution node. The buyer needs an EVM JSON-RPC transport that can provide a
+finalized boundary, complete historical logs from the deployment block, and
+verified current contract views. A conventional RPC is supported. For an
+Ethereum or Gnosis deployment, a local Myotis verified light client is also a
+compatible transport when its Rust contract-log index is configured from the
+true deployment block and fully backfilled, and its JSON-RPC status exposes the
+non-zero finalized execution block. The inspected 2026-08-23 Myotis main
+adapter still zeroes that status field, so this path currently fails closed
+pending a small upstream fix. Myotis is not a registry or an offchain record
+host; it only replaces the chain-data transport.
+
+Because Myotis only serves a short window of historical headers, an immutable
+deployment descriptor must independently pin chain id, registry address,
+deployment block, and deployment block hash. For an old deployment the runtime
+matches that hash to the receipt-root-verified constructor
+`OwnershipTransferred(address(0), owner)` log at the index boundary rather than
+pretending it re-verified an ancient header through JSON-RPC.
+
+The Myotis profile is deliberately conservative. It obtains the finalized
+execution height from `myotis_beaconStatus`, replays receipt-root-verified logs
+only through that height, and uses the newer verified head for a current-state
+cross-check because Myotis does not expose historical state with full-RPC
+semantics. Any intervening revoke, suspension, controller change, or record
+update produces a mismatch and fails closed; a new record waits for finality.
+
+Every transport also validates the finalized block timestamp against a short,
+deployment-configured maximum age and a five-minute future-skew bound. The
+initial policy is 30 minutes for Ethereum mainnet and 10 minutes for Gnosis and
+Tempo; hosted compatibility snapshot generation remains a separate 10-minute
+bound. Snapshot generation time alone is insufficient: a frozen RPC could
+otherwise wrap an obsolete finalized head in a fresh response and delay
+revocation enforcement indefinitely.
+
+The Direct Skill separates chain-range completeness from individual record
+eligibility. It first replays every lifecycle event and checks every discovered
+record's contract storage, then resolves only the current active version in a
+bounded worker pool. An unavailable, oversized, hash-mismatched, or
+identity-mismatched `recordURI` creates a record-scoped ineligibility reason;
+it does not invalidate other merchants or require historical record documents
+to remain online forever.
+
+Permissionless candidate-set growth remains a production governance problem,
+not something a buyer-side timeout can solve. Before a production deployment,
+the fixed non-ranking registration-bond/anti-spam policy and the bounded,
+buyer-query-seeded candidate sample in the Fairness section must be implemented
+and tested. The current Tempo contract is a public pilot contract, not the
+final spam-resistant mainnet registry.
+
 ## Controller-Bound Domain Proof
 
 Onchain eligibility requires a domain proof that binds the merchant-controlled
@@ -111,8 +167,8 @@ indexer treats a merchant record as eligible only when all checks pass:
 
 1. the onchain record is active and not suspended;
 2. the full record hash matches the onchain commitment;
-3. the registered domain is normalized consistently, including IDN/punycode and
-   public-suffix-list handling;
+3. the registered domain passes the versioned exact-hostname normalization
+   policy;
 4. the merchant controls the registered HTTPS domain through the controller-bound
    well-known proof flow;
 5. the manifest registry claim hash matches the full record;
@@ -120,7 +176,20 @@ indexer treats a merchant record as eligible only when all checks pass:
 7. revocation state does not revoke the record hash;
 8. catalog, quote, and order endpoints stay on the registered domain;
 9. validator attestation, when required by an indexer or badge, commits to the
-   same `record_id`, `record_hash`, validator, and expiry.
+same `record_id`, `record_hash`, validator, and expiry.
+
+The cross-runtime normalization Interface is deliberately narrow: pilot
+Registry Records and contract registration inputs use lowercase ASCII DNS LDH
+hostnames, with one trailing dot removed. Python and JavaScript verification
+reject raw Unicode, `xn--` IDN A-labels, invalid labels, and overlong labels.
+This prevents their different platform IDNA mappings from producing different
+domain hashes. A single shared non-transitional UTS-46 implementation is
+required before IDN merchants can be onboarded. The shared fixture at
+`docs/fixtures/registry/domain-normalization.json` pins this behavior.
+The v1 scope is the exact registered hostname; verifiers do not silently reduce
+it to an eTLD+1 or infer sibling-subdomain control. A future public-suffix rule
+therefore requires a new normalization version and fixtures, not a library-only
+behavior change.
 
 Reference indexers can require attestation for a "verified" badge or default
 public listing. Self-verifying buyer agents may rerun the objective checks
@@ -188,7 +257,8 @@ If a merchant registration bond is introduced after the pilot, it must be fixed
 size, uniform, refundable, and not exposed as a sortable amount. There is no
 merchant slashing in v1.
 
-The onchain registry returns an eligible set, not a leaderboard. Buyer agents
+The onchain registry returns active candidate memberships, not an eligible set
+or leaderboard. Buyer agents first verify offchain eligibility evidence, then
 rank merchants only after private final quote requests using local policy,
 price, delivery, payment readiness, stock, and trust evidence.
 
@@ -215,12 +285,22 @@ default; self-verification of the full record, manifest, proof, payment binding,
 and revocation state should be the default path for buyers who do not want a
 validator-operated gate.
 
-Default candidate selection should avoid fixed positional advantage. Prefer a
-buyer-query-seeded randomized sample among self-verified eligible merchants,
-then apply user-owned constraints such as country, payment rail, delivery
-window, budget, preferred/blocked merchants, and local policy before sending
-private RFQs. Registration bond size, validator stake, and sponsored placement
-must never be ranking inputs.
+Default candidate selection should avoid fixed positional advantage. The
+current reference flow first takes a buyer-query-seeded randomized sample of
+active onchain candidate memberships, then self-verifies the selected records,
+and only then applies user-owned constraints and local ranking before private
+RFQs. A selected record that fails verification is not backfilled in the same
+query. This boundary must be visible to the buyer: onchain candidate sampling,
+selected-record eligibility verification, and RFQ ranking are three different
+stages.
+
+The public deterministic seed is auditable but grindable by a permissionless
+registrant, so it is not by itself a neutral production-market mechanism. The
+production bond and anti-spam design must address that before permissionless
+mainnet registration opens. Country, payment rail, delivery window, budget,
+preferred/blocked merchants, and local policy remain buyer-owned constraints.
+Registration bond size, validator stake, and sponsored placement must never be
+ranking inputs.
 
 ## Challenge Scope
 
@@ -269,6 +349,9 @@ must be described as a trusted-operator pilot, not a neutral public registry.
 ## Consequences
 
 - The hosted registry becomes an indexer, monitor, and convenience API.
+- Buyer discovery can use either a standard finalized RPC or, on a supported
+  network, a contract-scoped verified light-client transport; transport choice
+  does not change the contract authority or offchain record verification.
 - Smart contract work can start from the existing onchain projection fixture,
   but the fixture is a projection/event shape, not the contract storage model.
 - Controller-bound proof changes must ship before public onchain registration.

@@ -9,9 +9,19 @@
     "skill_directory": "gateway/shopbridge-direct-skill",
     "package_command": "./scripts/package-shopbridge-direct-skill.sh",
     "required_environment": [
-      "SHOPBRIDGE_REGISTRY_URL or SHOPBRIDGE_REGISTRY_PATH"
+      "none for the default Tempo onchain registry"
     ],
     "optional_environment": [
+      "SHOPBRIDGE_ONCHAIN_RPC_URL",
+      "SHOPBRIDGE_ONCHAIN_CHAIN_ID",
+      "SHOPBRIDGE_ONCHAIN_REGISTRY_ADDRESS",
+      "SHOPBRIDGE_ONCHAIN_FROM_BLOCK",
+      "SHOPBRIDGE_ONCHAIN_DEPLOYMENT_BLOCK_HASH (required with Myotis)",
+      "SHOPBRIDGE_ONCHAIN_FINALITY_MAX_AGE_SECONDS",
+      "SHOPBRIDGE_ONCHAIN_RECORD_CANDIDATE_LIMIT",
+      "SHOPBRIDGE_ONCHAIN_RPC_PROFILE",
+      "SHOPBRIDGE_ALLOW_PRIVATE_RPC",
+      "SHOPBRIDGE_REGISTRY_URL or SHOPBRIDGE_REGISTRY_PATH for compatibility/offline input",
       "SHOPBRIDGE_SIGNED_REQUEST_SECRET",
       "SHOPBRIDGE_SIGNED_REQUEST_SIGNER",
       "SHOPBRIDGE_MPP_PROOF_URL",
@@ -31,7 +41,7 @@
         }
       },
       "expect": [
-        "configured registry source",
+        "smart-contract authority and direct JSON-RPC transport",
         "verified merchants or actionable setup issues"
       ]
     },

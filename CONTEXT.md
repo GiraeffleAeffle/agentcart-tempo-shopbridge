@@ -15,6 +15,8 @@ The product is a production-candidate alpha. The codebase has strong contract ch
 | AgentCart Service | The optional buyer-side service for durable household policy, approval, audit, registry, Home Assistant, Vikunja, and delivery state. |
 | Direct Skill | The buyer-side skill-only path in `gateway/shopbridge-direct-skill` for agents that can call a verified merchant without running the AgentCart Service. |
 | Manifest | The merchant's `/.well-known/agentcart.json` capability document containing identity, endpoints, readiness, protocol profiles, registry claim, and payment metadata. |
+| Merchant Registry | The smart-contract authority for candidate membership and record lifecycle commitments. It emits the URI of each full offchain Registry Record; a candidate becomes an eligible Merchant only after the buyer verifies that record, domain proof, manifest, payment binding, freshness, and revocation state. |
+| Hosted Registry | A replaceable cache, archive, monitor, and compatibility interface over Merchant Registry state. Its `/records` list is not the default merchant-list authority. |
 | Registry Record | A public merchant identity and integrity record binding merchant id, domain, manifest URL, registry claim hash, payment destination, freshness, proof, and revocation pointer. |
 | Catalog | Merchant-selected product data exposed to agents. Catalog text is untrusted merchant-controlled data. |
 | Final Quote | A WooCommerce-backed checkout contract binding items, quantity, destination, shipping, VAT, total, currency, merchant of record, expiry, stock hold, payment requirements, and quote hash. |
@@ -52,7 +54,8 @@ AgentCart keeps a stable commerce core and adds protocol adapters at explicit se
 - WordPress/WooCommerce integration test harness for end-to-end endpoint behavior.
 - Production verifier replay storage, metrics, dashboards, and provider operations on a managed transactional store.
 - Carrier-specific fulfillment tracking and durable refund/cancellation state machines.
-- Public signing or onchain anchoring for registry feed proofs and stronger registry operations governance.
+- Production Merchant Registry deployment, source/security review, independent
+  chain-data paths, governance, and stronger Hosted Registry operations.
 - Evidence-required pilot runs across external merchants and the required buyer-agent runtimes.
 - Non-technical merchant/buyer setup flow, legal terms, privacy notice, support SLA, and rollback runbooks.
 
@@ -67,4 +70,3 @@ AgentCart keeps a stable commerce core and adds protocol adapters at explicit se
 - `docs/QUOTE_RELIABILITY.md` defines quote drift and recovery semantics.
 - `docs/PILOT_BETA_CHECKLIST.md` defines external beta evidence gates.
 - `docs/STANDARDS_ALIGNMENT.md` defines the standards-adapter strategy.
-

@@ -255,9 +255,15 @@ def onchain_events_document(record, *, event_record_hash: str | None = None):
     }
 
 
-def finalized_onchain_events_document(record, *, revoked: bool = False, complete: bool = True):
+def finalized_onchain_events_document(
+    record,
+    *,
+    revoked: bool = False,
+    complete: bool = True,
+    registry_address: str = "0x1111111111111111111111111111111111111111",
+    implementation: str = "agentcart.onchain_registry_rpc_indexer.v1",
+):
     document = onchain_events_document(record)
-    registry_address = "0x1111111111111111111111111111111111111111"
     record_id = "0x" + "4" * 64
     controller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     identity = record["onchain_identity"]
@@ -277,13 +283,14 @@ def finalized_onchain_events_document(record, *, revoked: bool = False, complete
     registered["onchain_record"]["record_hash"] = record_hash
     document.update(
         {
-            "implementation": "agentcart.onchain_registry_rpc_indexer.v1",
+            "implementation": implementation,
             "chain_id": "eip155:42431",
             "registry_address": registry_address,
             "finality": {
                 "block_tag": "finalized",
                 "block_number": 120,
                 "block_hash": "0x" + "c" * 64,
+                "block_time": registry_updated_at(),
                 "indexed_from_block": 100,
                 "indexed_to_block": 110 if revoked else 100,
             },
@@ -562,23 +569,104 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertIn("buyer_configuration", [check["id"] for check in result["checks"]])
         self.assertFalse(result["configuration"]["base_url"]["configured"])
 
-    def test_doctor_uses_public_registry_by_default(self) -> None:
+    def test_doctor_queries_smart_contract_by_default(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        document = finalized_onchain_events_document(
+            record,
+            registry_address=shopbridge_direct.onchain_rpc.DEFAULT_REGISTRY_ADDRESS,
+            implementation=shopbridge_direct.onchain_rpc.DIRECT_RPC_IMPLEMENTATION,
+        )
+        document.update(
+            {
+                "source": "direct_json_rpc",
+                "rpc": {"profile": "standard"},
+                "lifecycle_record_count": 1,
+                "resolved_record_count": 1,
+                "record_errors": [],
+                "record_selection": {
+                    "schema": "agentcart.onchain_registry_candidate_selection.v1",
+                    "algorithm": "sha256-query-seeded-record-id-sample",
+                    "seed_sha256": "a" * 64,
+                    "active_candidate_count": 1,
+                    "selection_scope_count": 1,
+                    "selection_mode": "query_seeded_sample",
+                    "candidate_limit": 1,
+                    "selected_record_count": 1,
+                    "selected_record_ids": ["0x" + "4" * 64],
+                    "before_record_fetch": True,
+                },
+            }
+        )
+        document["contract_storage_verification"] = {
+            "status": "matched",
+            "checked_record_count": 1,
+            "block_number": document["finality"]["block_number"],
+            "finalized_block_number": document["finality"]["block_number"],
+            "scope": "same_finalized_block",
+            "rpc_profile": "standard",
+        }
+        document["deployment_verification"] = {
+            "status": "matched",
+            "block_number": document["finality"]["indexed_from_block"],
+            "block_hash": "0x" + "f" * 64,
+            "scope": "historical_code_creation_boundary",
+            "pinned_block_hash": False,
+        }
         with mock.patch.object(
-            shopbridge_direct,
-            "fetch_json_url",
-            return_value={"entries": [record]},
-        ) as fetch:
+            shopbridge_direct.onchain_rpc,
+            "collect_finalized_events",
+            return_value=document,
+        ) as collect:
             result = shopbridge_direct.command_doctor({})
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["mode"], "registry")
-        self.assertTrue(result["configuration"]["using_default_registry"])
+        self.assertFalse(result["configuration"]["using_default_registry"])
+        self.assertTrue(result["configuration"]["using_default_onchain_registry"])
         self.assertEqual(
-            result["configuration"]["registry_url"],
-            "https://registry.agentcart.eu/v1/registry/records",
+            result["configuration"]["onchain_registry_address"],
+            shopbridge_direct.onchain_rpc.DEFAULT_REGISTRY_ADDRESS,
         )
-        fetch.assert_called_once_with(shopbridge_direct.DEFAULT_REGISTRY_URL)
+        registry_check = next(check for check in result["checks"] if check["id"] == "registry_source")
+        self.assertEqual(registry_check["authority"], "smart_contract")
+        self.assertEqual(registry_check["transport"], "direct_json_rpc")
+        collect.assert_called_once()
+
+    def test_doctor_returns_stable_errors_for_invalid_onchain_configuration(self) -> None:
+        cases = (
+            ({"onchain_rpc_url": "https://[bad"}, "rpc_url_invalid"),
+            ({"onchain_rpc_url": "https://rpc.example:99999"}, "rpc_url_invalid"),
+            (
+                {"onchain_rpc_url": "https://rpc.example", "onchain_chain_id": "eip155:not-a-number"},
+                "chain_id_invalid",
+            ),
+            (
+                {"onchain_rpc_url": "https://rpc.example", "onchain_from_block": "later"},
+                "from_block_invalid",
+            ),
+            (
+                {"onchain_rpc_url": "https://rpc.example", "onchain_rpc_profile": "magic"},
+                "rpc_profile_invalid",
+            ),
+            (
+                {"onchain_rpc_url": "https://rpc.example", "onchain_registry_address": "0x1234"},
+                "rpc_address_invalid",
+            ),
+        )
+        for args, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                result = shopbridge_direct.command_doctor(args)
+                registry_check = next(
+                    check for check in result["checks"] if check["id"] == "registry_source"
+                )
+                self.assertFalse(registry_check["ok"])
+                self.assertIn(expected_code, registry_check["error"])
+
+        deployment = shopbridge_direct.configured_onchain_deployment(
+            {"onchain_rpc_url": "https://rpc.example", "onchain_chain_id": "eip155:1"}
+        )
+        self.assertEqual(deployment.chain_id, 1)
 
     def test_default_registry_applies_advertised_finalized_onchain_projection(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
@@ -593,7 +681,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             "fetch_json_url",
             side_effect=[registry_document, events],
         ) as fetch:
-            records = shopbridge_direct.registry_records_from_source({})
+            records = shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
 
         self.assertEqual([entry["merchant_id"] for entry in records], ["merchant-tea-shop"])
         self.assertEqual(fetch.call_count, 2)
@@ -679,7 +767,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             "fetch_json_url",
             side_effect=[registry_document, events],
         ):
-            records = shopbridge_direct.registry_records_from_source({})
+            records = shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
 
         self.assertEqual(records, [])
 
@@ -697,7 +785,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             side_effect=[registry_document, events],
         ):
             with self.assertRaises(SystemExit) as raised:
-                shopbridge_direct.registry_records_from_source({})
+                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
 
         self.assertIn("contract_events_snapshot_incomplete", str(raised.exception))
 
@@ -716,9 +804,28 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             side_effect=[registry_document, events],
         ):
             with self.assertRaises(SystemExit) as raised:
-                shopbridge_direct.registry_records_from_source({})
+                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
 
         self.assertIn("contract_events_snapshot_stale", str(raised.exception))
+
+    def test_advertised_onchain_snapshot_fails_closed_when_finalized_head_is_stale(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        events = finalized_onchain_events_document(record)
+        events["finality"]["block_time"] = "2026-01-01T00:00:00Z"
+        registry_document = {
+            "entries": [record],
+            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+        }
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            side_effect=[registry_document, events],
+        ):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+
+        self.assertIn("contract_events_finalized_block_stale", str(raised.exception))
 
     def test_advertised_onchain_snapshot_must_share_registry_origin(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
@@ -732,7 +839,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             return_value=registry_document,
         ) as fetch:
             with self.assertRaises(SystemExit) as raised:
-                shopbridge_direct.registry_records_from_source({})
+                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
 
         self.assertEqual(str(raised.exception), "onchain_registry_events_url_must_share_registry_origin")
         fetch.assert_called_once_with(shopbridge_direct.DEFAULT_REGISTRY_URL)
@@ -746,6 +853,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
     def test_default_registry_can_be_disabled_for_offline_use(self) -> None:
         self.assertEqual(
             shopbridge_direct.configured_registry_url({"disable_default_registry": True}),
+            "",
+        )
+        self.assertEqual(
+            shopbridge_direct.configured_onchain_rpc_url({"disable_default_registry": True}),
             "",
         )
 
@@ -1698,7 +1809,83 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         )
         self.assertEqual(result["candidates"][0]["rank"], 1)
         self.assertFalse(result["winner"]["registry"]["paid_placement"])
-        self.assertEqual([call["base_url"] for call in calls if call["method"] == "POST"], ["https://alpha.example", "https://beta.example"])
+        self.assertEqual(
+            {call["base_url"] for call in calls if call["method"] == "POST"},
+            {"https://alpha.example", "https://beta.example"},
+        )
+        self.assertTrue(
+            result["market_design"]["candidate_selection"][
+                "before_catalog_and_quote_requests"
+            ]
+        )
+
+    def test_discover_quotes_samples_merchants_before_catalog_and_quote_calls(self) -> None:
+        records = [
+            {"merchant_id": f"shop-{index}", "domain": f"shop-{index}.example"}
+            for index in range(3)
+        ]
+
+        def resolve(record, _args):
+            return {
+                "ok": True,
+                "base_url": f"https://{record['domain']}",
+                "merchant": {"id": record["merchant_id"], "name": record["merchant_id"]},
+                "verification": {"state": "verified"},
+                "registry_record_hash": shopbridge_direct.registry_record_hash(record),
+                "manifest_url": f"https://{record['domain']}/.well-known/agentcart.json",
+            }
+
+        def quote(call_args):
+            merchant_id = call_args["base_url"].split("//", 1)[1].split(".", 1)[0]
+            return sample_quote(
+                id=f"quote-{merchant_id}",
+                merchant={"id": merchant_id, "name": merchant_id},
+            )
+
+        with (
+            mock.patch.object(shopbridge_direct, "registry_records_from_args", return_value=records),
+            mock.patch.object(shopbridge_direct, "resolve_record_for_discovery", side_effect=resolve) as resolve_mock,
+            mock.patch.object(
+                shopbridge_direct,
+                "command_catalog",
+                return_value={
+                    "products": [
+                        {
+                            "id": "tea",
+                            "title": "Tea",
+                            "eligible_for_agent_checkout": True,
+                            "shipping_regions": ["DE"],
+                        }
+                    ]
+                },
+            ) as catalog_mock,
+            mock.patch.object(shopbridge_direct, "command_quote", side_effect=quote) as quote_mock,
+            mock.patch.object(
+                shopbridge_direct,
+                "command_checkout_preflight",
+                return_value={
+                    "ok": True,
+                    "available_payment_methods": [{"rail": "stripe-card-mpp"}],
+                    "approval_hash": "approval",
+                    "payment_destination": {"rail": "stripe-card-mpp"},
+                },
+            ),
+        ):
+            result = shopbridge_direct.command_discover_quotes(
+                {
+                    "query": "tea",
+                    "merchant_candidate_limit": 1,
+                    "candidate_seed": "buyer-query-seed",
+                }
+            )
+
+        selection = result["market_design"]["candidate_selection"]
+        self.assertEqual(selection["eligible_pool_count"], 3)
+        self.assertEqual(selection["selected_count"], 1)
+        self.assertTrue(selection["before_catalog_and_quote_requests"])
+        self.assertEqual(resolve_mock.call_count, 1)
+        self.assertEqual(catalog_mock.call_count, 1)
+        self.assertEqual(quote_mock.call_count, 1)
 
     def test_discover_quotes_uses_configured_registry_path_without_inline_records(self) -> None:
         manifest, record, proof = registry_manifest_and_record()

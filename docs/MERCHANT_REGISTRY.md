@@ -1,11 +1,18 @@
 # Merchant Registry And Discovery
 
-> Status: alpha implemented. A read-only public discovery feed is live for the
-> two staging merchants and advertises a finalized Tempo Moderato event feed.
-> The USD staging merchant is active through an onchain record commitment; the
-> EUR staging merchant remains curated/offchain. Gateway and Direct Skill use
-> the same claim/domain/payment/shipping/revocation and onchain lifecycle checks
-> before admitting a merchant.
+Pilot Registry `domain` values use lowercase ASCII DNS LDH hostname form.
+Verifier runtimes reject raw Unicode and `xn--` IDN A-labels so Python and
+JavaScript cannot disagree about the onchain `domainHash`. IDN merchant
+onboarding requires one shared non-transitional UTS-46 implementation first.
+
+> Status: alpha implemented. The USD staging merchant is active through a Tempo
+> Moderato onchain record commitment; the EUR staging merchant remains
+> curated/offchain. The Direct Skill derives candidate membership and lifecycle
+> directly from contract logs and views, then checks offchain eligibility. The
+> read-only public feed and finalized event
+> snapshot remain cache, monitoring, and compatibility surfaces. Gateway and
+> Direct Skill use the same claim/domain/payment/shipping/revocation and onchain
+> lifecycle checks before admitting a merchant.
 
 AgentCart's registry should be an identity and integrity anchor, not an ad
 marketplace and not a product catalog.
@@ -26,10 +33,12 @@ https://registry.agentcart.eu/v1/registry/records
 
 It is a small, stateless, read-only deployment of
 `charts/agentcart-shopbridge-registry/`. It currently publishes the EUR and USD
-staging merchants and accepts only `GET` and `HEAD`. The buyer skill verifies
-each record against the merchant's HTTPS manifest, domain proof, and revocation
-document before using it. Merchant enrollment during this phase is a reviewed,
-maintainer-curated chart update; there is no public self-service submission API.
+staging merchants and accepts only `GET` and `HEAD`. It is not the authoritative
+merchant list. The default buyer skill obtains the USD record commitment from
+the contract, then verifies the committed offchain record against the
+merchant's HTTPS manifest, domain proof, and revocation document. Hosted-only
+merchant enrollment remains a reviewed, maintainer-curated chart update; there
+is no public self-service submission API.
 
 The same hostname continues to serve the OCI Distribution registry at `/v2/`.
 The ShopBridge chart owns only `/`, `/registry`, and `/v1/registry...`, so the
@@ -101,18 +110,24 @@ non-maintainer pilots, and make the chain/upgrade/governance decision in ADRs
 
 ## On-Chain vs Off-Chain
 
-Put on-chain or in a public append-only registry:
+Put in contract storage:
 
-- merchant id
-- domain
-- manifest URL
-- registry claim hash
-- payment network/recipient
-- update timestamp
-- revocation pointer
+- merchant controller address
+- canonical full-record hash
+- normalized domain hash
+- contract-set update timestamp
+- active, revoked, or suspended status
+- validator attestation state and quorum summary
+
+Emit the full-record URI in lifecycle events so buyers can retrieve the exact
+offchain document committed by the hash. The URI is a locator; the contract is
+the authority for candidate membership and lifecycle, while the full record and
+proofs determine offchain eligibility.
 
 Keep off-chain:
 
+- merchant id, normalized domain text, manifest URL, and revocation URL
+- registry claim, supported protocols, shipping countries, and payment binding
 - products
 - stock
 - prices
@@ -146,8 +161,9 @@ eligible merchants, but final bidding should not leak household demand broadly.
 1. Merchant publishes `/.well-known/agentcart.json`.
 2. Merchant signs or publishes a proof for the canonical registry record and
    stable registry claim hash.
-3. Agent fetches the registry record from an allowlisted off-chain feed or
-   onchain registry.
+3. Agent replays the registry contract's finalized lifecycle logs and fetches
+   the exact offchain record URI committed by the active event. A hosted feed
+   may be used only as an explicit compatibility/cache source.
 4. Agent rejects stale records, records with `revoked_at`, or records listed in
    the merchant-hosted revocation document.
 5. Agent verifies that `manifest_url` host matches the registered domain.
@@ -461,7 +477,9 @@ Production-facing event feeds use
 record URIs without redirects or private-network access, verifies the record
 commitment and controller-bound identity, and fails closed on any incomplete
 event. The public records feed advertises the same-origin snapshot at
-`onchain_events_url`; buyer skills consume it automatically.
+`onchain_events_url`; hosted-feed compatibility clients can consume it. The
+Direct Skill's default path queries the contract itself and does not derive
+candidate membership or lifecycle from either hosted endpoint.
 
 The Direct Skill and gateway registry adapter use the portable
 `shopbridge_safe_http.py` boundary for those public JSON requests. It rejects
