@@ -1,6 +1,7 @@
 # ShopBridge Endpoint Contract
 
-Status: alpha-frozen contract for `agentcart.shopbridge.v1`.
+Status: alpha-frozen contract version `0.2.0` for
+`agentcart.shopbridge.v1`.
 
 The machine-readable contract is
 `gateway/config/shopbridge_endpoint_contract.json` and is validated by:
@@ -21,9 +22,11 @@ scraping the shop:
   verification metadata.
 - `/wp-json/agentcart/v1/catalog` publishes only merchant-selected products as
   untrusted product data.
-- `/wp-json/agentcart/v1/quote` returns the final WooCommerce quote, including
-  item totals, shipping, VAT, delivery estimate, quote hash, expiry, stock hold,
-  and payment contract hash.
+- `/wp-json/agentcart/v1/quote` returns a WooCommerce comparison or final quote,
+  including gross item totals, gross shipping, included VAT, delivery estimate,
+  quote hash, expiry, stock hold, and payment contract hash. Country/postcode is
+  enough for private comparison. Checkout requires a fresh quote from the
+  selected merchant with every country-specific required delivery field.
 - `/wp-json/agentcart/v1/orders` creates a paid WooCommerce order after
   quote-hash, idempotency, approval, stock, drift, and payment verification
   checks pass.
@@ -44,6 +47,9 @@ This contract is alpha-frozen:
 - Removing a listed field requires a contract version bump.
 - Changing the meaning of a listed field requires a contract version bump.
 - Checkout must remain quote-bound and idempotent.
+- Payment verification and order creation must reject a quote with an incomplete
+  delivery address. A checkout body cannot replace the address bound into the
+  stored quote.
 - Payment must remain bound to quote total, currency, rail, recipient/profile,
   quote hash, and payment contract hash.
 - Order status must remain protected by status token, merchant token, or signed

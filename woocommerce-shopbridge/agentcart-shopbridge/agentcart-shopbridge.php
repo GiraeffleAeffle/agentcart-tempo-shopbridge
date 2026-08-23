@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AgentCart ShopBridge
  * Description: Exposes opt-in WooCommerce catalog, quote, and paid-order endpoints for AgentCart household agents.
- * Version: 0.1.0
+ * Version: 0.2.0
  * Requires at least: 6.4
  * Requires PHP: 8.1
  * Requires Plugins: woocommerce
@@ -4439,7 +4439,7 @@ final class AgentCart_ShopBridge {
             ],
             'plugin' => [
                 'name' => 'AgentCart ShopBridge',
-                'version' => '0.1.0',
+                'version' => '0.2.0',
                 'wordpress_version' => get_bloginfo('version'),
                 'woocommerce_version' => defined('WC_VERSION') ? WC_VERSION : '',
                 'php_version' => PHP_VERSION,
@@ -5279,7 +5279,7 @@ final class AgentCart_ShopBridge {
         $public_discovery_ready = self::public_discovery_ready($readiness);
         return [
             'name' => 'AgentCart ShopBridge for WooCommerce',
-            'version' => '0.1.0',
+            'version' => '0.2.0',
             'merchant' => self::merchant(),
             'manifest_url' => home_url('/.well-known/agentcart.json'),
             'readiness' => $readiness,
@@ -5614,6 +5614,9 @@ final class AgentCart_ShopBridge {
             'delivery_requirements' => [
                 'ship_to_country' => $ship_to['country'],
                 'supported_countries' => $shipping_countries,
+                'required_address_fields' => self::required_checkout_address_fields($ship_to['country']),
+                'full_address_required_before_checkout' => true,
+                'comparison_quote_allowed_with_country_postcode' => true,
             ],
             'subtotal_cents' => $cart_quote['subtotal_cents'],
             'shipping' => $cart_quote['shipping'],
@@ -5726,6 +5729,10 @@ final class AgentCart_ShopBridge {
 
         $validated_items = [];
         $quote_ship_to = self::normalize_address($quote['ship_to'] ?? ['country' => '']);
+        $checkout_address_error = self::validate_checkout_address($quote_ship_to);
+        if (is_wp_error($checkout_address_error)) {
+            return $checkout_address_error;
+        }
         foreach ($quote['items'] as $item) {
             $product_id = self::source_product_id($item);
             $quantity = intval($item['quantity'] ?? 1);
@@ -9877,7 +9884,9 @@ final class AgentCart_ShopBridge {
                 'taxable_gross_cents' => self::cents(floatval($bucket['gross'] ?? 0)),
                 'vat_cents' => $tax_cents,
                 'currency' => get_woocommerce_currency(),
-                'included_in_price' => wc_prices_include_tax(),
+                // Quote item, shipping, and total amounts are serialized gross,
+                // regardless of whether the merchant enters catalog prices net or gross.
+                'included_in_price' => true,
                 'source' => 'woocommerce_cart',
             ];
         }
@@ -10365,6 +10374,41 @@ final class AgentCart_ShopBridge {
         }
         if (empty($ship_to['postcode'])) {
             return new WP_Error('agentcart_ship_to_postcode_required', 'ship_to.postcode or ship_to.postal_code is required for a final quote.', ['status' => 400]);
+        }
+        return true;
+    }
+
+    private static function required_checkout_address_fields($country) {
+        $fallback = ['first_name', 'last_name', 'address_1', 'city', 'postcode', 'country'];
+        if (!WC()->countries || !method_exists(WC()->countries, 'get_address_fields')) {
+            return $fallback;
+        }
+        $fields = WC()->countries->get_address_fields(strtoupper((string) $country), '');
+        if (!is_array($fields) || !$fields) {
+            return $fallback;
+        }
+        $required = [];
+        foreach ($fields as $field => $definition) {
+            if (is_array($definition) && !empty($definition['required'])) {
+                $required[] = (string) $field;
+            }
+        }
+        return $required ?: $fallback;
+    }
+
+    private static function validate_checkout_address($ship_to) {
+        $missing = [];
+        foreach (self::required_checkout_address_fields($ship_to['country'] ?? '') as $field) {
+            if (trim((string) ($ship_to[$field] ?? '')) === '') {
+                $missing[] = $field;
+            }
+        }
+        if ($missing) {
+            return new WP_Error(
+                'agentcart_ship_to_incomplete',
+                'The quote contains only a comparison destination. Request a fresh quote with the complete delivery address before payment or checkout.',
+                ['status' => 400, 'missing_fields' => $missing]
+            );
         }
         return true;
     }

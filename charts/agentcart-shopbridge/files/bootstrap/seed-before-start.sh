@@ -65,5 +65,5 @@ wp core verify-checksums --version=7.0.3 --allow-root >/dev/null
 [[ "$(wp core version --allow-root)" == '7.0.3' ]]
 [[ "$(wp plugin get woocommerce --field=version --allow-root)" == '11.0.0' ]]
 wp plugin verify-checksums woocommerce --allow-root >/dev/null
-[[ "$(wp plugin get agentcart-shopbridge --field=version --allow-root)" == '0.1.0' ]]
+[[ "$(wp plugin get agentcart-shopbridge --field=version --allow-root)" == '0.2.0' ]]
 touch "$site/.agentcart-seeded"

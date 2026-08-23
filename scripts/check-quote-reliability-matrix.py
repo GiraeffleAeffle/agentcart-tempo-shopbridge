@@ -21,12 +21,16 @@ REQUIRED_INVARIANTS = {
     "quote_lock_before_order_creation",
     "single_use_merchant_quote",
     "stock_revalidated_before_order_creation",
+    "complete_delivery_address_before_payment_verification",
+    "financially_consistent_quote_before_approval",
     "money_fields_revalidated_before_payment_verification",
     "machine_readable_recovery_hints",
 }
 
 REQUIRED_CASES = {
     "expired-quote-recovery",
+    "incomplete-delivery-address",
+    "tax-total-metadata-conflict",
     "stock-conflict-recovery",
     "price-drift-recovery",
     "shipping-drift-recovery",
@@ -37,6 +41,8 @@ REQUIRED_CASES = {
 
 REQUIRED_RECOVERY_REASONS = {
     "quote_expired",
+    "delivery_address_incomplete",
+    "tax_total_inconsistent",
     "stock_changed",
     "price_changed",
     "shipping_changed",

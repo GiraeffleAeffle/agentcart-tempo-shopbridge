@@ -5,7 +5,7 @@ Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.1
 Requires Plugins: woocommerce
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -190,6 +190,12 @@ orders, refunds, cancellation history, payment verification metadata, and
 product-level AgentCart metadata so merchants retain their commerce audit trail.
 
 == Changelog ==
+
+= 0.2.0 =
+
+* Separate privacy-preserving comparison quotes from approval-ready final
+  quotes, require a complete country-specific delivery address before payment
+  verification, and report gross serialized VAT as included in quote totals.
 
 = 0.1.0 =
 

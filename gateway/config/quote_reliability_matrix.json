@@ -1,6 +1,6 @@
 {
   "schema": "agentcart.quote_reliability_matrix.v1",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "stage": "external_beta",
   "scope": "WooCommerce ShopBridge final quote checkout reliability",
   "required_invariants": [
@@ -11,10 +11,28 @@
     "quote_lock_before_order_creation",
     "single_use_merchant_quote",
     "stock_revalidated_before_order_creation",
+    "complete_delivery_address_before_payment_verification",
+    "financially_consistent_quote_before_approval",
     "money_fields_revalidated_before_payment_verification",
     "machine_readable_recovery_hints"
   ],
   "cases": [
+    {
+      "id": "incomplete-delivery-address",
+      "priority": "P1",
+      "trigger": "the selected merchant quote contains only country/postcode or omits another country-specific required delivery field",
+      "expected_error": "agentcart_ship_to_incomplete",
+      "recovery_reason": "delivery_address_incomplete",
+      "agent_action": "ask the buyer for the missing fields and request a fresh quote from only the selected merchant before approval or payment"
+    },
+    {
+      "id": "tax-total-metadata-conflict",
+      "priority": "P1",
+      "trigger": "a VAT line says it is excluded from price but the quoted total omits that tax amount",
+      "expected_error": "tax_inclusion_metadata_conflicts_with_total",
+      "recovery_reason": "tax_total_inconsistent",
+      "agent_action": "reject the quote and request an internally consistent replacement instead of adding or discarding tax"
+    },
     {
       "id": "expired-quote-recovery",
       "priority": "P1",
@@ -73,6 +91,16 @@
     }
   ],
   "runtime_checks": [
+    {
+      "id": "complete-address-before-payment",
+      "target": "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",
+      "test": "woocommerce-shopbridge/tests/test_plugin_contracts.py::ShopBridgePluginContractTests.test_comparison_quote_requires_fresh_full_address_before_checkout"
+    },
+    {
+      "id": "tax-total-consistency-before-approval",
+      "target": "gateway/shopbridge-direct-skill/scripts/shopbridge-command.py",
+      "test": "gateway/tests/test_shopbridge_direct_skill.py::ShopBridgeDirectSkillTests.test_quote_with_excluded_tax_missing_from_total_is_not_approval_ready"
+    },
     {
       "id": "quote-lock-before-order",
       "target": "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",

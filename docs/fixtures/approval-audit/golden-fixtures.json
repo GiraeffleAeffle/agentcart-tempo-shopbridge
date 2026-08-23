@@ -41,6 +41,10 @@
       }
     ],
     "ship_to": {
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "address_1": "Example Street 1",
+      "city": "Berlin",
       "country": "DE",
       "postal_code": "10115",
       "postcode": "10115"
@@ -99,7 +103,7 @@
         }
       ]
     },
-    "quote_hash": "00bd48d6e839d6d76add56b7bb993e2ab0bf15f4a73346221cf017edf1a3aa1a"
+    "quote_hash": "473868f9a7571eba1a14eecd2688040c7a1c6393dab3a1fc6e13f3811401c2ab"
   },
   "payment_receipt": {
     "id": "skill_payrcpt_fixture_001",
@@ -107,7 +111,7 @@
     "status": "succeeded",
     "amount_cents": 1480,
     "currency": "EUR",
-    "quote_hash": "00bd48d6e839d6d76add56b7bb993e2ab0bf15f4a73346221cf017edf1a3aa1a",
+    "quote_hash": "473868f9a7571eba1a14eecd2688040c7a1c6393dab3a1fc6e13f3811401c2ab",
     "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "stripe_profile_id": "acct_fixture_shop",
     "authorization": "fixture-card-auth-001",
@@ -129,16 +133,16 @@
     }
   },
   "expected_hashes": {
-    "quote_hash": "00bd48d6e839d6d76add56b7bb993e2ab0bf15f4a73346221cf017edf1a3aa1a",
+    "quote_hash": "473868f9a7571eba1a14eecd2688040c7a1c6393dab3a1fc6e13f3811401c2ab",
     "payment_contract_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "approval_hash": "4a631dd4eb554335ced382c96168654788bcf859db0dfd8261d95ba7855f91ca",
-    "service_approval_record_hash": "fbacb6781804998ff99d952c8a505e6d433346d880bc0fdd1a27ce1f2a88d0a9",
-    "service_approval_decision_hash": "cb5ea949b6a74896a82d19e87decdf04d63bdeadbbccdeae4511f75350ea5b84",
-    "skill_approval_record_hash": "094c708989e55a76ba7a67b9447781df40e5ea0a51a847d5a40e6bae5006a9db",
-    "skill_approval_decision_hash": "edc32f101bf9b1d66004a870eb8d2fb968e38dbf76b27c9c05a26d1ce449824e",
-    "payment_handoff_hash": "8048acc42a8e6fbd3d717085b371444da8a0a8bc9e8a608f13fd20f8dab06d0a",
-    "audit_packet_hash": "0616b5a8519c4f002321c9d0ec38270071f26d63c086f4af9e4c3599d121f822",
-    "audit_export_hash": "6fbf9a2e7173ebf8405544fcebc9dc3c5e9299cb5a31442057b695fc1600a3c7"
+    "approval_hash": "8de98328837522d065008e8c76870fef0b3766251ab18d202c11b14abd6a87cf",
+    "service_approval_record_hash": "666f25aa7aaa48f24b9dda4dbc9a6ad793205ba875a3fbb1fe3c0d96533daee6",
+    "service_approval_decision_hash": "307212204e352c87ed0645017fd92eab818cba13112942282135c0f6240d0cb9",
+    "skill_approval_record_hash": "95d3a09c44cc2aaf4fd6681bca1e50a3cd04857d03cf919b7ef2637d13c7fdac",
+    "skill_approval_decision_hash": "8972d625fca8942596dde224ac41edb4e60e06088b78d734d6cec03c2c1e219a",
+    "payment_handoff_hash": "a8fa57109700599efc62c1892f90337e8d73df20696c08af192c2f33caea72c9",
+    "audit_packet_hash": "144bb1fde25768f5185b80f31617c1a34e302ba4b74a4c248af72849a149f15d",
+    "audit_export_hash": "9a065a81b8ae7e949c3682d996f2bc6c4a84f90a74641bd178bb4f9a0e8bedbe"
   },
   "generic_mcp_required_hashes": [
     "quote_hash",
