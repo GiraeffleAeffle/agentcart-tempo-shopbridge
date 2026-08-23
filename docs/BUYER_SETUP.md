@@ -82,6 +82,12 @@ The skill has no long-running service dependency. It needs `python3` and network
 access to the configured EVM JSON-RPC endpoint, the record URIs committed by the
 registry contract, and the merchant's ShopBridge origin.
 
+A wallet is not required to install the skill, query the registry, search
+catalogs, or compare country/postcode quotes. It is required only when a buyer
+wants to continue to payment. `doctor.ok=true` therefore means discovery is
+ready; it does not mean the machine has a wallet. The doctor reports that
+separate state under `purchase_readiness`.
+
 Its bundled HTTP transport rejects redirects and private/non-global DNS targets
 for public URLs, pins each connection to the validated DNS result, and bounds
 JSON responses. This applies to RPC, record, manifest, proof, catalog, quote,
@@ -289,6 +295,23 @@ python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
 JSON
 ```
 
+If the buyer intends to order, inspect the payment side before promising a
+checkout or asking for approval:
+
+```sh
+python3 gateway/shopbridge-direct-skill/scripts/shopbridge-command.py <<'JSON'
+{"command":"payment_readiness","args":{"payment_rail":"tempo-mpp","format":"toon"}}
+JSON
+```
+
+This command never invokes `npx`, `mppx`, a wallet, or a provider. An installed
+launcher or `SHOPBRIDGE_MPP_ACCOUNT` label does not prove a wallet exists. If
+the buyer already has a configured payment account, use that account. With
+`SHOPBRIDGE_MPP_ACCOUNT` omitted, the demo adapter leaves account selection to
+the payment client's existing default. Never create a wallet, install payment
+software, switch accounts, or import/export keys without explicit buyer
+permission.
+
 Smoke test a known merchant:
 
 ```sh
@@ -331,9 +354,24 @@ explicit compatibility/offline tests. Those sources can be a feed with
 https://shop.example/.well-known/agentcart-registry-bundle.json
 ```
 
+Discovery sends only country/postcode to candidate merchants. Its winning
+quote is therefore a comparison quote and returns `approval_ready:false` until
+the full delivery address is present. After selecting a merchant, ask the buyer
+for the missing delivery fields and request a fresh quote from only that
+verified origin. Never invent a recipient name or street address, and never
+reuse the comparison quote's approval hash after refreshing it.
+
 Checkout safety:
 
 - Always create or inspect an `approval_packet` before checkout.
+- Do not request approval when `approval_ready:false`. Refresh the selected
+  merchant's quote with the complete delivery address first.
+- Inspect `financial_readiness` and show the tax lines. A quote whose
+  tax-inclusion metadata does not reconcile with its total must be refreshed;
+  the agent must not silently add or discard tax.
+- Run `payment_readiness` before requesting approval. Discovery readiness and
+  merchant checkout readiness do not prove that the buyer has a usable wallet
+  or payment provider.
 - Do not call `checkout` until the human approves the exact merchant, items,
   total, delivery window, quote hash, and payment destination.
 - Store the returned `approval_record`/`approval_record_hash` when the buyer

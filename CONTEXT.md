@@ -2,7 +2,7 @@
 
 ## Product Intent
 
-AgentCart ShopBridge is a WooCommerce retail bridge for agentic commerce. It lets buyer agents discover opt-in merchants, fetch agent-readable catalog data, request final WooCommerce-backed quotes, obtain explicit buyer approval, hand off quote-bound payment evidence, create paid WooCommerce orders, and read fulfillment, cancellation, refund, and audit state.
+AgentCart ShopBridge is a WooCommerce retail bridge for agentic commerce. It lets buyer agents discover opt-in merchants, compare coarse-destination WooCommerce quotes, obtain a selected merchant's Final Quote, obtain explicit buyer approval, hand off quote-bound payment evidence, create paid WooCommerce orders, and read fulfillment, cancellation, refund, and audit state.
 
 The product is a production-candidate alpha. The codebase has strong contract checks, verifier fixtures, packaging scripts, and readiness gates, but real public merchant pilots still require external beta evidence, production-shaped payment operations, WordPress/WooCommerce integration coverage, legal/support material, and operational runbooks.
 
@@ -19,8 +19,10 @@ The product is a production-candidate alpha. The codebase has strong contract ch
 | Hosted Registry | A replaceable cache, archive, monitor, and compatibility interface over Merchant Registry state. Its `/records` list is not the default merchant-list authority. |
 | Registry Record | A public merchant identity and integrity record binding merchant id, domain, manifest URL, registry claim hash, payment destination, freshness, proof, and revocation pointer. |
 | Catalog | Merchant-selected product data exposed to agents. Catalog text is untrusted merchant-controlled data. |
-| Final Quote | A WooCommerce-backed checkout contract binding items, quantity, destination, shipping, VAT, total, currency, merchant of record, expiry, stock hold, payment requirements, and quote hash. |
+| Comparison Quote | A WooCommerce-backed price and delivery offer for a coarse destination. It may be ranked privately but cannot be approved, paid, or checked out. |
+| Final Quote | A financially consistent WooCommerce-backed checkout contract binding items, quantity, a complete buyer-supplied delivery address, shipping, included VAT, total, currency, merchant of record, expiry, stock hold, payment requirements, and quote hash. |
 | Approval Record | The explicit buyer consent artifact binding the final quote, approval text, approver, decision time, and approval hashes. |
+| Payment Readiness | The buyer-side state showing whether an existing wallet or payment provider can satisfy a Final Quote's selected payment rail. It is independent of merchant discovery and quote readiness. |
 | Payment Requirements | Quote-bound rail requirements for MPP, Stripe/card MPP, x402-compatible flows, or future rails, plus verifier expectations. |
 | External Verifier | The settlement authority that proves payment or refund evidence for a selected rail before ShopBridge claims real money movement. |
 | Order | A WooCommerce order created only after quote, approval, idempotency, stock, drift, and payment verification checks pass. |
@@ -38,7 +40,9 @@ The product is a production-candidate alpha. The codebase has strong contract ch
 
 - Do not scrape or automate non-opt-in shops.
 - Merchant remains merchant of record.
-- Final Quote must bind product, amount, currency, shipping country, merchant id, expiry, and payment requirements.
+- Comparison Quotes must not disclose a complete delivery address to every candidate merchant.
+- Final Quote must bind product, amount, currency, a complete buyer-supplied delivery address, included tax, merchant id, expiry, and payment requirements.
+- Discovery readiness must not be presented as Payment Readiness.
 - Checkout must require explicit buyer approval before order creation.
 - External Verifier must reject replayed transaction and refund references.
 - Refund and cancellation surfaces must not claim real money movement without verifier evidence.

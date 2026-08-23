@@ -31,6 +31,7 @@ rail was used.
 | Immutable full-record archive | Implemented in the public-registry chart | Old content hashes remain fetchable after revoke/recovery |
 | Reference RPC indexer | Implemented and live on the public testnet registry; independent witness mode is packaged | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it. Optional witness mode publishes only the common matched range and rejects stalled or divergent paths |
 | Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; hosted event feeds remain compatibility inputs |
+| Buyer quote and payment readiness | Implemented in source after the first workstation-agent run exposed the ambiguity | Discovery explicitly requires no wallet; payment readiness is reported separately without invoking payment tools; country/postcode quotes are comparison-only; approval, payment, and checkout require a refreshed financially consistent quote with a complete buyer-supplied delivery address. Publish the updated skill/plugin and repeat the external run |
 | Buyer verified-light-client transport | Implemented fail-closed profile; upstream compatibility blocked | Myotis supports the required verified logs and contract reads on Ethereum/Gnosis, but inspected Rust main currently exports finalized execution block `0`; ShopBridge refuses it pending the one-line adapter fix and a pinned-release drill |
 | Registry contract | Live on Tempo Moderato with a finalized register/revoke/recover drill | The recovered USD record is active; source publication and independent security review remain open |
 | Registry write operator | Implemented with explicit command/chain/contract acknowledgement | Ethereum, Gnosis, and Tempo mainnet writes remain blocked by default |
@@ -168,8 +169,9 @@ The remaining gates are explicit:
   result;
 - obtain an independent contract/security review and production governance
   decision;
-- complete a non-maintainer buyer-agent session and an external merchant
-  installation session; and
+- publish the buyer-readiness update, rerun the workstation-agent flow through
+  an approval-ready quote, and complete an external merchant installation
+  session; and
 - resolve and drill the Myotis finalized-height adapter only if the verified
   light-client path is part of the Ethereum/Gnosis network evaluation; and
 - accept a new ADR before any Ethereum, Gnosis, or Tempo production deployment.

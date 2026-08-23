@@ -2,7 +2,7 @@
 name: shopbridge-direct
 description: Discover shops that support AgentCart ShopBridge, compare their verified WooCommerce catalogs and quotes, and prepare approval-safe direct checkout without running the AgentCart buyer service. Use when a buyer asks an agent to find, compare, or buy from ShopBridge merchants.
 metadata:
-  version: "0.2.0-alpha"
+  version: "0.3.0-alpha"
 ---
 
 # ShopBridge Direct Skill
@@ -45,7 +45,15 @@ AgentCart service path: approval is chat-local, and there is no durable
 household policy store, shared audit trail, delivery calendar, or task sync
 unless the calling agent provides those features.
 
-No environment variables are required for normal public discovery.
+No environment variables are required for normal public discovery. Discovery,
+catalog search, and comparison quotes do not require a buyer wallet. A wallet
+or payment provider is needed only if the buyer wants to continue from a final
+quote to payment. A successful `doctor` result proves discovery readiness, not
+payment readiness.
+
+For any request that may continue to approval, payment, or checkout, read
+`references/PURCHASE_READINESS.md` before requesting personal delivery data or
+presenting an approval summary.
 
 Optional environment for a different onchain deployment or RPC:
 
@@ -130,12 +138,14 @@ Optional environment for merchants that require signed requests:
   rotated or multi-key merchants. The default `agentcart-direct-skill` is only
   compatible with one-key legacy/demo installs.
 
-Optional environment for demo checkout:
+Optional environment for sandbox Tempo payment after approval:
 
 - `SHOPBRIDGE_MPP_PROOF_URL`: Tempo MPP paid endpoint, for example `http://127.0.0.1:4250/paid`
 - `SHOPBRIDGE_MPP_COMMAND`: default `npx mppx`
 - `SHOPBRIDGE_MPP_NETWORK`: default `testnet`
-- `SHOPBRIDGE_MPP_ACCOUNT`: default `agentcart-test`
+- `SHOPBRIDGE_MPP_ACCOUNT`: optional existing payment-client account override.
+  Omit it to use the payment client's already configured default account. An
+  account label is never evidence that a wallet exists or is funded.
 
 Optional environment for later audit import into an AgentCart service:
 
@@ -169,6 +179,15 @@ lifecycle mismatch fails closed. A successful result has
 `"ok": true`, `"mode": "registry"`, `"authority":"smart_contract"`,
 `"transport":"direct_json_rpc"` or `"myotis_verified_json_rpc"`, and at least one record. No buyer
 configuration is required for the current Tempo testnet deployment.
+
+Buyer payment readiness:
+
+```json
+{"command":"payment_readiness","args":{"payment_rail":"tempo-mpp","format":"toon"}}
+```
+
+For purchase intent, follow `references/PURCHASE_READINESS.md`. The doctor also
+reports this separate, non-executing state under `purchase_readiness`.
 
 For a local registry file:
 
@@ -256,6 +275,10 @@ Multi-item quote:
 {"command":"quote","args":{"base_url":"https://shop.example","items":[{"product_id":"woo_10","quantity":1},{"product_id":"woo_13","quantity":2}],"country":"DE","postal_code":"10115","format":"toon"}}
 ```
 
+A country/postcode quote is comparison-only. Follow
+`references/PURCHASE_READINESS.md` to refresh only the selected merchant with
+the complete buyer-supplied address before approval.
+
 Verified multi-merchant discovery:
 
 ```json
@@ -293,7 +316,10 @@ referenced by contract events; hosting those documents does not make its
 This resolves each registry record first, rejects failed registry/domain-proof
 or revocation checks, stale records, and future-dated records before catalog or
 quote calls, requests private merchant quotes, ranks by final total and delivery
-by default, and returns the winning full quote plus an approval packet. Use
+by default, and returns the winning comparison quote plus an approval packet.
+When only country/postcode was supplied, that packet has
+`approval_ready:false` and tells the agent to refresh the selected merchant's
+quote with the complete delivery address before approval. Use
 `rank_by:"unit_price"` or `rank_by:"value"` for
 grocery-style package comparisons when catalog products expose `package_size` or
 parseable `unit_size` metadata. Paid placement is not used.
@@ -340,12 +366,20 @@ packet. The response also includes a portable `approval_record` and
 `approval_record_hash`; store that record in the agent chat/session if possible
 and pass it to checkout so later audit exports can prove exactly what the human
 approved.
+Do not ask the human to approve when `approval_ready:false`; follow
+`delivery_readiness.next_step` and replace the comparison quote first.
 
 Checkout preflight:
 
 ```json
 {"command":"checkout_preflight","args":{"quote":{...},"payment_rail":"stripe-card-mpp","max_total_cents":5000}}
 ```
+
+Preflight rejects `incomplete_delivery_address` and any total that does not
+reconcile with subtotal, gross shipping, and the quote's tax-inclusion metadata.
+It must pass before payment handoff. Run `payment_readiness` separately because
+a merchant-ready quote does not prove the buyer agent has a wallet or payment
+provider.
 
 Payment handoff after human approval:
 
@@ -441,6 +475,21 @@ the approved quote.
 
 - Do not call `checkout` unless the human explicitly approves the exact merchant,
   items, total, delivery window, and payment note.
+- Discovery, catalogs, and country/postcode comparison quotes do not need a
+  wallet. Before asking for purchase approval, run `payment_readiness` and
+  confirm an existing buyer-approved wallet or provider can satisfy the selected
+  rail. Never infer wallet availability from `doctor`, `npx`, `mppx`, or an
+  account label.
+- Reuse the buyer's existing payment account when available. Do not create a
+  wallet, change the selected account, import/export keys, install payment
+  tooling, or initiate payment without explicit buyer permission.
+- Use only country/postcode while comparing merchants. Send a complete delivery
+  address only to the selected verified merchant, refresh its quote, and require
+  `approval_ready:true` before showing an approval request. Never invent a name
+  or street address.
+- Show the structured tax lines in the approval summary. If a line says tax is
+  not included but that amount is missing from the quoted total, reject the
+  quote and request a refreshed one; do not guess which number is authoritative.
 - Always create an `approval_packet` first and pass its `approval_hash` to
   checkout. A plain `approved=true` flag is not enough.
 - Public merchant origins must be HTTPS. Private HTTP origins require the

@@ -44,7 +44,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         readme = README_TXT.read_text()
         for field in [
             "Plugin Name: AgentCart ShopBridge",
-            "Version: 0.1.0",
+            "Version: 0.2.0",
             "Requires at least: 6.4",
             "Requires PHP: 8.1",
             "Requires Plugins: woocommerce",
@@ -58,7 +58,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             "Requires at least:",
             "Requires PHP:",
             "Requires Plugins: woocommerce",
-            "Stable tag: 0.1.0",
+            "Stable tag: 0.2.0",
             "License:",
             "Tags: woocommerce, agents, checkout, machine-payments, mpp",
             "== External Services ==",
@@ -1238,6 +1238,33 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'category_slugs'", product_body)
         self.assertIn("'restricted_goods'", quote_cart_body)
         self.assertIn("'agentcart_policy'", quote_cart_body)
+
+    def test_quote_tax_metadata_matches_gross_serialized_totals(self) -> None:
+        quote_cart_body = function_body("quote_from_cart")
+        vat_body = function_body("vat_lines_from_cart")
+
+        self.assertIn("line_total", quote_cart_body)
+        self.assertIn("line_tax", quote_cart_body)
+        self.assertIn("get_shipping_tax", quote_cart_body)
+        self.assertIn("'included_in_price' => true", vat_body)
+        self.assertNotIn("'included_in_price' => wc_prices_include_tax()", vat_body)
+
+    def test_comparison_quote_requires_fresh_full_address_before_checkout(self) -> None:
+        quote_body = function_body("quote")
+        order_body = function_body("create_order")
+        required_fields_body = function_body("required_checkout_address_fields")
+        validation_body = function_body("validate_checkout_address")
+
+        self.assertIn("'required_address_fields'", quote_body)
+        self.assertIn("'full_address_required_before_checkout' => true", quote_body)
+        self.assertIn("validate_checkout_address($quote_ship_to)", order_body)
+        self.assertLess(
+            order_body.index("validate_checkout_address($quote_ship_to)"),
+            order_body.index("verify_payment_receipt($quote, $receipt, $body, $request)"),
+        )
+        self.assertIn("get_address_fields", required_fields_body)
+        self.assertIn("agentcart_ship_to_incomplete", validation_body)
+        self.assertIn("missing_fields", validation_body)
 
     def test_catalog_quote_order_and_refunds_expose_commerce_policy_metadata(self) -> None:
         product_body = function_body("serialize_product")

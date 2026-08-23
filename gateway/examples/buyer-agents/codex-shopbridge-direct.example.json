@@ -25,6 +25,9 @@
       "SHOPBRIDGE_SIGNED_REQUEST_SECRET",
       "SHOPBRIDGE_SIGNED_REQUEST_SIGNER",
       "SHOPBRIDGE_MPP_PROOF_URL",
+      "SHOPBRIDGE_MPP_COMMAND",
+      "SHOPBRIDGE_MPP_NETWORK",
+      "SHOPBRIDGE_MPP_ACCOUNT (optional existing account override)",
       "AGENTCART_URL",
       "AGENTCART_TOKEN"
     ]
@@ -65,8 +68,47 @@
       },
       "expect": [
         "verified merchant filtering",
-        "ranked final quotes",
-        "winner.approval_packet"
+        "ranked comparison quotes",
+        "winner.approval_packet.approval_ready=false when only country/postcode was supplied"
+      ]
+    },
+    {
+      "id": "finalize-selected-quote",
+      "command": "quote",
+      "stdin": {
+        "command": "quote",
+        "args": {
+          "base_url": "<winner verified merchant origin>",
+          "items": "<winner quote items>",
+          "ship_to": {
+            "first_name": "<buyer supplied>",
+            "last_name": "<buyer supplied>",
+            "address_1": "<buyer supplied>",
+            "city": "<buyer supplied>",
+            "state": "<buyer supplied when required>",
+            "postcode": "<buyer supplied>",
+            "country": "<buyer supplied>"
+          }
+        }
+      },
+      "expect": [
+        "checkout_readiness.checkout_ready=true",
+        "fresh quote_hash bound to the complete delivery address"
+      ]
+    },
+    {
+      "id": "payment-readiness",
+      "command": "payment_readiness",
+      "stdin": {
+        "command": "payment_readiness",
+        "args": {
+          "quote": "<fresh selected merchant quote>",
+          "payment_rail": "stripe-card-mpp"
+        }
+      },
+      "expect": [
+        "discovery_and_quotes_require_wallet=false",
+        "existing wallet/provider requirement without executing payment tooling"
       ]
     },
     {
@@ -75,7 +117,7 @@
       "stdin": {
         "command": "approval_packet",
         "args": {
-          "quote": "<winner.quote>",
+          "quote": "<fresh selected merchant quote>",
           "payment_rail": "stripe-card-mpp"
         }
       },
@@ -91,7 +133,7 @@
       "stdin": {
         "command": "payment_handoff",
         "args": {
-          "quote": "<winner.quote>",
+          "quote": "<fresh selected merchant quote>",
           "payment_rail": "stripe-card-mpp",
           "approved": true,
           "approval_hash": "<approval_hash>",
@@ -111,7 +153,7 @@
         "command": "checkout",
         "args": {
           "base_url": "<verified_merchant.base_url>",
-          "quote": "<winner.quote>",
+          "quote": "<fresh selected merchant quote>",
           "payment_rail": "stripe-card-mpp",
           "approved": true,
           "approval_hash": "<approval_hash>",

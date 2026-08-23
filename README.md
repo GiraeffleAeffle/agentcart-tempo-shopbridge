@@ -193,6 +193,21 @@ npx -y skills@latest add \
   -g -y
 ```
 
+Then give the buyer agent this prompt:
+
+```text
+Use the ShopBridge Direct skill. Run doctor first and distinguish discovery
+readiness from payment readiness. Discover verified shops from the onchain
+registry and find tea for my real destination; ask me for country/postcode if
+you do not know it. Use only country/postcode while comparing shops. Before
+asking me to approve, run payment_readiness, reuse my existing wallet or payment
+provider if one is already configured, and never create a wallet, install
+payment tooling, change accounts, or expose keys without asking me. After
+selecting one shop, ask for any missing delivery fields and refresh only that
+shop's quote. Show taxes, the complete approval summary, and any blockers. Do
+not pay or checkout until I explicitly approve the final approval hash.
+```
+
 The skill queries the Tempo Moderato registry contract directly from deployment
 block `30731101` through the RPC `finalized` head, reconstructs the complete
 lifecycle, then fetches and verifies only each currently active record version.

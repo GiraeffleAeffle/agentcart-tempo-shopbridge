@@ -27,6 +27,7 @@ EXPECTED_INVARIANTS = {
     "quote_hash_binds_money_and_recipient",
     "payment_contract_hash_binds_quote_total_and_rail",
     "checkout_requires_quote_hash_and_idempotency",
+    "checkout_requires_complete_quote_bound_delivery_address",
     "checkout_revalidates_stock_shipping_tax_and_price",
     "order_status_requires_token_or_signed_request",
     "refund_and_cancellation_are_aftercare_not_silent_payment_claims",

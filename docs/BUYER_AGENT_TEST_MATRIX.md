@@ -80,8 +80,12 @@ Checked example:
 Required proof:
 
 - `doctor` result;
+- `payment_readiness` result that keeps discovery readiness separate from an
+  unverified wallet/provider;
 - verified merchant resolution or local test merchant declaration;
 - quote comparison transcript;
+- selected-merchant quote refreshed with a complete buyer-supplied delivery
+  address and `approval_ready:true`;
 - approval packet hash;
 - payment handoff result;
 - checkout result or checkout payload;

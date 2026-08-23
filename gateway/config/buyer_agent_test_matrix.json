@@ -111,6 +111,7 @@
         "discover_quotes",
         "quote",
         "approval_packet",
+        "payment_readiness",
         "payment_handoff",
         "checkout",
         "audit_import",
@@ -119,13 +120,13 @@
       ],
       "capabilities": {
         "verified_merchant_discovery": "doctor and resolve_merchant verify configured registry records before merchant calls.",
-        "catalog_or_quote_fetch": "quote and discover_quotes fetch final ShopBridge quotes.",
-        "quote_comparison": "discover_quotes and discover_basket_quotes rank verified merchants.",
-        "approval_record": "approval_packet creates a portable approval record hash for chat-local approval.",
+        "catalog_or_quote_fetch": "quote and discover_quotes fetch ShopBridge comparison quotes; the selected merchant is re-quoted with a complete delivery address.",
+        "quote_comparison": "discover_quotes and discover_basket_quotes rank verified merchants without sending every candidate the buyer's full address.",
+        "approval_record": "approval_packet creates a portable approval record hash for chat-local approval only after delivery readiness passes.",
         "checkout_handoff": "payment_handoff produces a quote-bound payment request before checkout.",
         "aftercare_state": "order_status and aftercare_summary use structured merchant status.",
         "audit_export_or_import": "checkout can return an audit packet, and audit_import can later import it into an AgentCart service without making that service mandatory at purchase time.",
-        "safety_constraints": "The skill rejects underspecified payment receipts and non-verified registry records."
+        "safety_constraints": "The skill separates discovery from payment readiness and rejects incomplete delivery addresses, underspecified payment receipts, and non-verified registry records."
       },
       "required_evidence": [
         "install_or_configuration_log",

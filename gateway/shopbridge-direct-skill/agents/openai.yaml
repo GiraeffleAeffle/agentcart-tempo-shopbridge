@@ -1,4 +1,4 @@
 interface:
   display_name: "ShopBridge Direct"
   short_description: "Discover and buy from verified ShopBridge shops"
-  default_prompt: "Use $shopbridge-direct to discover a verified merchant, compare a quote, and prepare an approval-safe checkout."
+  default_prompt: "Use $shopbridge-direct to discover a verified merchant, compare a privacy-preserving quote, check buyer payment readiness, and prepare an approval-safe final quote."

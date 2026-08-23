@@ -50,7 +50,7 @@ ALLOW_PRIVATE_ORIGIN = env_bool(
 MPP_PROOF_URL = os.getenv("SHOPBRIDGE_MPP_PROOF_URL", "").strip()
 MPP_COMMAND = os.getenv("SHOPBRIDGE_MPP_COMMAND", "npx mppx").strip()
 MPP_NETWORK = os.getenv("SHOPBRIDGE_MPP_NETWORK", "testnet").strip()
-MPP_ACCOUNT = os.getenv("SHOPBRIDGE_MPP_ACCOUNT", "agentcart-test").strip()
+MPP_ACCOUNT = os.getenv("SHOPBRIDGE_MPP_ACCOUNT", "").strip()
 REGISTRY_URL = (
     os.getenv("SHOPBRIDGE_REGISTRY_URL")
     or os.getenv("AGENTCART_MERCHANT_REGISTRY_URL")
@@ -1741,12 +1741,107 @@ def compact_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+DEFAULT_CHECKOUT_ADDRESS_FIELDS = (
+    "first_name",
+    "last_name",
+    "address_1",
+    "city",
+    "postcode",
+    "country",
+)
+
+
+def required_checkout_address_fields(quote: dict[str, Any]) -> list[str]:
+    requirements = (
+        quote.get("delivery_requirements")
+        if isinstance(quote.get("delivery_requirements"), dict)
+        else {}
+    )
+    published = requirements.get("required_address_fields")
+    if not isinstance(published, list) or not published:
+        return list(DEFAULT_CHECKOUT_ADDRESS_FIELDS)
+    fields = []
+    for raw_field in published:
+        field = str(raw_field or "").strip()
+        if field and field not in fields:
+            fields.append(field)
+    return fields or list(DEFAULT_CHECKOUT_ADDRESS_FIELDS)
+
+
+def address_field_value(ship_to: dict[str, Any], field: str) -> Any:
+    if field in {"postcode", "postal_code"}:
+        return ship_to.get("postcode") or ship_to.get("postal_code")
+    return ship_to.get(field)
+
+
+def quote_delivery_readiness(quote: dict[str, Any]) -> dict[str, Any]:
+    ship_to = quote.get("ship_to") if isinstance(quote.get("ship_to"), dict) else {}
+    required_fields = required_checkout_address_fields(quote)
+    missing_fields = [
+        field
+        for field in required_fields
+        if not str(address_field_value(ship_to, field) or "").strip()
+    ]
+    return {
+        "checkout_ready": not missing_fields,
+        "quote_scope": "checkout_ready" if not missing_fields else "comparison_only",
+        "required_delivery_fields": required_fields,
+        "missing_delivery_fields": missing_fields,
+        "next_step": (
+            "The delivery address is complete and bound into this quote."
+            if not missing_fields
+            else "Ask the buyer for the missing delivery fields, then request a fresh quote from only the selected merchant before approval or payment."
+        ),
+    }
+
+
+def quote_financial_readiness(quote: dict[str, Any]) -> dict[str, Any]:
+    subtotal_cents = int(quote.get("subtotal_cents") or 0)
+    shipping = quote.get("shipping") if isinstance(quote.get("shipping"), dict) else {}
+    shipping_cents = int(shipping.get("amount_cents") or 0)
+    total_cents = int(quote.get("total_cents") or 0)
+    vat_lines = [line for line in quote.get("vat_lines", []) if isinstance(line, dict)]
+    excluded_tax_cents = sum(
+        int(line.get("vat_cents") or 0)
+        for line in vat_lines
+        if line.get("included_in_price") is False
+    )
+    component_total_cents = subtotal_cents + shipping_cents
+    expected_total_cents = component_total_cents + excluded_tax_cents
+    delta_cents = total_cents - expected_total_cents
+    issues = []
+    if abs(delta_cents) > 1:
+        issues.append(
+            "tax_inclusion_metadata_conflicts_with_total"
+            if excluded_tax_cents and abs(total_cents - component_total_cents) <= 1
+            else "quote_total_components_mismatch"
+        )
+    return {
+        "financially_consistent": not issues,
+        "subtotal_cents": subtotal_cents,
+        "shipping_cents": shipping_cents,
+        "tax_not_included_cents": excluded_tax_cents,
+        "expected_total_cents": expected_total_cents,
+        "quoted_total_cents": total_cents,
+        "difference_cents": delta_cents,
+        "issues": issues,
+        "next_step": (
+            "The quoted total reconciles with subtotal, shipping, and tax metadata."
+            if not issues
+            else "Do not request approval or payment; ask the selected merchant for a refreshed internally consistent quote."
+        ),
+    }
+
+
 def compact_quote(quote: dict[str, Any]) -> dict[str, Any]:
     merchant = quote.get("merchant") or {}
     items = [item for item in quote.get("items", []) if isinstance(item, dict)]
     shipping = quote.get("shipping") or {}
     payment = quote.get("payment_requirements") or {}
     protocols = payment.get("protocols") if isinstance(payment.get("protocols"), list) else []
+    vat_lines = [line for line in quote.get("vat_lines", []) if isinstance(line, dict)]
+    delivery_readiness = quote_delivery_readiness(quote)
+    financial_readiness = quote_financial_readiness(quote)
     merchant_policy = compact_merchant_policy(
         quote.get("merchant_policy") if isinstance(quote.get("merchant_policy"), dict) else merchant.get("merchant_policy")
     )
@@ -1764,11 +1859,21 @@ def compact_quote(quote: dict[str, Any]) -> dict[str, Any]:
         ],
         "subtotal": money(int(quote.get("subtotal_cents") or 0), quote.get("currency", "EUR")),
         "shipping": money(int(shipping.get("amount_cents") or 0), quote.get("currency", "EUR")),
+        "taxes": [
+            {
+                "rate_bps": int(line.get("rate_bps") or line.get("vat_rate_bps") or 0),
+                "amount": money(int(line.get("vat_cents") or 0), quote.get("currency", "EUR")),
+                "included_in_total": line.get("included_in_price") is not False,
+            }
+            for line in vat_lines
+        ],
         "total": money(int(quote.get("total_cents") or 0), quote.get("currency", "EUR")),
         "delivery": (quote.get("delivery_estimate") or {}).get("label"),
         "quote_hash": quote.get("quote_hash"),
         "payment_methods": [protocol.get("id") for protocol in protocols if isinstance(protocol, dict)],
         "merchant_policy": merchant_policy,
+        "checkout_readiness": delivery_readiness,
+        "financial_readiness": financial_readiness,
         "data_trust": untrusted_merchant_text_metadata(),
     }
 
@@ -2516,11 +2621,24 @@ def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -
     material = approval_material(quote, payment_rail=payment_rail)
     record = approval_record_from_material(material)
     compact = compact_quote(quote)
-    summary = (
-        f"Approve merchant-provided item {quoted_display_text(quote_title(quote))} "
-        f"from merchant {quoted_display_text(compact['merchant'])} for {compact['total']} "
-        f"via {payment_destination_label(material['payment_destination'])}?"
-    )
+    delivery_readiness = quote_delivery_readiness(quote)
+    financial_readiness = quote_financial_readiness(quote)
+    approval_issues = []
+    if not delivery_readiness["checkout_ready"]:
+        approval_issues.append("incomplete_delivery_address")
+    approval_issues.extend(financial_readiness["issues"])
+    if approval_issues:
+        summary = (
+            f"Comparison quote for merchant-provided item {quoted_display_text(quote_title(quote))} "
+            f"from merchant {quoted_display_text(compact['merchant'])} totals {compact['total']}, "
+            f"but it is not ready for approval ({', '.join(approval_issues)})."
+        )
+    else:
+        summary = (
+            f"Approve merchant-provided item {quoted_display_text(quote_title(quote))} "
+            f"from merchant {quoted_display_text(compact['merchant'])} for {compact['total']} "
+            f"via {payment_destination_label(material['payment_destination'])}?"
+        )
     record["summary"] = summary
     record["quote_summary"] = compact
     record["approval_record_hash"] = hash_without(record, "approval_record_hash")
@@ -2532,6 +2650,17 @@ def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -
         "quote": compact,
         "approval_record": record,
         "ap2_style_mandate_mapping": record["ap2_style_mandate_mapping"],
+        "approval_ready": not approval_issues,
+        "approval_issues": approval_issues,
+        "delivery_readiness": delivery_readiness,
+        "financial_readiness": financial_readiness,
+        "next_step": (
+            "Show this exact summary to the human and wait for explicit approval."
+            if not approval_issues
+            else delivery_readiness["next_step"]
+            if not delivery_readiness["checkout_ready"]
+            else financial_readiness["next_step"]
+        ),
         "approval_in_skill_only_mode": "Human approval happens in the agent chat; this portable approval_record can be stored by the agent or exported into an AgentCart service audit trail.",
     }
 
@@ -2600,7 +2729,17 @@ def parse_mppx_output(output: str) -> dict[str, Any]:
 
 
 def create_tempo_demo_proof(quote: dict[str, Any]) -> dict[str, Any]:
-    command = shlex.split(MPP_COMMAND)
+    try:
+        command = shlex.split(MPP_COMMAND)
+    except ValueError as exc:
+        raise SystemExit(f"SHOPBRIDGE_MPP_COMMAND is invalid: {exc}") from exc
+    if not command:
+        raise SystemExit("SHOPBRIDGE_MPP_COMMAND must name an existing payment client command")
+    if not shutil.which(command[0]):
+        raise SystemExit(
+            f"Tempo payment command launcher is unavailable: {command[0]}. "
+            "Configure an existing buyer-approved wallet/payment client before checkout."
+        )
     full_command = [*command, proof_url_for_quote(quote)]
     if MPP_NETWORK:
         full_command.extend(["--network", MPP_NETWORK])
@@ -2663,6 +2802,95 @@ def bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
     except (TypeError, ValueError):
         parsed = default
     return max(minimum, min(maximum, parsed))
+
+
+def payment_command_status(command_value: str) -> dict[str, Any]:
+    try:
+        parts = shlex.split(command_value)
+    except ValueError as exc:
+        return {
+            "configured": bool(command_value.strip()),
+            "launcher": "",
+            "argument_count": 0,
+            "launcher_available": False,
+            "tool_executed": False,
+            "error": f"invalid payment command: {exc}",
+        }
+    launcher = parts[0] if parts else ""
+    resolved = shutil.which(launcher) if launcher else None
+    return {
+        "configured": bool(parts),
+        "launcher": launcher,
+        "argument_count": max(0, len(parts) - 1),
+        "launcher_available": bool(resolved),
+        "tool_executed": False,
+    }
+
+
+def command_payment_readiness(args: dict[str, Any]) -> dict[str, Any]:
+    quote = args.get("quote") if isinstance(args.get("quote"), dict) else {}
+    destination = payment_destination(quote, args.get("payment_rail")) if quote else {}
+    rail = normalize_payment_rail(args.get("payment_rail") or destination.get("rail") or "tempo-mpp")
+    command_value = str(args.get("mpp_command") or MPP_COMMAND).strip()
+    command_status = payment_command_status(command_value)
+    proof_url = str(args.get("mpp_proof_url") or MPP_PROOF_URL).strip()
+    account_override = str(args.get("mpp_account") or MPP_ACCOUNT).strip()
+    network = str(args.get("mpp_network") or MPP_NETWORK).strip()
+    issues: list[str] = []
+
+    if destination and destination.get("available") is False:
+        issues.append("payment_rail_unavailable")
+    if destination and destination.get("setup_required"):
+        issues.append("merchant_payment_destination_setup_required")
+
+    if rail == "tempo-mpp":
+        if not proof_url:
+            issues.append("tempo_demo_proof_url_not_configured")
+        if not command_status.get("configured"):
+            issues.append("tempo_payment_command_not_configured")
+        elif not command_status.get("launcher_available"):
+            issues.append("tempo_payment_command_launcher_unavailable")
+        adapter_configured = not issues
+        state = "configured_unverified" if adapter_configured else "not_configured"
+        account_selection = "explicit_override" if account_override else "payment_client_default"
+        next_step = (
+            "Confirm that the named account exists in the payment client and belongs to the buyer before requesting approval."
+            if account_override
+            else "Use the payment client's already configured default account if one exists; otherwise ask the buyer how they want to configure a testnet wallet or provider."
+        )
+    else:
+        adapter_configured = False
+        state = "external_provider_required"
+        account_selection = "external_provider"
+        next_step = "Confirm an existing wallet or payment provider can satisfy payment_handoff.receipt_requirements before requesting approval."
+
+    return {
+        "schema": "agentcart.buyer_payment_readiness.v1",
+        "rail": rail,
+        "discovery_and_quotes_require_wallet": False,
+        "payment_execution_requires_existing_wallet_or_provider": True,
+        "payment_execution_status": state,
+        "local_adapter_configured": adapter_configured,
+        "wallet_or_account_verified": False,
+        "requires_account_confirmation": True,
+        "payment_destination": destination,
+        "tempo_demo": {
+            "proof_url_configured": bool(proof_url),
+            "network": network,
+            "command": command_status,
+            "account_selection": account_selection,
+            "account_override": account_override,
+            "account_override_configured": bool(account_override),
+            "note": "An account label or available launcher is not proof that a funded wallet exists.",
+        },
+        "issues": issues,
+        "next_step": next_step,
+        "safety_notes": [
+            "This check is read-only and never runs npx, mppx, a wallet, or a payment provider.",
+            "Reuse an existing buyer-approved wallet or provider when available.",
+            "Do not create a wallet, import or reveal keys, install payment tooling, or send payment without explicit buyer permission.",
+        ],
+    }
 
 
 def quote_ship_to_from_args(args: dict[str, Any]) -> dict[str, Any]:
@@ -2827,6 +3055,13 @@ def doctor_next_commands(mode: str, base_url: str, has_registry: bool) -> list[d
                 },
             }
         )
+    commands.append(
+        {
+            "command": "payment_readiness",
+            "purpose": "separately inspect local buyer payment tooling without running it; discovery does not require a wallet",
+            "example_args": {"payment_rail": "tempo-mpp", "format": "toon"},
+        }
+    )
     return commands
 
 
@@ -2932,6 +3167,9 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     issues = [check for check in checks if check.get("ok") is False]
+    purchase_readiness = command_payment_readiness(
+        {"payment_rail": args.get("payment_rail") or "tempo-mpp"}
+    )
     return {
         "ok": not issues,
         "mode": mode,
@@ -2971,10 +3209,11 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "signed_request_alg": "rsa-sha256" if SIGNED_REQUEST_PRIVATE_KEY else ("hmac-sha256" if SIGNED_REQUEST_SECRET else ""),
             "signed_request_signer": SIGNED_REQUEST_SIGNER if (SIGNED_REQUEST_SECRET or SIGNED_REQUEST_PRIVATE_KEY) else "",
             "tempo_demo_proof_url_configured": bool(MPP_PROOF_URL),
-            "tempo_demo_command": MPP_COMMAND,
+            "tempo_demo_command_launcher": purchase_readiness["tempo_demo"]["command"].get("launcher"),
         },
         "checks": checks,
         "issues": issues,
+        "purchase_readiness": purchase_readiness,
         "next_commands": doctor_next_commands(mode, str(base["effective"]), registry_configured),
         "available_commands": [
             "doctor",
@@ -2987,6 +3226,7 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "discover_basket_quotes",
             "approval_packet",
             "checkout_preflight",
+            "payment_readiness",
             "payment_handoff",
             "checkout",
             "order_status",
@@ -2995,6 +3235,7 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
         "safety_notes": [
             "Use finalized smart-contract discovery and verified committed records before catalog or quote calls.",
             "Use SHOPBRIDGE_BASE_URL only as a local or human-specified single-shop override.",
+            "A successful discovery doctor does not prove that a buyer wallet or payment provider is configured; inspect purchase_readiness before promising checkout.",
             "Do not call checkout until a human approves the approval_packet hash and an external payment receipt satisfies payment_handoff receipt requirements.",
         ],
     }
@@ -3017,12 +3258,14 @@ def command_quote(args: dict[str, Any]) -> dict[str, Any]:
     }
     base_url = base_url_from_args(args)
     quote = request_json("/wp-json/agentcart/v1/quote", method="POST", payload=payload, base_url=base_url)
-    return annotate_quote_trust(
+    annotated = annotate_quote_trust(
         quote,
         merchant_origin=base_url,
         registry_record_hash=str(args.get("registry_record_hash") or ""),
         manifest_url=str(args.get("manifest_url") or ""),
     )
+    annotated["checkout_readiness"] = quote_delivery_readiness(annotated)
+    return annotated
 
 
 def product_id_for_quote(product: dict[str, Any]) -> str:
@@ -3607,15 +3850,20 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
                 continue
-            if not preflight.get("ok") or not preflight.get("available_payment_methods"):
+            comparison_blockers = [
+                issue
+                for issue in preflight.get("issues", [])
+                if issue != "incomplete_delivery_address"
+            ]
+            if comparison_blockers or not preflight.get("available_payment_methods"):
                 rejected.append(
                     {
                         "merchant_id": merchant_id,
                         "product_id": product_id,
                         "title": product.get("title"),
                         "quote_id": quote.get("id"),
-                        "reason": "merchant payment rail is unavailable",
-                        "detail": preflight,
+                        "reason": "merchant quote is not comparison-eligible",
+                        "detail": {**preflight, "comparison_blockers": comparison_blockers},
                     }
                 )
                 continue
@@ -3701,7 +3949,11 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
         "candidates": public_candidates,
         "winner": winner,
         "rejected": rejected,
-        "next_step": "Ask the human to approve winner.approval_packet.summary, then call checkout with the winner.quote and a matching payment receipt.",
+        "next_step": (
+            "Ask the buyer for the missing delivery fields, request a fresh quote from only winner.registry/merchant origin, run payment_readiness, and only then show an approval summary."
+            if winner and not winner["approval_packet"]["approval_ready"]
+            else "Run payment_readiness, show the exact winner approval summary, and wait for explicit approval before payment handoff or checkout."
+        ),
     }
 
 
@@ -3877,14 +4129,19 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 }
             )
             continue
-        if not preflight.get("ok") or not preflight.get("available_payment_methods"):
+        comparison_blockers = [
+            issue
+            for issue in preflight.get("issues", [])
+            if issue != "incomplete_delivery_address"
+        ]
+        if comparison_blockers or not preflight.get("available_payment_methods"):
             rejected.append(
                 {
                     "merchant_id": merchant_id,
                     "merchant_name": resolved.get("merchant", {}).get("name"),
                     "quote_id": quote.get("id"),
-                    "reason": "merchant payment rail is unavailable",
-                    "detail": preflight,
+                    "reason": "merchant quote is not comparison-eligible",
+                    "detail": {**preflight, "comparison_blockers": comparison_blockers},
                 }
             )
             continue
@@ -3975,13 +4232,21 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
         "candidates": public_candidates,
         "winner": winner,
         "rejected": rejected,
-        "next_step": "Ask the human to approve winner.approval_packet.summary, then call checkout with the winner.quote and a matching payment receipt.",
+        "next_step": (
+            "Ask the buyer for the missing delivery fields, request a fresh quote from only winner.registry/merchant origin, run payment_readiness, and only then show an approval summary."
+            if winner and not winner["approval_packet"]["approval_ready"]
+            else "Run payment_readiness, show the exact winner approval summary, and wait for explicit approval before payment handoff or checkout."
+        ),
     }
 
 
 def command_approval_summary(args: dict[str, Any]) -> dict[str, Any]:
     packet = approval_packet(args["quote"], payment_rail=args.get("payment_rail"))
-    return {"approval_required": True, **packet}
+    return {
+        "approval_required": bool(packet["approval_ready"]),
+        "approval_blocked": not packet["approval_ready"],
+        **packet,
+    }
 
 
 def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
@@ -3993,12 +4258,17 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
     verification = payment.get("verification") if isinstance(payment.get("verification"), dict) else {}
     protocols = payment_protocols(quote)
     destination = payment_destination(quote, args.get("payment_rail"))
+    delivery_readiness = quote_delivery_readiness(quote)
+    financial_readiness = quote_financial_readiness(quote)
     available_protocols = [
         protocol.get("id")
         for protocol in protocols
         if isinstance(protocol, dict) and protocol.get("available", True) is not False
     ]
     issues = []
+    if not delivery_readiness["checkout_ready"]:
+        issues.append("incomplete_delivery_address")
+    issues.extend(financial_readiness["issues"])
     if expires_at and expires_at <= now:
         issues.append("quote_expired")
     if not quote.get("quote_hash"):
@@ -4029,6 +4299,8 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
         "approval_summary": approval["summary"],
         "available_payment_methods": available_protocols,
         "payment_destination": destination,
+        "delivery_readiness": delivery_readiness,
+        "financial_readiness": financial_readiness,
         "quote_trust": quote_trust_metadata(quote),
         "external_verifier_configured": bool(verification.get("external_verifier_configured")),
     }
@@ -4398,6 +4670,29 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("approved"):
         raise SystemExit("approved=true is required before checkout")
     quote = args["quote"]
+    delivery_readiness = quote_delivery_readiness(quote)
+    if not delivery_readiness["checkout_ready"]:
+        raise SystemExit(
+            json.dumps(
+                {
+                    "error": "incomplete_delivery_address",
+                    "missing_delivery_fields": delivery_readiness["missing_delivery_fields"],
+                    "next_step": delivery_readiness["next_step"],
+                },
+                indent=2,
+            )
+        )
+    financial_readiness = quote_financial_readiness(quote)
+    if not financial_readiness["financially_consistent"]:
+        raise SystemExit(
+            json.dumps(
+                {
+                    "error": financial_readiness["issues"][0],
+                    "financial_readiness": financial_readiness,
+                },
+                indent=2,
+            )
+        )
     trust = quote_trust_metadata(quote)
     approval_record = validated_or_new_approval_record(args, quote)
     expected_approval_hash = approval_record["approval_hash"]
@@ -4514,6 +4809,8 @@ def main() -> None:
         compact = approval_packet(args["quote"], payment_rail=args.get("payment_rail"))
     elif command == "checkout_preflight":
         compact = command_checkout_preflight(args)
+    elif command == "payment_readiness":
+        compact = command_payment_readiness(args)
     elif command == "payment_handoff":
         compact = command_payment_handoff(args)
     elif command == "checkout":

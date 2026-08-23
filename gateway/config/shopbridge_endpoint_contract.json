@@ -1,6 +1,6 @@
 {
   "schema": "agentcart.shopbridge_endpoint_contract.v1",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "implemented_alpha",
   "gate_id": "WOO-002",
   "plugin": {
@@ -12,7 +12,7 @@
   "scope": [
     "merchant discovery",
     "agent-readable catalog",
-    "final quote",
+    "comparison and final quotes",
     "quote-bound paid order creation",
     "order status",
     "refund aftercare",
@@ -68,7 +68,7 @@
       "fixtures": {
         "response": {
           "name": "AgentCart ShopBridge for WooCommerce",
-          "version": "0.1.0",
+          "version": "0.2.0",
           "merchant": {
             "id": "merchant.example",
             "name": "Example Merchant",
@@ -222,7 +222,7 @@
       "path": "/wp-json/agentcart/v1/quote",
       "auth": "public_rate_limited_optional_signed_http",
       "stability": "frozen_alpha",
-      "purpose": "Create a final WooCommerce-backed quote that binds item totals, tax, shipping, recipient country, stock hold, expiry, and payment requirements.",
+      "purpose": "Create a WooCommerce-backed comparison or final quote that binds item totals, included tax, shipping, supplied destination fields, stock hold, expiry, and payment requirements; checkout requires a fresh quote with the complete delivery address.",
       "required_request_paths": [
         "items[].product_id",
         "items[].quantity",
@@ -239,6 +239,8 @@
         "items[].line_total_cents",
         "items[].currency",
         "ship_to.country",
+        "delivery_requirements.required_address_fields",
+        "delivery_requirements.full_address_required_before_checkout",
         "subtotal_cents",
         "shipping.amount_cents",
         "shipping.currency",
@@ -273,6 +275,8 @@
             }
           ],
           "ship_to": {
+            "first_name": "Ada",
+            "last_name": "Lovelace",
             "country": "DE",
             "postcode": "10115",
             "city": "Berlin",
@@ -316,6 +320,9 @@
             }
           ],
           "ship_to": {
+            "first_name": "Ada",
+            "last_name": "Lovelace",
+            "address_1": "Demo Street 1",
             "country": "DE",
             "postcode": "10115",
             "city": "Berlin"
@@ -324,7 +331,17 @@
             "ship_to_country": "DE",
             "supported_countries": [
               "DE"
-            ]
+            ],
+            "required_address_fields": [
+              "first_name",
+              "last_name",
+              "address_1",
+              "city",
+              "postcode",
+              "country"
+            ],
+            "full_address_required_before_checkout": true,
+            "comparison_quote_allowed_with_country_postcode": true
           },
           "subtotal_cents": 980,
           "shipping": {
@@ -752,6 +769,10 @@
     {
       "id": "checkout_requires_quote_hash_and_idempotency",
       "description": "order creation requires a stored merchant quote, matching quote_hash, idempotency key, and replay-compatible request hash."
+    },
+    {
+      "id": "checkout_requires_complete_quote_bound_delivery_address",
+      "description": "country/postcode-only quotes may be used for private comparison, but payment verification and order creation require a fresh stored quote whose ship_to contains every country-specific required delivery field."
     },
     {
       "id": "checkout_revalidates_stock_shipping_tax_and_price",
