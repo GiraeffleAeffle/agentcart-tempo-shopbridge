@@ -77,9 +77,10 @@ domain proof, payment binding, and revocation document with zero trust errors.
 
 ## Ordered Completion Gate
 
-1. Renew authentication for a writable OCI registry, publish the checked
-   verifier runtime by immutable digest, and activate the recurring finalized
-   feed with that same digest.
+1. Merge or manually run `.github/workflows/verifier-image.yml`. Its GitHub
+   runner smoke-tests the verifier, publishes it to GHCR with provenance and an
+   SBOM, and records the immutable digest without building on a developer
+   machine. Deploy that digest and activate the recurring finalized feed.
 2. Deploy the hardened USD ShopBridge profile to Talos and capture a real
    quote-bound payment, real verifier-backed refund, replay rejection, and PVC
    restart/recovery result.
@@ -91,10 +92,15 @@ domain proof, payment binding, and revocation document with zero trust errors.
 6. Hand the packaged skill to a non-maintainer buyer agent. After that succeeds,
    begin external merchant installability sessions.
 
-## Current External Blocker
+## Current External Gate
 
-The repository's active GitHub CLI authentication is invalid, so the verifier
-image cannot currently be published to GHCR. The local OCI archive is complete
-and verified; Kubernetes security controls were left intact. No production
-chain was touched and no temporary in-cluster uploader remains part of the
+Local GitHub CLI or registry authentication is no longer required for the
+image build. `.github/workflows/verifier-image.yml` uses the repository's
+short-lived `GITHUB_TOKEN` with job-scoped `packages: write` permission. Pull
+requests build and smoke-test without package-write permission; pushes to
+`main` and manual runs publish an amd64 GHCR image, SBOM, provenance, and
+GitHub attestation. The workflow must first be pushed and merged, and the
+resulting package must either be public or have a Talos image-pull secret
+before deployment. Kubernetes security controls remain intact, no production
+chain was touched, and no temporary in-cluster uploader is part of the
 deployment.

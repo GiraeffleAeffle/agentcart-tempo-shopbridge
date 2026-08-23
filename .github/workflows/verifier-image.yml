@@ -1,0 +1,166 @@
+name: Verifier image
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/verifier-image.yml
+      - gateway/Dockerfile.verifier
+      - gateway/package.json
+      - gateway/package-lock.json
+      - gateway/scripts/stripe-mpp-verifier.mjs
+      - gateway/scripts/verifier-sqlite-replay-store.mjs
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/verifier-image.yml
+      - gateway/Dockerfile.verifier
+      - gateway/package.json
+      - gateway/package-lock.json
+      - gateway/scripts/stripe-mpp-verifier.mjs
+      - gateway/scripts/verifier-sqlite-replay-store.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier
+
+concurrency:
+  group: verifier-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and smoke-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check verifier source
+        working-directory: gateway
+        run: npm run stripe:mpp:check
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build verifier image for validation
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          file: gateway/Dockerfile.verifier
+          load: true
+          platforms: linux/amd64
+          provenance: false
+          push: false
+          sbom: false
+          tags: agentcart-shopbridge-verifier:ci-${{ github.sha }}
+
+      - name: Smoke-test verifier image
+        env:
+          IMAGE_UNDER_TEST: agentcart-shopbridge-verifier:ci-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          container_name="agentcart-verifier-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            docker rm --force "$container_name" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run --detach \
+            --name "$container_name" \
+            --publish 127.0.0.1:4260:4260 \
+            --env STRIPE_MPP_VERIFIER_BIND=0.0.0.0 \
+            --env AGENTCART_VERIFIER_ENABLED_RAILS=tempo-mpp \
+            --env AGENTCART_PAYMENT_VERIFIER_TOKEN=ci-only-verifier-token-0000000000000001 \
+            --env AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=sqlite \
+            --env AGENTCART_VERIFIER_REPLAY_STORE_PATH=/data/replay-store.sqlite \
+            --env AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true \
+            --env AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH=/data/replay-journal.jsonl \
+            --env AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL=true \
+            "$IMAGE_UNDER_TEST"
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:4260/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs "$container_name"
+          exit 1
+
+  publish:
+    name: Publish immutable GHCR image
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=raw,value=pilot,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=AgentCart ShopBridge verifier
+            org.opencontainers.image.description=Quote-bound ShopBridge payment verifier and finalized registry indexer runtime
+
+      - name: Build and publish verifier image
+        id: publish
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          file: gateway/Dockerfile.verifier
+          platforms: linux/amd64
+          provenance: mode=max
+          push: true
+          sbom: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+
+      - name: Attest published image
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record immutable image reference
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          {
+            echo "### Published verifier image"
+            echo
+            echo "${IMAGE_NAME}@${IMAGE_DIGEST}"
+          } >> "$GITHUB_STEP_SUMMARY"
