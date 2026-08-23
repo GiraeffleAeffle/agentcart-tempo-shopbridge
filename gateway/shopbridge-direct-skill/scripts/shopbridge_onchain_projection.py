@@ -20,6 +20,7 @@ CONTRACT_INDEX_SCHEMA = "agentcart.onchain_registry_contract_index.v1"
 LEDGER_PROOF_SCHEMA = "agentcart.onchain_registry_ledger_proof.v1"
 PROJECTION_IMPLEMENTATION = "shopbridge_onchain_projection.v1"
 RPC_INDEXER_IMPLEMENTATION = "agentcart.onchain_registry_rpc_indexer.v1"
+INDEPENDENT_VERIFICATION_SCHEMA = "agentcart.onchain_registry_independent_verification.v1"
 
 ALLOWED_EVENTS = {
     "MerchantRegistered",
@@ -261,6 +262,61 @@ def finalized_document_errors(
                 errors.append({"sequence": sequence, "error": "contract_event_block_hash_invalid"})
             if not is_prefixed_hash(event.get("transaction_hash")):
                 errors.append({"sequence": sequence, "error": "contract_event_transaction_hash_invalid"})
+
+    independent = document.get("independent_verification")
+    if independent is not None:
+        if not isinstance(independent, dict):
+            errors.append({"error": "contract_events_independent_verification_invalid"})
+            return events, errors
+        if str(independent.get("schema") or "") != INDEPENDENT_VERIFICATION_SCHEMA:
+            errors.append({"error": "contract_events_independent_verification_schema_mismatch"})
+        if str(independent.get("status") or "") != "matched":
+            errors.append({"error": "contract_events_independent_verification_not_matched"})
+        common_block = strict_nonnegative_int(independent.get("common_finalized_block"))
+        if common_block is None or indexed_to is None or common_block != indexed_to:
+            errors.append({"error": "contract_events_independent_verification_range_mismatch"})
+        for field in (
+            "chain_id_match",
+            "registry_address_match",
+            "finalized_time_lag_within_limit",
+        ):
+            if independent.get(field) is not True:
+                errors.append({"error": f"contract_events_independent_verification_{field}_invalid"})
+        if independent.get("finalized_head_hash_match") not in (None, True):
+            errors.append({"error": "contract_events_independent_verification_head_hash_mismatch"})
+        primary = independent.get("primary")
+        witness = independent.get("witness_path")
+        if not isinstance(primary, dict) or not isinstance(witness, dict):
+            errors.append({"error": "contract_events_independent_verification_paths_invalid"})
+        else:
+            comparable = []
+            for event in events:
+                normalized = {
+                    "event": str(event.get("event") or ""),
+                    "block_number": int(event.get("block_number") or 0),
+                    "block_hash": str(event.get("block_hash") or "").lower(),
+                    "block_time": str(event.get("block_time") or ""),
+                    "transaction_hash": str(event.get("transaction_hash") or "").lower(),
+                    "log_index": int(event.get("log_index") or 0),
+                    "args": event.get("args") if isinstance(event.get("args"), dict) else {},
+                }
+                if isinstance(event.get("registry_record"), dict):
+                    normalized["registry_record"] = event["registry_record"]
+                if event.get("record_fetch_error"):
+                    normalized["record_fetch_error"] = str(event["record_fetch_error"])
+                comparable.append(normalized)
+            expected_hash = canonical_json_hash(comparable)
+            for name, path in (("primary", primary), ("witness", witness)):
+                event_count = strict_nonnegative_int(path.get("event_count"))
+                supplied_hash = str(path.get("canonical_events_sha256") or "")
+                if event_count != len(events):
+                    errors.append(
+                        {"error": f"contract_events_independent_verification_{name}_count_mismatch"}
+                    )
+                if supplied_hash != expected_hash:
+                    errors.append(
+                        {"error": f"contract_events_independent_verification_{name}_hash_mismatch"}
+                    )
     return events, errors
 
 
@@ -773,6 +829,10 @@ def index_contract_document(
             index["registry_address"] = str(document.get("registry_address") or "")
             if isinstance(document.get("finality"), dict):
                 index["finality"] = copy.deepcopy(document["finality"])
+            if isinstance(document.get("independent_verification"), dict):
+                index["independent_verification"] = copy.deepcopy(
+                    document["independent_verification"]
+                )
             index["complete"] = document.get("complete") is True if require_finality else True
         return index
 

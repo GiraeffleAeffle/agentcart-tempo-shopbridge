@@ -16,7 +16,7 @@ SIGNED_REQUEST_PRODUCTION_MODES = {
     "require_mutations",
     "require_all_sensitive",
 }
-DEPLOYMENT_PROFILES = {"standard", "hetzner-usd-staging"}
+DEPLOYMENT_PROFILES = {"standard", "hetzner-usd-staging", "talos-usd-staging"}
 PLACEHOLDER_PATTERNS = [
     re.compile(r"^replace-with-", re.IGNORECASE),
     re.compile(r"^example-", re.IGNORECASE),
@@ -96,14 +96,15 @@ def apply_deployment_profile(values: dict[str, str], profile: str = "standard") 
     normalized = dict(values)
     if profile == "standard":
         return normalized
-    if profile != "hetzner-usd-staging":
+    if profile not in {"hetzner-usd-staging", "talos-usd-staging"}:
         raise ValueError(f"unsupported deployment profile: {profile}")
+    verifier_service = "agentcart-usd-verifier" if profile == "hetzner-usd-staging" else "woo-usd-verifier"
     normalized.update(
         {
             "AGENTCART_DEPLOYMENT_PROFILE": profile,
             "WOOCOMMERCE_MODE": "plugin",
             "AGENTCART_CHECKOUT_MODE": "external_verifier_only",
-            "AGENTCART_PAYMENT_VERIFIER_URL": "http://agentcart-usd-verifier:4260/agentcart/verify",
+            "AGENTCART_PAYMENT_VERIFIER_URL": f"http://{verifier_service}:4260/agentcart/verify",
             "AGENTCART_PAYMENT_VERIFIER_TOKEN": values.get("STAGING_PAYMENT_VERIFIER_TOKEN", ""),
             "AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL": "true",
             "AGENTCART_PAYMENT_VERIFIER_TRUST_MODE": "pinned_internal",
@@ -232,9 +233,10 @@ def validate_profile(values: dict[str, str], *, allow_placeholders: bool = False
         require_strong_secret(values, key, errors, allow_placeholders=allow_placeholders)
     for key in ("WOOCOMMERCE_AGENTCART_TOKEN", "AGENTCART_SHOPBRIDGE_TOKEN"):
         require_strong_secret(values, key, errors, allow_placeholders=allow_placeholders)
-    if values.get("AGENTCART_DEPLOYMENT_PROFILE") == "hetzner-usd-staging":
+    deployment_profile = values.get("AGENTCART_DEPLOYMENT_PROFILE", "")
+    if deployment_profile in {"hetzner-usd-staging", "talos-usd-staging"}:
         if not configured(values, "MPP_SECRET_KEY", allow_placeholders=allow_placeholders):
-            errors.append("MPP_SECRET_KEY must be configured for the Hetzner USD staging profile")
+            errors.append(f"MPP_SECRET_KEY must be configured for the {deployment_profile} profile")
         else:
             require_strong_secret(values, "MPP_SECRET_KEY", errors, allow_placeholders=allow_placeholders)
 

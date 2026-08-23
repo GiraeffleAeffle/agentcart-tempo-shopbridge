@@ -59,6 +59,7 @@ python3 scripts/collect-pilot-evidence.py \
   --pilot-evidence-dir pilot-evidence/woo-usd-staging/pilot \
   --buyer-agent-evidence-dir pilot-evidence/woo-usd-staging/buyer-agents \
   --payment-env-file <production-shaped payment env file> \
+  --payment-profile talos-usd-staging \
   --report-out pilot-evidence-report.json
 ```
 
@@ -79,3 +80,23 @@ notice. All 24 per-runtime buyer-agent evidence files also remain invalid until
 the three runtime sessions are actually executed. The generated
 `pilot-evidence-report.json` records these blockers without treating templates
 as evidence.
+
+## Status update (2026-08-23)
+
+The production-shaped USD workload now runs in the Talos cluster from the
+pinned GHCR digest. A new 1,578-cent Tempo testnet payment, live verifier-backed
+refund, conflicting replay rejection, online SQLite backup, and pod-restart
+persistence drill are recorded in
+`attachments/talos-usd-verifier-live-drill-2026-08-23.md`. The alert webhook is
+still unconfigured, so the alert-delivery evidence remains deliberately TODO.
+
+The USD merchant also completed the Tempo Moderato register, revoke, and
+recovery lifecycle. The packaged Direct Skill enforced each finalized state,
+and dRPC plus Tenderly independently reproduced the hosted event history. The
+redacted record is
+`attachments/tempo-registry-lifecycle-2026-08-23.md`.
+
+These results close the maintainer-run technical baseline; they do not replace
+the non-maintainer buyer-agent run, external merchant walkthrough, support/SLA
+sign-off, privacy-notice adoption, or independent security/governance review.
+The evidence collector must continue to report those items as blockers.

@@ -56,7 +56,7 @@
             "document": {"type": "object"},
             "rpcIndexer": {
               "type": "object",
-              "required": ["deployment", "rpcUrl", "fromBlock", "chunkSize", "refreshSeconds", "image", "resources"],
+              "required": ["deployment", "rpcUrl", "fromBlock", "chunkSize", "refreshSeconds", "witness", "divergenceAlert", "image", "resources"],
               "additionalProperties": false,
               "properties": {
                 "deployment": {"type": "string", "enum": ["ethereumMainnet", "tempo"]},
@@ -67,6 +67,61 @@
                 "fromBlock": {"type": "string", "pattern": "^(0|[1-9][0-9]*)$"},
                 "chunkSize": {"type": "integer", "minimum": 1, "maximum": 100000},
                 "refreshSeconds": {"type": "integer", "minimum": 60, "maximum": 300},
+                "witness": {
+                  "type": "object",
+                  "required": ["enabled", "name", "rpcUrl", "existingSecret", "rpcUrlKey", "maxFinalityLagSeconds"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {"type": "boolean"},
+                    "name": {"type": "string", "minLength": 1},
+                    "rpcUrl": {
+                      "type": "string",
+                      "pattern": "^(|https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?:/[^\\s]*)?)$"
+                    },
+                    "existingSecret": {"type": "string"},
+                    "rpcUrlKey": {"type": "string", "minLength": 1},
+                    "maxFinalityLagSeconds": {"type": "integer", "minimum": 30, "maximum": 3600}
+                  },
+                  "allOf": [
+                    {
+                      "if": {"properties": {"enabled": {"const": true}}},
+                      "then": {
+                        "oneOf": [
+                          {
+                            "properties": {
+                              "rpcUrl": {"pattern": "^https://"},
+                              "existingSecret": {"const": ""}
+                            }
+                          },
+                          {
+                            "properties": {
+                              "rpcUrl": {"const": ""},
+                              "existingSecret": {"minLength": 1}
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "divergenceAlert": {
+                  "type": "object",
+                  "required": ["enabled", "existingSecret", "webhookUrlKey", "webhookTokenKey", "throttleSeconds"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {"type": "boolean"},
+                    "existingSecret": {"type": "string"},
+                    "webhookUrlKey": {"type": "string", "minLength": 1},
+                    "webhookTokenKey": {"type": "string", "minLength": 1},
+                    "throttleSeconds": {"type": "integer", "minimum": 60, "maximum": 86400}
+                  },
+                  "allOf": [
+                    {
+                      "if": {"properties": {"enabled": {"const": true}}},
+                      "then": {"properties": {"existingSecret": {"minLength": 1}}}
+                    }
+                  ]
+                },
                 "image": {
                   "type": "object",
                   "required": ["repository", "digest", "pullPolicy"],

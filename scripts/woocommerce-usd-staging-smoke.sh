@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_URL="${AGENTCART_WOO_USD_SMOKE_BASE_URL:-https://woo-usd.agentcart.eu}"
 SECRETS_ENV_FILE="${AGENTCART_WOO_USD_SECRETS_ENV_FILE:-$ROOT_DIR/.secrets/agentcart-staging-usd.env}"
+DEPLOYMENT_PROFILE="${AGENTCART_WOO_USD_DEPLOYMENT_PROFILE:-talos-usd-staging}"
 with_endpoint_harness=0
 release_gate=0
 
@@ -39,7 +40,7 @@ Smoke tests the USD Tempo WooCommerce staging shop. The default quote check uses
 US shipping and USD currency and does not require VAT lines.
 
 Options:
-  --release-gate      Validate the rendered Hetzner USD payment profile and require
+  --release-gate      Validate the selected USD payment profile and require
                       the live ShopBridge capability to report production-ready.
   --endpoint-harness  Also run mutable checkout/cancellation/refund endpoint probes.
                       Uses a synthetic proof unless AGENTCART_WOO_SMOKE_TEMPO_MPP_PROOF_URL is set.
@@ -48,6 +49,8 @@ Options:
 Environment:
   AGENTCART_WOO_USD_SMOKE_BASE_URL       default: https://woo-usd.agentcart.eu
   AGENTCART_WOO_USD_SECRETS_ENV_FILE     default: .secrets/agentcart-staging-usd.env
+  AGENTCART_WOO_USD_DEPLOYMENT_PROFILE   default: talos-usd-staging; use
+                                          hetzner-usd-staging only for rollback
 EOF
 }
 
@@ -91,7 +94,7 @@ if [ "$release_gate" -eq 1 ]; then
   fi
   python3 "$ROOT_DIR/scripts/check-production-payment-profile.py" \
     --env-file "$SECRETS_ENV_FILE" \
-    --deployment-profile hetzner-usd-staging
+    --deployment-profile "$DEPLOYMENT_PROFILE"
   args+=(--require-production-ready)
 fi
 

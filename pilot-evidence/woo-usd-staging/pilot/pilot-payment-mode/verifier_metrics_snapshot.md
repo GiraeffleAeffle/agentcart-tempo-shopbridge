@@ -18,3 +18,16 @@ Replay storage was writable SQLite with 19 payment, 8 refund-request, and 8
 refund claims; the required journal was writable with 35 entries and no error.
 The alert webhook was explicitly unconfigured, so alert-delivery evidence
 remains a separate blocker.
+
+## Talos snapshot (2026-08-23)
+
+The verifier process restarted as part of the persistence drill, so its
+process-local request counters reset and are not presented as cumulative pilot
+traffic. Persistent diagnostics are authoritative: one payment, one refund
+request, one refund, and four replay-journal entries after the expected
+conflict probe. The structured request log recorded that probe as
+`status=409`, `outcome=rejected`, and `rejection_reason=replay_conflict`.
+
+The immediately following alert event reported `state=skipped` and
+`reason=no_verifier_alert_webhook_configured`. This is evidence that the
+warning was generated, not that an alert receiver accepted it.

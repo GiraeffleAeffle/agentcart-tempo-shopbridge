@@ -268,6 +268,14 @@ class PilotEvidenceRunnerTest(unittest.TestCase):
         self.assertEqual("agentcart.pilot_evidence_runner.v1", report["schema"])
         self.assertEqual("passed", report["release_decision"]["status"])
         self.assertTrue(report["release_decision"]["attach_this_report"])
+        self.assertEqual(1, report["inputs"]["payment_env_file_count"])
+        self.assertNotIn("payment_env_files", report["inputs"])
+        payment_gate = next(
+            gate for gate in report["gates"] if gate["id"] == "production-payment-profile"
+        )
+        self.assertEqual(1, payment_gate["details"]["env_file_count"])
+        self.assertNotIn(str(payment_env), json.dumps(report))
+        self.assertNotIn(str(pathlib.Path.home()), json.dumps(report))
 
 
 if __name__ == "__main__":

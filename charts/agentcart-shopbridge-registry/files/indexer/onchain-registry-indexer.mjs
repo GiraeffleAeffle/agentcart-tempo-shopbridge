@@ -657,6 +657,7 @@ export async function collectFinalizedEvents(options, injectedClient = null) {
       block_tag: "finalized",
       block_number: Number(finalizedBlock.number),
       block_hash: finalizedBlock.hash,
+      block_time: new Date(Number(finalizedBlock.timestamp) * 1000).toISOString().replace(".000Z", "Z"),
       indexed_from_block: Number(fromBlock),
       indexed_to_block: Number(requestedTo),
     },

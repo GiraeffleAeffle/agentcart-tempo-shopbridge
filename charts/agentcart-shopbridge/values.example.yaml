@@ -28,6 +28,12 @@ store:
 # the external Secret. Tempo refundMode=live requires the refund key.
 verifier:
   enabled: false
+  # When enabled, add AGENTCART_VERIFIER_ALERT_WEBHOOK_URL and optionally
+  # AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN to existingSecret.
+  alerts:
+    enabled: false
+    minSeverity: warning
+    throttleSeconds: 300
 
 database:
   persistence:

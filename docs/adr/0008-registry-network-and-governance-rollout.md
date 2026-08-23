@@ -74,12 +74,13 @@ The empty trusted-operator contract was deployed on 2026-08-21:
 | Prepared pilot controller | `0x015f6aB1b682aEa664A1E4896f363ca3093e4591` |
 | Prepared pilot record id | `0xc6a2be430634e0d8fa335a15bf2b0696573c83c5d218c0bad8831be7d9b85a5b` |
 
-The deployed runtime bytecode hash matches the locally compiled contract. The
-prepared record is deliberately not registered yet: the first write must be
-part of the recorded registration, finalization, revocation, and recovery
-drill against the hardened USD pilot shop. Contract source publication was not
-completed, so explorer verification remains an operational evidence item.
-Ethereum mainnet and Tempo production remain untouched.
+The deployed runtime bytecode hash matches the locally compiled contract.
+Contract source publication has not been authorized, so source verification
+remains an operational evidence item and must not be conflated with the
+runtime-bytecode match. A manual GitHub workflow pins the original compiler,
+optimizer, EVM target, source paths, and creation transaction; it requires a
+typed acknowledgement and accepts only `exact_match`. The workflow has not
+been triggered. Ethereum mainnet and Tempo production remain untouched.
 
 On 2026-08-21, the reference indexer replayed deployment block `30731101`
 through finalized block `31831769` (`0x8efe988fa5c66ebf7786c18d42833398e35e67de4a49e388ce0462313c179d78`).
@@ -87,17 +88,43 @@ The envelope was complete with no errors and projected one constructor
 ownership event, zero merchant records, and zero revocations.
 
 Chart version 0.3.0 and the recurring feed were activated on the public Talos
-registry on 2026-08-23. Helm revision 11 reports `deployed`; both registry pods
+registry on 2026-08-23. Helm revision 13 reports `deployed`; both registry pods
 are Ready with zero container restarts and use the pinned runtime:
 
 `ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier@sha256:689e62705ec34112b053fbfc0461e26477055678cb3eb00ccfa1437c79de75e8`
 
-The final deployment receipt records a complete, zero-error snapshot through
-finalized block `32131761`. Independent public requests observed the feed
-advancing with the expected chain id, registry address, `finalized` tag, and
-constructor ownership event. The public records feed advertises the
-same-origin events URL, while both currently curated merchants remain offchain
-until the recorded merchant lifecycle drill.
+The first live lifecycle was completed on 2026-08-23 for record id
+`0xc6a2be430634e0d8fa335a15bf2b0696573c83c5d218c0bad8831be7d9b85a5b`:
+
+| Transition | Record hash | Transaction | Block |
+| --- | --- | --- | ---: |
+| Register | `460a16a43eb69734cd21b0554d4521ee59fb551bb305880dd7aeaf7742c26bef` | `0x13f10d4a46c16b67709c7aea409faef3a3b666811e063b7c8ff6f760d92e0769` | 32136514 |
+| Revoke | same, now monotonically revoked | `0x785cd582d7c77b025e284ed104b103f987a00519f6c8918215d7a8470d1f325a` | 32137027 |
+| Recover | `c8236a74b9d936065e3283c719f421312f4681e6d5015294f268526c6f702a66` | `0x995de9a5b0f0c3774e164917d01287fb32e95499c8f6c50614637dc91eb3c060` | 32137803 |
+
+The old and recovered full records remain publicly content-addressed. The
+merchant revocation document retains the old hash, while its current
+controller-bound proof binds the recovered hash. The Direct Skill followed
+the finalized feed through eligible, ineligible, and recovered states without
+an onchain-feed override.
+
+The hosted indexer, dRPC, and Tenderly each replayed from deployment block
+`30731101` to a public `finalized` block. Every output was complete and
+zero-error and contained the same four-event history. Canonical `.events` JSON
+had SHA-256
+`f5322c1cd41d6e1bf34c28604b10fc97f6801ae4793d575a3ef4c343170440c0`
+on all three paths. Conduit could identify chain 42431 but correctly failed
+closed because its retained history began after the deployment block. The
+manual independent-reconstruction part of promotion gate 4 is therefore
+complete. The registry chart now packages automatic cross-RPC comparison that
+publishes only the common matched finalized range, rejects mismatched chain,
+contract, event hash, equal-height block hash, or excessive finality-time lag,
+and emits throttled firing/resolved webhook events. Promotion gate 4 remains
+open until an independently operated full-history witness and real receiver are
+enabled on the pilot and the matched/divergence/recovery evidence is retained.
+
+The complete redacted lifecycle record is
+`pilot-evidence/woo-usd-staging/attachments/tempo-registry-lifecycle-2026-08-23.md`.
 
 Kubernetes mounts ConfigMap files through symlinks. The recurring wrapper now
 canonicalizes both its ESM module URL and invocation path before running, and a

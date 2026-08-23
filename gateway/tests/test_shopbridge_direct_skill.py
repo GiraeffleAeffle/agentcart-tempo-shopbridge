@@ -598,6 +598,74 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual([entry["merchant_id"] for entry in records], ["merchant-tea-shop"])
         self.assertEqual(fetch.call_count, 2)
 
+    def test_finalized_projection_validates_independent_rpc_proof(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        document = finalized_onchain_events_document(record)
+        event = document["events"][0]
+        comparable_events = [
+            {
+                "event": event["event"],
+                "block_number": event["block_number"],
+                "block_hash": event["block_hash"].lower(),
+                "block_time": event["block_time"],
+                "transaction_hash": event["transaction_hash"].lower(),
+                "log_index": event["log_index"],
+                "args": event["args"],
+                "registry_record": event["registry_record"],
+            }
+        ]
+        event_hash = shopbridge_direct.onchain_projection.canonical_json_hash(comparable_events)
+        document["independent_verification"] = {
+            "schema": "agentcart.onchain_registry_independent_verification.v1",
+            "status": "matched",
+            "witness": "independent-provider",
+            "checked_at": registry_updated_at(),
+            "common_finalized_block": 100,
+            "chain_id_match": True,
+            "registry_address_match": True,
+            "finalized_head_hash_match": None,
+            "finalized_time_lag_seconds": 2,
+            "max_finalized_time_lag_seconds": 300,
+            "finalized_time_lag_within_limit": True,
+            "primary": {
+                "finalized_block": 120,
+                "event_count": 1,
+                "canonical_events_sha256": event_hash,
+            },
+            "witness_path": {
+                "finalized_block": 119,
+                "event_count": 1,
+                "canonical_events_sha256": event_hash,
+            },
+        }
+
+        index = shopbridge_direct.onchain_projection.index_contract_document(
+            document,
+            record_hash=shopbridge_direct.registry_record_hash,
+            require_finality=True,
+            expected_chain_id="eip155:42431",
+            expected_registry_address="0x1111111111111111111111111111111111111111",
+            max_age_seconds=600,
+        )
+        self.assertTrue(index["verification"]["chain_valid"], index["verification"])
+        self.assertEqual(index["independent_verification"]["status"], "matched")
+
+        document["independent_verification"]["status"] = "diverged"
+        rejected = shopbridge_direct.onchain_projection.index_contract_document(
+            document,
+            record_hash=shopbridge_direct.registry_record_hash,
+            require_finality=True,
+            expected_chain_id="eip155:42431",
+            expected_registry_address="0x1111111111111111111111111111111111111111",
+            max_age_seconds=600,
+        )
+        self.assertFalse(rejected["verification"]["chain_valid"])
+        self.assertIn(
+            "contract_events_independent_verification_not_matched",
+            {error["error"] for error in rejected["verification"]["errors"]},
+        )
+
     def test_default_registry_filters_onchain_revoked_hosted_record(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
         record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}

@@ -36,6 +36,21 @@ trap cleanup EXIT INT TERM
   --set registry.onchain.tempo.contractAddress=0x1111111111111111111111111111111111111111 \
   --set registry.onchain.tempo.explorerUrl=https://explorer.example.test/address/0x1111111111111111111111111111111111111111 \
   >>"$rendered"
+"$helm_bin" template registry-independent-indexer "$chart" --namespace registry-check \
+  --set registry.onchainEvents.enabled=true \
+  --set registry.onchainEvents.source=rpc_indexer \
+  --set registry.onchainEvents.rpcIndexer.rpcUrl=https://primary-rpc.example.test \
+  --set-string registry.onchainEvents.rpcIndexer.fromBlock=100 \
+  --set registry.onchainEvents.rpcIndexer.image.digest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
+  --set registry.onchainEvents.rpcIndexer.witness.enabled=true \
+  --set registry.onchainEvents.rpcIndexer.witness.existingSecret=registry-indexer-secrets \
+  --set registry.onchainEvents.rpcIndexer.divergenceAlert.enabled=true \
+  --set registry.onchainEvents.rpcIndexer.divergenceAlert.existingSecret=registry-indexer-secrets \
+  --set registry.onchain.tempo.status=testnet_only \
+  --set-string registry.onchain.tempo.chainId=42431 \
+  --set registry.onchain.tempo.contractAddress=0x1111111111111111111111111111111111111111 \
+  --set registry.onchain.tempo.explorerUrl=https://explorer.example.test/address/0x1111111111111111111111111111111111111111 \
+  >>"$rendered"
 
 if grep -Eq '^kind: Secret$|^stringData:' "$rendered"; then
   printf 'registry chart must not render Kubernetes Secret objects\n' >&2
@@ -61,6 +76,15 @@ grep -Fq 'command: [node, /app/indexer/onchain-registry-indexer-loop.mjs]' "$ren
 grep -Fq 'value: "https://rpc.example.test"' "$rendered"
 grep -Fq 'value: "0x1111111111111111111111111111111111111111"' "$rendered"
 grep -Fq 'value: "42431"' "$rendered"
+grep -Fq 'name: AGENTCART_ONCHAIN_WITNESS_RPC_URL' "$rendered"
+grep -Fq 'name: "registry-indexer-secrets"' "$rendered"
+grep -Fq 'key: "onchain-witness-rpc-url"' "$rendered"
+grep -Fq 'name: AGENTCART_ONCHAIN_WITNESS_MAX_FINALITY_LAG_SECONDS' "$rendered"
+grep -Fq 'name: AGENTCART_ONCHAIN_DIVERGENCE_ALERT_WEBHOOK_URL' "$rendered"
+grep -Fq 'key: "onchain-divergence-alert-webhook-url"' "$rendered"
+grep -Fq 'name: AGENTCART_ONCHAIN_DIVERGENCE_ALERT_WEBHOOK_TOKEN' "$rendered"
+grep -Fq 'key: "onchain-divergence-alert-webhook-token"' "$rendered"
+grep -Fq 'name: AGENTCART_ONCHAIN_DIVERGENCE_ALERT_THROTTLE_SECONDS' "$rendered"
 grep -Fq 'path: /v1/registry/onchain/events' "$rendered"
 grep -Fq 'cidr: 0.0.0.0/0' "$rendered"
 grep -Fq 'cidr: ::/0' "$rendered"
@@ -103,6 +127,37 @@ if "$helm_bin" template registry-invalid-indexer "$chart" \
   --set registry.onchainEvents.rpcIndexer.image.digest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
   >/dev/null 2>&1; then
   printf 'registry chart accepted an indexer for an undeployed registry\n' >&2
+  exit 1
+fi
+
+if "$helm_bin" template registry-invalid-witness "$chart" \
+  --set registry.onchainEvents.enabled=true \
+  --set registry.onchainEvents.source=rpc_indexer \
+  --set registry.onchainEvents.rpcIndexer.rpcUrl=https://rpc.example.test \
+  --set registry.onchainEvents.rpcIndexer.image.digest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
+  --set registry.onchainEvents.rpcIndexer.witness.enabled=true \
+  --set registry.onchain.tempo.status=testnet_only \
+  --set-string registry.onchain.tempo.chainId=42431 \
+  --set registry.onchain.tempo.contractAddress=0x1111111111111111111111111111111111111111 \
+  --set registry.onchain.tempo.explorerUrl=https://explorer.example.test/address/0x1111111111111111111111111111111111111111 \
+  >/dev/null 2>&1; then
+  printf 'registry chart accepted witness mode without a second RPC source\n' >&2
+  exit 1
+fi
+
+if "$helm_bin" template registry-invalid-alert "$chart" \
+  --set registry.onchainEvents.enabled=true \
+  --set registry.onchainEvents.source=rpc_indexer \
+  --set registry.onchainEvents.rpcIndexer.rpcUrl=https://rpc.example.test \
+  --set registry.onchainEvents.rpcIndexer.image.digest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
+  --set registry.onchainEvents.rpcIndexer.divergenceAlert.enabled=true \
+  --set registry.onchainEvents.rpcIndexer.divergenceAlert.existingSecret=registry-indexer-secrets \
+  --set registry.onchain.tempo.status=testnet_only \
+  --set-string registry.onchain.tempo.chainId=42431 \
+  --set registry.onchain.tempo.contractAddress=0x1111111111111111111111111111111111111111 \
+  --set registry.onchain.tempo.explorerUrl=https://explorer.example.test/address/0x1111111111111111111111111111111111111111 \
+  >/dev/null 2>&1; then
+  printf 'registry chart accepted divergence alerts without witness mode\n' >&2
   exit 1
 fi
 

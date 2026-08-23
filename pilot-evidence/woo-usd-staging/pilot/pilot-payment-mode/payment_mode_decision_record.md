@@ -65,3 +65,12 @@ blockchain testnet using a dollar-denominated stablecoin and authorized the
 Hetzner rollout on 2026-07-09. The strict post-rollout MPP payment and refund
 test exited successfully. Moving to real shops or real money is a separate
 decision and is not authorized by this record.
+
+## Talos confirmation (2026-08-23)
+
+The same decision was exercised after the workload moved from the former VM to
+the Talos cluster. The public manifest still reported `external_verifier_only`,
+required signed mutations, Tempo `testnet`, pathUSD settlement verification,
+and live testnet refunds. A 15.78 pathUSD payment and refund succeeded in both
+directions, and no Ethereum or Tempo production network was touched. See
+`attachments/talos-usd-verifier-live-drill-2026-08-23.md`.

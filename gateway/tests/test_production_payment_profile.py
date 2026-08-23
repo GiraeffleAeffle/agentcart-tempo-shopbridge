@@ -136,6 +136,21 @@ class ProductionPaymentProfileTest(unittest.TestCase):
         self.assertEqual("pinned_internal", profile["AGENTCART_PAYMENT_VERIFIER_TRUST_MODE"])
         self.assertEqual(profile["AGENTCART_SIGNED_REQUEST_SECRET"], profile["WOOCOMMERCE_SIGNED_REQUEST_SECRET"])
 
+    def test_talos_usd_profile_uses_the_cluster_local_verifier_service(self) -> None:
+        profile = production_payment_profile_tool.apply_deployment_profile(
+            valid_hetzner_usd_staging_secrets(),
+            "talos-usd-staging",
+        )
+
+        errors = production_payment_profile_tool.validate_profile(profile)
+
+        self.assertEqual([], errors)
+        self.assertEqual("talos-usd-staging", profile["AGENTCART_DEPLOYMENT_PROFILE"])
+        self.assertEqual(
+            "http://woo-usd-verifier:4260/agentcart/verify",
+            profile["AGENTCART_PAYMENT_VERIFIER_URL"],
+        )
+
     def test_hetzner_usd_compose_uses_sqlite_and_pinned_internal_verifier(self) -> None:
         template = USD_COMPOSE_TEMPLATE.read_text(encoding="utf-8")
 

@@ -23,12 +23,22 @@ As of 2026-08-23, the technical testnet baseline is implemented:
 - the public-registry chart can expose immutable, content-addressed full-record
   documents for event replay and recovery.
 
-The contract is deployed empty on Tempo Moderato as described in ADR 0008. The
-public registry now serves a recurring, complete snapshot from the RPC
-`finalized` boundary, and the Direct Skill discovers that same-origin feed
-without buyer configuration. No merchant registration, revoke/recovery
-lifecycle, independent review, or production/mainnet deployment is complete
-yet. Those are acceptance evidence, not missing data-model design.
+The contract is deployed on Tempo Moderato as described in ADR 0008. On
+2026-08-23 the USD pilot completed a finalized registration, revocation, and
+re-registration with a new immutable record hash. The public registry serves
+both historical documents and the recurring complete event snapshot, and the
+Direct Skill discovers that same-origin feed without buyer configuration.
+
+The skill admitted the first hash after registration, removed the merchant
+after onchain revocation, and admitted only the recovered hash after
+re-registration. dRPC and Tenderly independently reproduced the hosted
+four-event lifecycle from the deployment block with identical canonical event
+content. A fail-closed two-RPC comparison and throttled firing/resolved webhook
+alert path are now packaged with the registry indexer; live activation and
+delivery evidence still require an independently operated full-history RPC and
+receiver. Independent security review, non-maintainer evidence, and
+production/mainnet deployment are also still open. Those are promotion gates,
+not missing data-model design.
 
 ## Context
 

@@ -3372,6 +3372,7 @@ class AgentCartService:
             "log_head_hash": "",
             "proof_payload_hash": "",
             "chain_valid": False,
+            "independent_verification": None,
         }
         if not configured:
             return summary
@@ -3400,6 +3401,11 @@ class AgentCartService:
                 "log_head_hash": str(index.get("log_head_hash") or verification.get("log_head_hash") or ""),
                 "proof_payload_hash": str(proof.get("payload_hash") or ""),
                 "chain_valid": bool(verification.get("chain_valid")),
+                "independent_verification": (
+                    index.get("independent_verification")
+                    if isinstance(index.get("independent_verification"), dict)
+                    else None
+                ),
             }
         )
         if verification.get("errors"):

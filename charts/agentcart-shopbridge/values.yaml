@@ -51,6 +51,10 @@ verifier:
   port: 4260
   enabledRails:
     - tempo-mpp
+  alerts:
+    enabled: false
+    minSeverity: warning
+    throttleSeconds: 300
   replay:
     driver: sqlite
     requireDurable: true

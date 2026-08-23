@@ -55,6 +55,18 @@ When `verifier.enabled=true`, it must additionally contain:
 AGENTCART_PAYMENT_VERIFIER_TOKEN
 ```
 
+When `verifier.alerts.enabled=true`, the Secret must also contain the receiver
+URL and may contain a Bearer token:
+
+```text
+AGENTCART_VERIFIER_ALERT_WEBHOOK_URL
+AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN  # optional
+```
+
+Keep the URL in the Secret because webhook paths or query parameters may carry
+receiver credentials. `verifier.alerts.minSeverity` and
+`verifier.alerts.throttleSeconds` are non-secret policy values.
+
 When `verifier.enabledRails` includes `stripe-card-mpp`, it must also contain:
 
 ```text
@@ -126,6 +138,10 @@ store:
 verifier:
   enabled: true
   enabledRails: [tempo-mpp]
+  alerts:
+    enabled: true
+    minSeverity: warning
+    throttleSeconds: 300
   tempo:
     settlementMode: verify
     settlementRpcUrl: https://REPLACE_WITH_TESTNET_RPC
@@ -140,6 +156,11 @@ prevents a healthy-looking deployment that can parse a proof but cannot verify
 the transfer onchain. Keep the replay driver, durable replay requirement, and
 append-only journal enabled; the retained PVC is the recovery boundary for
 payment-proof replay state.
+
+With alerts enabled, rejected and failed verifier operations are POSTed to the
+Secret-backed receiver. A rollout is not alert-ready until a deliberate
+warning is accepted by that receiver and the verifier records delivery state
+`sent`; log generation or `state=skipped` is not delivery evidence.
 
 For a slow private registry tunnel, use
 `scripts/push-oci-layout-resumable.py` against a loopback port-forward. It
