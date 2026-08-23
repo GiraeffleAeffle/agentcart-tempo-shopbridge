@@ -62,6 +62,14 @@ same-origin event URL. Two explicit sources are supported:
   its first snapshot exists. Persistent failures therefore fail closed when
   the last snapshot becomes stale.
 
+The RPC indexer can require an independent witness path. It reconstructs both
+histories through their common finalized block, hashes the canonical event
+sequence, compares chain/registry identity and equal-height finalized block
+hashes, and publishes only the independently matched range. A mismatch or
+witness outage preserves the prior snapshot so buyer freshness enforcement
+eventually fails closed. Optional webhook notifications are redacted,
+throttled, and send firing plus resolved events.
+
 For an RPC-backed feed, select the matching `ethereumMainnet` or `tempo`
 deployment, set its public HTTPS RPC URL and deployment block, and pin the
 indexer runtime image by digest:
@@ -77,11 +85,35 @@ registry:
       fromBlock: "30731101"
       chunkSize: 10000
       refreshSeconds: 240
+      witness:
+        enabled: true
+        name: independent-provider
+        # Use rpcUrl only for a public endpoint. Credential-bearing URLs
+        # belong in the separately provisioned Secret.
+        rpcUrl: ""
+        existingSecret: agentcart-registry-indexer-secrets
+        rpcUrlKey: onchain-witness-rpc-url
+        maxFinalityLagSeconds: 300
+      divergenceAlert:
+        enabled: true
+        existingSecret: agentcart-registry-indexer-secrets
+        webhookUrlKey: onchain-divergence-alert-webhook-url
+        webhookTokenKey: onchain-divergence-alert-webhook-token
+        throttleSeconds: 900
       image:
         repository: ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier
         digest: sha256:<reviewed-image-digest>
         pullPolicy: IfNotPresent
 ```
+
+The chart does not create that Secret. When the witness uses
+`existingSecret`, it reads the URL from `witness.rpcUrlKey`. When divergence
+alerts are enabled, the webhook URL key is required and the token key is
+optional. The primary and witness URLs must be different; operators remain
+responsible for selecting independently controlled RPC providers. Neither RPC
+URL is included in the published comparison proof or alert payload. Witness
+finality may lag the primary by at most `maxFinalityLagSeconds`; a stalled path
+therefore cannot continually make an old common range look fresh.
 
 The selected deployment must already have a chain id, contract address, and
 explorer URL. Runtime output is rejected if the RPC chain id or registry

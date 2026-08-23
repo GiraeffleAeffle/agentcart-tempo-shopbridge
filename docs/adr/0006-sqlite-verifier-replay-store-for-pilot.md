@@ -141,6 +141,37 @@ Alerting requirements:
   provider errors become retryable;
 - info: verifier restarted or replay store driver changed.
 
+## Talos Pilot Evidence
+
+On 2026-08-23, the verifier package was deployed to the Talos
+`agentcart-demo` namespace from the pinned public image digest. The workload
+had one Ready replica, zero restarts, a Bound 1 GiB PVC, restricted ingress and
+egress, and no Kubernetes service-account token. Health reported
+`replay_store_driver=sqlite`, durable and writable required storage,
+`sqlite-immediate-transaction` locking, and a required writable replay journal.
+
+A real Tempo Moderato testnet payment and live testnet refund populated exactly
+one claim in each `payments`, `refund_requests`, and `refunds` bucket. An online
+SQLite backup was created, the verifier Deployment was restarted, and the
+replacement pod reported the exact same three counts. The backup SHA-256 is
+`f7f5d083284781f99a32c75748fa3844893d05285326ec56ac71f48855101d2d`.
+
+A non-economic follow-up reused the settled payment transaction with
+conflicting quote metadata. After independently rechecking the public onchain
+transfer, the verifier returned HTTP 409 with `replay_conflict=true` and left
+the original claim and bucket counts unchanged. The structured warning event
+was written to logs and the replay journal, but alert delivery was skipped
+because no webhook receiver is configured. Alert delivery therefore remains an
+operational gate rather than a passed evidence item.
+
+The public Helm interface now exposes opt-in alert delivery without placing the
+receiver URL or token in values: enabling `verifier.alerts` reads both from the
+existing Kubernetes Secret and accepts only the non-secret severity and
+throttle policy in values. A real receiver still has to be selected and tested.
+
+The redacted drill record is
+`pilot-evidence/woo-usd-staging/attachments/talos-usd-verifier-live-drill-2026-08-23.md`.
+
 ## Consequences
 
 - The pilot gets transactional replay uniqueness without adding a managed

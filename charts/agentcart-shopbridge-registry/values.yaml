@@ -37,6 +37,21 @@ registry:
       fromBlock: "0"
       chunkSize: 10000
       refreshSeconds: 240
+      witness:
+        enabled: false
+        name: independent-rpc
+        # Set either rpcUrl for a public endpoint or existingSecret for a
+        # credential-bearing URL. The chart never creates the Secret.
+        rpcUrl: ""
+        existingSecret: ""
+        rpcUrlKey: onchain-witness-rpc-url
+        maxFinalityLagSeconds: 300
+      divergenceAlert:
+        enabled: false
+        existingSecret: ""
+        webhookUrlKey: onchain-divergence-alert-webhook-url
+        webhookTokenKey: onchain-divergence-alert-webhook-token
+        throttleSeconds: 900
       image:
         repository: ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier
         digest: ""

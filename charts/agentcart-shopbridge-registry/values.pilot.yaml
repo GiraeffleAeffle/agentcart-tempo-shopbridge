@@ -3,7 +3,7 @@ registry:
   tlsSecretName: stadtstack-registry-tls
   name: AgentCart ShopBridge Merchant Registry
   stage: pilot
-  updatedAt: "2026-08-23T12:54:11Z"
+  updatedAt: "2026-08-23T14:48:49Z"
   submissionMode: maintainer_curated
   entries:
     - merchant_id: woocommerce-demo-shop-eur
@@ -58,11 +58,14 @@ registry:
       supported_protocols:
         - agentcart-shopbridge
         - tempo-mpp
+        - signed-http-ready
       protocol_profile_ids:
         - agentcart-shopbridge
         - erc8004-ready
+        - mpp-http-auth
+        - signed-http-ready
       payment_network: testnet
-      payment_recipient: "0x0000000000000000000000000000000000000000"
+      payment_recipient: "0x39A0134d5140e499CE1d8BcefFDbBd7523108531"
       stripe_profile_id: ""
       ship_to_countries:
         - US
@@ -71,8 +74,14 @@ registry:
       proof_url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-proof.json
       revocation_url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-revocations.json
       registry_claim_hash_alg: sha-256
-      registry_claim_hash: fd7a23c56baeab8743771a1ce9decbca7caa328935a43524e1a2e1259b080b2d
-      updated_at: "2026-08-09T12:14:28Z"
+      onchain_identity:
+        controller: "0x015f6aB1b682aEa664A1E4896f363ca3093e4591"
+        chain_id: eip155:42431
+        registry_address: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+        record_id: "0xc6a2be430634e0d8fa335a15bf2b0696573c83c5d218c0bad8831be7d9b85a5b"
+        standard: AgentCart-Onchain-Registry-v1
+      registry_claim_hash: 933de4fca764404e600cc0e8b7b3235bd7184ead2177c8d3bcc3b5aa1c9b558c
+      updated_at: "2026-08-23T14:48:49Z"
       revoked_at: null
       signature_alg: https-domain-proof
       signature: ""
@@ -89,7 +98,7 @@ registry:
       status: testnet_only
       chainId: "42431"
       contractAddress: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
-      explorerUrl: https://explore.tempo.xyz/address/0x0965961617c5B0898167AA4034C5511dB0EfcA07
+      explorerUrl: https://explore.testnet.tempo.xyz/address/0x0965961617c5B0898167AA4034C5511dB0EfcA07
   onchainEvents:
     enabled: true
     source: rpc_indexer
@@ -111,4 +120,94 @@ registry:
         limits:
           cpu: 500m
           memory: 256Mi
-  onchainRecords: []
+  onchainRecords:
+    - recordHash: 460a16a43eb69734cd21b0554d4521ee59fb551bb305880dd7aeaf7742c26bef
+      document:
+        merchant_id: woocommerce-demo-shop-usd
+        name: AgentCart USD Tempo Demo Shop
+        domain: woo-usd.agentcart.eu
+        manifest_url: https://woo-usd.agentcart.eu/.well-known/agentcart.json
+        endpoints:
+          catalog: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/catalog
+          quote: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/quote
+          orders: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders
+          order_status: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders/{id}/status
+          refunds: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders/{id}/refunds
+        supported_protocols:
+          - agentcart-shopbridge
+          - tempo-mpp
+          - signed-http-ready
+        protocol_profile_ids:
+          - agentcart-shopbridge
+          - erc8004-ready
+          - mpp-http-auth
+          - signed-http-ready
+        payment_network: testnet
+        payment_recipient: "0x39A0134d5140e499CE1d8BcefFDbBd7523108531"
+        stripe_profile_id: ""
+        ship_to_countries:
+          - US
+        returns_url: https://woo-usd.agentcart.eu/returns
+        merchant_policy_hash: ef313ebccaeff1b8d52adaebc4efae54a1702123688af670dc53f78cff7027e7
+        proof_url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-proof.json
+        revocation_url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-revocations.json
+        onchain_identity:
+          controller: "0x015f6aB1b682aEa664A1E4896f363ca3093e4591"
+          chain_id: eip155:42431
+          registry_address: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+          record_id: "0xc6a2be430634e0d8fa335a15bf2b0696573c83c5d218c0bad8831be7d9b85a5b"
+          standard: AgentCart-Onchain-Registry-v1
+        registry_claim_hash_alg: sha-256
+        registry_claim_hash: 933de4fca764404e600cc0e8b7b3235bd7184ead2177c8d3bcc3b5aa1c9b558c
+        updated_at: "2026-08-23T14:23:58Z"
+        revoked_at: null
+        signature_alg: https-domain-proof
+        signature: ""
+        proof:
+          type: https-well-known
+          url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-proof.json
+    - recordHash: c8236a74b9d936065e3283c719f421312f4681e6d5015294f268526c6f702a66
+      document:
+        merchant_id: woocommerce-demo-shop-usd
+        name: AgentCart USD Tempo Demo Shop
+        domain: woo-usd.agentcart.eu
+        manifest_url: https://woo-usd.agentcart.eu/.well-known/agentcart.json
+        endpoints:
+          catalog: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/catalog
+          quote: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/quote
+          orders: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders
+          order_status: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders/{id}/status
+          refunds: https://woo-usd.agentcart.eu/wp-json/agentcart/v1/orders/{id}/refunds
+        supported_protocols:
+          - agentcart-shopbridge
+          - tempo-mpp
+          - signed-http-ready
+        protocol_profile_ids:
+          - agentcart-shopbridge
+          - erc8004-ready
+          - mpp-http-auth
+          - signed-http-ready
+        payment_network: testnet
+        payment_recipient: "0x39A0134d5140e499CE1d8BcefFDbBd7523108531"
+        stripe_profile_id: ""
+        ship_to_countries:
+          - US
+        returns_url: https://woo-usd.agentcart.eu/returns
+        merchant_policy_hash: ef313ebccaeff1b8d52adaebc4efae54a1702123688af670dc53f78cff7027e7
+        proof_url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-proof.json
+        revocation_url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-revocations.json
+        onchain_identity:
+          controller: "0x015f6aB1b682aEa664A1E4896f363ca3093e4591"
+          chain_id: eip155:42431
+          registry_address: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+          record_id: "0xc6a2be430634e0d8fa335a15bf2b0696573c83c5d218c0bad8831be7d9b85a5b"
+          standard: AgentCart-Onchain-Registry-v1
+        registry_claim_hash_alg: sha-256
+        registry_claim_hash: 933de4fca764404e600cc0e8b7b3235bd7184ead2177c8d3bcc3b5aa1c9b558c
+        updated_at: "2026-08-23T14:48:49Z"
+        revoked_at: null
+        signature_alg: https-domain-proof
+        signature: ""
+        proof:
+          type: https-well-known
+          url: https://woo-usd.agentcart.eu/.well-known/agentcart-registry-proof.json

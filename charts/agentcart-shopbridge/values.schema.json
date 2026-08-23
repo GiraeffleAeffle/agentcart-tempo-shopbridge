@@ -56,7 +56,7 @@
     },
     "verifier": {
       "type": "object",
-      "required": ["enabled", "enabledRails", "replay", "persistence", "tempo"],
+      "required": ["enabled", "enabledRails", "alerts", "replay", "persistence", "tempo"],
       "properties": {
         "enabled": {"type": "boolean"},
         "port": {"type": "integer", "minimum": 1024, "maximum": 65535},
@@ -65,6 +65,15 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": {"type": "string", "enum": ["tempo-mpp", "stripe-card-mpp"]}
+        },
+        "alerts": {
+          "type": "object",
+          "required": ["enabled", "minSeverity", "throttleSeconds"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "minSeverity": {"type": "string", "enum": ["info", "warning", "critical"]},
+            "throttleSeconds": {"type": "integer", "minimum": 0, "maximum": 86400}
+          }
         },
         "replay": {
           "type": "object",

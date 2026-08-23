@@ -1,11 +1,11 @@
 # Merchant Registry And Discovery
 
 > Status: alpha implemented. A read-only public discovery feed is live for the
-> two staging merchants. The gateway can also load a signed off-chain registry
-> JSON feed, verify claim/domain/payment/shipping/revocation bindings, and
-> exclude unverified external merchants from quote tournaments by default. The
-> same verifier interface is intended to sit behind an onchain or append-only
-> registry later.
+> two staging merchants and advertises a finalized Tempo Moderato event feed.
+> The USD staging merchant is active through an onchain record commitment; the
+> EUR staging merchant remains curated/offchain. Gateway and Direct Skill use
+> the same claim/domain/payment/shipping/revocation and onchain lifecycle checks
+> before admitting a merchant.
 
 AgentCart's registry should be an identity and integrity anchor, not an ad
 marketplace and not a product catalog.
@@ -38,15 +38,20 @@ two registry meanings remain separate at the ingress boundary.
 This deployment intentionally does not claim stronger trust than it provides:
 
 - it has no database or durable append-only transparency log;
-- the public feed itself is not yet signed or anchored, although every record
-  is checked against merchant-hosted proof and revocation material;
-- neither an Ethereum mainnet registry nor a Tempo registry is deployed;
-- `/v1/registry/onchain` reports both networks as `not_deployed` until reviewed
-  contract addresses and explorer links are configured.
+- the curated feed itself is not signed; every record is checked against
+  merchant-hosted proof and revocation material, and only the USD record is
+  additionally committed to the Tempo testnet contract;
+- Tempo Moderato is a trusted-operator testnet pilot, not production governance;
+- Ethereum remains `not_deployed`, while `/v1/registry/onchain` reports the
+  Moderato contract as `testnet_only` with its finalized event URL.
 
-Before moving registration on-chain, complete controller-bound domain proof,
-the event indexer adapter and replay fixtures, a testnet deployment/drill, and
-the chain, upgrade, and governance decision recorded in ADR 0007.
+The controller-bound proof, fail-closed indexer, immutable archive,
+register/revoke/recover drill, and opt-in independent-RPC comparison/alert
+mechanism are complete. Before any production deployment, activate that
+mechanism with an independently operated full-history witness and real alert
+receiver, complete source publication and independent security review, collect
+non-maintainer pilots, and make the chain/upgrade/governance decision in ADRs
+0007 and 0008.
 
 ## Goals
 
@@ -472,11 +477,21 @@ file only after a complete finalized replay. Transient failures preserve the
 last good file; remote buyers reject it after 600 seconds. Static documents are
 retained for fixtures and one-shot drills, not as the live operating mode.
 
+Optional witness mode takes a second HTTPS RPC URL either directly or from an
+existing Kubernetes Secret. The sidecar reconstructs both paths, compares
+chain and registry identity, equal-height finalized block hashes, finality-time
+lag, and canonical event hashes through the common finalized block, and
+publishes only that independently matched range. Witness failure or divergence
+preserves the prior snapshot. An optional Secret-backed webhook receives
+redacted, throttled firing and resolved events; neither RPC URL is published.
+The Helm values are documented in
+`charts/agentcart-shopbridge-registry/README.md`.
+
 The recurring indexer is deliberately full-replay for the supervised pilot.
 It trades efficiency for deterministic reconstruction without a writable
 checkpoint database. A production deployment with significant history must
-introduce independently reproducible checkpointing and a second indexer path
-under the promotion gates in ADR 0008.
+introduce independently reproducible checkpointing; the packaged second path
+must be activated and evidenced under the promotion gates in ADR 0008.
 
 The gateway can consume the same event snapshot as a discovery source:
 

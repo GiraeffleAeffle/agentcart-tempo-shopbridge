@@ -21,7 +21,6 @@
         "invalid evidence for pilot_gate pilot-buyer-agent-setup: audit_packet_or_export -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/audit_packet_or_export.md: incomplete marker remains: 'TODO'",
         "invalid evidence for pilot_gate pilot-buyer-agent-setup: audit_packet_or_export -> pilot-evidence/woo-usd-staging/pilot/pilot-buyer-agent-setup/audit_packet_or_export.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
         "invalid evidence for pilot_gate pilot-payment-mode: verifier_alert_delivery_result -> pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md: incomplete marker remains: 'TODO'",
-        "invalid evidence for pilot_gate pilot-payment-mode: verifier_alert_delivery_result -> pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md: file must contain substantive evidence after a level-two heading (at least 80 characters)",
         "invalid evidence for pilot_gate pilot-support-channel: support_contact -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/support_contact.md: unsigned draft remains: 'DRAFT'",
         "invalid evidence for pilot_gate pilot-support-channel: support_contact -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/support_contact.md: incomplete marker remains: '______'",
         "invalid evidence for pilot_gate pilot-support-channel: response_sla -> pilot-evidence/woo-usd-staging/pilot/pilot-support-channel/response_sla.md: unsigned draft remains: 'DRAFT'",
@@ -268,8 +267,7 @@
           "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md",
           "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md",
           "quality_errors": [
-            "incomplete marker remains: 'TODO'",
-            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+            "incomplete marker remains: 'TODO'"
           ],
           "scope": "pilot_gate",
           "valid": false
@@ -552,8 +550,7 @@
           "path": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md",
           "path_hint": "pilot-evidence/woo-usd-staging/pilot/pilot-payment-mode/verifier_alert_delivery_result.md",
           "quality_errors": [
-            "incomplete marker remains: 'TODO'",
-            "file must contain substantive evidence after a level-two heading (at least 80 characters)"
+            "incomplete marker remains: 'TODO'"
           ],
           "scope": "pilot_gate",
           "valid": false
@@ -1312,13 +1309,11 @@
       "status": "failed"
     },
     {
-      "command": "python3 scripts/check-production-payment-profile.py --env-file .secrets/agentcart-staging-usd.env --deployment-profile hetzner-usd-staging",
+      "command": "python3 scripts/check-production-payment-profile.py --env-file <redacted> --deployment-profile talos-usd-staging",
       "details": {
         "checkout_mode": "external_verifier_only",
-        "deployment_profile": "hetzner-usd-staging",
-        "env_files": [
-          ".secrets/agentcart-staging-usd.env"
-        ],
+        "deployment_profile": "talos-usd-staging",
+        "env_file_count": 1,
         "replay_store_driver": "sqlite",
         "woocommerce_mode": "plugin"
       },
@@ -1361,19 +1356,18 @@
       "status": "passed"
     }
   ],
-  "generated_at": "2026-07-09T20:43:27Z",
+  "generated_at": "2026-08-23T15:46:20Z",
   "inputs": {
     "buyer_agent_evidence_dir": "pilot-evidence/woo-usd-staging/buyer-agents",
-    "buyer_agent_matrix": "/Users/max/Code/agentcart-tempo-shopbridge/gateway/config/buyer_agent_test_matrix.json",
-    "checklist": "/Users/max/Code/agentcart-tempo-shopbridge/gateway/config/pilot_beta_checklist.json",
+    "buyer_agent_matrix": "gateway/config/buyer_agent_test_matrix.json",
+    "checklist": "gateway/config/pilot_beta_checklist.json",
     "include_optional_woocommerce": false,
-    "payment_env_files": [
-      ".secrets/agentcart-staging-usd.env"
-    ],
+    "payment_env_file_count": 1,
+    "payment_profile": "talos-usd-staging",
     "pilot_evidence_dir": "pilot-evidence/woo-usd-staging/pilot",
     "run_woocommerce_smoke": false,
     "woocommerce_entry": "",
-    "woocommerce_matrix": "/Users/max/Code/agentcart-tempo-shopbridge/gateway/config/woocommerce_compatibility_matrix.json"
+    "woocommerce_matrix": "gateway/config/woocommerce_compatibility_matrix.json"
   },
   "release_decision": {
     "attach_this_report": true,

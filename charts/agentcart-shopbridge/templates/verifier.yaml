@@ -99,6 +99,21 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: AGENTCART_PAYMENT_VERIFIER_TOKEN
+            {{- if .Values.verifier.alerts.enabled }}
+            - name: AGENTCART_VERIFIER_ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: AGENTCART_VERIFIER_ALERT_WEBHOOK_URL
+            - name: AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN
+                  optional: true
+            - {name: AGENTCART_VERIFIER_ALERT_MIN_SEVERITY, value: {{ .Values.verifier.alerts.minSeverity | quote }}}
+            - {name: AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS, value: {{ .Values.verifier.alerts.throttleSeconds | quote }}}
+            {{- end }}
             {{- if has "stripe-card-mpp" .Values.verifier.enabledRails }}
             - name: STRIPE_SANDBOX_SECRET_KEY
               valueFrom:

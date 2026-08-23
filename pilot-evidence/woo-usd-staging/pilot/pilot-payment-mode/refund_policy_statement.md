@@ -42,3 +42,13 @@ order in `cancelled_refund_required` with `money_returned=false`; only the
 separate Tempo verifier response allowed refund 102 to report
 `real_refund_verified=true`. This statement governs the supervised testnet
 pilot only and is not a consumer-facing real-money refund policy.
+
+## Talos confirmation (2026-08-23)
+
+The Talos drill reproduced the policy on WooCommerce order 54. Cancellation
+first reported `cancelled_refund_required` without a money-returned claim. Only
+the separate 1,578-cent Tempo refund transaction
+`0xb56ad3fcb63768d20e29ae5486b83122a7c7bdbc95c1678d91da09534bd7d009`
+changed aftercare to `cancelled_refunded` with
+`real_refund_verified=true`. The refund verifier bound it to the original
+payment transaction and quote hash.

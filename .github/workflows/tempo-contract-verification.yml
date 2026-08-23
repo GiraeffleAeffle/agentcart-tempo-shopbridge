@@ -1,0 +1,110 @@
+name: Verify Tempo registry source
+
+on:
+  workflow_dispatch:
+    inputs:
+      acknowledgement:
+        description: Type publish-tempo-moderato-registry-source
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tempo-registry-source-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Publish and verify source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit publication acknowledgement
+        env:
+          ACKNOWLEDGEMENT: ${{ inputs.acknowledgement }}
+        run: test "$ACKNOWLEDGEMENT" = publish-tempo-moderato-registry-source
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Submit exact deployment inputs
+        id: submit
+        env:
+          CHAIN_ID: "42431"
+          CONTRACT_ADDRESS: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+          CREATION_TRANSACTION_HASH: "0xad99d0e1f877af983fd372657fdac9bfd4f6b467b3f9bfbdd024ecd5bc831481"
+          VERIFIER_URL: https://contracts.tempo.xyz
+        run: |
+          set -euo pipefail
+          payload="$RUNNER_TEMP/tempo-registry-verification-payload.json"
+          response="$RUNNER_TEMP/tempo-registry-verification-submit.json"
+
+          jq -n \
+            --rawfile implementation contracts/AgentCartMerchantRegistry.sol \
+            --rawfile interface contracts/interfaces/IAgentCartMerchantRegistry.sol \
+            --arg creation_transaction_hash "$CREATION_TRANSACTION_HASH" \
+            '{
+              stdJsonInput: {
+                language: "Solidity",
+                sources: {
+                  "contracts/AgentCartMerchantRegistry.sol": {content: $implementation},
+                  "contracts/interfaces/IAgentCartMerchantRegistry.sol": {content: $interface}
+                },
+                settings: {
+                  optimizer: {enabled: true, runs: 200},
+                  evmVersion: "prague",
+                  metadata: {bytecodeHash: "ipfs"},
+                  remappings: [],
+                  libraries: {},
+                  outputSelection: {"*": {"*": ["abi", "evm.bytecode", "evm.deployedBytecode", "metadata"]}}
+                }
+              },
+              compilerVersion: "0.8.28+commit.7893614a",
+              contractIdentifier: "contracts/AgentCartMerchantRegistry.sol:AgentCartMerchantRegistry",
+              creationTransactionHash: $creation_transaction_hash
+            }' > "$payload"
+
+          curl --fail --silent --show-error \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data-binary "@$payload" \
+            "$VERIFIER_URL/v2/verify/$CHAIN_ID/$CONTRACT_ADDRESS" > "$response"
+
+          verification_id="$(jq -er '.verificationId' "$response")"
+          echo "verification_id=$verification_id" >> "$GITHUB_OUTPUT"
+
+      - name: Require an exact source match
+        env:
+          CHAIN_ID: "42431"
+          CONTRACT_ADDRESS: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+          VERIFICATION_ID: ${{ steps.submit.outputs.verification_id }}
+          VERIFIER_URL: https://contracts.tempo.xyz
+        run: |
+          set -euo pipefail
+          status_file="$RUNNER_TEMP/tempo-registry-verification-status.json"
+
+          completed=false
+          for attempt in {1..40}; do
+            curl --fail --silent --show-error \
+              "$VERIFIER_URL/v2/verify/$VERIFICATION_ID" > "$status_file"
+            if [[ "$(jq -r '.isJobCompleted // false' "$status_file")" == true ]]; then
+              completed=true
+              break
+            fi
+            sleep 5
+          done
+
+          [[ "$completed" == true ]]
+          [[ "$(jq -r '.contract.match // empty' "$status_file")" == exact_match ]]
+          [[ "$(jq -r '.contract.chainId // empty' "$status_file")" == "$CHAIN_ID" ]]
+          [[ "$(jq -r '.contract.address // empty' "$status_file" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$CONTRACT_ADDRESS" | tr '[:upper:]' '[:lower:]')" ]]
+
+          {
+            echo '### Tempo registry source verification'
+            echo
+            printf -- '- Verification id: `%s`\n' "$VERIFICATION_ID"
+            printf -- '- Contract: `%s`\n' "$CONTRACT_ADDRESS"
+            printf -- '- Chain id: `%s`\n' "$CHAIN_ID"
+            echo '- Match: `exact_match`'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -5,6 +5,23 @@
 {{- if eq $onchainDeployment.status "not_deployed" -}}
 {{- fail "registry.onchainEvents.rpcIndexer.deployment must select a deployed registry" -}}
 {{- end -}}
+{{- $witness := .Values.registry.onchainEvents.rpcIndexer.witness -}}
+{{- $divergenceAlert := .Values.registry.onchainEvents.rpcIndexer.divergenceAlert -}}
+{{- if and $witness.enabled $witness.rpcUrl $witness.existingSecret -}}
+{{- fail "registry.onchainEvents.rpcIndexer.witness must set only one of rpcUrl or existingSecret" -}}
+{{- end -}}
+{{- if and $witness.enabled $witness.rpcUrl (eq $witness.rpcUrl .Values.registry.onchainEvents.rpcIndexer.rpcUrl) -}}
+{{- fail "registry.onchainEvents.rpcIndexer.witness.rpcUrl must differ from rpcIndexer.rpcUrl" -}}
+{{- end -}}
+{{- if and $witness.enabled (not $witness.rpcUrl) (not $witness.existingSecret) -}}
+{{- fail "registry.onchainEvents.rpcIndexer.witness requires rpcUrl or existingSecret" -}}
+{{- end -}}
+{{- if and $divergenceAlert.enabled (not $witness.enabled) -}}
+{{- fail "registry.onchainEvents.rpcIndexer.divergenceAlert requires witness.enabled=true" -}}
+{{- end -}}
+{{- if and $divergenceAlert.enabled (not $divergenceAlert.existingSecret) -}}
+{{- fail "registry.onchainEvents.rpcIndexer.divergenceAlert requires existingSecret" -}}
+{{- end -}}
 {{- end -}}
 apiVersion: v1
 kind: Service
@@ -120,6 +137,36 @@ spec:
               value: {{ .Values.registry.onchainEvents.rpcIndexer.refreshSeconds | quote }}
             - name: AGENTCART_ONCHAIN_EVENTS_OUTPUT
               value: /var/run/agentcart-registry/onchain-events.json
+            {{- if .Values.registry.onchainEvents.rpcIndexer.witness.enabled }}
+            - name: AGENTCART_ONCHAIN_WITNESS_RPC_URL
+              {{- if .Values.registry.onchainEvents.rpcIndexer.witness.rpcUrl }}
+              value: {{ .Values.registry.onchainEvents.rpcIndexer.witness.rpcUrl | quote }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.registry.onchainEvents.rpcIndexer.witness.existingSecret | quote }}
+                  key: {{ .Values.registry.onchainEvents.rpcIndexer.witness.rpcUrlKey | quote }}
+              {{- end }}
+            - name: AGENTCART_ONCHAIN_WITNESS_NAME
+              value: {{ .Values.registry.onchainEvents.rpcIndexer.witness.name | quote }}
+            - name: AGENTCART_ONCHAIN_WITNESS_MAX_FINALITY_LAG_SECONDS
+              value: {{ .Values.registry.onchainEvents.rpcIndexer.witness.maxFinalityLagSeconds | quote }}
+            {{- end }}
+            {{- if .Values.registry.onchainEvents.rpcIndexer.divergenceAlert.enabled }}
+            - name: AGENTCART_ONCHAIN_DIVERGENCE_ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.registry.onchainEvents.rpcIndexer.divergenceAlert.existingSecret | quote }}
+                  key: {{ .Values.registry.onchainEvents.rpcIndexer.divergenceAlert.webhookUrlKey | quote }}
+            - name: AGENTCART_ONCHAIN_DIVERGENCE_ALERT_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.registry.onchainEvents.rpcIndexer.divergenceAlert.existingSecret | quote }}
+                  key: {{ .Values.registry.onchainEvents.rpcIndexer.divergenceAlert.webhookTokenKey | quote }}
+                  optional: true
+            - name: AGENTCART_ONCHAIN_DIVERGENCE_ALERT_THROTTLE_SECONDS
+              value: {{ .Values.registry.onchainEvents.rpcIndexer.divergenceAlert.throttleSeconds | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.registry.onchainEvents.rpcIndexer.resources | nindent 12 }}
           securityContext:

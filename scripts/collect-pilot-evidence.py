@@ -49,7 +49,7 @@ def rel(path: pathlib.Path) -> str:
     try:
         return str(path.resolve().relative_to(ROOT))
     except ValueError:
-        return str(path)
+        return path.name
 
 
 def evidence_item(scope: str, owner_id: str, evidence_id: str, path: pathlib.Path) -> dict[str, Any]:
@@ -198,7 +198,7 @@ def validate_payment_profile(args: argparse.Namespace) -> dict[str, Any]:
     errors: list[str] = []
     deployment_profile = getattr(args, "payment_profile", "standard")
     details: dict[str, Any] = {
-        "env_files": [rel(path) for path in args.payment_env_file],
+        "env_file_count": len(args.payment_env_file),
         "deployment_profile": deployment_profile,
     }
     try:
@@ -217,7 +217,7 @@ def validate_payment_profile(args: argparse.Namespace) -> dict[str, Any]:
         details["checkout_mode"] = values.get("AGENTCART_CHECKOUT_MODE", "")
         details["replay_store_driver"] = values.get("AGENTCART_VERIFIER_REPLAY_STORE_DRIVER", "")
         details["woocommerce_mode"] = values.get("WOOCOMMERCE_MODE", "")
-    payment_args = " ".join(f"--env-file {path}" for path in args.payment_env_file)
+    payment_args = " ".join("--env-file <redacted>" for _path in args.payment_env_file)
     payment_args += f" --deployment-profile {deployment_profile}"
     if args.allow_payment_placeholders:
         payment_args += " --allow-placeholders"
@@ -292,12 +292,13 @@ def collect_evidence(args: argparse.Namespace) -> dict[str, Any]:
         "generated_at": utcnow(),
         "status": "passed" if all(gate["status"] == "passed" for gate in gates) else "failed",
         "inputs": {
-            "checklist": str(args.checklist),
-            "pilot_evidence_dir": str(args.pilot_evidence_dir),
-            "buyer_agent_matrix": str(args.buyer_agent_matrix),
-            "buyer_agent_evidence_dir": str(args.buyer_agent_evidence_dir),
-            "payment_env_files": [str(path) for path in args.payment_env_file],
-            "woocommerce_matrix": str(args.woocommerce_matrix),
+            "checklist": rel(args.checklist),
+            "pilot_evidence_dir": rel(args.pilot_evidence_dir),
+            "buyer_agent_matrix": rel(args.buyer_agent_matrix),
+            "buyer_agent_evidence_dir": rel(args.buyer_agent_evidence_dir),
+            "payment_env_file_count": len(args.payment_env_file),
+            "payment_profile": getattr(args, "payment_profile", "standard"),
+            "woocommerce_matrix": rel(args.woocommerce_matrix),
             "run_woocommerce_smoke": args.run_woocommerce_smoke,
             "include_optional_woocommerce": args.include_optional_woocommerce,
             "woocommerce_entry": args.woocommerce_entry,

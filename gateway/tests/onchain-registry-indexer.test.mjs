@@ -19,10 +19,13 @@ import {
   registryRecordHash,
 } from "../scripts/onchain-registry-indexer.mjs";
 import {
+  collectIndependentlyVerifiedSnapshot,
+  compareFinalizedSnapshots,
   isMainInvocation,
   refreshFinalizedSnapshot,
   runIndexerLoop,
   runtimeConfig,
+  sendIndependentRpcAlert,
 } from "../scripts/onchain-registry-indexer-loop.mjs";
 import { assertMutationNetworkAllowed } from "../scripts/onchain-registry-operator.mjs";
 
@@ -146,6 +149,7 @@ test("indexes only the finalized range and binds a fetched registry record", asy
   assert.equal(document.implementation, INDEXER_IMPLEMENTATION);
   assert.equal(document.chain_id, "eip155:42431");
   assert.equal(document.finality.block_tag, "finalized");
+  assert.equal(document.finality.block_time, "2026-08-06T07:06:40Z");
   assert.equal(document.finality.indexed_to_block, 120);
   assert.equal(document.complete, true);
   assert.deepEqual(document.events[0].registry_record, record);
@@ -321,6 +325,7 @@ test("recurring indexer configuration is bounded below the buyer freshness windo
 
   assert.equal(config.refreshMilliseconds, 240_000);
   assert.equal(config.indexer.toBlock, "finalized");
+  assert.equal(config.witnessIndexer, null);
   assert.equal(config.expectedChainId, "42431");
   assert.equal(config.indexer.allowIncompleteRecords, false);
   assert.equal(config.output, "/events/onchain-events.json");
@@ -334,6 +339,222 @@ test("recurring indexer configuration is bounded below the buyer freshness windo
     }),
     /between 60 and 300/,
   );
+});
+
+test("recurring indexer accepts a distinct HTTPS witness and secret-backed alert URL", () => {
+  const config = runtimeConfig({
+    AGENTCART_ONCHAIN_RPC_URL: "https://primary-rpc.example.test",
+    AGENTCART_ONCHAIN_WITNESS_RPC_URL: "https://witness-rpc.example.test/project-key",
+    AGENTCART_ONCHAIN_WITNESS_NAME: "independent-provider",
+    AGENTCART_ONCHAIN_WITNESS_MAX_FINALITY_LAG_SECONDS: "180",
+    AGENTCART_ONCHAIN_DIVERGENCE_ALERT_WEBHOOK_URL: "https://alerts.example.test/registry",
+    AGENTCART_ONCHAIN_DIVERGENCE_ALERT_WEBHOOK_TOKEN: "fixture-token",
+    AGENTCART_ONCHAIN_DIVERGENCE_ALERT_THROTTLE_SECONDS: "600",
+    AGENTCART_ONCHAIN_REGISTRY_ADDRESS: registryAddress,
+    AGENTCART_ONCHAIN_EXPECTED_CHAIN_ID: "42431",
+    AGENTCART_ONCHAIN_EVENTS_OUTPUT: "/events/onchain-events.json",
+  });
+
+  assert.equal(config.witnessIndexer.rpcUrl, "https://witness-rpc.example.test/project-key");
+  assert.equal(config.witnessName, "independent-provider");
+  assert.equal(config.witnessMaxFinalityLagSeconds, 180);
+  assert.equal(config.divergenceAlert.webhookUrl, "https://alerts.example.test/registry");
+  assert.equal(config.divergenceAlert.throttleMilliseconds, 600_000);
+  assert.throws(
+    () => runtimeConfig({
+      AGENTCART_ONCHAIN_RPC_URL: "https://same-rpc.example.test",
+      AGENTCART_ONCHAIN_WITNESS_RPC_URL: "https://same-rpc.example.test",
+      AGENTCART_ONCHAIN_REGISTRY_ADDRESS: registryAddress,
+      AGENTCART_ONCHAIN_EXPECTED_CHAIN_ID: "42431",
+      AGENTCART_ONCHAIN_EVENTS_OUTPUT: "/events/onchain-events.json",
+    }),
+    /must differ/,
+  );
+});
+
+function finalizedSnapshot({
+  events = [],
+  finalizedBlock = 120,
+  indexedToBlock = finalizedBlock,
+  finalityHash = blockHash,
+  finalityTime = "2026-08-13T00:00:00Z",
+  chainId = "eip155:42431",
+  address = registryAddress,
+} = {}) {
+  return {
+    complete: true,
+    errors: [],
+    events,
+    chain_id: chainId,
+    registry_address: address,
+    finality: {
+      block_number: finalizedBlock,
+      block_hash: finalityHash,
+      block_time: finalityTime,
+      indexed_from_block: 100,
+      indexed_to_block: indexedToBlock,
+    },
+  };
+}
+
+test("independent RPC comparison publishes only the common matched finalized history", async () => {
+  const sharedEvent = {
+    event: "MerchantRevoked",
+    block_number: 111,
+    block_hash: blockHash,
+    block_time: "2026-08-13T00:00:00Z",
+    transaction_hash: transactionHash,
+    log_index: 0,
+    args: { recordId },
+  };
+  const primaryOnlyFutureEvent = { ...sharedEvent, block_number: 121, log_index: 1 };
+  const primary = finalizedSnapshot({ events: [sharedEvent, primaryOnlyFutureEvent], finalizedBlock: 125 });
+  const witness = finalizedSnapshot({ events: [sharedEvent], finalizedBlock: 120 });
+  const comparison = compareFinalizedSnapshots(primary, witness, "witness-provider");
+  assert.equal(comparison.status, "matched");
+  assert.equal(comparison.common_finalized_block, 120);
+  assert.equal(comparison.primary.canonical_events_sha256, comparison.witness_path.canonical_events_sha256);
+
+  const calls = [];
+  const document = await collectIndependentlyVerifiedSnapshot(
+    {
+      indexer: { rpcUrl: "https://primary.example.test" },
+      witnessIndexer: { rpcUrl: "https://witness.example.test" },
+      witnessName: "witness-provider",
+    },
+    {
+      collect: async (options) => {
+        calls.push(options.rpcUrl);
+        return options.rpcUrl.includes("primary") ? primary : witness;
+      },
+    },
+  );
+  assert.deepEqual(calls, ["https://primary.example.test", "https://witness.example.test"]);
+  assert.equal(document.events.length, 1);
+  assert.equal(document.finality.indexed_to_block, 120);
+  assert.equal(document.independent_verification.status, "matched");
+});
+
+test("independent RPC comparison fails closed on event or finalized-head divergence", async () => {
+  const event = {
+    event: "MerchantRevoked",
+    block_number: 111,
+    block_hash: blockHash,
+    block_time: "2026-08-13T00:00:00Z",
+    transaction_hash: transactionHash,
+    log_index: 0,
+    args: { recordId },
+  };
+  const primary = finalizedSnapshot({ events: [event] });
+  const missingEvent = finalizedSnapshot({ events: [] });
+  assert.equal(compareFinalizedSnapshots(primary, missingEvent).status, "diverged");
+  assert.equal(
+    compareFinalizedSnapshots(primary, finalizedSnapshot({ events: [event], finalityHash: `0x${"dd".repeat(32)}` })).status,
+    "diverged",
+  );
+  const lagged = compareFinalizedSnapshots(
+    primary,
+    finalizedSnapshot({ events: [event], finalizedBlock: 119, finalityTime: "2026-08-12T23:50:00Z" }),
+    "lagged-provider",
+    300,
+  );
+  assert.equal(lagged.status, "diverged");
+  assert.equal(lagged.finalized_time_lag_within_limit, false);
+
+  await assert.rejects(
+    collectIndependentlyVerifiedSnapshot(
+      {
+        indexer: { rpcUrl: "https://primary.example.test" },
+        witnessIndexer: { rpcUrl: "https://witness.example.test" },
+      },
+      { collect: async (options) => options.rpcUrl.includes("primary") ? primary : missingEvent },
+    ),
+    (error) => error.code === "registry_rpc_divergence"
+      && error.verification?.status === "diverged",
+  );
+});
+
+test("independent RPC alert is redacted and carries no RPC URLs", async () => {
+  const requests = [];
+  const error = new Error("independent finalized RPC reconstructions diverged");
+  error.code = "registry_rpc_divergence";
+  error.verification = compareFinalizedSnapshots(finalizedSnapshot(), finalizedSnapshot({ events: [{
+    event: "MerchantRevoked",
+    block_number: 111,
+    args: { recordId },
+  }] }));
+  const config = {
+    expectedChainId: "42431",
+    indexer: { registryAddress, rpcUrl: "https://primary.example.test/private-key" },
+    witnessName: "independent-provider",
+    divergenceAlert: {
+      webhookUrl: "https://alerts.example.test/registry",
+      webhookToken: "alert-token",
+    },
+  };
+  await sendIndependentRpcAlert(config, error, "firing", {
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, status: 202 };
+    },
+  });
+
+  assert.equal(requests[0].options.headers.authorization, "Bearer alert-token");
+  const payload = JSON.parse(requests[0].options.body);
+  assert.equal(payload.schema, "agentcart.onchain_registry_independent_rpc_alert.v1");
+  assert.equal(payload.state, "firing");
+  assert.equal(payload.code, "registry_rpc_divergence");
+  assert.doesNotMatch(requests[0].options.body, /primary\.example|private-key|alerts\.example/);
+});
+
+test("recurring witness mode throttles repeated divergence and emits resolution", async () => {
+  const event = {
+    event: "MerchantRevoked",
+    block_number: 111,
+    block_hash: blockHash,
+    block_time: "2026-08-13T00:00:00Z",
+    transaction_hash: transactionHash,
+    log_index: 0,
+    args: { recordId },
+  };
+  let collections = 0;
+  const notifications = [];
+  const writes = [];
+  const errors = [];
+  await runIndexerLoop(
+    {
+      expectedChainId: "42431",
+      indexer: { registryAddress, rpcUrl: "https://primary.example.test" },
+      witnessIndexer: { registryAddress, rpcUrl: "https://witness.example.test" },
+      witnessName: "independent-provider",
+      output: "/events/onchain-events.json",
+      refreshMilliseconds: 60_000,
+      divergenceAlert: { webhookUrl: "https://alerts.example.test", throttleMilliseconds: 900_000 },
+    },
+    {
+      collect: async (options) => {
+        collections += 1;
+        const cycle = Math.ceil(collections / 2);
+        const witness = options.rpcUrl.includes("witness");
+        return finalizedSnapshot({ events: witness && cycle < 3 ? [] : [event] });
+      },
+      write: async (document) => writes.push(document),
+      wait: async () => {},
+      now: () => 1_000,
+      notify: async (_config, error, state) => notifications.push({ code: error.code, state }),
+      onSuccess: () => {},
+      onError: (error) => errors.push(error.code || error.message),
+      shouldContinue: () => collections < 6,
+    },
+  );
+
+  assert.deepEqual(notifications, [
+    { code: "registry_rpc_divergence", state: "firing" },
+    { code: "registry_rpc_divergence", state: "resolved" },
+  ]);
+  assert.deepEqual(errors, ["registry_rpc_divergence", "registry_rpc_divergence"]);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].independent_verification.status, "matched");
 });
 
 test("registry mutations require an explicit production-network override", () => {

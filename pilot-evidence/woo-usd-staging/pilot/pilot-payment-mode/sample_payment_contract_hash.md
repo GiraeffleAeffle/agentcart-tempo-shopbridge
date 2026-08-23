@@ -36,3 +36,22 @@ The verifier accepted payment reference
 `0x786ac168d49ba11a0a2923efff790b06a0ea38aa34a63e360ec5c50cb6f7019e`
 for 1,578 cents USD on Tempo testnet and recorded it in the durable SQLite
 replay store.
+
+## Talos sample (2026-08-23)
+
+- quote id: `woo_quote_2652effd-9b94-4953-a42e-2c2b1a85a4e4`
+- quote hash:
+  `a12ac8ced588bced255956a1a75efae7f8d3f36ac88ea45c3699613abc7f9fd8`
+- payment contract hash:
+  `aab9c536f26bf7eb677cd595a384cc698a3fa50c6d77b3f75af0fb9fe1b9dc80`
+- amount: 1,578 cents USD; Tempo Moderato pathUSD testnet
+- payer: `0x2cbd9b394fa407bd299b4ab74d796795659187a9`
+- recipient: `0x39a0134d5140e499ce1d8bceffdbbd7523108531`
+- payment transaction:
+  `0x10556e9076df171228c35ea0f0a5378e6a4f0b7dc3446df147ec1e8af04e598c`
+- payment block: `32135079`
+- verifier state: `verified`, `real_settlement_verified=true`
+
+The same transaction reference later returned HTTP 409 when presented with
+conflicting quote metadata, proving that the stored payment claim remained
+authoritative.

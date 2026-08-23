@@ -22,6 +22,7 @@ trap cleanup EXIT INT TERM
   --set store.checkoutMode=external_verifier_only \
   --set store.signedRequestMode=require_mutations \
   --set verifier.enabled=true \
+  --set verifier.alerts.enabled=true \
   --set 'verifier.enabledRails[0]=tempo-mpp' \
   --set 'verifier.enabledRails[1]=stripe-card-mpp' \
   --set verifier.tempo.settlementMode=verify \
@@ -46,6 +47,13 @@ if "$helm_bin" lint "$chart" \
   --set store.registryOnchain.recordId=0x3333333333333333333333333333333333333333333333333333333333333333 \
   >/dev/null 2>&1; then
   printf 'partial onchain registry identity unexpectedly passed chart validation\n' >&2
+  exit 1
+fi
+
+if "$helm_bin" lint "$chart" \
+  --set verifier.alerts.minSeverity=noisy \
+  >/dev/null 2>&1; then
+  printf 'invalid verifier alert severity unexpectedly passed chart validation\n' >&2
   exit 1
 fi
 
@@ -91,11 +99,19 @@ grep -Fq 'location = /.well-known/agentcart.json' "$rendered"
 grep -Fq 'automountServiceAccountToken: false' "$rendered"
 grep -Fq 'AGENTCART_REQUIRE_DEPLOYMENT_SECRETS' "$rendered"
 grep -Fq 'AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO' "$rendered"
+if grep -Fq 'AGENTCART_VERIFIER_ALERT_WEBHOOK_URL' "$rendered"; then
+  printf 'disabled verifier alerts unexpectedly rendered a Secret reference\n' >&2
+  exit 1
+fi
 
 grep -Fq 'AGENTCART_VERIFIER_REPLAY_STORE_DRIVER' "$rendered_verifier"
 grep -Fq 'AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY' "$rendered_verifier"
 grep -Fq 'AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL' "$rendered_verifier"
 grep -Fq 'AGENTCART_PAYMENT_VERIFIER_TOKEN' "$rendered_verifier"
+grep -Fq 'AGENTCART_VERIFIER_ALERT_WEBHOOK_URL' "$rendered_verifier"
+grep -Fq 'AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN' "$rendered_verifier"
+grep -Fq 'AGENTCART_VERIFIER_ALERT_MIN_SEVERITY' "$rendered_verifier"
+grep -Fq 'AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS' "$rendered_verifier"
 grep -Fq 'STRIPE_SANDBOX_SECRET_KEY' "$rendered_verifier"
 grep -Fq 'STRIPE_PROFILE_ID' "$rendered_verifier"
 grep -Fq 'MPP_SECRET_KEY' "$rendered_verifier"
