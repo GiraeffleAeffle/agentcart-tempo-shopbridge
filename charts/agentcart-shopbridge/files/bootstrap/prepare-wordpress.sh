@@ -37,12 +37,6 @@ wp core verify-checksums --path="$site" --version=7.0.3 --allow-root
 rm -rf "$site/wp-content/uploads"
 ln -s /uploads "$site/wp-content/uploads"
 mkdir -p "$site/wp-content/plugins"
-
-cp /usr/local/bin/wp "$site/wp-cli.phar"
-printf '%s\n' \
-  '#!/bin/sh' \
-  'exec php -d memory_limit=512M /var/www/html/wp-cli.phar "$@"' >"$site/wp"
-chmod 0555 "$site/wp"
 cp -RL /source/agentcart-shopbridge "$site/wp-content/plugins/agentcart-shopbridge"
 chmod -R u=rwX,go=rX "$site/wp-content/plugins/agentcart-shopbridge"
 rm -rf "$extract_root" "$wordpress_zip" "$woocommerce_zip"

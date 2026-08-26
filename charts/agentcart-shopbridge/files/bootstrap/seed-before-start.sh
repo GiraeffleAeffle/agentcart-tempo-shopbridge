@@ -66,4 +66,14 @@ wp core verify-checksums --version=7.0.3 --allow-root >/dev/null
 [[ "$(wp plugin get woocommerce --field=version --allow-root)" == '11.0.0' ]]
 wp plugin verify-checksums woocommerce --allow-root >/dev/null
 [[ "$(wp plugin get agentcart-shopbridge --field=version --allow-root)" == '0.2.0' ]]
+
+# Keep the WordPress core tree checksum-clean until every source verification
+# has passed. The wrapper is needed by later operator commands in the running
+# WordPress container, but wp-cli.phar is intentionally not a WordPress core
+# file and would make `wp core verify-checksums` fail if copied earlier.
+cp /usr/local/bin/wp "$site/wp-cli.phar"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'exec php -d memory_limit=512M /var/www/html/wp-cli.phar "$@"' >"$site/wp"
+chmod 0555 "$site/wp"
 touch "$site/.agentcart-seeded"
