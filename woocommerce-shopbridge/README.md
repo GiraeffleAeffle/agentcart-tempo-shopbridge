@@ -5,6 +5,7 @@ AgentCart ShopBridge exposes an opt-in WooCommerce store to household or agentic
 - public discovery: `/.well-known/agentcart.json`
 - public registry domain proof: `/.well-known/agentcart-registry-proof.json`
 - public registry onboarding bundle: `/.well-known/agentcart-registry-bundle.json`
+- immutable registry records: `/.well-known/agentcart-registry-records/{sha256}.json`
 - public catalog: `/wp-json/agentcart/v1/catalog`
 - public product details: `/wp-json/agentcart/v1/products/{id}`
 - public quote: `/wp-json/agentcart/v1/quote`
@@ -28,14 +29,17 @@ profile before requesting a quote.
 
 ### Install From ZIP
 
-1. Download or build `dist/agentcart-shopbridge.zip`.
+1. Download the exact `agentcart-shopbridge.zip` from the published pilot
+   release or approved CI artifact. Record its source and checksum for the
+   pilot session.
 2. In WordPress admin, open `Plugins -> Add New -> Upload Plugin`.
 3. Select the ZIP, install, and activate `AgentCart ShopBridge`.
 4. Open `WooCommerce -> AgentCart` and configure merchant id, support, Tempo or Stripe/card profile, verifier, and gateway settings.
 5. Add or edit normal WooCommerce products.
 6. Choose a product exposure mode: manual product checkbox, WooCommerce product tag, or all published simple products.
 
-To rebuild the ZIP from source:
+Merchants do not need a repository checkout or local build. Release owners can
+rebuild the ZIP from source with:
 
 ```sh
 ./scripts/package-woocommerce-plugin.sh
@@ -43,15 +47,17 @@ To rebuild the ZIP from source:
 
 ### Staging Walkthrough Path
 
-For external beta readiness, ask a non-maintainer to run the protocol in
-`docs/MERCHANT_SETUP_WALKTHROUGH.md` and record the result as:
+For external beta readiness, ask a non-maintainer merchant to run the
+[merchant setup walkthrough](../docs/MERCHANT_SETUP_WALKTHROUGH.md) while an
+observer records the result as:
 
 ```text
 pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md
 ```
 
-The operator should be able to complete this path from WordPress admin and the
-docs above:
+The merchant should be able to complete this path from WordPress admin and an
+external controller wallet. The observer, not the merchant, runs the repository
+smoke and registry CLI:
 
 1. Install the ZIP and open `WooCommerce -> AgentCart`.
 2. Fill merchant id, support email, returns URL, terms URL, checkout mode, and
@@ -61,9 +67,14 @@ docs above:
 4. Choose product exposure mode and expose only the intended staging product.
 5. Use the AgentCart setup checklist, product exposure preview, sandbox quote
    check, and sandbox checkout test.
-6. Refresh registry metadata and save the registry bundle URL or hosted
-   registry submission result.
-7. Run the live smoke against the staging shop:
+6. Refresh registry metadata and save the registry bundle URL. A hosted
+   registry submission is optional and is not evidence of onchain inclusion.
+7. Give the observer the bundle URL and public controller address. The observer
+   follows the
+   [merchant onchain enrollment runbook](../docs/MERCHANT_ONCHAIN_ENROLLMENT.md);
+   the merchant saves the four returned public identity fields and approves the
+   reviewed Tempo Moderato transaction in an external wallet.
+8. The observer runs the live smoke against the staging shop:
 
 ```sh
 python3 scripts/woocommerce-shopbridge-smoke.py \
@@ -72,8 +83,9 @@ python3 scripts/woocommerce-shopbridge-smoke.py \
   --require-vat-lines
 ```
 
-Any place where the operator needs repo-maintainer help is a setup blocker and
-must be recorded in the walkthrough notes with a follow-up issue severity.
+Any place where the merchant needs repo-maintainer help or repository tooling is
+a setup blocker and must be recorded in the walkthrough notes with a follow-up
+issue severity.
 
 ### Manual Install
 
@@ -111,6 +123,10 @@ define('AGENTCART_SIGNED_REQUEST_SECRET', 'replace-with-request-signing-secret')
 define('AGENTCART_SIGNED_REQUEST_PUBLIC_KEY', "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----");
 define('AGENTCART_SUPPORT_EMAIL', 'support@example.com');
 define('AGENTCART_RETURNS_URL', 'https://shop.example/returns');
+define('AGENTCART_REGISTRY_ONCHAIN_CONTROLLER', '0x...');
+define('AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID', 'eip155:42431');
+define('AGENTCART_REGISTRY_ONCHAIN_ADDRESS', '0x...');
+define('AGENTCART_REGISTRY_ONCHAIN_RECORD_ID', '0x...');
 define('AGENTCART_SUBSTITUTION_POLICY', 'approval_required'); // approval_required, not_allowed, or merchant_allowed
 define('AGENTCART_CANCELLATION_WINDOW_MINUTES', 30);
 define('AGENTCART_PRODUCT_EXPOSURE_MODE', 'tag'); // manual, tag, category, or all
@@ -126,6 +142,12 @@ Merchants who do not manage settings through deployment config can set the same
 stable merchant id from `WooCommerce -> AgentCart`. The id is published in the
 manifest, registry bundle, quote approvals, payment verification payloads, and
 WooCommerce order audit metadata.
+
+The four `AGENTCART_REGISTRY_ONCHAIN_*` constants are public identity values,
+not wallet credentials. Set them only from the first enrollment preparation
+result; merchants can save the same four values in WordPress admin when their
+deployment does not lock settings. Never define a controller private key, seed
+phrase, wallet session, or signature in WordPress or `wp-config.php`.
 
 ### WordPress Plugin Directory
 
@@ -143,6 +165,11 @@ For private merchant onboarding before WordPress.org approval, distribute the ZI
 The plugin package includes a WordPress-style `readme.txt` and an
 `uninstall.php` cleanup routine. Uninstall removes ShopBridge settings,
 ephemeral locks, stock-hold state, quote transients, and rate-limit transients.
+It also removes the plugin-owned public onchain identity settings and immutable
+Registry Record archive. Disablement makes the plugin routes unavailable, and
+uninstall is destructive to those archived snapshots; retain the enrollment
+plan and replicate committed records to a separately operated append-only
+archive before any production use.
 It intentionally preserves WooCommerce orders, refunds, cancellation events,
 payment verification metadata, and product-level AgentCart metadata so merchants
 retain their commerce audit trail.
@@ -151,9 +178,12 @@ The `WooCommerce -> AgentCart` admin page includes a guided setup checklist for
 merchant id/support, agent-safe product exposure, WooCommerce tax and
 shipping setup, payment verifier configuration, registry proof publication, and
 sandbox quote/order testing. The checkout test creates a sandbox approval
-record, carries its hashes into the payment verifier payload and WooCommerce
-order metadata, then cancels the test order. The same public-safe setup state is
-also exposed in the capability document for remote onboarding tools.
+record, carries its hashes through the WooCommerce-backed order path, and then
+cancels the test order. It is an admin-only dry run: it does not call the live
+payment verifier, move funds, or prove testnet settlement. A separate buyer
+test with the configured external verifier is required before any settlement
+claim. The same public-safe setup state is also exposed in the capability
+document for remote onboarding tools.
 The Product Exposure panel can save a current catalog snapshot and compare
 future previews against it, so merchants can review added, removed, and changed
 agent-readable products before refreshing registry metadata.
@@ -508,35 +538,68 @@ https://shop.example/.well-known/agentcart-registry-bundle.json
 ```
 
 The proof document is used with `signature_alg: https-domain-proof`. It binds
-the shop domain to the final canonical registry record hash. If the deployment
-defines `AGENTCART_REGISTRY_ONCHAIN_CONTROLLER`,
-`AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID`, `AGENTCART_REGISTRY_ONCHAIN_ADDRESS`,
-and `AGENTCART_REGISTRY_ONCHAIN_RECORD_ID`, the proof also binds the domain to
-that onchain controller and record. The plugin auto-generates the stable
-registry claim, claim hash, record hash, and `updated_at` timestamp from
-merchant identity, payment, shipping, and endpoint settings.
+the shop domain to the final canonical registry record hash. The merchant can
+save the public controller, CAIP-2 chain id, registry contract, and deterministic
+record id in `WooCommerce -> AgentCart`; deployment-managed installations can
+lock the same public values with `AGENTCART_REGISTRY_ONCHAIN_*` constants. The
+proof then binds the domain and current record to that onchain identity. The
+plugin never asks for or stores a registry wallet secret.
 
-The bundle contains `registry_record`, `record_hash`, the expected proof
-document, a revocation document, and a one-entry `registry_feed`. Registries can
-ingest that bundle directly, and local buyer-agent tests can use it as
-`SHOPBRIDGE_REGISTRY_URL`.
+The plugin auto-generates the stable registry claim, claim hash, record hash,
+and `updated_at` timestamp from merchant identity, payment, shipping, and
+endpoint settings. It also retains every generated canonical record at its
+content-addressed merchant URL:
+
+```text
+https://shop.example/.well-known/agentcart-registry-records/<sha256>.json
+```
+
+An old URI is not rewritten when settings produce a new record hash. The
+WordPress archive is suitable for the supervised pilot, but it is unavailable
+while the plugin is disabled and is deleted on uninstall. Production still
+needs a separately operated append-only copy.
+
+The bundle contains `registry_record`, `record_hash`, `record_uri`, the expected
+proof document, a revocation document, public wallet-handoff guidance, onchain
+readiness, and a one-entry `registry_feed`. Registries can ingest that bundle
+directly, and local buyer-agent tests can use it as
+`SHOPBRIDGE_REGISTRY_URL`. Bundle ingestion is a compatibility path; it does
+not create or update the onchain record.
 
 1. Open `WooCommerce -> AgentCart`.
 2. In `Registry Proof`, use `Refresh registry metadata` after stable identity,
    payment, shipping, endpoint, or policy settings change.
 3. Use `Check public registry endpoints` to verify the manifest, proof,
-   revocation document, and bundle before registry ingestion.
-4. Copy the registry bundle URL, or configure the optional Registry connection
-   URL/token and use `Submit registry bundle` from the admin page.
-5. Ask the AgentCart registry operator to ingest the bundle if no hosted
-   connection is configured.
-   Operators can use:
-   `python3 gateway/scripts/registry_record.py build --manifest-url https://shop.example/.well-known/agentcart.json`.
-6. Use `Send revocation request` only when removing the current record from
-   discovery; it marks the current record hash in the merchant-hosted revocation
-   document and posts the revocation intent to the configured registry.
-7. The proof endpoint publishes the fields AgentCart verifies before including
-   the shop in quote tournaments.
+   revocation document, bundle, and immutable current record.
+4. Give the public bundle URL and a merchant-controlled public controller
+   address to the pilot observer. Follow
+   [Merchant Onchain Enrollment](../docs/MERCHANT_ONCHAIN_ENROLLMENT.md): the
+   first `prepare` returns four public WordPress fields; after the merchant
+   saves them and refreshes metadata, the second `prepare` emits the exact
+   transaction for external-wallet review.
+5. Approve the zero-value Tempo Moderato request from the controller wallet.
+   The external wallet is primary; the repository's isolated signer is an
+   optional supervised fallback. Neither path puts a key in WordPress.
+6. Require `verify --transaction-hash 0x... --expected-state active` to return
+   `finalized_current`, then use `Check registry health` in WordPress. The
+   plugin uses the pinned read-only Tempo RPC directly to verify one
+   block-hash-pinned canonical finalized state, the deployment runtime/creation
+   boundary, the normalized shop-domain hash, active controller, deterministic
+   record id/hash, domain mapping, and non-revocation. This evidence is only as
+   trustworthy as that pinned RPC. Hosted health/event data is shown only as an
+   operator snapshot and cannot make the shop onchain-ready.
+7. Optionally configure the Registry connection URL/token and use `Submit
+   registry bundle` for hosted cache/monitor compatibility. A submitted status
+   is not finalized contract inclusion.
+8. `Send revocation request` marks the current hash in the merchant-hosted
+   revocation document and can notify the hosted registry; it does not revoke
+   the contract record. Use the retained enrollment plan and the documented
+   `prepare-revoke` wallet flow for onchain revocation.
+
+This flow is approved only for the supervised Tempo Moderato testnet pilot.
+Ethereum mainnet, Gnosis mainnet, and Tempo production remain blocked until a
+new production-network ADR and the external verifier, archive, governance, and
+independent-review gates are complete.
 
 An onchain registry can make sense as an identity and integrity anchor, not as the product catalog itself. A useful registry record would contain:
 

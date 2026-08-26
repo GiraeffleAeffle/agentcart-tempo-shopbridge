@@ -1,6 +1,6 @@
 # Technical Pilot Status
 
-> Snapshot: 2026-08-23. This is a testnet engineering status, not a production
+> Snapshot: 2026-08-26. This is a testnet engineering status, not a production
 > or mainnet-readiness claim.
 
 ## Outcome
@@ -16,10 +16,14 @@ Two independent full-history RPC paths reproduced the hosted finalized event
 sequence. The recurring indexer now also has a packaged fail-closed witness
 mode: it compares canonical histories through the common finalized boundary,
 rejects divergence or excessive finality lag, and can send throttled firing and
-resolved webhook events. What remains is operator activation and delivery
-evidence, source publication, external security/governance review, and
-non-maintainer buyer and merchant evidence. No production chain or real-money
-rail was used.
+resolved webhook events. The supervised merchant package is now implemented in
+source: WordPress publishes public controller-bound identity and immutable
+record snapshots, while a two-phase operator plan hands the exact transaction
+to an external wallet and verifies exact state only at finality. This package
+has not yet passed a non-maintainer merchant session. What remains is operator
+activation and delivery evidence, source publication, external verifier and
+security/governance evidence, and non-maintainer buyer and merchant evidence.
+No production chain or real-money rail was used.
 
 ## Package Status
 
@@ -28,13 +32,15 @@ rail was used.
 | Shared registry trust contract | Implemented and covered by gateway, helper, fixture, and Direct Skill tests | Keep the portable-skill package contract test mandatory |
 | Buyer discovery HTTP boundary | Implemented as a portable redirect-free, size-bounded, DNS-pinned transport | Private/local targets require explicit opt-in |
 | Finalized onchain projection | Implemented and fail-closed | Covers registration, update, controller rotation, suspension, attestation, revoke, and supersession/recovery |
-| Immutable full-record archive | Implemented in the public-registry chart | Old content hashes remain fetchable after revoke/recovery |
+| Immutable full-record archive | Implemented in the public-registry chart and as merchant-hosted content-addressed WordPress snapshots | Old content hashes remain fetchable after revoke/recovery while the plugin remains installed. Production still needs a separately operated append-only copy because disablement makes the merchant route unavailable and uninstall removes the plugin archive |
 | Reference RPC indexer | Implemented and live on the public testnet registry; independent witness mode is packaged | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it. Optional witness mode publishes only the common matched range and rejects stalled or divergent paths |
 | Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; hosted event feeds remain compatibility inputs |
 | Buyer quote and payment readiness | Implemented in source after the first workstation-agent run exposed the ambiguity | Discovery explicitly requires no wallet; payment readiness is reported separately without invoking payment tools; country/postcode quotes are comparison-only; approval, payment, and checkout require a refreshed financially consistent quote with a complete buyer-supplied delivery address. Publish the updated skill/plugin and repeat the external run |
 | Buyer verified-light-client transport | Implemented fail-closed profile; upstream compatibility blocked | Myotis supports the required verified logs and contract reads on Ethereum/Gnosis, but inspected Rust main currently exports finalized execution block `0`; ShopBridge refuses it pending the one-line adapter fix and a pinned-release drill |
 | Registry contract | Live on Tempo Moderato with a finalized register/revoke/recover drill | The recovered USD record is active; source publication and independent security review remain open |
-| Registry write operator | Implemented with explicit command/chain/contract acknowledgement | Ethereum, Gnosis, and Tempo mainnet writes remain blocked by default |
+| Merchant onchain enrollment | Implemented for a supervised Tempo Moderato pilot | Two-phase `prepare` derives four public WordPress identity values, validates the immutable merchant record, selects and simulates register/update, and emits a secret-free external-wallet request. Retained plans support revoke preparation even when the shop is unavailable |
+| Registry write operator | Implemented with 30-minute intent-hash-bound plans, runtime/creation-boundary and finalized-state preflight, immutable-record revalidation, signer/controller matching, immediate post-broadcast journaling, exact transaction-inclusion verification, canonical receipt finality, and post-write state verification | External wallet is primary; the environment-key `execute` path is an isolated supervised fallback. Free-form mutations are not exposed. Pilot writes must be serialized per controller because the current contract lacks an atomic expected-current-hash mutation; Ethereum, Gnosis, and Tempo mainnet writes remain blocked by default |
+| WordPress registry readiness | Implemented fail-closed with a pinned direct Tempo RPC verifier | Hosted submission, hosted event/health snapshots, and local HTTPS proof do not count as canonical inclusion. `finalized_current` requires one fresh finalized block hash, EIP-1898 canonical state reads, the pinned deployment block/creation boundary/runtime, Ethereum Keccak of the normalized shop hostname, and the exact active chain, contract, controller, controller-bound deterministic record id, record hash, domain mapping, and non-revocation. The result trusts the named pinned RPC; hosted data is retained only as labeled operator compatibility evidence |
 | External verifier | Implemented and live on Talos from the pinned GHCR digest | Payment, refund, replay-conflict, backup, and restart evidence pass; alert-webhook delivery remains open |
 | Helm operations | Implemented and exercised | Verifier-only external mode, Bound PVC-backed SQLite replay state, restricted network policy, and opt-in Secret-backed alert delivery are packaged; the live receiver is still unconfigured |
 | Independent reconstruction | Passed manually with dRPC and Tenderly; automatic comparison and webhook alerting implemented | Activate it with an independently operated full-history RPC and real receiver, then retain matched, firing, and resolved delivery evidence. Conduit's pruned history cannot replay from deployment |
@@ -151,8 +157,12 @@ webhook is configured.
    recover through a new immutable hash.
 4. **Complete:** reproduce the finalized lifecycle through two independent
    full-history RPC/indexer paths.
-5. **External next step:** hand the packaged skill to a non-maintainer buyer
-   agent, then begin external merchant installability sessions.
+5. **Complete in source:** package the supervised merchant flow with public
+   WordPress identity, immutable merchant records, two-phase external-wallet
+   plans, exact finalized verification, and retained-plan revocation.
+6. **External next step:** publish the updated plugin/skill artifacts, hand the
+   skill to a non-maintainer buyer agent, and run a non-maintainer merchant
+   installation and Tempo Moderato enrollment session.
 
 ## Current External Gate
 
@@ -169,9 +179,12 @@ The remaining gates are explicit:
   result;
 - obtain an independent contract/security review and production governance
   decision;
-- publish the buyer-readiness update, rerun the workstation-agent flow through
-  an approval-ready quote, and complete an external merchant installation
-  session; and
+- publish the buyer-readiness and merchant-onboarding updates, rerun the
+  workstation-agent flow through an approval-ready quote, and complete an
+  external merchant installation, controller-wallet, update, and revoke
+  session;
+- complete merchant-specific external-verifier onboarding against the published
+  plugin flow;
 - resolve and drill the Myotis finalized-height adapter only if the verified
   light-client path is part of the Ethereum/Gnosis network evaluation; and
 - accept a new ADR before any Ethereum, Gnosis, or Tempo production deployment.

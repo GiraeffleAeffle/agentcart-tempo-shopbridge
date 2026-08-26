@@ -49,8 +49,14 @@ local integrations.
 | 8 | Native UCP/A2A runtime adapters | Add concrete runtime adapters only after choosing a conformance target and auth/task lifecycle story |
 | 9 | Escrow/custom-order flow | Adds ERC-8183-style jobs only where normal retail checkout is the wrong model |
 
-The immediate next implementation slice is **native runtime adapter selection**
-or the next trust-hardening gate.
+The immediate next step is evidence rather than another broad adapter slice:
+publish the updated pilot artifacts, run the skill with a non-maintainer buyer,
+and run the supervised WordPress plus external-controller-wallet journey with a
+non-maintainer merchant. In parallel, close the independent witness and verifier
+alert-delivery evidence. Native runtime adapter selection resumes after those
+pilot results. Production-chain work remains blocked by its ADR and governance
+gates.
+
 ShopBridge advertises `signed-http-ready` only when signed request mode and at
 least one accepted request-signing key are configured. The profile publishes the
 active signer id and non-secret accepted-key metadata so buyer agents can bind
@@ -188,23 +194,45 @@ payment verifier, registry proof, and sandbox testing. The Quick Start panel
 can prepare local sandbox access defaults, show setup progress, and surface
 buyer-agent endpoint URLs without silently exposing products. It can also run a
 sandbox quote check and guided checkout test through the same WooCommerce-backed
-quote/order code paths used by buyer agents. The checkout test now creates a
-sandbox approval record, carries its hashes into the WooCommerce order and
-payment verifier payload, then cleans up the test quote, stock hold, and test
-order so merchant tests do not consume availability. Hard
+quote/order code paths used by buyer agents. The checkout test creates a
+sandbox approval record, carries its hashes through the WooCommerce order path,
+then cleans up the test quote, stock hold, and test order so merchant tests do
+not consume availability. It deliberately bypasses the live verifier and does
+not prove testnet settlement. Hard
 stock-hold mode now requires merchant inventory hooks to reserve, confirm, and
 release quote-bound reservations; if those hooks are missing, quotes fail
 closed instead of pretending stock was reserved. The plugin publishes a registry
-onboarding bundle with the suggested record, proof,
-revocation document, and one-entry feed so registries can ingest the shop
-without merchant-side hash copy/paste. The admin registry proof panel can
-refresh generated registry metadata, store a public endpoint check result for
-the manifest, proof, revocation document, and bundle, and optionally submit or
-revoke the current record through a merchant-configured hosted registry
-connection. It can also fetch the configured registry's health and monitor JSON
-so the merchant can see the current record state, manifest freshness, and last
-monitor snapshot from the WooCommerce admin page. The gateway now has a
-first-party alpha endpoint for that connection:
+onboarding bundle with the suggested record, proof, revocation document, and
+one-entry feed so registries can ingest the shop without merchant-side hash
+copy/paste. It now also publishes and retains each canonical Registry Record at
+a merchant-hosted content-addressed URI, accepts four public controller-bound
+identity values in WordPress admin, and reports onchain readiness only when its
+pinned read-only Tempo RPC verifier checks fresh finalized state, deployment
+runtime and creation boundary, and the exact current chain, contract,
+controller, domain mapping, record id, record hash, status, and revocation
+state. Hosted health/event documents remain labeled operator snapshots and
+cannot enable public discovery. Private keys, seed phrases, wallet sessions,
+and signatures remain outside WordPress.
+
+A two-phase repository-local enrollment command derives the four public
+WordPress values on its first read-only run. After the merchant saves them and
+the bundle rotates, its second run re-hashes the immutable document, reads the
+pinned Tempo Moderato deployment at `finalized`, selects and simulates
+`register` or `update`, and emits a secret-free `eth_sendTransaction` request
+for the merchant's external controller wallet. Exact plan acknowledgement and
+an isolated environment-key signer exist as a supervised fallback. Retained
+plans can prepare controller revocation even when the shop is offline. This is
+a supervised testnet path, not self-service production enrollment.
+
+The admin registry proof panel can refresh generated registry metadata, store a
+public endpoint check result for the manifest, proof, revocation document,
+bundle, and immutable record, and optionally submit or revoke the current record
+through a merchant-configured hosted registry connection. Those hosted actions
+are compatibility/cache operations and do not write to or prove inclusion in
+the onchain contract. The panel can also fetch the configured registry's health
+and monitor JSON so the merchant can see the current record state, manifest
+freshness, and last monitor snapshot from the WooCommerce admin page. The
+gateway has a first-party alpha endpoint for that connection:
 `POST /v1/registry/records` persists submitted records, verifies them with the
 same domain-proof path, exposes active records at `GET /v1/registry/records`,
 removes revoked hashes from the active feed, and exports submit, refresh, and
@@ -212,10 +240,13 @@ revoke events through a public hash-chained transparency log at
 `GET /v1/registry/transparency`. It also exposes
 `GET /v1/registry/feed-proof`, a compact canonical proof payload that pins the
 active record hashes, revoked record hashes, and transparency-log head for
-external monitoring or later signing/onchain anchoring. Registry entries can also carry optional
-ERC-8004-style `onchain_identity` / `erc8004_identity` metadata, which the
-gateway normalizes, validates, binds to the manifest registry claim when used,
-and exposes as a mapping status without making onchain registration mandatory.
+external monitoring or later signing/onchain anchoring. Registry entries can
+also carry ERC-8004-style `onchain_identity` / `erc8004_identity` metadata,
+which the gateway normalizes, validates, binds to the manifest registry claim
+when used, and exposes as a mapping status. Hosted-registry compatibility does
+not make an entry eligible in the Direct Skill's default onchain discovery
+path.
+
 It also exposes aggregate registry health at `GET /v1/registry/health`. The
 registry page surfaces that health summary with stale/failed/revoked alerts and
 operator action items. Authenticated operators can persist snapshots and alert
@@ -244,8 +275,12 @@ package and review-risk guards for headers, readme metadata, external service
 disclosure, superglobal unslashing, custom admin nonces, registry admin nonces,
 setup-wizard admin nonces, verifier HTTP-call boundaries, Composer-pinned
 PHPCS/WPCS, and an isolated official Plugin Check run. Production still needs
-WP/Woo integration tests and stronger hosted registry/payment-provider
-onboarding.
+WP/Woo integration tests; a non-maintainer merchant install, wallet, update, and
+revoke session; stronger external-verifier onboarding and alert delivery; a
+separately operated append-only record archive; independent contract review;
+and an approved production-network ADR. The Myotis finalized-height adapter
+also remains a gate if verified light-client transport is selected for the
+Ethereum/Gnosis evaluation.
 
 ### 3. Idempotent Order And Replay Safety
 

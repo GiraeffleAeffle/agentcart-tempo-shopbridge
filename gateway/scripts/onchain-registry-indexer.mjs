@@ -529,6 +529,19 @@ export async function fetchRegistryRecord(recordUri, expectedHash, options = {})
   throw new Error("record_hash_mismatch");
 }
 
+export async function fetchPublicJsonDocument(documentUri, options = {}) {
+  const target = await resolveSafeRecordTarget(documentUri, { allowPrivate: options.allowPrivate });
+  const text = await fetchPinnedDocument(target.url, target.resolved, {
+    allowPrivate: options.allowPrivate,
+    timeoutMs: options.timeoutMs,
+  });
+  const document = JSON.parse(text);
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new Error("record_document_object_required");
+  }
+  return document;
+}
+
 function recordReference(args) {
   const recordURI = args.recordURI;
   const recordHash = args.recordHash || args.newRecordHash;

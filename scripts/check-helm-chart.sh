@@ -99,6 +99,11 @@ grep -Fq 'location = /.well-known/agentcart.json' "$rendered"
 grep -Fq 'automountServiceAccountToken: false' "$rendered"
 grep -Fq 'AGENTCART_REQUIRE_DEPLOYMENT_SECRETS' "$rendered"
 grep -Fq 'AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO' "$rendered"
+grep -Fq 'class-agentcart-shopbridge-onchain-identity.php' "$rendered"
+grep -Fq 'class-agentcart-shopbridge-registry-archive.php' "$rendered"
+grep -Fq 'class-agentcart-shopbridge-registry-events.php' "$rendered"
+grep -Fq 'class-agentcart-shopbridge-registry-rpc.php' "$rendered"
+grep -Fq 'class-agentcart-shopbridge-registry-readiness.php' "$rendered"
 if grep -Fq 'AGENTCART_VERIFIER_ALERT_WEBHOOK_URL' "$rendered"; then
   printf 'disabled verifier alerts unexpectedly rendered a Secret reference\n' >&2
   exit 1

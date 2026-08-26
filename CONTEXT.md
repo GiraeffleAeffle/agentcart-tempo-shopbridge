@@ -18,11 +18,21 @@ The product is a production-candidate alpha. The codebase has strong contract ch
 | Merchant Registry | The smart-contract authority for candidate membership and record lifecycle commitments. It emits the URI of each full offchain Registry Record; a candidate becomes an eligible Merchant only after the buyer verifies that record, domain proof, manifest, payment binding, freshness, and revocation state. |
 | Hosted Registry | A replaceable cache, archive, monitor, and compatibility interface over Merchant Registry state. Its `/records` list is not the default merchant-list authority. |
 | Registry Record | A public merchant identity and integrity record binding merchant id, domain, manifest URL, registry claim hash, payment destination, freshness, proof, and revocation pointer. |
+| Immutable Registry Record URI | A merchant-hosted, content-addressed HTTPS path whose filename is the canonical Registry Record SHA-256. Historical paths remain byte-stable after updates and revocation. |
+| Registry Metadata Readiness | The Manifest, domain proof, revocation document, bundle, and immutable current record are valid over merchant HTTPS. It does not mean the record is onchain. |
+| Registry Controller | The public wallet address authorized to register, update, or revoke one merchant record. Its signing key never belongs in WordPress. |
+| Onchain Enrollment | The prepare, external-wallet approval, transaction, and finalized verification lifecycle for registering or updating a Registry Record. |
+| Hosted Registry Submission | A compatibility HTTP request asking a Hosted Registry to ingest or revoke a record. Acceptance is not proof of onchain execution. |
+| Operator Registry Snapshot | A Hosted Registry/indexer report about finalized events. It is useful compatibility and diagnostic evidence but does not independently prove canonical chain state to its consumer. |
+| Direct Registry RPC Verification | A consumer-side read through a named pinned RPC of the pinned chain, deployment boundary/runtime, one block-hash-pinned canonical finalized state, normalized domain hash, domain mapping, controller-bound deterministic record id, record hash, status, and revocation state. It removes reliance on the Hosted Registry but still trusts the named RPC. |
+| Finalized Registry Inclusion | Exact agreement between current record hash, controller, chain, registry contract, normalized domain hash, domain mapping, deterministic record id, status, and revocation state under Direct Registry RPC Verification (or a future authenticated independently verified equivalent) at one block-hash-pinned RPC `finalized` state. |
 | Catalog | Merchant-selected product data exposed to agents. Catalog text is untrusted merchant-controlled data. |
 | Comparison Quote | A WooCommerce-backed price and delivery offer for a coarse destination. It may be ranked privately but cannot be approved, paid, or checked out. |
 | Final Quote | A financially consistent WooCommerce-backed checkout contract binding items, quantity, a complete buyer-supplied delivery address, shipping, included VAT, total, currency, merchant of record, expiry, stock hold, payment requirements, and quote hash. |
 | Approval Record | The explicit buyer consent artifact binding the final quote, approval text, approver, decision time, and approval hashes. |
 | Payment Readiness | The buyer-side state showing whether an existing wallet or payment provider can satisfy a Final Quote's selected payment rail. It is independent of merchant discovery and quote readiness. |
+| Payment Recipient | The merchant or payment-provider address that receives quote-bound funds. It is distinct from the Registry Controller and buyer Payment Wallet. |
+| Payment Wallet | The buyer-controlled wallet or provider used only after a Final Quote and explicit approval. Discovery does not require it. |
 | Payment Requirements | Quote-bound rail requirements for MPP, Stripe/card MPP, x402-compatible flows, or future rails, plus verifier expectations. |
 | External Verifier | The settlement authority that proves payment or refund evidence for a selected rail before ShopBridge claims real money movement. |
 | Order | A WooCommerce order created only after quote, approval, idempotency, stock, drift, and payment verification checks pass. |
@@ -43,6 +53,9 @@ The product is a production-candidate alpha. The codebase has strong contract ch
 - Comparison Quotes must not disclose a complete delivery address to every candidate merchant.
 - Final Quote must bind product, amount, currency, a complete buyer-supplied delivery address, included tax, merchant id, expiry, and payment requirements.
 - Discovery readiness must not be presented as Payment Readiness.
+- Registry Metadata Readiness, Hosted Registry Submission, and Finalized Registry Inclusion must not be presented as the same state.
+- An Operator Registry Snapshot must not be labeled canonical chain verification or enable public discovery readiness.
+- Registry Controller secrets must never enter WordPress, registry plans, logs, or support diagnostics.
 - Checkout must require explicit buyer approval before order creation.
 - External Verifier must reject replayed transaction and refund references.
 - Refund and cancellation surfaces must not claim real money movement without verifier evidence.

@@ -107,6 +107,11 @@ section "WooCommerce plugin syntax"
 if command -v php >/dev/null 2>&1; then
   php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php"
   php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/uninstall.php"
+  php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-onchain-identity.php"
+  php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-archive.php"
+  php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-events.php"
+  php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-rpc.php"
+  php -l "$ROOT_DIR/woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-readiness.php"
 else
   printf 'php not installed; skipping php -l\n'
 fi
@@ -279,6 +284,11 @@ zip_listing="$(unzip -l "$ROOT_DIR/dist/agentcart-shopbridge.zip")"
 grep -q "agentcart-shopbridge/agentcart-shopbridge.php" <<<"$zip_listing"
 grep -q "agentcart-shopbridge/readme.txt" <<<"$zip_listing"
 grep -q "agentcart-shopbridge/uninstall.php" <<<"$zip_listing"
+grep -q "agentcart-shopbridge/includes/class-agentcart-shopbridge-onchain-identity.php" <<<"$zip_listing"
+grep -q "agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-archive.php" <<<"$zip_listing"
+grep -q "agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-events.php" <<<"$zip_listing"
+grep -q "agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-rpc.php" <<<"$zip_listing"
+grep -q "agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-readiness.php" <<<"$zip_listing"
 python3 "$ROOT_DIR/scripts/check-wordpress-plugin-package.py" --zip "$ROOT_DIR/dist/agentcart-shopbridge.zip"
 
 section "Package ShopBridge direct skill"
