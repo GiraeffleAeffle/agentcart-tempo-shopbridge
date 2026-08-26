@@ -24,6 +24,7 @@ fulfillment, refunds, and support. The plugin exposes:
 * `/.well-known/agentcart-registry-proof.json`
 * `/.well-known/agentcart-registry-revocations.json`
 * `/.well-known/agentcart-registry-bundle.json`
+* `/.well-known/agentcart-registry-records/{sha256}.json`
 * `/wp-json/agentcart/v1/catalog`
 * `/wp-json/agentcart/v1/quote`
 * `/wp-json/agentcart/v1/orders`
@@ -78,6 +79,13 @@ actions.
   ingestion.
 * Optional hosted registry connection that submits the generated registry bundle
   or a merchant revocation request to a merchant-configured registry endpoint.
+  Hosted submission and revocation requests do not write to the onchain
+  registry.
+* Four public onchain identity settings (controller, CAIP-2 chain, registry
+  contract, and deterministic record id) plus exact finalized-readiness status.
+  ShopBridge does not request, store, or use a controller private key.
+* Content-addressed merchant-hosted Registry Record snapshots. Existing hashes
+  are never rewritten when merchant settings produce a new record.
 * Normalized fulfillment tracking adapter metadata from common WooCommerce
   shipment/tracking plugin fields.
 * Structured policy metadata for restricted goods, perishables, deposits,
@@ -100,9 +108,22 @@ payment destination.
 ShopBridge can also call a merchant-configured registry connection URL when the
 merchant clicks "Submit registry bundle", "Send revocation request", or "Check
 registry health" in `WooCommerce -> AgentCart`. Those requests let a registry
-ingest or revoke the merchant-owned discovery record, and let the merchant view
-the registry-side health, manifest freshness, and monitor snapshot for the
-current record without copy/paste.
+ingest or cache a merchant-owned discovery record or revocation intent, and let
+the merchant view registry-side health, manifest freshness, and monitor state
+without copy/paste. An accepted hosted request is not an onchain transaction or
+proof of finalized contract inclusion.
+
+For the supervised Tempo Moderato pilot, clicking "Check registry health" also
+sends read-only JSON-RPC requests to `https://rpc.moderato.tempo.xyz`. The
+plugin reads chain id, finalized/deployment block headers, registry bytecode,
+and the configured public merchant record, domain mapping, deterministic record
+id, and record-hash revocation state. It sends only the public registry contract
+address, controller, record id/hash, normalized shop hostname for Ethereum
+Keccak hashing, and standard RPC method parameters. It does not send a private
+key, signature, buyer address, order, product, or payment data. State reads are
+pinned to one canonical finalized block hash. This check can satisfy WordPress
+onchain readiness through that pinned RPC; hosted registry health/event data is
+displayed only as operator-reported compatibility evidence.
 
 No verifier or registry connection is contacted for public catalog or quote
 browsing. A verifier is called only after the merchant configures a Payment
@@ -110,7 +131,8 @@ verifier URL in `WooCommerce -> AgentCart` or defines
 `AGENTCART_PAYMENT_VERIFIER_URL`. A registry connection is called only after the
 merchant configures a Registry connection URL or defines
 `AGENTCART_REGISTRY_CONNECTION_URL` and presses one of the registry connection
-or registry health action buttons.
+or registry health action buttons. The pinned Tempo RPC is called only when an
+administrator presses the registry health button.
 
 Payment verifier URLs must resolve to public IP addresses unless
 `AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL=1` is set for a local or staging
@@ -128,8 +150,11 @@ manifest URL, registry bundle URL, domain proof document, revocation document,
 public endpoint check result, merchant id, shop domain, and an idempotency key.
 The registry health check can fetch registry health and monitor JSON derived
 from that configured registry URL and can send the registry connection token as
-a bearer token for private monitor status. The exact destination, terms, and
-privacy policy depend on the registry service configured by the merchant.
+a bearer token for private monitor status. That hosted response cannot confer
+canonical-chain readiness. The exact destination, terms, and privacy policy
+depend on the registry service configured by the merchant. The pinned RPC is
+subject to the [Tempo Terms of Use](https://wallet.tempo.xyz/support/terms-of-service)
+and [Tempo Privacy Policy](https://wallet.tempo.xyz/support/privacy-policy).
 
 == Installation ==
 
@@ -140,8 +165,9 @@ privacy policy depend on the registry service configured by the merchant.
    not managed through `wp-config.php`. This generates local signed-request
    compatibility and registry metadata, but does not expose products or configure
    payment recipients. The same panel can run a sandbox quote check and a
-   guided checkout test through the WooCommerce-backed quote/order path, then
-   clean up the test quote, stock hold, and test order.
+   guided admin dry checkout through the WooCommerce-backed quote/order path,
+   then clean up the test quote, stock hold, and test order. The dry checkout
+   does not call the live payment verifier, move funds, or prove settlement.
 5. Configure stable merchant id, support email, payment recipient or Stripe
    profile, optional x402 exact-payment settings, Payment verifier URL,
    checkout mode, optional signed-request mode, and product exposure mode.
@@ -153,12 +179,20 @@ privacy policy depend on the registry service configured by the merchant.
    catalog snapshot after confirming the agent-readable catalog looks right.
 8. In the Registry Proof section, refresh metadata when stable identity/payment
    settings change, then run the public endpoint check.
-9. Share the registry bundle URL with a registry or local buyer-agent test, or
-   configure the optional Registry connection URL and submit the bundle from the
-   Registry Proof section.
-10. Test the manifest, catalog, quote, and guided non-production checkout path
-   before public use.
-11. Use Support Diagnostics on `WooCommerce -> AgentCart` when setup, registry,
+9. For the supervised Tempo Moderato pilot, give the public registry bundle URL
+   and a merchant-controlled public controller address to the pilot observer.
+   The observer prepares the four public onchain identity values. Save those
+   values in WordPress, refresh metadata, and approve the reviewed zero-value
+   registry transaction in the external controller wallet. Never put a private
+   key, seed phrase, wallet session, or signature in WordPress.
+10. Ask the observer to verify the exact wallet transaction and active record
+    at a finalized block, then use Check registry health. The plugin performs
+    its own pinned read-only Tempo RPC state check. A hosted bundle submission
+    is optional and does not replace finalized verification.
+11. Test the manifest, catalog, quote, and guided non-production checkout path
+    before public use. Run a separate buyer test with the configured external
+    verifier before claiming testnet settlement.
+12. Use Support Diagnostics on `WooCommerce -> AgentCart` when setup, registry,
     signed request, verifier, or checkout support needs a redacted JSON bundle.
 
 == Frequently Asked Questions ==
@@ -176,6 +210,23 @@ or external verifier confirms a quote-bound payment receipt. Production
 checkout should use external-verifier-only mode, and settlement/refunds must be
 performed or verified by the configured payment rail/verifier.
 
+= Does Submit registry bundle register the shop onchain? =
+
+No. It sends the public bundle to the configured hosted registry for cache,
+compatibility, and monitoring. The supervised onchain pilot separately prepares
+a transaction for the merchant's external controller wallet and requires exact
+verification at a finalized block. ShopBridge stores only the four public
+onchain identity values, never the wallet secret. The documented enrollment is
+Tempo Moderato testnet only; Ethereum mainnet, Gnosis mainnet, and Tempo
+production are not approved.
+
+= Does the guided checkout test prove payment settlement? =
+
+No. It is an admin-only dry run that exercises the WooCommerce-backed quote and
+order path, creates and cancels a test order, and does not call the live payment
+verifier or move funds. Test the configured external verifier separately before
+making a settlement claim.
+
 = Are refunds and cancellations public? =
 
 No. Refund and cancellation endpoints require the merchant token. Buyer-facing
@@ -185,9 +236,12 @@ gateway with merchant authorization.
 = What is removed on uninstall? =
 
 The uninstall routine removes ShopBridge settings, locks, stock-hold state, and
-temporary quote/rate-limit transients. It intentionally preserves WooCommerce
-orders, refunds, cancellation history, payment verification metadata, and
-product-level AgentCart metadata so merchants retain their commerce audit trail.
+temporary quote/rate-limit transients. It also removes the plugin-owned public
+onchain identity settings and content-addressed Registry Record archive; copy
+committed records to a separately operated append-only archive before uninstall
+in any production design. It intentionally preserves WooCommerce orders,
+refunds, cancellation history, payment verification metadata, and product-level
+AgentCart metadata so merchants retain their commerce audit trail.
 
 == Changelog ==
 

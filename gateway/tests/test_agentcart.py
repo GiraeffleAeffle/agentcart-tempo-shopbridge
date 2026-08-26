@@ -929,17 +929,31 @@ class AgentCartTests(unittest.TestCase):
                 "registration_uri": "https://signed.example/.well-known/agentcart.json",
                 "registration_tx_hash": "0x" + "3" * 64,
             }
+            indexed_at = agentcart.isoformat(agentcart.utcnow())
             events_path = tmp / "onchain-events.json"
             events_path.write_text(
                 json.dumps(
                     {
                         "schema": "agentcart.onchain_registry_contract_events.v1",
+                        "implementation": "agentcart.onchain_registry_rpc_indexer.v1",
                         "chain_id": "eip155:8453",
                         "registry_address": registry_address,
+                        "complete": True,
+                        "errors": [],
+                        "indexed_at": indexed_at,
+                        "finality": {
+                            "block_tag": "finalized",
+                            "block_number": 101,
+                            "block_hash": "0x" + "9" * 64,
+                            "block_time": indexed_at,
+                            "indexed_from_block": 100,
+                            "indexed_to_block": 101,
+                        },
                         "events": [
                             {
                                 "event": "MerchantRegistered",
                                 "block_number": 100,
+                                "block_hash": "0x" + "8" * 64,
                                 "block_time": "2026-06-01T00:00:00Z",
                                 "transaction_hash": "0x" + "a" * 64,
                                 "log_index": 0,
@@ -956,6 +970,7 @@ class AgentCartTests(unittest.TestCase):
                             {
                                 "event": "MerchantAttested",
                                 "block_number": 101,
+                                "block_hash": "0x" + "9" * 64,
                                 "block_time": "2026-06-01T00:05:00Z",
                                 "transaction_hash": "0x" + "b" * 64,
                                 "log_index": 0,
@@ -1081,6 +1096,117 @@ class AgentCartTests(unittest.TestCase):
                 records = service.load_registry_records()
 
         self.assertEqual(records, [])
+
+    def test_registry_health_exposes_finalized_source_and_exact_onchain_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service = make_service(pathlib.Path(raw_tmp))
+            identity = {
+                "standard": "AgentCart-Onchain-Registry-v1",
+                "controller": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "chain_id": "eip155:42431",
+                "registry_address": "0x1111111111111111111111111111111111111111",
+                "record_id": "0x" + "4" * 64,
+                "record_hash": "a" * 64,
+                "status": "mapped",
+            }
+            index = {
+                "chain_id": "eip155:42431",
+                "registry_address": identity["registry_address"],
+                "complete": True,
+                "generated_at": "2026-08-26T12:00:00Z",
+                "finality": {
+                    "block_tag": "finalized",
+                    "block_number": 123,
+                    "block_hash": "0x" + "b" * 64,
+                    "block_time": "2026-08-26T12:00:00Z",
+                    "indexed_from_block": 100,
+                    "indexed_to_block": 123,
+                },
+                "verification": {"chain_valid": True, "errors": []},
+                "records": [{}],
+                "revocations": [],
+                "attestations": [],
+                "suspensions": [],
+                "flags": [],
+            }
+            with (
+                mock.patch.object(service, "onchain_registry_source_configured", return_value=True),
+                mock.patch.object(service, "load_onchain_registry_index", return_value=index),
+            ):
+                source = service.onchain_registry_source_summary()
+
+            self.assertEqual(source["chain_id"], "eip155:42431")
+            self.assertEqual(source["registry_address"], identity["registry_address"])
+            self.assertTrue(source["complete"])
+            self.assertEqual(
+                source["finality"],
+                {**index["finality"], "indexed_at": index["generated_at"]},
+            )
+
+            registry = {
+                "registry": {
+                    "hosted_store": {},
+                    "onchain_source": source,
+                    "source_errors": [],
+                },
+                "entries": [
+                    {
+                        "merchant_id": "tea-shop",
+                        "name": "Tea Shop",
+                        "domain": "tea.example",
+                        "manifest_url": "https://tea.example/.well-known/agentcart.json",
+                        "registry_record_hash": identity["record_hash"],
+                        "updated_at": "2026-08-26T11:00:00Z",
+                        "registry_status": {"state": "verified", "eligible": True, "errors": []},
+                        "verification": {"state": "verified", "manifest_fetched": True},
+                        "payment": {"recipient_configured": True},
+                        "onchain_identity": identity,
+                    }
+                ],
+            }
+            health = service.registry_health(registry)
+
+            self.assertEqual(health["onchain_source"]["finality"]["block_tag"], "finalized")
+            self.assertEqual(
+                health["onchain_source"]["finality"]["indexed_at"],
+                index["generated_at"],
+            )
+            self.assertEqual(health["checks"][0]["onchain_identity"], identity)
+
+    def test_rich_health_revalidates_local_event_finality_before_exposing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            events_path = tmp / "onchain-events.json"
+            events_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "agentcart.onchain_registry_contract_events.v1",
+                        "implementation": "agentcart.onchain_registry_rpc_indexer.v1",
+                        "chain_id": "eip155:42431",
+                        "registry_address": "0x" + "1" * 40,
+                        "complete": True,
+                        "errors": [],
+                        "indexed_at": "2026-01-01T00:00:00Z",
+                        "finality": {
+                            "block_tag": "finalized",
+                            "block_number": 123,
+                            "block_hash": "0x" + "2" * 64,
+                            "block_time": "2026-01-01T00:00:00Z",
+                            "indexed_from_block": 100,
+                            "indexed_to_block": 123,
+                        },
+                        "events": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = make_service(tmp, onchain_registry_events_path=events_path)
+
+            source = service.onchain_registry_source_summary()
+
+        self.assertFalse(source["chain_valid"])
+        self.assertFalse(source["complete"])
+        self.assertNotEqual(source["finality"].get("block_tag"), "finalized")
 
     def test_onchain_registry_events_url_rejects_public_http_before_fetching(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:

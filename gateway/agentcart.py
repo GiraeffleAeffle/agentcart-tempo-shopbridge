@@ -3312,7 +3312,12 @@ class AgentCartService:
     def onchain_registry_source_configured(self) -> bool:
         return bool(self.config.onchain_registry_events_path or self.config.onchain_registry_events_url)
 
-    def load_onchain_registry_index(self, *, fail_closed: bool = True) -> dict[str, Any] | None:
+    def load_onchain_registry_index(
+        self,
+        *,
+        fail_closed: bool = True,
+        require_finality: bool | None = None,
+    ) -> dict[str, Any] | None:
         if self.config.onchain_registry_events_path:
             try:
                 raw = json.loads(self.config.onchain_registry_events_path.read_text())
@@ -3330,12 +3335,17 @@ class AgentCartService:
         else:
             return None
 
+        finality_required = (
+            bool(self.config.onchain_registry_events_url)
+            if require_finality is None
+            else require_finality
+        )
         index = onchain_projection.index_contract_document(
             raw,
             record_hash=registry_record_hash,
-            require_finality=bool(self.config.onchain_registry_events_url),
+            require_finality=finality_required,
             max_age_seconds=(
-                ONCHAIN_REGISTRY_MAX_AGE_SECONDS if self.config.onchain_registry_events_url else 0
+                ONCHAIN_REGISTRY_MAX_AGE_SECONDS if finality_required else 0
             ),
         )
         verification = index.get("verification") if isinstance(index.get("verification"), dict) else {}
@@ -3372,12 +3382,19 @@ class AgentCartService:
             "log_head_hash": "",
             "proof_payload_hash": "",
             "chain_valid": False,
+            "chain_id": "",
+            "registry_address": "",
+            "complete": False,
+            "finality": {},
             "independent_verification": None,
         }
         if not configured:
             return summary
         try:
-            index = self.load_onchain_registry_index(fail_closed=False)
+            index = self.load_onchain_registry_index(
+                fail_closed=False,
+                require_finality=True,
+            )
         except AgentCartError as exc:
             summary["error"] = {"message": str(exc), "detail": exc.detail}
             return summary
@@ -3390,6 +3407,23 @@ class AgentCartService:
         attestations = index.get("attestations") if isinstance(index.get("attestations"), list) else []
         suspensions = index.get("suspensions") if isinstance(index.get("suspensions"), list) else []
         flags = index.get("flags") if isinstance(index.get("flags"), list) else []
+        raw_finality = index.get("finality") if isinstance(index.get("finality"), dict) else {}
+        finality = {
+            field: raw_finality[field]
+            for field in (
+                "block_tag",
+                "block_number",
+                "block_hash",
+                "block_time",
+                "indexed_from_block",
+                "indexed_to_block",
+                "max_age_seconds",
+            )
+            if field in raw_finality
+        }
+        indexed_at = str(index.get("generated_at") or "")
+        if indexed_at:
+            finality["indexed_at"] = indexed_at
         summary.update(
             {
                 "event_count": int(index.get("event_count") or 0),
@@ -3401,6 +3435,10 @@ class AgentCartService:
                 "log_head_hash": str(index.get("log_head_hash") or verification.get("log_head_hash") or ""),
                 "proof_payload_hash": str(proof.get("payload_hash") or ""),
                 "chain_valid": bool(verification.get("chain_valid")),
+                "chain_id": str(index.get("chain_id") or ""),
+                "registry_address": str(index.get("registry_address") or "").lower(),
+                "complete": bool(index.get("complete")),
+                "finality": finality,
                 "independent_verification": (
                     index.get("independent_verification")
                     if isinstance(index.get("independent_verification"), dict)
@@ -4269,6 +4307,20 @@ class AgentCartService:
                 "payment_recipient_configured": bool((entry.get("payment") or {}).get("recipient_configured"))
                 if isinstance(entry.get("payment"), dict)
                 else False,
+                "onchain_identity": {
+                    field: entry["onchain_identity"][field]
+                    for field in (
+                        "standard",
+                        "controller",
+                        "chain_id",
+                        "registry_address",
+                        "record_id",
+                        "record_hash",
+                        "status",
+                    )
+                    if isinstance(entry.get("onchain_identity"), dict)
+                    and field in entry["onchain_identity"]
+                },
             }
             checks.append(check)
             state_counts[state] = state_counts.get(state, 0) + 1

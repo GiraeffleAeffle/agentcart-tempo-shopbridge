@@ -12,7 +12,7 @@
     "mpp:pay": "mppx http://127.0.0.1:4250/paid --network testnet --account agentcart-test --include",
     "stripe:mpp:verifier": "node scripts/stripe-mpp-verifier.mjs",
     "stripe:mpp:check": "node --check scripts/stripe-mpp-verifier.mjs && node --check scripts/verifier-sqlite-replay-store.mjs",
-    "onchain:indexer:check": "node --check scripts/onchain-registry-indexer.mjs && node --check scripts/onchain-registry-indexer-loop.mjs && node --check scripts/onchain-registry-operator.mjs && node --test tests/onchain-registry-indexer.test.mjs",
+    "onchain:indexer:check": "node --check scripts/onchain-registry-indexer.mjs && node --check scripts/onchain-registry-indexer-loop.mjs && node --check scripts/merchant-registry-enrollment.mjs && node --check scripts/onchain-registry-operator.mjs && node --test tests/onchain-registry-indexer.test.mjs tests/merchant-registry-enrollment.test.mjs",
     "stripe:link:smoke": "bash scripts/stripe-link-mpp-smoke.sh"
   },
   "dependencies": {

@@ -599,6 +599,10 @@ test("registry mutations require an explicit production-network override", () =>
   assert.throws(() => assertMutationNetworkAllowed(1, {}), /production-network mutations are disabled/);
   assert.throws(() => assertMutationNetworkAllowed(100, {}), /production-network mutations are disabled/);
   assert.throws(() => assertMutationNetworkAllowed(4217, {}), /production-network mutations are disabled/);
+  assert.throws(
+    () => assertMutationNetworkAllowed(999999, {}, "mainnet"),
+    /production-network mutations are disabled/,
+  );
   assert.doesNotThrow(() => (
     assertMutationNetworkAllowed(4217, { AGENTCART_ONCHAIN_ALLOW_MAINNET: "true" })
   ));

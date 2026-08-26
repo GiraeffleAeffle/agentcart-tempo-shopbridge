@@ -3,9 +3,11 @@
 Status: required human-in-the-loop evidence for external beta.
 
 This walkthrough is the evidence protocol for GitHub issue #20. It must be run
-by someone who is not the repo maintainer. A repo maintainer may observe and
-record timestamps, but every place where the operator needs maintainer help must
-be written down as a setup blocker.
+by a merchant operator who is not the repo maintainer. The merchant path uses
+WordPress admin and, for onchain enrollment, the merchant's external controller
+wallet. The observer owns every repository-local smoke and enrollment command.
+Every place where the merchant needs undocumented maintainer help must be
+written down as a setup blocker.
 
 Expected pilot evidence file:
 
@@ -15,13 +17,16 @@ pilot/pilot-merchant-onboarding/non_maintainer_setup_walkthrough_notes.md
 
 ## Roles
 
-- Operator: non-maintainer running the setup from published docs.
-- Observer: records friction, timestamps, screenshots, and exact help given.
+- Merchant operator: non-maintainer installing and configuring ShopBridge in
+  WordPress admin and approving the reviewed testnet registry transaction.
+- Observer: records friction, timestamps, screenshots, and exact help given;
+  runs the repository-local smoke and registry CLI.
 - Release owner: turns unresolved blockers into follow-up GitHub issues.
 
-The operator should start from `woocommerce-shopbridge/README.md#merchant-setup`
-and should not read source code unless the setup docs explicitly send them
-there.
+The merchant operator should start from
+`woocommerce-shopbridge/README.md#merchant-setup` and should not need the
+repository, a terminal, Node.js, Python, raw hashes, or calldata. If the
+merchant must use any of those to finish setup, record a blocker.
 
 ## Prerequisites
 
@@ -29,12 +34,16 @@ Prepare these before starting the clock:
 
 - a staging WordPress admin account with WooCommerce installed;
 - a staging domain or tunnel that can serve WordPress public URLs;
-- `dist/agentcart-shopbridge.zip` from a release, PR artifact, or local package
-  command;
+- the exact `agentcart-shopbridge.zip` from the published pilot release or
+  approved CI artifact, with its source and checksum recorded by the observer;
 - a support email, returns URL, and terms URL for the staging merchant;
 - at least one simple in-stock WooCommerce test product;
 - either sandbox verifier credentials or an explicit decision to use local
   trusted-token mode for the walkthrough only;
+- a merchant-controlled external EVM wallet, its public controller address,
+  and enough Tempo Moderato testnet gas for supervised onchain enrollment;
+- an observer checkout of this repository with the gateway dependencies
+  installed; and
 - a blank evidence file at the expected path above.
 
 If any prerequisite is missing or unclear to the operator, record it as setup
@@ -42,25 +51,33 @@ friction before the walkthrough begins.
 
 ## Walkthrough Steps
 
-The operator completes these steps without repo-maintainer intervention unless
-blocked:
+The owner of each step is explicit. The merchant completes WordPress and wallet
+actions without repo-maintainer intervention unless blocked; the observer runs
+all repository-local commands.
 
-1. Install `AgentCart ShopBridge` from the ZIP with WordPress admin's
+1. **Merchant:** Install `AgentCart ShopBridge` from the ZIP with WordPress admin's
    `Plugins -> Add New -> Upload Plugin` flow.
-2. Open `WooCommerce -> AgentCart`.
-3. Configure merchant id, support email, returns URL, terms URL, checkout mode,
+2. **Merchant:** Open `WooCommerce -> AgentCart`.
+3. **Merchant:** Configure merchant id, support email, returns URL, terms URL, checkout mode,
    verifier or trusted-token setting, and signed request mode.
-4. Configure WooCommerce tax, shipping, and allowed shipping countries for the
+4. **Merchant:** Configure WooCommerce tax, shipping, and allowed shipping countries for the
    test product.
-5. Choose a product exposure mode and expose the intended staging product.
-6. Use the AgentCart setup checklist to confirm readiness state.
-7. Save or screenshot the AgentCart settings readiness snapshot.
-8. Save or screenshot the product exposure preview/catalog snapshot.
-9. Run the sandbox quote check from the WordPress admin page.
-10. Run the approval-bound sandbox checkout test from the WordPress admin page.
-11. Refresh registry metadata and save the registry bundle URL or hosted
-    registry submission result.
-12. Run the live smoke from a terminal against the staging shop:
+5. **Merchant:** Choose a product exposure mode and expose the intended staging product.
+6. **Merchant:** Use the AgentCart setup checklist to confirm the current
+   readiness state. Onchain discovery is expected to remain not finalized at
+   this point.
+7. **Merchant:** Save or screenshot the AgentCart settings readiness snapshot.
+8. **Merchant:** Save or screenshot the product exposure preview/catalog snapshot.
+9. **Merchant:** Run the sandbox quote check from the WordPress admin page.
+10. **Merchant:** Run the approval-bound sandbox checkout test from the WordPress
+    admin page. Record it as an admin dry run: it exercises the ShopBridge and
+    WooCommerce quote/order path, creates and cancels a test order, and does not
+    call the live payment verifier or prove testnet settlement.
+11. **Merchant:** Refresh registry metadata, run the public endpoint check, and
+    give the observer the public registry bundle URL. A hosted registry
+    submission is optional and is not onchain-registration evidence.
+12. **Observer:** Run the live smoke against the staging shop from the repository
+    root:
 
 ```sh
 python3 scripts/woocommerce-shopbridge-smoke.py \
@@ -69,9 +86,39 @@ python3 scripts/woocommerce-shopbridge-smoke.py \
   --require-vat-lines
 ```
 
-The walkthrough passes only when the operator reaches a configured staging
-ShopBridge install and can point to the evidence artifacts for each pilot
-merchant-onboarding requirement.
+13. **Observer:** Follow
+    [Merchant Onchain Enrollment](MERCHANT_ONCHAIN_ENROLLMENT.md). Run the first
+    read-only `prepare` call with the public bundle URL and controller address.
+    Give the merchant only the returned public WordPress settings.
+14. **Merchant:** Save the four fields under `WooCommerce -> AgentCart`: public
+    controller address, CAIP-2 registry chain, registry contract, and registry
+    record id. Refresh registry metadata and rerun the public endpoint check.
+    Never enter a private key, seed phrase, wallet session, or signature.
+15. **Observer:** Run the second `prepare`, write a new retained plan file, and
+    review its chain, contract, controller, domain, hash, immutable URI,
+    transaction value, operation, 30-minute expiry, intent hash, finalized
+    state precondition, and exact acknowledgement with the merchant.
+16. **Merchant:** Submit the plan's `eth_sendTransaction` request from the
+    controller account in the external wallet. The isolated repo-local signer
+    is a supervised fallback, not the normal merchant path.
+17. **Observer:** Run `verify --transaction-hash 0x... --expected-state active`
+    until the exact transaction and record are `finalized_current`.
+    **Merchant:** select **Check registry health** and confirm the plugin's
+    pinned direct Tempo RPC check also reports all reads at one canonical
+    finalized block hash, with the normalized shop domain and deterministic
+    controller-bound record id. This result trusts the pinned Tempo RPC. A
+    hosted indexer snapshot alone must remain diagnostic rather than readiness
+    proof.
+18. **Observer:** Run fresh Direct Skill discovery without cached registry data
+    and record whether the merchant appears. Do not perform checkout without a
+    fresh financially consistent quote, complete delivery address, and explicit
+    buyer approval.
+
+The walkthrough passes only when the merchant reaches a configured staging
+ShopBridge install without repository tooling, the observer can point to the
+evidence artifacts for each pilot merchant-onboarding requirement, and no P0
+blocker remains open. This is supervised testnet evidence, not a claim that the
+flow is self-service or production-ready.
 
 ## Maintainer Help Log
 
@@ -106,8 +153,11 @@ Use this structure for
 - Started at:
 - Finished at:
 - Plugin ZIP source:
+- Plugin ZIP checksum:
 - Checkout mode:
 - Payment/verifier mode:
+- Registry controller address:
+- Registry deployment: tempo-moderato
 - Result: passed | blocked | partial
 
 ## Setup Path
@@ -116,7 +166,10 @@ Use this structure for
 - WordPress/WooCommerce version:
 - ShopBridge plugin version:
 - Product exposure mode:
-- Registry result:
+- Registry phase 1 result:
+- Registry phase 2 result:
+- Finalized verification result:
+- WordPress onchain readiness result:
 - Live smoke command:
 - Live smoke result:
 
@@ -127,7 +180,12 @@ Use this structure for
 - Sandbox quote check:
 - Sandbox checkout test:
 - Live WooCommerce smoke:
-- Registry record or bundle URL:
+- Registry bundle URL:
+- Immutable registry record URL:
+- Retained enrollment plan:
+- Wallet transaction hash:
+- Finalized block number/hash:
+- Fresh Direct Skill discovery:
 
 ## Maintainer Help Log
 
@@ -161,3 +219,5 @@ Suggested fix: TODO"
 
 Record the issue URL in the walkthrough notes. The external beta go/no-go
 decision should not proceed while any `P0` walkthrough blocker remains open.
+Ethereum mainnet, Gnosis mainnet, and Tempo production enrollment remain
+separately blocked even when this supervised Tempo Moderato walkthrough passes.

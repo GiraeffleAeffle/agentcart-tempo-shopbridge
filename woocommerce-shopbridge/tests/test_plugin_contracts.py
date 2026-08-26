@@ -83,6 +83,16 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         ]:
             self.assertIn(endpoint, readme)
 
+    def test_public_runtime_version_tracks_the_release_stamped_plugin_header(self) -> None:
+        version_body = function_body("plugin_version")
+        diagnostics_body = function_body("support_diagnostics_bundle")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("get_file_data(__FILE__", version_body)
+        self.assertIn("'Version' => 'Version'", version_body)
+        self.assertIn("'version' => self::plugin_version()", diagnostics_body)
+        self.assertIn("'version' => self::plugin_version()", capability_body)
+
     def test_uninstall_cleanup_preserves_commerce_audit_metadata(self) -> None:
         uninstall = UNINSTALL.read_text()
 
@@ -267,6 +277,38 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'checkout_mode'", capability_body + quote_hash_body + requirements_body)
         self.assertIn("'trusted_token_checkout_enabled'", capability_body + requirements_body)
         self.assertIn("'external_verifier_required_for_checkout'", capability_body + quote_hash_body + requirements_body)
+
+    def test_tempo_pilot_fields_are_strict_and_explain_wallet_roles(self) -> None:
+        settings_body = function_body("register_settings")
+        render_body = function_body("render_settings_page")
+        network_body = function_body("sanitize_tempo_network_setting")
+        recipient_body = function_body("sanitize_tempo_recipient_setting")
+        tempo_network_body = function_body("tempo_network")
+        tempo_recipient_body = function_body("tempo_recipient")
+
+        self.assertIn("sanitize_tempo_network_setting", settings_body)
+        self.assertIn("sanitize_tempo_recipient_setting", settings_body)
+        self.assertIn("render_tempo_network_setting_row", render_body)
+        self.assertIn("['testnet', 'mainnet']", network_body)
+        self.assertIn("AgentCart_ShopBridge_Onchain_Identity::sanitize_address", recipient_body)
+        self.assertIn("sanitize_tempo_network_setting", tempo_network_body)
+        self.assertIn("sanitize_tempo_recipient_setting", tempo_recipient_body)
+        self.assertIn("merchant payment recipient", render_body)
+        self.assertIn("different from the registry controller and buyer wallet", render_body)
+
+    def test_admin_dry_checkout_never_sends_synthetic_payment_to_live_verifier(self) -> None:
+        checkout_body = function_body("run_sandbox_checkout_test")
+        verify_body = function_body("verify_payment_receipt")
+        guide_body = function_body("setup_guide")
+
+        self.assertIn("self::$sandbox_checkout_active = true", checkout_body)
+        self.assertIn("self::$sandbox_checkout_active = false", checkout_body)
+        self.assertIn("self::$sandbox_checkout_active", verify_body)
+        self.assertIn("woocommerce_admin_dry_run", verify_body)
+        self.assertLess(verify_body.index("self::$sandbox_checkout_active"), verify_body.index("call_payment_verifier"))
+        self.assertIn("sandbox_quote_check_result", guide_body)
+        self.assertIn("sandbox_checkout_test_result", guide_body)
+        self.assertIn("$sandbox_tests_ready", guide_body)
 
     def test_stable_merchant_id_is_admin_configurable(self) -> None:
         settings_body = function_body("register_settings")
@@ -679,14 +721,37 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'revocation_url' => self::registry_revocation_url()", capability_body)
         self.assertIn("'revocation_snapshot'", signature_payload_body)
 
-    def test_registry_onchain_identity_uses_controller_bound_constants(self) -> None:
+    def test_registry_onchain_identity_is_public_admin_configurable_and_all_or_none(self) -> None:
+        settings_body = function_body("register_settings")
+        render_body = function_body("render_settings_page")
         identity_body = function_body("registry_onchain_identity")
+        uninstall = UNINSTALL.read_text()
 
+        self.assertIn("class-agentcart-shopbridge-onchain-identity.php", PLUGIN_SOURCE)
         self.assertIn("AGENTCART_REGISTRY_ONCHAIN_CONTROLLER", identity_body)
         self.assertIn("AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID", identity_body)
         self.assertIn("AGENTCART_REGISTRY_ONCHAIN_ADDRESS", identity_body)
         self.assertIn("AGENTCART_REGISTRY_ONCHAIN_RECORD_ID", identity_body)
-        self.assertIn("$identity['standard'] = 'AgentCart-Onchain-Registry-v1'", identity_body)
+        self.assertIn("AgentCart_ShopBridge_Onchain_Identity::compose", identity_body)
+        for symbol in [
+            "REGISTRY_ONCHAIN_CONTROLLER_OPTION",
+            "REGISTRY_ONCHAIN_CHAIN_ID_OPTION",
+            "REGISTRY_ONCHAIN_ADDRESS_OPTION",
+            "REGISTRY_ONCHAIN_RECORD_ID_OPTION",
+        ]:
+            self.assertIn(symbol, SOURCE)
+            self.assertIn(symbol, settings_body)
+            self.assertIn(symbol, render_body)
+        for option in [
+            "agentcart_shopbridge_registry_onchain_controller",
+            "agentcart_shopbridge_registry_onchain_chain_id",
+            "agentcart_shopbridge_registry_onchain_address",
+            "agentcart_shopbridge_registry_onchain_record_id",
+        ]:
+            self.assertIn(option, uninstall)
+        self.assertIn("Public controller address", render_body)
+        self.assertIn("never paste a private key", render_body)
+        self.assertNotIn("REGISTRY_ONCHAIN_PRIVATE_KEY_OPTION", SOURCE)
 
     def test_registry_onboarding_bundle_is_auto_published(self) -> None:
         well_known_body = function_body("maybe_serve_well_known_manifest")
@@ -698,14 +763,48 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("registry_bundle_url", render_body)
         self.assertIn("'type' => 'agentcart-registry-onboarding-bundle'", bundle_body)
         self.assertIn("'registry_record' => $record", bundle_body)
-        self.assertIn("'record_hash' => self::registry_record_hash($record)", bundle_body)
+        self.assertIn("$record_hash = self::registry_record_hash($record)", bundle_body)
+        self.assertIn("'record_hash' => $record_hash", bundle_body)
         self.assertIn("'proof_document_expected' => self::registry_domain_proof()", bundle_body)
         self.assertIn("'registry_feed'", bundle_body)
         self.assertIn("'entries' => [$record]", bundle_body)
-        self.assertIn("'merchant_action' => 'none'", bundle_body)
+        self.assertIn("'requires_external_wallet' => true", bundle_body)
+        self.assertIn("'private_key_handled_by_plugin' => false", bundle_body)
+        self.assertIn("registry_onchain_readiness", bundle_body)
+        self.assertIn("prepare_onchain_identity", bundle_body)
+        self.assertIn("prepare_onchain_update", bundle_body)
         self.assertIn("'registry_bundle' => self::registry_bundle_url()", capability_body)
         self.assertIn("'registry_bundle_url' => self::registry_bundle_url()", capability_body)
-        self.assertIn("'registry_onboarding_bundle' => self::registry_onboarding_bundle()", capability_body)
+        self.assertIn("$registry_onboarding_bundle = self::registry_onboarding_bundle()", capability_body)
+        self.assertIn("'registry_onboarding_bundle' => $registry_onboarding_bundle", capability_body)
+        self.assertIn("'registry_record_uri' =>", capability_body)
+        self.assertIn("'registry_onchain_readiness' =>", capability_body)
+
+    def test_registry_records_are_merchant_hosted_at_immutable_hash_paths(self) -> None:
+        well_known_body = function_body("maybe_serve_well_known_manifest")
+        bundle_body = function_body("registry_onboarding_bundle")
+        archive_body = function_body("archive_current_registry_record")
+        serve_body = function_body("serve_archived_registry_record")
+        public_check_body = function_body("run_registry_public_check")
+        proof_body = function_body("registry_domain_proof")
+        uninstall = UNINSTALL.read_text()
+
+        self.assertIn("class-agentcart-shopbridge-registry-archive.php", PLUGIN_SOURCE)
+        self.assertIn("REGISTRY_RECORD_ARCHIVE_OPTION", SOURCE)
+        self.assertIn("agentcart_shopbridge_registry_record_archive", uninstall)
+        self.assertIn("AgentCart_ShopBridge_Registry_Archive::hash_from_path($path)", well_known_body)
+        self.assertIn("serve_archived_registry_record($archive_hash)", well_known_body)
+        self.assertIn("AgentCart_ShopBridge_Registry_Archive::get", serve_body)
+        self.assertIn("wp_send_json($entry['record']", serve_body)
+        self.assertIn("AgentCart_ShopBridge_Registry_Archive::put", archive_body)
+        self.assertIn("update_option(self::REGISTRY_RECORD_ARCHIVE_OPTION", archive_body)
+        self.assertIn("$record_uri = self::archive_current_registry_record($record, $record_hash)", bundle_body)
+        self.assertIn("'record_uri' => $record_uri", bundle_body)
+        self.assertIn("'record_hash' => $record_hash", bundle_body)
+        self.assertIn("archive_current_registry_record($record, $record_hash)", public_check_body)
+        self.assertIn("$endpoints['immutable_record']", public_check_body)
+        self.assertIn("immutable_record_rehash_mismatch", public_check_body)
+        self.assertIn("'record_uri' =>", proof_body)
 
     def test_registry_transparency_actions_refresh_and_check_public_endpoints(self) -> None:
         render_body = function_body("render_settings_page")
@@ -733,6 +832,16 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("current_record_revoked", check_body)
         self.assertIn("'registry_public_check' => self::registry_public_check_result()", capability_body)
         self.assertIn("agentcart_shopbridge_registry_action", review_guard)
+
+    def test_registry_json_fetches_have_an_explicit_response_size_limit(self) -> None:
+        public_fetch = function_body("fetch_public_json")
+        connection_fetch = function_body("fetch_registry_connection_json")
+
+        self.assertIn("REGISTRY_RESPONSE_MAX_BYTES", SOURCE)
+        for fetch_body in (public_fetch, connection_fetch):
+            self.assertIn("'limit_response_size' => self::REGISTRY_RESPONSE_MAX_BYTES + 1", fetch_body)
+            self.assertIn("strlen($raw_body) > self::REGISTRY_RESPONSE_MAX_BYTES", fetch_body)
+            self.assertIn("'response_too_large'", fetch_body)
 
     def test_registry_connection_can_submit_and_revoke_hosted_records(self) -> None:
         settings_body = function_body("register_settings")
@@ -828,7 +937,10 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("fetch_registry_connection_json($health_url, false)", check_body)
         self.assertIn("fetch_registry_connection_json($monitor_url, true)", check_body)
         self.assertIn("registry_health_current_record_check", check_body)
-        self.assertIn("current_record_not_found_in_registry_health", check_body)
+        self.assertIn("current_record_not_verified_by_direct_rpc", check_body)
+        self.assertIn("AgentCart_ShopBridge_Registry_Rpc::verify", check_body)
+        self.assertIn("'verification_mode'] = 'operator_snapshot'", check_body)
+        self.assertIn("'canonical_chain_verified'] = false", check_body)
         self.assertIn("registry_health_fetch_failed", check_body)
         self.assertIn("'schema' => 'agentcart.shopbridge.registry_health_check.v1'", check_body)
         self.assertIn("wp_parse_url($registry_url)", endpoint_body)
@@ -850,6 +962,37 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'alert_delivery_email_configured'", monitor_summary_body)
         self.assertIn("'alert_delivery_sink_count'", monitor_summary_body)
         self.assertIn("fetch_registry_connection_json", review_guard)
+        self.assertIn("DEFAULT_REGISTRY_CONNECTION_URL", SOURCE)
+        self.assertIn("https://registry.agentcart.eu/v1/registry/records", SOURCE)
+
+    def test_registry_setup_requires_exact_finalized_onchain_inclusion(self) -> None:
+        guide_body = function_body("setup_guide")
+        readiness_body = function_body("registry_onchain_readiness")
+        check_body = function_body("run_registry_health_check")
+        match_body = function_body("registry_health_current_record_check")
+        record_body = function_body("registry_health_record_summary")
+        source_body = function_body("registry_health_onchain_source_summary")
+        endpoint_body = function_body("registry_connection_endpoint_url")
+        render_body = function_body("render_registry_transparency_panel")
+
+        self.assertIn("class-agentcart-shopbridge-registry-readiness.php", PLUGIN_SOURCE)
+        self.assertIn("class-agentcart-shopbridge-registry-events.php", PLUGIN_SOURCE)
+        self.assertIn("class-agentcart-shopbridge-registry-rpc.php", PLUGIN_SOURCE)
+        self.assertIn("AgentCart_ShopBridge_Registry_Readiness::evaluate", readiness_body)
+        self.assertIn("registry_onchain_readiness", guide_body)
+        self.assertIn("$registry_ready = !empty($registry_readiness['ready'])", guide_body)
+        self.assertNotIn("$merchant_match", match_body)
+        self.assertIn("'match_type' => 'record_hash'", match_body)
+        self.assertIn("'onchain_identity'", record_body)
+        self.assertIn("registry_health_onchain_source_summary($health_body)", check_body)
+        self.assertIn("'onchain_source' =>", check_body)
+        self.assertIn("'finality'", source_body)
+        self.assertIn("onchain_events", endpoint_body)
+        self.assertIn("AgentCart_ShopBridge_Registry_Events::project", check_body)
+        self.assertIn("AgentCart_ShopBridge_Registry_Rpc::verify", check_body)
+        self.assertIn("'events' =>", check_body)
+        self.assertIn("finalized_current", render_body)
+        self.assertIn("Pinned Tempo RPC finalized inclusion", render_body)
 
     def test_manifest_protocol_profiles_are_configured_only_and_registry_bound(self) -> None:
         capability_body = function_body("capability_document")
@@ -864,13 +1007,14 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'protocol_profile_ids' => self::protocol_profile_ids()", claim_body)
         self.assertIn("'payment_protocol_profile_ids' => self::payment_protocol_profile_ids()", requirements_body)
         self.assertIn("'id' => 'agentcart-shopbridge'", profiles_body)
-        self.assertIn("$public_discovery_ready = self::public_discovery_ready($readiness)", profiles_body)
-        self.assertIn("'status' => $public_discovery_ready ? 'available' : 'setup_required'", profiles_body)
-        self.assertIn("'available' => $public_discovery_ready", profiles_body)
-        self.assertIn("'setup_required' => !$public_discovery_ready", profiles_body)
-        self.assertIn("'unavailable_reasons' => $public_discovery_blockers", profiles_body)
-        self.assertIn("'paid_order_creation' => $public_discovery_ready", profiles_body)
+        self.assertIn("$commerce_ready = self::commerce_ready($readiness)", profiles_body)
+        self.assertIn("'status' => $commerce_ready ? 'available' : 'setup_required'", profiles_body)
+        self.assertIn("'available' => $commerce_ready", profiles_body)
+        self.assertIn("'setup_required' => !$commerce_ready", profiles_body)
+        self.assertIn("'unavailable_reasons' => $commerce_blockers", profiles_body)
+        self.assertIn("'paid_order_creation' => $commerce_ready", profiles_body)
         self.assertIn("'paid_order_creation_requires_production_ready' => true", profiles_body + capability_body)
+        self.assertIn("'paid_order_creation' => $commerce_ready", capability_body)
         self.assertIn("'public_discovery_ready' => $public_discovery_ready", capability_body)
         self.assertIn("'public_discovery_blockers' => self::public_discovery_blockers($readiness)", capability_body)
         self.assertIn("public_discovery_ready", SOURCE)
@@ -888,6 +1032,20 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("if (self::signed_request_profile_configured())", profiles_body)
         self.assertIn("protocol_profiles(manifest)", registry_tool)
         self.assertIn("validate_protocol_profiles", smoke)
+
+    def test_public_discovery_is_separate_from_commerce_and_requires_finalized_registry_state(self) -> None:
+        ready_body = function_body("public_discovery_ready")
+        blockers_body = function_body("public_discovery_blockers")
+        capability_body = function_body("capability_document")
+
+        self.assertIn("self::commerce_ready($readiness)", ready_body)
+        self.assertIn("self::registry_onchain_readiness()", ready_body)
+        self.assertIn("finalized_current", ready_body)
+        self.assertIn("self::commerce_blockers($readiness)", blockers_body)
+        self.assertIn("finalized onchain registry inclusion", blockers_body)
+        self.assertIn("$commerce_ready = self::commerce_ready($readiness)", capability_body)
+        self.assertIn("'paid_order_creation' => $commerce_ready", capability_body)
+        self.assertIn("'public_discovery_ready' => $public_discovery_ready", capability_body)
 
     def test_x402_payment_required_shim_is_quote_bound_and_verifier_checked(self) -> None:
         settings_body = function_body("register_settings")

@@ -17,9 +17,21 @@ if (!defined('ABSPATH')) {
 }
 
 require_once __DIR__ . '/includes/trait-agentcart-shopbridge-verifier-client.php';
+require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-archive.php';
+require_once __DIR__ . '/includes/class-agentcart-shopbridge-onchain-identity.php';
+require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-events.php';
+require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-rpc.php';
+require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-readiness.php';
 
 final class AgentCart_ShopBridge {
     use AgentCart_ShopBridge_Verifier_Client;
+
+    /**
+     * Whether the current order request is an admin-only dry checkout.
+     *
+     * @var bool
+     */
+    private static $sandbox_checkout_active = false;
 
     const API_NAMESPACE = 'agentcart/v1';
     const TOKEN_OPTION = 'agentcart_shopbridge_token';
@@ -76,8 +88,15 @@ final class AgentCart_ShopBridge {
     const REGISTRY_CONNECTION_URL_OPTION = 'agentcart_shopbridge_registry_connection_url';
     const REGISTRY_CONNECTION_TOKEN_OPTION = 'agentcart_shopbridge_registry_connection_token';
     const REGISTRY_CONNECTION_STATUS_OPTION = 'agentcart_shopbridge_registry_connection_status';
+    const DEFAULT_REGISTRY_CONNECTION_URL = 'https://registry.agentcart.eu/v1/registry/records';
     const REGISTRY_HEALTH_CHECK_OPTION = 'agentcart_shopbridge_registry_health_check';
     const REGISTRY_REVOKED_RECORDS_OPTION = 'agentcart_shopbridge_registry_revoked_records';
+    const REGISTRY_RECORD_ARCHIVE_OPTION = 'agentcart_shopbridge_registry_record_archive';
+    const REGISTRY_ONCHAIN_CONTROLLER_OPTION = 'agentcart_shopbridge_registry_onchain_controller';
+    const REGISTRY_ONCHAIN_CHAIN_ID_OPTION = 'agentcart_shopbridge_registry_onchain_chain_id';
+    const REGISTRY_ONCHAIN_ADDRESS_OPTION = 'agentcart_shopbridge_registry_onchain_address';
+    const REGISTRY_ONCHAIN_RECORD_ID_OPTION = 'agentcart_shopbridge_registry_onchain_record_id';
+    const REGISTRY_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
     const SANDBOX_QUOTE_CHECK_OPTION = 'agentcart_shopbridge_sandbox_quote_check';
     const SANDBOX_CHECKOUT_TEST_OPTION = 'agentcart_shopbridge_sandbox_checkout_test';
     const PRODUCT_EXPOSURE_MODE_OPTION = 'agentcart_shopbridge_product_exposure_mode';
@@ -203,11 +222,31 @@ final class AgentCart_ShopBridge {
         register_setting('agentcart_shopbridge', self::REGISTRY_CONNECTION_URL_OPTION, [
             'type' => 'string',
             'sanitize_callback' => 'esc_url_raw',
-            'default' => '',
+            'default' => self::DEFAULT_REGISTRY_CONNECTION_URL,
         ]);
         register_setting('agentcart_shopbridge', self::REGISTRY_CONNECTION_TOKEN_OPTION, [
             'type' => 'string',
             'sanitize_callback' => 'sanitize_text_field',
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::REGISTRY_ONCHAIN_CONTROLLER_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [AgentCart_ShopBridge_Onchain_Identity::class, 'sanitize_address'],
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::REGISTRY_ONCHAIN_CHAIN_ID_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [AgentCart_ShopBridge_Onchain_Identity::class, 'sanitize_chain_id'],
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::REGISTRY_ONCHAIN_ADDRESS_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [AgentCart_ShopBridge_Onchain_Identity::class, 'sanitize_address'],
+            'default' => '',
+        ]);
+        register_setting('agentcart_shopbridge', self::REGISTRY_ONCHAIN_RECORD_ID_OPTION, [
+            'type' => 'string',
+            'sanitize_callback' => [AgentCart_ShopBridge_Onchain_Identity::class, 'sanitize_record_id'],
             'default' => '',
         ]);
         register_setting('agentcart_shopbridge', self::SUBSTITUTION_POLICY_OPTION, [
@@ -222,12 +261,12 @@ final class AgentCart_ShopBridge {
         ]);
         register_setting('agentcart_shopbridge', self::TEMPO_NETWORK_OPTION, [
             'type' => 'string',
-            'sanitize_callback' => 'sanitize_key',
+            'sanitize_callback' => [__CLASS__, 'sanitize_tempo_network_setting'],
             'default' => 'testnet',
         ]);
         register_setting('agentcart_shopbridge', self::TEMPO_RECIPIENT_OPTION, [
             'type' => 'string',
-            'sanitize_callback' => 'sanitize_text_field',
+            'sanitize_callback' => [__CLASS__, 'sanitize_tempo_recipient_setting'],
             'default' => '',
         ]);
         register_setting('agentcart_shopbridge', self::STRIPE_PROFILE_ID_OPTION, [
@@ -440,6 +479,15 @@ final class AgentCart_ShopBridge {
     public static function sanitize_cancellation_window_minutes_setting($value) {
         $minutes = absint($value);
         return min(10080, $minutes);
+    }
+
+    public static function sanitize_tempo_network_setting($value) {
+        $network = sanitize_key((string) $value);
+        return in_array($network, ['testnet', 'mainnet'], true) ? $network : 'testnet';
+    }
+
+    public static function sanitize_tempo_recipient_setting($value) {
+        return AgentCart_ShopBridge_Onchain_Identity::sanitize_address($value);
     }
 
     public static function render_settings_page() {
@@ -672,9 +720,13 @@ final class AgentCart_ShopBridge {
                     <?php self::render_text_setting_row('Returns policy URL', self::RETURNS_URL_OPTION, $returns_url, 'AGENTCART_RETURNS_URL', 'Public page that explains returns, refunds, cancellations, and support handoff for agent-created orders. Defaults to /returns when blank.'); ?>
                     <?php self::render_text_setting_row('Registry connection URL', self::REGISTRY_CONNECTION_URL_OPTION, self::registry_connection_url(), 'AGENTCART_REGISTRY_CONNECTION_URL', 'Optional registry endpoint for publishing this shop. When configured, the buttons below can submit or revoke the generated shop record without copy and paste.'); ?>
                     <?php self::render_password_setting_row('Registry connection token', self::REGISTRY_CONNECTION_TOKEN_OPTION, self::registry_connection_token(), 'AGENTCART_REGISTRY_CONNECTION_TOKEN', 'Optional registry access token. Leave blank when the registry accepts public domain-proof submissions.'); ?>
+                    <?php self::render_text_setting_row('Public controller address', self::REGISTRY_ONCHAIN_CONTROLLER_OPTION, self::registry_onchain_controller(), 'AGENTCART_REGISTRY_ONCHAIN_CONTROLLER', 'Public wallet address authorized to update or revoke this registry record. ShopBridge never needs a wallet secret; never paste a private key here.'); ?>
+                    <?php self::render_text_setting_row('Onchain registry chain', self::REGISTRY_ONCHAIN_CHAIN_ID_OPTION, self::registry_onchain_chain_id(), 'AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID', 'Public CAIP-2 chain id from the enrollment preparation step, for example eip155:42431.'); ?>
+                    <?php self::render_text_setting_row('Onchain registry contract', self::REGISTRY_ONCHAIN_ADDRESS_OPTION, self::registry_onchain_address(), 'AGENTCART_REGISTRY_ONCHAIN_ADDRESS', 'Public registry contract address from the enrollment preparation step.'); ?>
+                    <?php self::render_text_setting_row('Onchain registry record id', self::REGISTRY_ONCHAIN_RECORD_ID_OPTION, self::registry_onchain_record_id(), 'AGENTCART_REGISTRY_ONCHAIN_RECORD_ID', 'Deterministic public record id from the enrollment preparation step.'); ?>
                     <?php self::render_aftercare_policy_setting_rows($substitution_policy, $cancellation_window_minutes); ?>
-                    <?php self::render_text_setting_row('Tempo network', self::TEMPO_NETWORK_OPTION, self::tempo_network(), 'AGENTCART_TEMPO_NETWORK', 'Payment network the verifier should check. For local testnet development this is usually testnet.'); ?>
-                    <?php self::render_text_setting_row('Tempo recipient address', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Wallet or payment-provider address that should receive quote-bound machine payments for this shop.'); ?>
+                    <?php self::render_tempo_network_setting_row(self::tempo_network()); ?>
+                    <?php self::render_text_setting_row('Tempo merchant payment recipient', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Public wallet or payment-provider address receiving quote-bound payments. This merchant payment recipient is different from the registry controller and buyer wallet.'); ?>
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network or profile id. Only advertise this when the verifier can confirm Stripe machine-payment credentials and refunds for the shop.'); ?>
                     <?php self::render_text_setting_row('x402 network', self::X402_NETWORK_OPTION, $x402_network, 'AGENTCART_X402_NETWORK', 'Optional x402 network identifier such as eip155:84532 or base-sepolia. Leave blank unless this shop is ready to advertise x402 payments.'); ?>
                     <?php self::render_text_setting_row('x402 asset contract', self::X402_ASSET_OPTION, $x402_asset, 'AGENTCART_X402_ASSET', 'Optional x402 token contract or address. Required before x402-compatible quote requirements are advertised.'); ?>
@@ -990,7 +1042,12 @@ final class AgentCart_ShopBridge {
             'payment_receipt' => $receipt,
         ]));
 
-        $order_response = self::create_order($order_request);
+        self::$sandbox_checkout_active = true;
+        try {
+            $order_response = self::create_order($order_request);
+        } finally {
+            self::$sandbox_checkout_active = false;
+        }
         if (is_wp_error($order_response)) {
             if ($quote_id !== '') {
                 delete_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id);
@@ -1483,8 +1540,11 @@ final class AgentCart_ShopBridge {
         $health_checked_at = (string) ($registry_health_check['checked_at'] ?? '');
         $health_message = (string) ($registry_health_check['message'] ?? '');
         $health_errors = is_array($registry_health_check['errors'] ?? null) ? $registry_health_check['errors'] : [];
+        $health_warnings = is_array($registry_health_check['warnings'] ?? null) ? $registry_health_check['warnings'] : [];
         $health = is_array($registry_health_check['health'] ?? null) ? $registry_health_check['health'] : [];
         $current_record = is_array($health['current_record'] ?? null) ? $health['current_record'] : [];
+        $onchain_readiness = self::registry_onchain_readiness();
+        $onchain_state = (string) ($onchain_readiness['state'] ?? 'not_checked');
         $monitor = is_array($registry_health_check['monitor'] ?? null) ? $registry_health_check['monitor'] : [];
         $alert_delivery_sinks = [];
         if (!empty($monitor['alert_delivery_webhook_configured'])) {
@@ -1577,6 +1637,7 @@ final class AgentCart_ShopBridge {
                         <?php if ($registry_monitor_url !== '') : ?>
                             <br><span class="description">Monitor: <code><?php echo esc_html($registry_monitor_url); ?></code></span>
                         <?php endif; ?>
+                        <br><span class="description">Direct pilot RPC: <code>https://rpc.moderato.tempo.xyz</code> (read only, pinned)</span>
                     </td>
                     <td><?php self::render_admin_status_badge($registry_health_url !== '', 'Available', 'Needs registry connection'); ?></td>
                 </tr>
@@ -1594,6 +1655,8 @@ final class AgentCart_ShopBridge {
                     <td>
                         <?php if (!empty($health_errors)) : ?>
                             <code><?php echo esc_html(implode(', ', array_map('strval', $health_errors))); ?></code>
+                        <?php elseif (!empty($health_warnings)) : ?>
+                            <span class="description">Direct chain check passed; compatibility warnings: <code><?php echo esc_html(implode(', ', array_map('strval', $health_warnings))); ?></code></span>
                         <?php else : ?>
                             <span class="description">No stored registry health errors.</span>
                         <?php endif; ?>
@@ -1612,12 +1675,20 @@ final class AgentCart_ShopBridge {
                                 <br><span class="description">Registry checked_at <?php echo esc_html((string) $current_record['checked_at']); ?></span>
                             <?php endif; ?>
                         <?php else : ?>
-                            <span class="description">Run registry health after submitting the bundle.</span>
+                            <span class="description">Run registry health after saving the public onchain identity and submitting the wallet transaction.</span>
                         <?php endif; ?>
                     </td>
                     <td>
                         <?php self::render_admin_status_badge(!empty($current_record['eligible']) && ($current_record['state'] ?? '') === 'verified', 'Eligible', 'Not eligible'); ?>
                     </td>
+                </tr>
+                <tr>
+                    <th scope="row">Pinned Tempo RPC finalized inclusion</th>
+                    <td>
+                        State: <code><?php echo esc_html($onchain_state); ?></code>
+                        <br><span class="description"><?php echo esc_html((string) ($onchain_readiness['message'] ?? 'Run registry health after enrollment.')); ?></span>
+                    </td>
+                    <td><?php self::render_admin_status_badge($onchain_state === 'finalized_current', 'Finalized', 'Not finalized'); ?></td>
                 </tr>
                 <tr>
                     <th scope="row">Registry monitor snapshot</th>
@@ -2025,7 +2096,8 @@ final class AgentCart_ShopBridge {
 
     public static function maybe_serve_well_known_manifest() {
         $path = wp_parse_url((string) sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? '')), PHP_URL_PATH);
-        if (!in_array($path, ['/.well-known/agentcart.json', '/.well-known/agentcart-registry-proof.json', '/.well-known/agentcart-registry-revocations.json', '/.well-known/agentcart-registry-bundle.json'], true)) {
+        $archive_hash = is_string($path) ? AgentCart_ShopBridge_Registry_Archive::hash_from_path($path) : '';
+        if ($archive_hash === '' && !in_array($path, ['/.well-known/agentcart.json', '/.well-known/agentcart-registry-proof.json', '/.well-known/agentcart-registry-revocations.json', '/.well-known/agentcart-registry-bundle.json'], true)) {
             return;
         }
         $rate_limit = self::enforce_well_known_rate_limit($path);
@@ -2043,6 +2115,9 @@ final class AgentCart_ShopBridge {
         }
         if (!class_exists('WooCommerce')) {
             wp_send_json(['error' => 'WooCommerce is required.'], 503);
+        }
+        if ($archive_hash !== '') {
+            self::serve_archived_registry_record($archive_hash);
         }
         if ($path === '/.well-known/agentcart-registry-proof.json') {
             wp_send_json(self::registry_domain_proof());
@@ -2786,7 +2861,7 @@ final class AgentCart_ShopBridge {
                 return $value;
             }
         }
-        return esc_url_raw((string) get_option(self::REGISTRY_CONNECTION_URL_OPTION, ''));
+        return esc_url_raw((string) get_option(self::REGISTRY_CONNECTION_URL_OPTION, self::DEFAULT_REGISTRY_CONNECTION_URL));
     }
 
     private static function registry_connection_token() {
@@ -2893,57 +2968,113 @@ final class AgentCart_ShopBridge {
     private static function run_registry_health_check() {
         $checked_at = self::current_registry_timestamp();
         $record_hash = self::registry_record_hash_value();
-        $merchant_id = self::merchant()['id'];
+        $merchant = self::merchant();
+        $merchant_id = $merchant['id'];
         $health_url = self::registry_connection_endpoint_url('health');
         $monitor_url = self::registry_connection_endpoint_url('monitor');
-        if (self::registry_connection_url() === '' || $health_url === '') {
-            return [
-                'schema' => 'agentcart.shopbridge.registry_health_check.v1',
-                'state' => 'failed',
-                'checked_at' => $checked_at,
-                'record_hash' => $record_hash,
-                'merchant_id' => $merchant_id,
-                'message' => 'Registry connection URL is not configured.',
-                'errors' => ['registry_connection_url_missing'],
-            ];
+        $events_url = self::registry_connection_endpoint_url('onchain_events');
+        $merchant_summary = [
+            'merchant_id' => (string) ($merchant['id'] ?? ''),
+            'name' => (string) ($merchant['name'] ?? ''),
+            'domain' => self::public_origin_host(),
+            'manifest_url' => home_url('/.well-known/agentcart.json'),
+        ];
+        $direct = AgentCart_ShopBridge_Registry_Rpc::verify(
+            self::registry_onchain_identity(),
+            $record_hash,
+            $merchant_summary
+        );
+        $onchain_source = is_array($direct['onchain_source'] ?? null)
+            ? $direct['onchain_source']
+            : [];
+        $current_record = is_array($direct['current_record'] ?? null)
+            ? $direct['current_record']
+            : [];
+        $errors = array_values(array_map(
+            static fn($error) => sanitize_key((string) $error),
+            (array) ($direct['errors'] ?? [])
+        ));
+        if (empty($current_record)) {
+            $errors[] = 'current_record_not_verified_by_direct_rpc';
         }
 
-        $health_result = self::fetch_registry_connection_json($health_url, false);
+        $health_result = $health_url !== '' ? self::fetch_registry_connection_json($health_url, false) : [
+            'ok' => false,
+            'status' => 0,
+            'error' => 'registry_health_url_missing',
+            'body' => null,
+        ];
         $monitor_result = $monitor_url !== '' ? self::fetch_registry_connection_json($monitor_url, true) : [
             'ok' => false,
             'status' => 0,
             'error' => 'registry_monitor_url_missing',
             'body' => null,
         ];
-        $errors = [];
+        $warnings = [];
         $health_summary = [];
-        $current_record = [];
+        $operator_source = [];
+        $operator_record = [];
+        $events_result = [
+            'ok' => false,
+            'status' => 0,
+            'error' => 'not_needed',
+            'body' => null,
+        ];
         if (empty($health_result['ok'])) {
-            $errors[] = 'registry_health_fetch_failed';
+            $warnings[] = 'registry_health_fetch_failed';
         } else {
             $health_body = is_array($health_result['body'] ?? null) ? $health_result['body'] : [];
             $health_summary = self::registry_health_response_summary($health_body);
-            $current_record = self::registry_health_current_record_check($health_body, $record_hash, $merchant_id);
-            if (empty($current_record)) {
-                $errors[] = 'current_record_not_found_in_registry_health';
+            $has_rich_health = is_array($health_body['onchain_source'] ?? null)
+                && is_array($health_body['checks'] ?? null);
+            if ($has_rich_health) {
+                $operator_source = self::registry_health_onchain_source_summary($health_body);
+                $operator_record = self::registry_health_current_record_check(
+                    $health_body,
+                    $record_hash,
+                    $merchant_id
+                );
+            } elseif ($events_url === '') {
+                $warnings[] = 'registry_onchain_events_url_missing';
             } else {
-                $record_state = sanitize_key((string) ($current_record['state'] ?? 'unknown'));
-                if ($record_state !== 'verified') {
-                    $errors[] = 'current_record_' . ($record_state ?: 'unknown');
+                $events_result = self::fetch_registry_connection_json($events_url, false);
+                if (empty($events_result['ok'])) {
+                    $warnings[] = 'registry_onchain_events_fetch_failed';
+                } else {
+                    $projection = AgentCart_ShopBridge_Registry_Events::project(
+                        is_array($events_result['body'] ?? null) ? $events_result['body'] : [],
+                        self::registry_onchain_identity(),
+                        $record_hash,
+                        $merchant_summary
+                    );
+                    $operator_source = is_array($projection['onchain_source'] ?? null)
+                        ? $projection['onchain_source']
+                        : [];
+                    $operator_record = is_array($projection['current_record'] ?? null)
+                        ? $projection['current_record']
+                        : [];
+                    foreach ((array) ($projection['errors'] ?? []) as $projection_error) {
+                        $warnings[] = sanitize_key((string) $projection_error);
+                    }
                 }
-                if (empty($current_record['eligible'])) {
-                    $errors[] = 'current_record_not_eligible';
-                }
-                $record_errors = is_array($current_record['errors'] ?? null) ? $current_record['errors'] : [];
-                foreach ($record_errors as $record_error) {
-                    $errors[] = 'registry_' . sanitize_key((string) $record_error);
-                }
+            }
+            if ($operator_source !== []) {
+                $operator_source['snapshot_valid'] = array_key_exists('snapshot_valid', $operator_source)
+                    ? !empty($operator_source['snapshot_valid'])
+                    : !empty($operator_source['chain_valid']);
+                $operator_source['canonical_chain_verified'] = false;
+                $operator_source['verification_mode'] = 'operator_snapshot';
+                $operator_source['chain_valid'] = false;
+            }
+            if (empty($operator_record)) {
+                $warnings[] = 'current_record_not_found_in_registry_snapshot';
             }
         }
 
         $monitor_summary = self::registry_monitor_response_summary($monitor_result);
         $errors = array_values(array_unique(array_filter($errors)));
-        $state = empty($health_result['ok']) ? 'failed' : (empty($errors) ? 'verified' : 'attention');
+        $warnings = array_values(array_unique(array_filter($warnings)));
+        $state = empty($errors) ? 'verified' : 'attention';
         return [
             'schema' => 'agentcart.shopbridge.registry_health_check.v1',
             'state' => $state,
@@ -2951,18 +3082,31 @@ final class AgentCart_ShopBridge {
             'registry_url' => self::registry_connection_endpoint_url('registry'),
             'health_url' => $health_url,
             'monitor_url' => $monitor_url,
+            'events_url' => $events_url,
             'record_hash' => $record_hash,
             'merchant_id' => $merchant_id,
             'message' => $state === 'verified'
-                ? 'Current registry record is verified and eligible.'
-                : 'Current registry record is not verified, not eligible, or could not be found.',
+                ? 'Current registry record is verified at one canonical finalized block through the pinned Tempo RPC.'
+                : 'Current registry record could not be verified at one canonical finalized block through the pinned Tempo RPC.',
             'errors' => $errors,
+            'warnings' => $warnings,
             'health' => [
                 'ok' => !empty($health_result['ok']),
                 'status' => intval($health_result['status'] ?? 0),
                 'error' => sanitize_text_field((string) ($health_result['error'] ?? '')),
                 'summary' => $health_summary,
+                'onchain_source' => $onchain_source,
                 'current_record' => $current_record,
+            ],
+            'operator_snapshot' => [
+                'onchain_source' => $operator_source,
+                'current_record' => $operator_record,
+                'notice' => 'Indexer-reported compatibility evidence is not independent canonical-chain verification.',
+            ],
+            'events' => [
+                'ok' => !empty($events_result['ok']),
+                'status' => intval($events_result['status'] ?? 0),
+                'error' => sanitize_text_field((string) ($events_result['error'] ?? '')),
             ],
             'monitor' => $monitor_summary,
         ];
@@ -2970,7 +3114,7 @@ final class AgentCart_ShopBridge {
 
     private static function registry_connection_endpoint_url($endpoint) {
         $endpoint = sanitize_key((string) $endpoint);
-        if (!in_array($endpoint, ['registry', 'records', 'health', 'monitor'], true)) {
+        if (!in_array($endpoint, ['registry', 'records', 'health', 'monitor', 'onchain_events'], true)) {
             return '';
         }
         $registry_url = self::registry_connection_url();
@@ -2997,6 +3141,9 @@ final class AgentCart_ShopBridge {
         if ($endpoint === 'registry') {
             return esc_url_raw($base);
         }
+        if ($endpoint === 'onchain_events') {
+            return esc_url_raw($base . '/onchain/events');
+        }
         return esc_url_raw($base . '/' . $endpoint);
     }
 
@@ -3013,6 +3160,7 @@ final class AgentCart_ShopBridge {
         $response = wp_remote_get(esc_url_raw((string) $url), [
             'timeout' => 8,
             'redirection' => 0,
+            'limit_response_size' => self::REGISTRY_RESPONSE_MAX_BYTES + 1,
             'headers' => $headers,
         ]);
         if (is_wp_error($response)) {
@@ -3025,6 +3173,14 @@ final class AgentCart_ShopBridge {
         }
         $status = intval(wp_remote_retrieve_response_code($response));
         $raw_body = wp_remote_retrieve_body($response);
+        if (strlen($raw_body) > self::REGISTRY_RESPONSE_MAX_BYTES) {
+            return [
+                'ok' => false,
+                'status' => $status,
+                'error' => 'response_too_large',
+                'body' => null,
+            ];
+        }
         $decoded = json_decode($raw_body, true);
         if ($status < 200 || $status >= 300 || !is_array($decoded)) {
             return [
@@ -3059,27 +3215,46 @@ final class AgentCart_ShopBridge {
     }
 
     private static function registry_health_current_record_check($health_body, $record_hash, $merchant_id) {
+        unset($merchant_id);
         $checks = is_array($health_body['checks'] ?? null) ? $health_body['checks'] : [];
-        $merchant_match = [];
         foreach ($checks as $check) {
             if (!is_array($check)) {
                 continue;
             }
             $candidate_hash = (string) ($check['registry_record_hash'] ?? $check['record_hash'] ?? '');
-            $candidate_merchant_id = (string) ($check['merchant_id'] ?? '');
             $summary = self::registry_health_record_summary($check);
             if ($candidate_hash !== '' && hash_equals((string) $record_hash, $candidate_hash)) {
-                return $summary;
-            }
-            if ($merchant_match === [] && $candidate_merchant_id !== '' && hash_equals((string) $merchant_id, $candidate_merchant_id)) {
-                $merchant_match = $summary;
+                return array_merge($summary, ['match_type' => 'record_hash']);
             }
         }
-        return $merchant_match;
+        return [];
+    }
+
+    private static function registry_health_onchain_source_summary($health_body) {
+        $source = is_array($health_body['onchain_source'] ?? null) ? $health_body['onchain_source'] : [];
+        $raw_finality = is_array($source['finality'] ?? null) ? $source['finality'] : [];
+        return [
+            'enabled' => !empty($source['enabled']),
+            'chain_valid' => !empty($source['chain_valid']),
+            'complete' => !empty($source['complete']),
+            'chain_id' => sanitize_text_field((string) ($source['chain_id'] ?? '')),
+            'registry_address' => AgentCart_ShopBridge_Onchain_Identity::sanitize_address($source['registry_address'] ?? ''),
+            'finality' => [
+                'block_tag' => sanitize_key((string) ($raw_finality['block_tag'] ?? '')),
+                'block_number' => intval($raw_finality['block_number'] ?? 0),
+                'block_hash' => strtolower(sanitize_text_field((string) ($raw_finality['block_hash'] ?? ''))),
+                'block_time' => sanitize_text_field((string) ($raw_finality['block_time'] ?? '')),
+                'indexed_from_block' => intval($raw_finality['indexed_from_block'] ?? 0),
+                'indexed_to_block' => intval($raw_finality['indexed_to_block'] ?? 0),
+                'indexed_at' => sanitize_text_field((string) ($raw_finality['indexed_at'] ?? '')),
+            ],
+        ];
     }
 
     private static function registry_health_record_summary($check) {
         $errors = is_array($check['errors'] ?? null) ? $check['errors'] : [];
+        $raw_identity = is_array($check['onchain_identity'] ?? null) ? $check['onchain_identity'] : [];
+        $onchain_record_hash = strtolower(sanitize_text_field((string) ($raw_identity['record_hash'] ?? '')));
         return [
             'merchant_id' => sanitize_text_field((string) ($check['merchant_id'] ?? '')),
             'name' => sanitize_text_field((string) ($check['name'] ?? '')),
@@ -3097,6 +3272,15 @@ final class AgentCart_ShopBridge {
             'manifest_fetched' => !empty($check['manifest_fetched']),
             'manifest_source' => sanitize_text_field((string) ($check['manifest_source'] ?? '')),
             'payment_recipient_configured' => !empty($check['payment_recipient_configured']),
+            'onchain_identity' => [
+                'standard' => sanitize_text_field((string) ($raw_identity['standard'] ?? '')),
+                'controller' => AgentCart_ShopBridge_Onchain_Identity::sanitize_address($raw_identity['controller'] ?? ''),
+                'chain_id' => AgentCart_ShopBridge_Onchain_Identity::sanitize_chain_id($raw_identity['chain_id'] ?? ''),
+                'registry_address' => AgentCart_ShopBridge_Onchain_Identity::sanitize_address($raw_identity['registry_address'] ?? ''),
+                'record_id' => AgentCart_ShopBridge_Onchain_Identity::sanitize_record_id($raw_identity['record_id'] ?? ''),
+                'record_hash' => preg_match('/^(?:0x)?[a-f0-9]{64}$/D', $onchain_record_hash) === 1 ? $onchain_record_hash : '',
+                'status' => sanitize_key((string) ($raw_identity['status'] ?? '')),
+            ],
         ];
     }
 
@@ -3153,9 +3337,18 @@ final class AgentCart_ShopBridge {
     private static function run_registry_public_check() {
         $record = self::suggested_registry_record();
         $record_hash = self::registry_record_hash($record);
+        $record_uri = self::archive_current_registry_record($record, $record_hash);
         $claim_hash = self::registry_claim_hash();
         $errors = [];
         $endpoints = [];
+
+        $immutable_record = self::fetch_public_json($record_uri);
+        $endpoints['immutable_record'] = self::public_check_endpoint_summary($record_uri, $immutable_record);
+        if (!$immutable_record['ok']) {
+            $errors[] = 'immutable_record_fetch_failed';
+        } elseif (self::registry_record_hash($immutable_record['body']) !== $record_hash) {
+            $errors[] = 'immutable_record_rehash_mismatch';
+        }
 
         $manifest = self::fetch_public_json(home_url('/.well-known/agentcart.json'));
         $endpoints['manifest'] = self::public_check_endpoint_summary(home_url('/.well-known/agentcart.json'), $manifest);
@@ -3234,6 +3427,7 @@ final class AgentCart_ShopBridge {
         $response = wp_remote_get(esc_url_raw((string) $url), [
             'timeout' => 8,
             'redirection' => 2,
+            'limit_response_size' => self::REGISTRY_RESPONSE_MAX_BYTES + 1,
             'headers' => [
                 'Accept' => 'application/json',
             ],
@@ -3248,6 +3442,14 @@ final class AgentCart_ShopBridge {
         }
         $status = intval(wp_remote_retrieve_response_code($response));
         $raw_body = wp_remote_retrieve_body($response);
+        if (strlen($raw_body) > self::REGISTRY_RESPONSE_MAX_BYTES) {
+            return [
+                'ok' => false,
+                'status' => $status,
+                'error' => 'response_too_large',
+                'body' => null,
+            ];
+        }
         $decoded = json_decode($raw_body, true);
         if ($status < 200 || $status >= 300 || !is_array($decoded)) {
             return [
@@ -3352,6 +3554,38 @@ final class AgentCart_ShopBridge {
         return home_url('/.well-known/agentcart-registry-bundle.json');
     }
 
+    private static function registry_record_archive() {
+        $archive = get_option(self::REGISTRY_RECORD_ARCHIVE_OPTION, []);
+        return is_array($archive) ? $archive : [];
+    }
+
+    private static function archive_current_registry_record($record, $record_hash) {
+        $archive = AgentCart_ShopBridge_Registry_Archive::put(
+            self::registry_record_archive(),
+            (string) $record_hash,
+            $record,
+            self::current_registry_timestamp()
+        );
+        update_option(self::REGISTRY_RECORD_ARCHIVE_OPTION, $archive, false);
+
+        return home_url(AgentCart_ShopBridge_Registry_Archive::immutable_path((string) $record_hash));
+    }
+
+    private static function serve_archived_registry_record($record_hash) {
+        $entry = AgentCart_ShopBridge_Registry_Archive::get(self::registry_record_archive(), (string) $record_hash);
+        if (!is_array($entry) || !isset($entry['record']) || !is_array($entry['record'])) {
+            wp_send_json(['error' => 'Registry record not found.'], 404);
+        }
+        if (!hash_equals((string) $record_hash, self::registry_record_hash($entry['record']))) {
+            wp_send_json(['error' => 'Registry record archive integrity check failed.'], 500);
+        }
+
+        header('Cache-Control: public, max-age=31536000, immutable');
+        header('ETag: "' . (string) $record_hash . '"');
+        header('X-Content-Type-Options: nosniff');
+        wp_send_json($entry['record']);
+    }
+
     private static function public_origin_host() {
         $host = wp_parse_url(home_url('/'), PHP_URL_HOST);
         return is_string($host) ? strtolower($host) : '';
@@ -3363,6 +3597,8 @@ final class AgentCart_ShopBridge {
 
     private static function registry_domain_proof() {
         $record = self::suggested_registry_record();
+        $record_hash = self::registry_record_hash($record);
+        $record_uri = self::archive_current_registry_record($record, $record_hash);
         $proof = [
             'type' => 'https-well-known',
             'configured' => self::registry_domain_proof_configured(),
@@ -3374,7 +3610,8 @@ final class AgentCart_ShopBridge {
             'payment_recipient' => self::tempo_recipient(),
             'updated_at' => self::registry_updated_at(),
             'revocation_url' => self::registry_revocation_url(),
-            'record_hash' => self::registry_record_hash($record),
+            'record_hash' => $record_hash,
+            'record_uri' => $record_uri,
         ];
         foreach (self::registry_onchain_identity() as $field => $value) {
             if (in_array($field, ['controller', 'chain_id', 'registry_address', 'record_id'], true) && $value !== '') {
@@ -3447,24 +3684,45 @@ final class AgentCart_ShopBridge {
 
     private static function registry_onboarding_bundle() {
         $record = self::suggested_registry_record();
+        $record_hash = self::registry_record_hash($record);
+        $record_uri = self::archive_current_registry_record($record, $record_hash);
+        $onchain_identity = self::registry_onchain_identity();
+        $onchain_readiness = self::registry_onchain_readiness();
+        $onchain_state = (string) ($onchain_readiness['state'] ?? 'not_checked');
+        $merchant_action = empty($onchain_identity)
+            ? 'prepare_onchain_identity'
+            : ($onchain_state === 'onchain_update_required'
+                ? 'prepare_onchain_update'
+                : ($onchain_state === 'finalized_current' ? 'none' : 'approve_onchain_registration'));
         return [
             'type' => 'agentcart-registry-onboarding-bundle',
             'version' => '0.1',
             'merchant_id' => self::merchant()['id'],
             'manifest_url' => home_url('/.well-known/agentcart.json'),
             'registry_record' => $record,
-            'record_hash' => self::registry_record_hash($record),
-            'merchant_action' => 'none',
+            'record_hash' => $record_hash,
+            'record_uri' => $record_uri,
+            'merchant_action' => $merchant_action,
+            'onchain_readiness' => $onchain_readiness,
+            'onchain_identity' => $onchain_identity,
+            'wallet_handoff' => [
+                'requires_external_wallet' => true,
+                'private_key_handled_by_plugin' => false,
+                'controller_role' => 'public registry update and revocation authority',
+                'payment_recipient_is_separate' => true,
+                'buyer_wallet_is_separate' => true,
+            ],
             'proof_document_expected' => self::registry_domain_proof(),
             'revocation_document' => self::registry_revocations(),
             'registry_feed' => [
                 'entries' => [$record],
             ],
             'next_steps' => [
-                'Add registry_record to a public AgentCart registry, append-only feed, or onchain registry adapter.',
-                'Keep this bundle URL available so registries can refresh the auto-managed claim.',
+                'Run the AgentCart registry prepare command with this bundle URL and the public controller address.',
+                'If prepare returns public WordPress identity settings, save them and run prepare again.',
+                'Review chain, contract, domain, controller, record hash, and record URI before approving the external-wallet transaction.',
+                'Run finalized verification before treating the shop as discoverable.',
                 'Only expose the catalog and quote endpoints after products, shipping, and payment verifier settings are ready.',
-                'Run registry verification after HTTPS is configured for the shop domain.',
             ],
         ];
     }
@@ -3501,26 +3759,56 @@ final class AgentCart_ShopBridge {
     }
 
     private static function registry_onchain_identity() {
-        $identity = [];
-        $fields = [
-            'controller' => 'AGENTCART_REGISTRY_ONCHAIN_CONTROLLER',
-            'chain_id' => 'AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID',
-            'registry_address' => 'AGENTCART_REGISTRY_ONCHAIN_ADDRESS',
-            'record_id' => 'AGENTCART_REGISTRY_ONCHAIN_RECORD_ID',
-        ];
-        foreach ($fields as $field => $constant) {
-            if (!defined($constant)) {
-                continue;
-            }
-            $value = sanitize_text_field((string) constant($constant));
-            if ($value !== '') {
-                $identity[$field] = $value;
-            }
-        }
-        if (!empty($identity)) {
-            $identity['standard'] = 'AgentCart-Onchain-Registry-v1';
-        }
-        return $identity;
+        $controller = defined('AGENTCART_REGISTRY_ONCHAIN_CONTROLLER')
+            ? constant('AGENTCART_REGISTRY_ONCHAIN_CONTROLLER')
+            : get_option(self::REGISTRY_ONCHAIN_CONTROLLER_OPTION, '');
+        $chain_id = defined('AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID')
+            ? constant('AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID')
+            : get_option(self::REGISTRY_ONCHAIN_CHAIN_ID_OPTION, '');
+        $registry_address = defined('AGENTCART_REGISTRY_ONCHAIN_ADDRESS')
+            ? constant('AGENTCART_REGISTRY_ONCHAIN_ADDRESS')
+            : get_option(self::REGISTRY_ONCHAIN_ADDRESS_OPTION, '');
+        $record_id = defined('AGENTCART_REGISTRY_ONCHAIN_RECORD_ID')
+            ? constant('AGENTCART_REGISTRY_ONCHAIN_RECORD_ID')
+            : get_option(self::REGISTRY_ONCHAIN_RECORD_ID_OPTION, '');
+
+        return AgentCart_ShopBridge_Onchain_Identity::compose(
+            (string) $controller,
+            (string) $chain_id,
+            (string) $registry_address,
+            (string) $record_id
+        );
+    }
+
+    private static function registry_onchain_readiness() {
+        $public_check = self::registry_public_check_result();
+        $current_record_hash = self::registry_record_hash_value();
+        $metadata_ready = self::public_origin_is_https()
+            && self::registry_domain_proof_configured()
+            && ($public_check['state'] ?? '') === 'verified'
+            && hash_equals($current_record_hash, (string) ($public_check['record_hash'] ?? ''));
+        return AgentCart_ShopBridge_Registry_Readiness::evaluate(
+            $metadata_ready,
+            self::registry_onchain_identity(),
+            $current_record_hash,
+            self::registry_health_check_result()
+        );
+    }
+
+    private static function registry_onchain_controller() {
+        return self::registry_onchain_identity()['controller'] ?? '';
+    }
+
+    private static function registry_onchain_chain_id() {
+        return self::registry_onchain_identity()['chain_id'] ?? '';
+    }
+
+    private static function registry_onchain_address() {
+        return self::registry_onchain_identity()['registry_address'] ?? '';
+    }
+
+    private static function registry_onchain_record_id() {
+        return self::registry_onchain_identity()['record_id'] ?? '';
     }
 
     private static function registry_supported_protocols() {
@@ -3564,20 +3852,20 @@ final class AgentCart_ShopBridge {
 
     private static function protocol_profiles($readiness = null) {
         $readiness = is_array($readiness) ? $readiness : self::readiness();
-        $public_discovery_ready = self::public_discovery_ready($readiness);
-        $public_discovery_blockers = self::public_discovery_blockers($readiness);
+        $commerce_ready = self::commerce_ready($readiness);
+        $commerce_blockers = self::commerce_blockers($readiness);
         $profiles = [
             [
                 'id' => 'agentcart-shopbridge',
                 'type' => 'commerce',
                 'version' => '0.1',
-                'status' => $public_discovery_ready ? 'available' : 'setup_required',
-                'available' => $public_discovery_ready,
-                'setup_required' => !$public_discovery_ready,
-                'unavailable_reasons' => $public_discovery_blockers,
+                'status' => $commerce_ready ? 'available' : 'setup_required',
+                'available' => $commerce_ready,
+                'setup_required' => !$commerce_ready,
+                'unavailable_reasons' => $commerce_blockers,
                 'role' => 'merchant_catalog_quote_checkout',
                 'adapter' => 'agentcart.shopbridge.v1',
-                'paid_order_creation' => $public_discovery_ready,
+                'paid_order_creation' => $commerce_ready,
                 'paid_order_creation_requires_production_ready' => true,
                 'endpoints' => [
                     'manifest' => home_url('/.well-known/agentcart.json'),
@@ -4165,7 +4453,12 @@ final class AgentCart_ShopBridge {
                 !self::payment_verifier_url_allows_private_networks()
                 || self::payment_verifier_internal_trust_is_pinned()
             );
-        $registry_ready = self::public_origin_is_https() && self::registry_domain_proof_configured();
+        $registry_readiness = self::registry_onchain_readiness();
+        $registry_ready = !empty($registry_readiness['ready']);
+        $sandbox_quote_check = self::sandbox_quote_check_result();
+        $sandbox_checkout_test = self::sandbox_checkout_test_result();
+        $sandbox_tests_ready = ($sandbox_quote_check['state'] ?? '') === 'passed'
+            && ($sandbox_checkout_test['state'] ?? '') === 'passed';
         $steps = [
             self::setup_guide_step(
                 'merchant_identity',
@@ -4207,16 +4500,16 @@ final class AgentCart_ShopBridge {
                 'registry',
                 'Verified merchant discovery',
                 $registry_ready,
-                'Publish the well-known manifest and domain proof over HTTPS, then add the generated record to a registry.',
-                'Review registry proof',
+                'Publish merchant metadata, prepare the public identity, approve the external-wallet transaction, and verify the exact current record at a finalized block. Current state: ' . (string) ($registry_readiness['state'] ?? 'unknown') . '.',
+                'Review onchain registry',
                 '#agentcart-registry-proof',
                 ['production']
             ),
             self::setup_guide_step(
                 'sandbox_test',
-                'Sandbox quote and order test',
-                !empty($readiness['demo_ready']),
-                'Run a quote and non-production order test before allowing buyer agents to check out.',
+                'Sandbox quote and dry checkout tests',
+                $sandbox_tests_ready,
+                'Run both persisted admin tests. The dry checkout never calls the live payment verifier and does not prove testnet settlement.',
                 'Open endpoints',
                 '#agentcart-endpoints',
                 ['demo', 'production']
@@ -4358,15 +4651,34 @@ final class AgentCart_ShopBridge {
         ];
     }
 
-    private static function public_discovery_ready($readiness = null) {
+    private static function commerce_ready($readiness = null) {
         $readiness = is_array($readiness) ? $readiness : self::readiness();
         return !empty($readiness['production_ready']);
     }
 
-    private static function public_discovery_blockers($readiness = null) {
+    private static function commerce_blockers($readiness = null) {
         $readiness = is_array($readiness) ? $readiness : self::readiness();
         $blockers = $readiness['missing_for_production'] ?? [];
         return is_array($blockers) ? array_values(array_map('strval', $blockers)) : [];
+    }
+
+    private static function public_discovery_ready($readiness = null) {
+        $readiness = is_array($readiness) ? $readiness : self::readiness();
+        if (!self::commerce_ready($readiness)) {
+            return false;
+        }
+        $registry = self::registry_onchain_readiness();
+        return !empty($registry['ready']) && ($registry['state'] ?? '') === 'finalized_current';
+    }
+
+    private static function public_discovery_blockers($readiness = null) {
+        $readiness = is_array($readiness) ? $readiness : self::readiness();
+        $blockers = self::commerce_blockers($readiness);
+        $registry = self::registry_onchain_readiness();
+        if (empty($registry['ready']) || ($registry['state'] ?? '') !== 'finalized_current') {
+            $blockers[] = 'finalized onchain registry inclusion (' . sanitize_key((string) ($registry['state'] ?? 'not_checked')) . ')';
+        }
+        return array_values(array_unique($blockers));
     }
 
     private static function public_origin_is_https() {
@@ -4439,7 +4751,7 @@ final class AgentCart_ShopBridge {
             ],
             'plugin' => [
                 'name' => 'AgentCart ShopBridge',
-                'version' => '0.2.0',
+                'version' => self::plugin_version(),
                 'wordpress_version' => get_bloginfo('version'),
                 'woocommerce_version' => defined('WC_VERSION') ? WC_VERSION : '',
                 'php_version' => PHP_VERSION,
@@ -4816,6 +5128,31 @@ final class AgentCart_ShopBridge {
                     <?php echo esc_html($description); ?>
                     <?php if ($constant_defined): ?>
                         <br><strong>Configured in wp-config.php via <code><?php echo esc_html($constant); ?></code>.</strong>
+                    <?php endif; ?>
+                </p>
+            </td>
+        </tr>
+        <?php
+    }
+
+    private static function render_tempo_network_setting_row($network) {
+        $constant_defined = defined('AGENTCART_TEMPO_NETWORK');
+        ?>
+        <tr>
+            <th scope="row"><label for="<?php echo esc_attr(self::TEMPO_NETWORK_OPTION); ?>">Tempo payment network</label></th>
+            <td>
+                <select
+                    id="<?php echo esc_attr(self::TEMPO_NETWORK_OPTION); ?>"
+                    name="<?php echo esc_attr(self::TEMPO_NETWORK_OPTION); ?>"
+                    <?php disabled($constant_defined); ?>
+                >
+                    <option value="testnet" <?php selected($network, 'testnet'); ?>>Tempo testnet pilot</option>
+                    <option value="mainnet" <?php selected($network, 'mainnet'); ?>>Tempo mainnet</option>
+                </select>
+                <p class="description">
+                    Use testnet for merchant and buyer pilots; no real money. Mainnet requires a separately approved production rollout.
+                    <?php if ($constant_defined): ?>
+                        <br><strong>Configured in wp-config.php via <code>AGENTCART_TEMPO_NETWORK</code>.</strong>
                     <?php endif; ?>
                 </p>
             </td>
@@ -5276,10 +5613,12 @@ final class AgentCart_ShopBridge {
     private static function capability_document() {
         $readiness = self::readiness();
         $setup_guide = self::setup_guide($readiness);
+        $commerce_ready = self::commerce_ready($readiness);
         $public_discovery_ready = self::public_discovery_ready($readiness);
+        $registry_onboarding_bundle = self::registry_onboarding_bundle();
         return [
             'name' => 'AgentCart ShopBridge for WooCommerce',
-            'version' => '0.2.0',
+            'version' => self::plugin_version(),
             'merchant' => self::merchant(),
             'manifest_url' => home_url('/.well-known/agentcart.json'),
             'readiness' => $readiness,
@@ -5292,7 +5631,7 @@ final class AgentCart_ShopBridge {
                 'catalog' => true,
                 'quote' => true,
                 'server_side_quote_binding' => true,
-                'paid_order_creation' => $public_discovery_ready,
+                'paid_order_creation' => $commerce_ready,
                 'paid_order_creation_requires_production_ready' => true,
                 'public_discovery_ready' => $public_discovery_ready,
                 'public_discovery_blockers' => self::public_discovery_blockers($readiness),
@@ -5435,6 +5774,7 @@ final class AgentCart_ShopBridge {
                 ],
                 'revocation_url' => self::registry_revocation_url(),
                 'registry_bundle_url' => self::registry_bundle_url(),
+                'registry_record_uri' => (string) ($registry_onboarding_bundle['record_uri'] ?? ''),
                 'registry_claim_hash_alg' => 'sha-256',
                 'registry_claim_hash' => self::registry_claim_hash(),
                 'registry_claim' => self::registry_claim(),
@@ -5442,8 +5782,9 @@ final class AgentCart_ShopBridge {
                 'registry_updated_at' => self::registry_updated_at(),
                 'registry_ready' => $public_discovery_ready && self::merchant_registry_profile_configured(),
                 'registry_public_check' => self::registry_public_check_result(),
+                'registry_onchain_readiness' => self::registry_onchain_readiness(),
                 'suggested_registry_record' => self::suggested_registry_record(),
-                'registry_onboarding_bundle' => self::registry_onboarding_bundle(),
+                'registry_onboarding_bundle' => $registry_onboarding_bundle,
             ],
             'payment_verification' => [
                 'mode' => self::payment_verifier_url() !== '' ? 'external_verifier' : 'trusted_agentcart_token',
@@ -5479,6 +5820,11 @@ final class AgentCart_ShopBridge {
                 'rejects_after_fulfillment_tracking' => true,
             ],
         ];
+    }
+
+    private static function plugin_version() {
+        $metadata = get_file_data(__FILE__, ['Version' => 'Version'], 'plugin');
+        return sanitize_text_field((string) ($metadata['Version'] ?? ''));
     }
 
     public static function catalog(WP_REST_Request $request) {
@@ -6692,6 +7038,20 @@ final class AgentCart_ShopBridge {
         }
         if ($receipt_contract_hash === '') {
             return new WP_Error('agentcart_payment_contract_required', 'Payment receipt must include payment_contract_hash.', ['status' => 402]);
+        }
+
+        if (self::$sandbox_checkout_active && !empty($receipt['sandbox']) && current_user_can('manage_woocommerce')) {
+            return [
+                'state' => 'verified',
+                'mode' => 'woocommerce_admin_dry_run',
+                'real_settlement_verified' => false,
+                'amount_cents' => $expected_amount,
+                'currency' => $expected_currency,
+                'rail' => $rail,
+                'quote_hash' => $expected_quote_hash,
+                'payment_contract_hash' => $payment_contract_hash,
+                'note' => 'Admin-only dry checkout. No live verifier request or rail transaction was made.',
+            ];
         }
 
         $verifier_url = self::payment_verifier_url();
@@ -8450,22 +8810,22 @@ final class AgentCart_ShopBridge {
 
     private static function tempo_recipient() {
         if (defined('AGENTCART_TEMPO_RECIPIENT_ADDRESS')) {
-            $value = trim((string) AGENTCART_TEMPO_RECIPIENT_ADDRESS);
+            $value = self::sanitize_tempo_recipient_setting(AGENTCART_TEMPO_RECIPIENT_ADDRESS);
             if ($value !== '') {
                 return $value;
             }
         }
-        return trim((string) get_option(self::TEMPO_RECIPIENT_OPTION, ''));
+        return self::sanitize_tempo_recipient_setting(get_option(self::TEMPO_RECIPIENT_OPTION, ''));
     }
 
     private static function tempo_network() {
         if (defined('AGENTCART_TEMPO_NETWORK')) {
-            $value = trim((string) AGENTCART_TEMPO_NETWORK);
+            $value = self::sanitize_tempo_network_setting(AGENTCART_TEMPO_NETWORK);
             if ($value !== '') {
                 return $value;
             }
         }
-        return trim((string) get_option(self::TEMPO_NETWORK_OPTION, 'testnet')) ?: 'testnet';
+        return self::sanitize_tempo_network_setting(get_option(self::TEMPO_NETWORK_OPTION, 'testnet'));
     }
 
     private static function tempo_settlement_asset() {

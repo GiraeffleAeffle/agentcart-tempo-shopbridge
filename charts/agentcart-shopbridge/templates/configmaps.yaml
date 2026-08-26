@@ -43,5 +43,15 @@ metadata:
   labels:
     {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
 data:
+  class-agentcart-shopbridge-onchain-identity.php: |
+{{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-onchain-identity.php" | indent 4 }}
+  class-agentcart-shopbridge-registry-archive.php: |
+{{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-archive.php" | indent 4 }}
+  class-agentcart-shopbridge-registry-events.php: |
+{{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-events.php" | indent 4 }}
+  class-agentcart-shopbridge-registry-rpc.php: |
+{{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-rpc.php" | indent 4 }}
+  class-agentcart-shopbridge-registry-readiness.php: |
+{{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-readiness.php" | indent 4 }}
   trait-agentcart-shopbridge-verifier-client.php: |
 {{ .Files.Get "files/plugin/includes/trait-agentcart-shopbridge-verifier-client.php" | indent 4 }}
