@@ -5,7 +5,9 @@
  * @package AgentCart_ShopBridge
  */
 
-defined('ABSPATH') || PHP_SAPI === 'cli' || exit;
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 /**
  * Projects one merchant's exact active record from finalized lifecycle events.
@@ -54,7 +56,7 @@ final class AgentCart_ShopBridge_Registry_Events {
             $errors[] = 'events_snapshot_incomplete';
         }
         $document_errors = $document['errors'] ?? null;
-        if (!is_array($document_errors) || !array_is_list($document_errors) || $document_errors !== []) {
+        if (!is_array($document_errors) || !self::is_list($document_errors) || $document_errors !== []) {
             $errors[] = 'events_snapshot_has_errors';
         }
         if ($expected_chain === '' || $chain_id === '' || !hash_equals($expected_chain, $chain_id)) {
@@ -81,7 +83,7 @@ final class AgentCart_ShopBridge_Registry_Events {
         }
 
         $events = $document['events'] ?? null;
-        if (!is_array($events) || !array_is_list($events)) {
+        if (!is_array($events) || !self::is_list($events)) {
             $errors[] = 'events_entries_invalid';
             $events = [];
         }
@@ -326,5 +328,14 @@ final class AgentCart_ShopBridge_Registry_Events {
             $value = substr($value, 2);
         }
         return preg_match('/^[a-f0-9]{64}$/D', $value) === 1 ? $value : '';
+    }
+
+    /**
+     * WordPress 6.4-compatible list detection.
+     *
+     * @param array<mixed> $value Candidate list.
+     */
+    private static function is_list(array $value): bool {
+        return $value === [] || array_keys($value) === range(0, count($value) - 1);
     }
 }

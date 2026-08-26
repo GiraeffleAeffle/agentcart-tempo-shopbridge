@@ -5,7 +5,9 @@
  * @package AgentCart_ShopBridge
  */
 
-defined('ABSPATH') || PHP_SAPI === 'cli' || exit;
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 /**
  * Validates public registry identity without handling wallet secrets.

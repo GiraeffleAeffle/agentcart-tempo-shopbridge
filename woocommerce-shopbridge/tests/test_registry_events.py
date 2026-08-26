@@ -24,6 +24,7 @@ class RegistryEventsBehaviorTests(unittest.TestCase):
 
     def run_php(self, document: dict) -> dict:
         script = f"""<?php
+define('ABSPATH', '/');
 require {json.dumps(str(IDENTITY_MODULE))};
 require {json.dumps(str(EVENTS_MODULE))};
 echo json_encode(AgentCart_ShopBridge_Registry_Events::project(

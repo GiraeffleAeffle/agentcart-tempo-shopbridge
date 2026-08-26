@@ -5,7 +5,9 @@
  * @package AgentCart_ShopBridge
  */
 
-defined('ABSPATH') || PHP_SAPI === 'cli' || exit;
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 /**
  * Verifies the exact merchant record against a fresh finalized RPC view.
@@ -567,7 +569,7 @@ final class AgentCart_ShopBridge_Registry_Rpc {
             self::fail('rpc_response_invalid');
         }
         $decoded = json_decode($body, true);
-        if (!is_array($decoded) || !array_is_list($decoded) || count($decoded) !== count($payload)) {
+        if (!is_array($decoded) || !self::is_list($decoded) || count($decoded) !== count($payload)) {
             self::fail('rpc_response_invalid');
         }
         $by_id = [];
@@ -595,5 +597,14 @@ final class AgentCart_ShopBridge_Registry_Rpc {
 
     private static function fail(string $code): void {
         throw new RuntimeException($code); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Fixed internal error codes are caught and never rendered directly.
+    }
+
+    /**
+     * WordPress 6.4-compatible list detection.
+     *
+     * @param array<mixed> $value Candidate list.
+     */
+    private static function is_list(array $value): bool {
+        return $value === [] || array_keys($value) === range(0, count($value) - 1);
     }
 }

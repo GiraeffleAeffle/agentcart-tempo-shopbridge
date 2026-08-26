@@ -5,7 +5,9 @@
  * @package AgentCart_ShopBridge
  */
 
-defined('ABSPATH') || PHP_SAPI === 'cli' || exit;
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 /**
  * Evaluates metadata, identity, and exact finalized inclusion as separate states.

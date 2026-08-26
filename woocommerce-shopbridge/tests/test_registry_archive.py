@@ -19,6 +19,7 @@ ARCHIVE_MODULE = (
 class RegistryArchiveBehaviorTests(unittest.TestCase):
     def run_php(self, body: str) -> dict:
         script = f"""<?php
+define('ABSPATH', '/');
 require {json.dumps(str(ARCHIVE_MODULE))};
 {body}
 """

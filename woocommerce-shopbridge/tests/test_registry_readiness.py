@@ -28,6 +28,7 @@ class RegistryReadinessBehaviorTests(unittest.TestCase):
 
     def run_php(self, metadata_ready: bool, identity: dict, record_hash: str, health: dict) -> dict:
         script = f"""<?php
+define('ABSPATH', '/');
 require {json.dumps(str(READINESS_MODULE))};
 echo json_encode(AgentCart_ShopBridge_Registry_Readiness::evaluate(
     {"true" if metadata_ready else "false"},

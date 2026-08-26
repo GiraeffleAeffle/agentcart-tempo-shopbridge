@@ -5,7 +5,9 @@
  * @package AgentCart_ShopBridge
  */
 
-defined('ABSPATH') || PHP_SAPI === 'cli' || exit;
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 /**
  * Maps registry record hashes to stable public paths and archive entries.

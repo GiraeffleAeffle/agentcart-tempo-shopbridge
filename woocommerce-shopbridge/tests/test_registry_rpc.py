@@ -84,6 +84,7 @@ class RegistryRpcBehaviorTests(unittest.TestCase):
 
     def run_php(self, responses: dict) -> dict:
         script = f"""<?php
+define('ABSPATH', '/');
 require {json.dumps(str(IDENTITY_MODULE))};
 require {json.dumps(str(RPC_MODULE))};
 $responses = json_decode({json.dumps(json.dumps(responses))}, true);
@@ -132,6 +133,7 @@ echo json_encode(AgentCart_ShopBridge_Registry_Rpc::verify(
 
     def run_default_transport_php(self, responses: dict) -> dict:
         script = f"""<?php
+define('ABSPATH', '/');
 $responses = json_decode({json.dumps(json.dumps(responses))}, true);
 $batch_count = 0;
 $rpc_urls = [];
