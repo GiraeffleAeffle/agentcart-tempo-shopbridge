@@ -129,7 +129,15 @@ longer returned by default because it is not registered onchain.
 
 `agentcart-demo/woo-usd-verifier` runs one Ready, zero-restart replica from:
 
-`ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier@sha256:689e62705ec34112b053fbfc0461e26477055678cb3eb00ccfa1437c79de75e8`
+`ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier@sha256:14c037261ba95c2e92674189dda23eb67f040406461e132e442a983011c37142`
+
+Release `v1.19.0` was deployed to the Talos reference shop on 2026-08-26. A
+fresh Direct Skill doctor matched the contract projection and storage at
+finalized block `32559333`, verified the committed USD merchant record and
+domain, found Hazel's Chocolate Tea, and produced a complete-address 15.78 USD
+quote whose subtotal, shipping, and gross-tax metadata reconciled exactly.
+Both `approval_packet.approval_ready` and `checkout_preflight.ok` were true. No
+buyer checkout was executed during that read-only approval-path test.
 
 The 1,578-cent USD drill bound quote hash `a12ac8ce...f9fd8` to payment
 contract hash `aab9c536...9dc80`. Payment transaction
@@ -146,6 +154,11 @@ Bound PVC retains a verified online backup with SHA-256
 The warning event was generated, but delivery was skipped because no alert
 webhook is configured.
 
+The `v1.19.0` deployment rehearsal added a second quote-bound pathUSD testnet
+payment and verifier-backed refund. The durable replay counts were two
+payments, two refund requests, and two refunds both before and after the
+mandatory verifier restart.
+
 ## Ordered Completion Gate
 
 1. **Complete:** deploy the hardened USD ShopBridge profile to Talos and record
@@ -157,18 +170,22 @@ webhook is configured.
    recover through a new immutable hash.
 4. **Complete:** reproduce the finalized lifecycle through two independent
    full-history RPC/indexer paths.
-5. **Complete in source:** package the supervised merchant flow with public
+5. **Complete:** package and publish the supervised merchant flow with public
    WordPress identity, immutable merchant records, two-phase external-wallet
    plans, exact finalized verification, and retained-plan revocation.
-6. **External next step:** publish the updated plugin/skill artifacts, hand the
-   skill to a non-maintainer buyer agent, and run a non-maintainer merchant
-   installation and Tempo Moderato enrollment session.
+6. **Complete for the maintainer reference shop:** deploy release `v1.19.0`,
+   re-run finalized discovery, and reach an approval-ready, financially
+   consistent quote without executing buyer checkout.
+7. **External next step:** hand the released skill to a non-maintainer buyer
+   agent, and run a non-maintainer merchant installation and Tempo Moderato
+   enrollment session.
 
 ## Current External Gate
 
-PRs #60 and #61 are merged. GitHub published the public amd64 verifier image
-with provenance, SBOM, and attestation; the Talos pull succeeded and no
-developer-machine container build was used.
+PRs #60, #61, and #65 are merged. GitHub release `v1.19.0` contains the public
+plugin and skill artifacts, and GitHub published the public amd64 verifier
+image with provenance, SBOM, and attestation. The Talos pull and live reference
+shop rollout succeeded; no developer-machine container build was used.
 
 The remaining gates are explicit:
 
@@ -179,8 +196,7 @@ The remaining gates are explicit:
   result;
 - obtain an independent contract/security review and production governance
   decision;
-- publish the buyer-readiness and merchant-onboarding updates, rerun the
-  workstation-agent flow through an approval-ready quote, and complete an
+- run the released skill with a non-maintainer buyer agent and complete an
   external merchant installation, controller-wallet, update, and revoke
   session;
 - complete merchant-specific external-verifier onboarding against the published
