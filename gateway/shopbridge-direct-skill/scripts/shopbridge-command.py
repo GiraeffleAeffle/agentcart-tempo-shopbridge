@@ -45,6 +45,14 @@ DEFAULT_REGISTRY_URL = "https://registry.agentcart.eu/v1/registry/records"
 DEFAULT_DISCOVERY_INDEX_URL = "https://registry.agentcart.eu/v1/registry/discovery-index"
 DEFAULT_ONCHAIN_CHAIN_ID = 42431
 DEFAULT_ONCHAIN_REGISTRY_ADDRESS = "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+DEFAULT_ONCHAIN_DISCOVERY_FACETS_ADDRESS = "0x693de216d208ADC933365bD6F4FCbC062BB8Afe5"
+DEFAULT_ONCHAIN_DISCOVERY_FACETS_FROM_BLOCK = 32_721_088
+DEFAULT_ONCHAIN_DISCOVERY_FACETS_DEPLOYMENT_BLOCK_HASH = (
+    "0xc3742bb0f7b5db034ccb36f8fdd252be4b8aeacb17018b374d77c0cf5fdcc8dd"
+)
+DEFAULT_ONCHAIN_DISCOVERY_FACETS_RUNTIME_CODE_HASH = (
+    "0x3a5d6e537b74546d91a80f3fa728acff2b9f217efea0cbf22a848ae43af27d12"
+)
 DISABLE_DEFAULT_REGISTRY = env_bool("SHOPBRIDGE_DISABLE_DEFAULT_REGISTRY", False)
 ALLOW_PRIVATE_ORIGIN = env_bool(
     "SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN",
@@ -115,6 +123,25 @@ ONCHAIN_RPC_FROM_BLOCK = env_int(
 ONCHAIN_RPC_DEPLOYMENT_BLOCK_HASH = (
     os.getenv("SHOPBRIDGE_ONCHAIN_DEPLOYMENT_BLOCK_HASH")
     or os.getenv("AGENTCART_ONCHAIN_DEPLOYMENT_BLOCK_HASH")
+    or ""
+).strip()
+ONCHAIN_DISCOVERY_FACETS_ADDRESS = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_ADDRESS")
+    or os.getenv("AGENTCART_ONCHAIN_DISCOVERY_FACETS_ADDRESS")
+    or ""
+).strip()
+ONCHAIN_DISCOVERY_FACETS_FROM_BLOCK = env_int(
+    "SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_FROM_BLOCK",
+    env_int("AGENTCART_ONCHAIN_DISCOVERY_FACETS_FROM_BLOCK", 0),
+)
+ONCHAIN_DISCOVERY_FACETS_DEPLOYMENT_BLOCK_HASH = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_DEPLOYMENT_BLOCK_HASH")
+    or os.getenv("AGENTCART_ONCHAIN_DISCOVERY_FACETS_DEPLOYMENT_BLOCK_HASH")
+    or ""
+).strip()
+ONCHAIN_DISCOVERY_FACETS_RUNTIME_CODE_HASH = (
+    os.getenv("SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_RUNTIME_CODE_HASH")
+    or os.getenv("AGENTCART_ONCHAIN_DISCOVERY_FACETS_RUNTIME_CODE_HASH")
     or ""
 ).strip()
 ONCHAIN_RPC_LOG_CHUNK_SIZE = env_int(
@@ -1335,25 +1362,7 @@ def configured_discovery_index_url(args: dict[str, Any]) -> str:
     ).strip()
     if explicit:
         return explicit
-    if default_registry_disabled(args) or boolish(args.get("disable_discovery_index"), False):
-        return ""
-    try:
-        configured_chain_id = int(
-            args.get("onchain_chain_id") or args.get("chain_id") or ONCHAIN_RPC_CHAIN_ID
-        )
-    except (TypeError, ValueError):
-        return ""
-    configured_registry_address = str(
-        args.get("onchain_registry_address")
-        or args.get("registry_address")
-        or ONCHAIN_RPC_REGISTRY_ADDRESS
-    ).lower()
-    if (
-        configured_chain_id != DEFAULT_ONCHAIN_CHAIN_ID
-        or configured_registry_address != DEFAULT_ONCHAIN_REGISTRY_ADDRESS.lower()
-    ):
-        return ""
-    return DEFAULT_DISCOVERY_INDEX_URL
+    return ""
 
 
 def discovery_index_queries(args: dict[str, Any]) -> tuple[list[str], bool]:
@@ -1368,6 +1377,21 @@ def discovery_index_queries(args: dict[str, Any]) -> tuple[list[str], bool]:
     ]
     queries = [value for value in queries if value]
     return queries, bool(queries)
+
+
+def onchain_category_hash_groups(args: dict[str, Any]) -> list[set[str]]:
+    queries, require_all_queries = discovery_index_queries(args)
+    groups = [
+        {
+            "0x" + onchain_rpc.keccak256(category.encode("utf-8")).hex()
+            for category in discovery_facets.query_category_candidates(query)
+        }
+        for query in queries
+    ]
+    groups = [group for group in groups if group]
+    if not groups or require_all_queries:
+        return groups
+    return [set().union(*groups)]
 
 
 def discovery_index_hints(args: dict[str, Any]) -> tuple[set[str], dict[str, Any]]:
@@ -1548,14 +1572,37 @@ def configured_onchain_deployment(args: dict[str, Any]) -> Any:
             default=0,
             code="max_finality_age_seconds_invalid",
         )
+    registry_address = str(
+        args.get("onchain_registry_address")
+        or args.get("registry_address")
+        or ONCHAIN_RPC_REGISTRY_ADDRESS
+    )
+    explicit_facets_address = str(
+        args.get("onchain_discovery_facets_address")
+        or args.get("discovery_facets_address")
+        or ONCHAIN_DISCOVERY_FACETS_ADDRESS
+    )
+    default_facets = (
+        chain_id == DEFAULT_ONCHAIN_CHAIN_ID
+        and registry_address.lower() == DEFAULT_ONCHAIN_REGISTRY_ADDRESS.lower()
+    )
+    discovery_facets_address = (
+        explicit_facets_address
+        or (DEFAULT_ONCHAIN_DISCOVERY_FACETS_ADDRESS if default_facets else "")
+    )
+    discovery_facets_from_block_default = (
+        DEFAULT_ONCHAIN_DISCOVERY_FACETS_FROM_BLOCK
+        if discovery_facets_address.lower() == DEFAULT_ONCHAIN_DISCOVERY_FACETS_ADDRESS.lower()
+        else 0
+    )
+    default_facets_descriptor = (
+        discovery_facets_address.lower() == DEFAULT_ONCHAIN_DISCOVERY_FACETS_ADDRESS.lower()
+        and chain_id == DEFAULT_ONCHAIN_CHAIN_ID
+    )
     return onchain_rpc.RegistryDeployment(
         rpc_url=configured_onchain_rpc_url(args),
         chain_id=chain_id,
-        registry_address=str(
-            args.get("onchain_registry_address")
-            or args.get("registry_address")
-            or ONCHAIN_RPC_REGISTRY_ADDRESS
-        ),
+        registry_address=registry_address,
         from_block=onchain_config_int(
             args.get("onchain_from_block") or args.get("from_block"),
             default=ONCHAIN_RPC_FROM_BLOCK,
@@ -1577,6 +1624,36 @@ def configured_onchain_deployment(args: dict[str, Any]) -> Any:
             args.get("onchain_deployment_block_hash")
             or args.get("deployment_block_hash")
             or ONCHAIN_RPC_DEPLOYMENT_BLOCK_HASH
+        ),
+        discovery_facets_address=discovery_facets_address,
+        discovery_facets_from_block=onchain_config_int(
+            args.get("onchain_discovery_facets_from_block")
+            or args.get("discovery_facets_from_block"),
+            default=(
+                ONCHAIN_DISCOVERY_FACETS_FROM_BLOCK
+                or discovery_facets_from_block_default
+            ),
+            code="discovery_facets_from_block_invalid",
+        ),
+        discovery_facets_deployment_block_hash=str(
+            args.get("onchain_discovery_facets_deployment_block_hash")
+            or args.get("discovery_facets_deployment_block_hash")
+            or ONCHAIN_DISCOVERY_FACETS_DEPLOYMENT_BLOCK_HASH
+            or (
+                DEFAULT_ONCHAIN_DISCOVERY_FACETS_DEPLOYMENT_BLOCK_HASH
+                if default_facets_descriptor
+                else ""
+            )
+        ),
+        discovery_facets_runtime_code_hash=str(
+            args.get("onchain_discovery_facets_runtime_code_hash")
+            or args.get("discovery_facets_runtime_code_hash")
+            or ONCHAIN_DISCOVERY_FACETS_RUNTIME_CODE_HASH
+            or (
+                DEFAULT_ONCHAIN_DISCOVERY_FACETS_RUNTIME_CODE_HASH
+                if default_facets_descriptor
+                else ""
+            )
         ),
     )
 
@@ -1620,6 +1697,11 @@ def registry_records_from_source(
             facet_diagnostics: dict[str, Any] = {}
             if not preferred_record_ids and not preferred_domain_hashes:
                 hinted_record_ids, facet_diagnostics = discovery_index_hints(args)
+            category_hash_groups = (
+                []
+                if preferred_record_ids or preferred_domain_hashes
+                else onchain_category_hash_groups(args)
+            )
             document = onchain_rpc.collect_finalized_events(
                 deployment,
                 record_loader=committed_registry_record,
@@ -1628,6 +1710,7 @@ def registry_records_from_source(
                 preferred_record_ids=preferred_record_ids,
                 preferred_domain_hashes=preferred_domain_hashes,
                 hinted_record_ids=hinted_record_ids,
+                category_hash_groups=category_hash_groups,
             )
         except onchain_rpc.OnchainRpcError as exc:
             raise SystemExit(onchain_rpc.error_document(exc)) from exc
@@ -1658,7 +1741,8 @@ def registry_records_from_source(
                     "contract_storage_verification": document["contract_storage_verification"],
                     "record_resolution_errors": document.get("record_errors", []),
                     "record_selection": document.get("record_selection", {}),
-                    "discovery_index": facet_diagnostics,
+                    "onchain_discovery_facets": document.get("onchain_discovery_facets", {}),
+                    "hosted_discovery_index": facet_diagnostics,
                 }
             )
         return [record for record in index["records"] if isinstance(record, dict)]
@@ -3328,6 +3412,19 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "onchain_deployment_block_hash_configured": bool(
                 deployment_config and deployment_config.deployment_block_hash
             ),
+            "onchain_discovery_facets_address": deployment_config.discovery_facets_address
+            if deployment_config is not None
+            else "",
+            "onchain_discovery_facets_from_block": deployment_config.discovery_facets_from_block
+            if deployment_config is not None
+            else None,
+            "onchain_discovery_facets_deployment_block_hash_configured": bool(
+                deployment_config
+                and deployment_config.discovery_facets_deployment_block_hash
+            ),
+            "onchain_discovery_facets_runtime_code_hash_configured": bool(
+                deployment_config and deployment_config.discovery_facets_runtime_code_hash
+            ),
             "onchain_rpc_profile": deployment_config.rpc_profile
             if deployment_config is not None
             else "",
@@ -3828,9 +3925,32 @@ def quote_rank_reasons(
         reasons.append("merchant registry verification passed")
     destination = preflight.get("payment_destination") if isinstance(preflight.get("payment_destination"), dict) else {}
     if destination.get("rail"):
-        reasons.append(f"payment rail ready: {payment_destination_label(destination)}")
+        if "external_verifier_required_for_public_checkout" in preflight.get("issues", []):
+            reasons.append(
+                f"payment destination advertised, checkout verifier not configured: {payment_destination_label(destination)}"
+            )
+        else:
+            reasons.append(f"payment rail ready: {payment_destination_label(destination)}")
     reasons.append("no paid ranking signal used")
     return reasons
+
+
+COMPARISON_DEFERRED_ISSUES = frozenset(
+    {
+        "incomplete_delivery_address",
+        "external_verifier_required_for_public_checkout",
+    }
+)
+
+
+def comparison_quote_blockers(preflight: dict[str, Any]) -> list[str]:
+    """Keep execution-only readiness issues visible without suppressing a quote."""
+
+    return [
+        issue
+        for issue in preflight.get("issues", [])
+        if issue not in COMPARISON_DEFERRED_ISSUES
+    ]
 
 
 def prequote_candidate_sample(
@@ -4015,11 +4135,7 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
                 continue
-            comparison_blockers = [
-                issue
-                for issue in preflight.get("issues", [])
-                if issue != "incomplete_delivery_address"
-            ]
+            comparison_blockers = comparison_quote_blockers(preflight)
             if comparison_blockers or not preflight.get("available_payment_methods"):
                 rejected.append(
                     {
@@ -4056,6 +4172,7 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                     "quote_hash": quote.get("quote_hash"),
                     "approval_hash": preflight.get("approval_hash"),
                     "payment_destination": preflight.get("payment_destination"),
+                    "checkout_issues": preflight.get("issues", []),
                     "unit_value": unit_value,
                     "registry": {
                         "manifest_url": resolved.get("manifest_url"),
@@ -4294,11 +4411,7 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 }
             )
             continue
-        comparison_blockers = [
-            issue
-            for issue in preflight.get("issues", [])
-            if issue != "incomplete_delivery_address"
-        ]
+        comparison_blockers = comparison_quote_blockers(preflight)
         if comparison_blockers or not preflight.get("available_payment_methods"):
             rejected.append(
                 {
@@ -4349,6 +4462,7 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 "quote_hash": quote.get("quote_hash"),
                 "approval_hash": preflight.get("approval_hash"),
                 "payment_destination": preflight.get("payment_destination"),
+                "checkout_issues": preflight.get("issues", []),
                 "unit_values": basket_unit_values(matched_products, quote),
                 "registry": {
                     "manifest_url": resolved.get("manifest_url"),

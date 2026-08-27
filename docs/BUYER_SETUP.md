@@ -101,33 +101,39 @@ export SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN=1
 ```
 
 Normal multi-merchant discovery needs no configuration. The buyer skill queries
-the registry smart contract directly using:
+the registry and category-declaration smart contracts directly using:
 
 ```text
 RPC: https://rpc.moderato.tempo.xyz
 Chain: eip155:42431
 Contract: 0x0965961617c5B0898167AA4034C5511dB0EfcA07
 Deployment block: 30731101
+Discovery Facets: 0x693de216d208ADC933365bD6F4FCbC062BB8Afe5
+Discovery Facets deployment block: 32721088
+Discovery Facets deployment block hash: 0xc3742bb0f7b5db034ccb36f8fdd252be4b8aeacb17018b374d77c0cf5fdcc8dd
+Discovery Facets runtime code hash: 0x3a5d6e537b74546d91a80f3fa728acff2b9f217efea0cbf22a848ae43af27d12
 ```
 
 It requests the RPC `finalized` head, reads the eligibility-changing contract
-logs from the deployment block, and reconstructs current lifecycle state. It
-uses the public category index as an untrusted routing hint when a Registry
-Record has hash-committed Discovery Facets, while reserving a deterministic
-neutral fallback. It then chooses a bounded set of active candidates and
-fetches only each selected record's current `recordURI`; historical record
-documents do not have to remain online. The skill checks the committed hash,
-controller/domain binding,
+logs and matching indexed category declarations from their deployment blocks,
+and reconstructs current lifecycle state. A category declaration is usable
+only when its generation and category-set commitment match both finalized
+contract state and the current hash-committed Registry Record. A deterministic
+neutral fallback remains for ambiguous queries and uncategorized merchants. It
+then chooses a bounded set of active candidates and fetches only each selected
+record's current `recordURI`; historical record documents do not have to remain
+online. The skill checks the committed hash, controller/domain binding,
 lifecycle projection, and the contract's current storage views at the verified
 boundary. Only after that does it verify the merchant domain proof, manifest,
 payment binding, freshness, and revocation document. Revoked, suspended,
 incomplete, wrong-chain, wrong-contract, or unfinalized state fails closed.
 
-The index is not a product database or ranking service. A category match merely
-reduces which records are fetched before catalog search; the current merchant
-catalog must still contain the requested product. For another chain, configure
-its own `SHOPBRIDGE_DISCOVERY_INDEX_URL` or omit the index and use bounded
-query-seeded fallback discovery.
+The on-chain categories are not a product database or ranking service. A
+category match merely reduces which records are fetched before catalog search;
+the current merchant catalog must still contain the requested product. The
+buyer agent requests comparison quotes from every selected eligible merchant
+and ranks those live quotes locally. No AgentCart server or hosted merchant
+list participates in that decision.
 
 To use a different deployment or RPC:
 
@@ -136,6 +142,10 @@ export SHOPBRIDGE_ONCHAIN_RPC_URL=https://rpc.example
 export SHOPBRIDGE_ONCHAIN_CHAIN_ID=42431
 export SHOPBRIDGE_ONCHAIN_REGISTRY_ADDRESS=0x...
 export SHOPBRIDGE_ONCHAIN_FROM_BLOCK=30731101
+export SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_ADDRESS=0x...
+export SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_FROM_BLOCK=32721088
+export SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_DEPLOYMENT_BLOCK_HASH=0x...
+export SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_RUNTIME_CODE_HASH=0x...
 # Optional for a standard historical RPC; mandatory with Myotis
 export SHOPBRIDGE_ONCHAIN_DEPLOYMENT_BLOCK_HASH=0x...
 export SHOPBRIDGE_ONCHAIN_RPC_PROFILE=auto

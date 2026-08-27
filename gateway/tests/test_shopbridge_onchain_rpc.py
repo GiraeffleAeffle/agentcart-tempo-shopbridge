@@ -147,6 +147,9 @@ class FakeRpc:
         self.myotis_wakeup_ok = myotis_wakeup_ok
         self.myotis_wakeup_calls = 0
         self.registry = onchain_rpc.DEFAULT_REGISTRY_ADDRESS.lower()
+        self.facets_address = "0x7777777777777777777777777777777777777777"
+        self.registry_code = "0x60016000"
+        self.facets_code = "0x60026000"
         self.controller = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         self.record_id = "0x" + "4" * 64
         self.record_hash = "0x" + "5" * 64
@@ -158,6 +161,8 @@ class FakeRpc:
         self.log_calls: list[dict] = []
         self.block_calls: list[str] = []
         self.logs = [self.registered_log()]
+        self.facet_logs: list[dict] = []
+        self.facet_states: dict[str, dict] = {}
         self.states = {
             self.record_id: {
                 "controller": self.controller,
@@ -180,6 +185,53 @@ class FakeRpc:
                 "controller": self.controller,
             },
         }
+
+    def record_with_facets(self, categories: list[str]) -> dict:
+        value = self.record()
+        value["discovery_facets"] = {
+            "schema": onchain_rpc.discovery_facets.FACETS_SCHEMA,
+            "taxonomy": onchain_rpc.discovery_facets.TAXONOMY,
+            "source": onchain_rpc.discovery_facets.SOURCE_EXPOSED_CATALOG,
+            "categories": sorted(categories),
+            "category_count_total": len(categories),
+            "coverage": "complete",
+            "truncated": False,
+        }
+        return value
+
+    def enable_facets(self, categories: list[str], *, generation: int = 1) -> set[str]:
+        category_hashes = sorted(
+            "0x" + onchain_rpc.keccak256(category.encode()).hex()
+            for category in categories
+        )
+        set_hash = "0x" + onchain_rpc.keccak256(
+            b"".join(bytes32(value) for value in category_hashes)
+        ).hex()
+        self.facet_states[self.record_id] = {
+            "record_hash": self.record_hash,
+            "category_set_hash": set_hash,
+            "generation": generation,
+            "category_count": len(category_hashes),
+        }
+        self.facet_logs = [
+            {
+                "address": self.facets_address,
+                "blockNumber": hex(110),
+                "blockHash": self.block_hash,
+                "transactionHash": "0x" + f"{2000 + index:064x}",
+                "logIndex": hex(index),
+                "removed": False,
+                "topics": [
+                    onchain_rpc.DISCOVERY_CATEGORY_DECLARED_TOPIC,
+                    category_hash,
+                    self.record_id,
+                    "0x" + word(generation).hex(),
+                ],
+                "data": "0x",
+            }
+            for index, category_hash in enumerate(category_hashes)
+        ]
+        return set(category_hashes)
 
     def registered_log(self) -> dict:
         return {
@@ -348,12 +400,11 @@ class FakeRpc:
                 "timestamp": hex(self.finalized_timestamp - 100),
             }
         elif method == "eth_getCode":
+            target = params[0].lower()
             selector = params[1]
-            result = (
-                "0x"
-                if selector not in {"latest", "finalized"} and int(selector, 16) < 100
-                else "0x60016000"
-            )
+            deployment_block = 105 if target == self.facets_address else 100
+            code = self.facets_code if target == self.facets_address else self.registry_code
+            result = "0x" if selector not in {"latest", "finalized"} and int(selector, 16) < deployment_block else code
         elif method == "eth_getLogs":
             query = params[0]
             self.log_calls.append(query)
@@ -361,6 +412,14 @@ class FakeRpc:
             end = int(query["toBlock"], 16)
             if query.get("topics", [None])[0] == onchain_rpc.OWNERSHIP_TRANSFERRED_TOPIC:
                 result = [self.ownership_transferred_log()] if start <= 100 <= end else []
+            elif query.get("address") == self.facets_address:
+                requested = set(query.get("topics", [None, []])[1])
+                result = [
+                    log
+                    for log in self.facet_logs
+                    if start <= int(log["blockNumber"], 16) <= end
+                    and log["topics"][1] in requested
+                ]
             else:
                 result = [
                     log
@@ -369,7 +428,20 @@ class FakeRpc:
                 ]
         elif method == "eth_call":
             data = params[0]["data"]
-            if data.startswith(onchain_rpc.RECORD_SELECTOR):
+            target = params[0]["to"].lower()
+            if target == self.facets_address and data == onchain_rpc.DISCOVERY_FACETS_REGISTRY_SELECTOR:
+                result = "0x" + address_word(self.registry).hex()
+            elif target == self.facets_address and data.startswith(onchain_rpc.DISCOVERY_FACET_STATE_SELECTOR):
+                state = self.facet_states["0x" + data[-64:]]
+                result = "0x" + b"".join(
+                    [
+                        bytes32(state["record_hash"]),
+                        bytes32(state["category_set_hash"]),
+                        word(state["generation"]),
+                        word(state["category_count"]),
+                    ]
+                ).hex()
+            elif data.startswith(onchain_rpc.RECORD_SELECTOR):
                 state = self.states["0x" + data[-64:]]
                 result = encode_record_call(
                     state["controller"],
@@ -452,6 +524,19 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
             "0x" + onchain_rpc.keccak256(b"revokedRecordHashes(bytes32)")[:4].hex(),
         )
         self.assertEqual(
+            onchain_rpc.DISCOVERY_FACETS_REGISTRY_SELECTOR,
+            "0x" + onchain_rpc.keccak256(b"registry()")[:4].hex(),
+        )
+        self.assertEqual(
+            onchain_rpc.DISCOVERY_FACET_STATE_SELECTOR,
+            "0x" + onchain_rpc.keccak256(b"facetState(bytes32)")[:4].hex(),
+        )
+        self.assertEqual(
+            onchain_rpc.DISCOVERY_CATEGORY_DECLARED_TOPIC,
+            "0x"
+            + onchain_rpc.keccak256(b"CategoryDeclared(bytes32,bytes32,uint64)").hex(),
+        )
+        self.assertEqual(
             onchain_rpc.OWNERSHIP_TRANSFERRED_TOPIC,
             "0x"
             + onchain_rpc.keccak256(b"OwnershipTransferred(address,address)").hex(),
@@ -489,6 +574,136 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
         self.assertEqual(loader_calls, [(rpc.record_uri, rpc.record_hash)])
         self.assertEqual(len(rpc.log_calls), 3)
         self.assertEqual(rpc.log_calls[0]["topics"], [list(onchain_rpc.EVENT_SPECS)])
+
+    def test_onchain_category_declaration_routes_and_verifies_committed_facets(self) -> None:
+        rpc = FakeRpc()
+        category_hashes = rpc.enable_facets(["coffee", "tea"])
+        tea_hash = "0x" + onchain_rpc.keccak256(b"tea").hex()
+
+        document = onchain_rpc.collect_finalized_events(
+            onchain_rpc.RegistryDeployment(
+                rpc_url="https://rpc.example",
+                from_block=100,
+                log_chunk_size=10,
+                discovery_facets_address=rpc.facets_address,
+                discovery_facets_from_block=105,
+            ),
+            record_loader=lambda _uri, _record_hash: rpc.record_with_facets(["coffee", "tea"]),
+            request_json=rpc.request,
+            now=lambda: dt.datetime.fromtimestamp(rpc.finalized_timestamp, tz=dt.timezone.utc),
+            record_candidate_limit=1,
+            record_candidate_seed="tea",
+            category_hash_groups=[{tea_hash}],
+        )
+
+        self.assertIn(tea_hash, category_hashes)
+        self.assertEqual(
+            document["record_selection"]["selection_mode"],
+            "discovery_facets_with_neutral_fallback",
+        )
+        self.assertEqual(document["record_selection"]["selected_record_ids"], [rpc.record_id])
+        self.assertTrue(document["onchain_discovery_facets"]["used"])
+        self.assertEqual(document["onchain_discovery_facets"]["matched_record_count"], 1)
+        self.assertEqual(document["record_errors"], [])
+
+    def test_stale_or_record_mismatched_category_declaration_fails_closed(self) -> None:
+        rpc = FakeRpc()
+        rpc.enable_facets(["tea"], generation=1)
+        tea_hash = "0x" + onchain_rpc.keccak256(b"tea").hex()
+        rpc.facet_states[rpc.record_id]["generation"] = 2
+        stale = onchain_rpc.collect_finalized_events(
+            onchain_rpc.RegistryDeployment(
+                rpc_url="https://rpc.example",
+                from_block=100,
+                discovery_facets_address=rpc.facets_address,
+                discovery_facets_from_block=105,
+            ),
+            record_loader=lambda _uri, _record_hash: rpc.record(),
+            request_json=rpc.request,
+            now=lambda: dt.datetime.fromtimestamp(rpc.finalized_timestamp, tz=dt.timezone.utc),
+            record_candidate_limit=1,
+            record_candidate_seed="tea",
+            category_hash_groups=[{tea_hash}],
+        )
+        self.assertFalse(stale["onchain_discovery_facets"]["used"])
+        self.assertEqual(stale["record_selection"]["selection_mode"], "query_seeded_sample")
+
+        rpc = FakeRpc()
+        rpc.enable_facets(["tea"])
+        mismatched = onchain_rpc.collect_finalized_events(
+            onchain_rpc.RegistryDeployment(
+                rpc_url="https://rpc.example",
+                from_block=100,
+                discovery_facets_address=rpc.facets_address,
+                discovery_facets_from_block=105,
+            ),
+            record_loader=lambda _uri, _record_hash: rpc.record_with_facets(["coffee"]),
+            request_json=rpc.request,
+            now=lambda: dt.datetime.fromtimestamp(rpc.finalized_timestamp, tz=dt.timezone.utc),
+            record_candidate_limit=1,
+            record_candidate_seed="tea",
+            category_hash_groups=[{tea_hash}],
+        )
+        self.assertEqual(
+            mismatched["record_errors"][0]["code"],
+            "registry_record_discovery_facet_commitment_mismatch",
+        )
+
+    def test_onchain_category_routing_pins_facets_deployment_and_runtime(self) -> None:
+        rpc = FakeRpc()
+        rpc.enable_facets(["tea"])
+        tea_hash = "0x" + onchain_rpc.keccak256(b"tea").hex()
+        runtime_hash = "0x" + onchain_rpc.keccak256(
+            bytes.fromhex(rpc.facets_code.removeprefix("0x"))
+        ).hex()
+
+        document = onchain_rpc.collect_finalized_events(
+            onchain_rpc.RegistryDeployment(
+                rpc_url="https://rpc.example",
+                from_block=100,
+                discovery_facets_address=rpc.facets_address,
+                discovery_facets_from_block=105,
+                discovery_facets_deployment_block_hash=rpc.block_hash,
+                discovery_facets_runtime_code_hash=runtime_hash,
+            ),
+            record_loader=lambda _uri, _record_hash: rpc.record_with_facets(["tea"]),
+            request_json=rpc.request,
+            category_hash_groups=[{tea_hash}],
+        )
+        verification = document["onchain_discovery_facets"]["deployment_verification"]
+        self.assertTrue(verification["pinned_block_hash"])
+        self.assertTrue(verification["pinned_runtime_code_hash"])
+
+        for field, value, error in (
+            (
+                "discovery_facets_deployment_block_hash",
+                "0x" + "a" * 64,
+                "discovery_facets_deployment_block_hash_mismatch",
+            ),
+            (
+                "discovery_facets_runtime_code_hash",
+                "0x" + "a" * 64,
+                "discovery_facets_runtime_code_hash_mismatch",
+            ),
+        ):
+            with self.subTest(field=field):
+                descriptor = {
+                    "rpc_url": "https://rpc.example",
+                    "from_block": 100,
+                    "discovery_facets_address": rpc.facets_address,
+                    "discovery_facets_from_block": 105,
+                    "discovery_facets_deployment_block_hash": rpc.block_hash,
+                    "discovery_facets_runtime_code_hash": runtime_hash,
+                    field: value,
+                }
+                with self.assertRaises(onchain_rpc.OnchainRpcError) as raised:
+                    onchain_rpc.collect_finalized_events(
+                        onchain_rpc.RegistryDeployment(**descriptor),
+                        record_loader=lambda _uri, _record_hash: rpc.record_with_facets(["tea"]),
+                        request_json=rpc.request,
+                        category_hash_groups=[{tea_hash}],
+                    )
+                self.assertEqual(raised.exception.code, error)
 
     def test_uses_myotis_verified_finality_and_skips_historical_block_reads(self) -> None:
         rpc = FakeRpc(client_version="Myotis/verified-light-client")

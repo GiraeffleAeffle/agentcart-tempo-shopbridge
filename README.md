@@ -8,12 +8,14 @@ WooCommerce order creation, delivery visibility, refunds/cancellations, and
 audit records.
 
 Current status: production-candidate alpha. The USD pilot merchant is active in
-the ShopBridge registry contract on Tempo Moderato; the Direct Skill queries
-that contract over JSON-RPC for buyer discovery. The read-only
-`https://registry.agentcart.eu/v1/registry/records` endpoint remains a
-maintainer-curated compatibility/cache view of the active USD testnet shop, not
-the authority for onchain candidate membership or lifecycle. This supports merchant installability and
-buyer-agent discovery testing; it is not a production-payment pilot. The
+the ShopBridge Merchant Registry on Tempo Moderato, and its coarse catalog
+categories are published through the controller-bound on-chain Discovery
+Facets module. The Direct Skill queries both contracts over JSON-RPC. Normal
+buyer discovery does not use `registry.agentcart.eu`; that hostname serves the
+OCI container-image registry plus legacy diagnostic/compatibility API routes.
+It is not the Merchant Registry contract and it stores no authoritative shop
+membership. This supports merchant installability and buyer-agent discovery
+testing; it is not a production-payment pilot. The
 WooCommerce plugin, buyer skill, registry contract, verifier contract, package
 scripts, and release checks are present.
 Before a paid public merchant pilot, the external beta evidence gate,
@@ -208,10 +210,11 @@ shop's quote. Show taxes, the complete approval summary, and any blockers. Do
 not pay or checkout until I explicitly approve the final approval hash.
 ```
 
-The skill queries the Tempo Moderato registry contract directly from deployment
-block `30731101` through the RPC `finalized` head, reconstructs the complete
-lifecycle, uses the public category index only as a record-routing hint with a
-neutral fallback, then fetches and verifies selected active record versions.
+The skill queries the Tempo Moderato Merchant Registry from block `30731101`
+and Discovery Facets module from block `32721088` through the RPC `finalized`
+head. It reconstructs lifecycle, validates current on-chain category
+declarations with a neutral fallback, then fetches and verifies selected active
+record versions.
 A requested product is still confirmed against each merchant's current catalog.
 A broken or malicious candidate becomes ineligible without hiding other
 merchants. See `docs/BUYER_SETUP.md` for
@@ -292,12 +295,11 @@ stock hold, and cancel the sandbox order so merchant testing does not consume
 availability. It does not automatically expose products or configure a payment
 recipient.
 
-The Registry Proof section can also use an optional merchant-configured registry
-connection URL. When configured, the merchant can submit the generated registry
-bundle or send a revocation request from WordPress admin instead of copying the
-bundle URL manually. The AgentCart gateway includes a first-party alpha
-connection at `POST /v1/registry/records`, backed by a local JSON store and the
-same domain-proof verifier used by the public registry view.
+The Registry Proof section still exposes an optional hosted-registry connection
+for older deployments. That compatibility path can submit a generated bundle or
+send a revocation notice to a server, but it does not register, update, or revoke
+the on-chain merchant identity. New pilots use the supervised on-chain operator
+flow in `docs/MERCHANT_ONCHAIN_ENROLLMENT.md`.
 
 The plugin exposes:
 
@@ -322,12 +324,12 @@ python3 gateway/scripts/registry_record.py build --manifest-url https://shop.exa
 python3 gateway/scripts/registry_record.py verify --record-file merchant-registry-record.json
 ```
 
-The hosted alpha feed is available at `GET /v1/registry/records`; a compact feed
+Legacy diagnostic/compatibility APIs remain available at
+`GET /v1/registry/records`; a compact feed
 proof is available at `GET /v1/registry/feed-proof`; bounded category routing
 hints are available at `GET /v1/registry/discovery-index`; the normalized
-agent-facing registry remains `GET /v1/registry`. The category index is
-replaceable and non-authoritative: buyers verify hinted record ids onchain and
-confirm products in merchant catalogs. Operators and agents can also check
+compatibility view remains `GET /v1/registry`. Normal Direct Skill discovery
+uses the on-chain category declarations instead. Operators can also check
 aggregate verifier state, freshness, revocations, and action items at
 `GET /v1/registry/health`. Authenticated operators can persist monitor snapshots
 and alert deltas with `POST /v1/registry/monitor/run`, then read the history at

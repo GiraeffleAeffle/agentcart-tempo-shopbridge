@@ -13,12 +13,12 @@ preparation and verification commands.
 - **WordPress / ShopBridge** publishes the merchant metadata, public onchain
   identity, and content-addressed Registry Record snapshots.
 - **Registry Controller** is the public wallet address authorized to register,
-  update, and revoke the merchant record. Its external wallet approves and
-  signs registry transactions.
+  update, and revoke the merchant record and publish its coarse on-chain
+  categories. Its external wallet approves and signs those transactions.
 - **Pilot observer** prepares a secret-free transaction plan, records evidence,
   and verifies exact state at an RPC `finalized` block.
-- **Hosted Registry** can cache, monitor, and serve discovery data. A successful
-  HTTP submission is not proof of onchain inclusion.
+- **Compatibility services** may cache and monitor registry data. They do not
+  supply membership or category routing to the normal buyer path.
 
 The Registry Controller, merchant payment recipient, and buyer payment wallet
 are different roles. They may be controlled by the same person during a pilot,
@@ -48,6 +48,7 @@ The only supported deployment descriptor in this flow is `tempo-moderato`:
 
 - chain: `eip155:42431`;
 - registry contract: `0x0965961617c5b0898167aa4034c5511db0efca07`;
+- discovery facets contract: `0x693de216d208ADC933365bD6F4FCbC062BB8Afe5`;
 - network class: testnet.
 
 Ethereum mainnet, Gnosis mainnet, and Tempo production enrollment remain
@@ -218,9 +219,51 @@ documents are labeled operator snapshots; they can help diagnose the registry
 but cannot confer canonical chain readiness. Local HTTPS proof or a successful
 hosted bundle submission alone must remain **Not finalized**.
 
-Finally, the observer runs fresh buyer discovery with no cached record and
-confirms the merchant appears through the Direct Skill's onchain path. This is
-discovery evidence, not permission to create a paid order.
+## Publish The On-chain Categories
+
+Registration makes the merchant eligible; it does not yet make category lookup
+efficient. Prepare the controller-bound category publication from the exact
+retained enrollment plan and immutable Registry Record:
+
+```sh
+cd gateway
+node scripts/onchain-discovery-facets-operator.mjs prepare \
+  --enrollment-plan merchant-enrollment-plan.json \
+  --output merchant-facets-plan.json
+```
+
+The operator reads the current record's canonical `discovery_facets.categories`,
+hashes and sorts them for the contract, verifies the Facets contract is pinned
+to the expected Merchant Registry, and simulates one `publish` transaction. It
+returns `finalized_current` without a transaction when the same record and
+category-set commitment are already current.
+
+Review and submit the plan's exact `wallet_request` from the same Registry
+Controller. The supervised signer fallback uses the same isolated-key and exact
+acknowledgement rules as enrollment:
+
+```sh
+export AGENTCART_ONCHAIN_ACK='the exact required_ack from merchant-facets-plan.json'
+node scripts/onchain-discovery-facets-operator.mjs execute \
+  --plan merchant-facets-plan.json
+```
+
+For an external-wallet transaction, verify exact calldata and finalized state:
+
+```sh
+node scripts/onchain-discovery-facets-operator.mjs verify \
+  --plan merchant-facets-plan.json \
+  --transaction-hash 0xWALLET_TRANSACTION_HASH
+```
+
+The merchant is category-discoverable only after this returns
+`state: finalized_current`. Every Registry Record update invalidates the prior
+category generation, so repeat category publication after each update.
+
+Finally, run fresh buyer discovery with no cached record and confirm that the
+merchant appears through `onchain_discovery_facets.used=true` while
+`hosted_discovery_index.configured=false`. This is discovery evidence, not
+permission to create a paid order.
 
 ## Update A Merchant Record
 
@@ -234,7 +277,8 @@ produce a new record hash. To update safely:
 3. require `state: ready_to_update`, review the new hash/URI and exact
    `required_ack`, then approve the external-wallet request;
 4. run `verify --transaction-hash 0x... --expected-state active`; and
-5. refresh WordPress registry health and fresh buyer discovery.
+5. publish and verify the replacement on-chain categories; and
+6. refresh WordPress registry health and fresh buyer discovery.
 
 Do not remove the old content-addressed snapshot. Historical onchain events
 commit to it, and discovery/audit reconstruction may still need it.

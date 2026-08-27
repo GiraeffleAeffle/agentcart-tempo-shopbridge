@@ -5,14 +5,15 @@ Verifier runtimes reject raw Unicode and `xn--` IDN A-labels so Python and
 JavaScript cannot disagree about the onchain `domainHash`. IDN merchant
 onboarding requires one shared non-transitional UTS-46 implementation first.
 
-> Status: alpha implemented. The USD staging merchant is active through a Tempo
-> Moderato onchain record commitment; the EUR staging merchant remains
-> curated/offchain. The Direct Skill derives candidate membership and lifecycle
-> directly from contract logs and views, then checks offchain eligibility. The
-> read-only public feed and finalized event
-> snapshot remain cache, monitoring, and compatibility surfaces. Gateway and
-> Direct Skill use the same claim/domain/payment/shipping/revocation and onchain
-> lifecycle checks before admitting a merchant.
+> Status: alpha implemented. Three USD staging merchants are active through
+> Tempo Moderato on-chain record commitments, and their coarse categories are
+> controller-published through the on-chain Discovery Facets contract. The EUR
+> staging merchant remains curated/off-chain and is not eligible for default
+> Direct Skill discovery. The Direct Skill derives candidate membership,
+> lifecycle, and category routing directly from contract logs and views, then
+> checks the committed off-chain record and live merchant endpoints. The
+> read-only public feed and finalized-event snapshot remain cache, monitoring,
+> and compatibility surfaces only.
 
 AgentCart's registry should be an identity and integrity anchor, not an ad
 marketplace and not a product catalog.
@@ -31,18 +32,17 @@ The public pilot discovery plane is available at:
 https://registry.agentcart.eu/v1/registry/records
 ```
 
-It is a small, stateless, read-only deployment of
-`charts/agentcart-shopbridge-registry/`. It currently publishes the EUR and USD
-staging merchants and accepts only `GET` and `HEAD`. It is not the authoritative
-merchant list. The default buyer skill obtains the USD record commitment from
-the contract, then verifies the committed offchain record against the
-merchant's HTTPS manifest, domain proof, and revocation document. Hosted-only
-merchant enrollment remains a reviewed, maintainer-curated chart update; there
-is no public self-service submission API.
+It is a small, stateless, read-only compatibility deployment of
+`charts/agentcart-shopbridge-registry/`. It accepts only `GET` and `HEAD` and is
+not the authoritative merchant list. The default buyer skill does not call it:
+it obtains active record commitments and category candidates from the two
+contracts, then verifies each committed off-chain record against the merchant's
+HTTPS manifest, domain proof, revocation document, catalog, and quote endpoint.
 
-The same hostname continues to serve the OCI Distribution registry at `/v2/`.
-The ShopBridge chart owns only `/`, `/registry`, and `/v1/registry...`, so the
-two registry meanings remain separate at the ingress boundary.
+The same hostname serves the OCI Distribution registry at `/v2/`; that is the
+container-image registry. The ShopBridge chart owns only `/`, `/registry`, and
+`/v1/registry...` compatibility routes. Neither service is the on-chain
+Merchant Registry.
 
 This deployment intentionally does not claim stronger trust than it provides:
 

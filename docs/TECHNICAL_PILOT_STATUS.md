@@ -35,10 +35,10 @@ No production chain or real-money rail was used.
 | Immutable full-record archive | Implemented in the public-registry chart and as merchant-hosted content-addressed WordPress snapshots | Old content hashes remain fetchable after revoke/recovery while the plugin remains installed. Production still needs a separately operated append-only copy because disablement makes the merchant route unavailable and uninstall removes the plugin archive |
 | Reference RPC indexer | Implemented and live on the public testnet registry; independent witness mode is packaged | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it. Optional witness mode publishes only the common matched range and rejects stalled or divergent paths |
 | Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; hosted event feeds remain compatibility inputs |
-| Category-routed discovery | Implemented and finalized for the USD reference shop | Optional bounded facets are derived from the merchant's exposed catalog, hash-committed by the Registry Record, and projected through an untrusted record-id index. The active record advertises `coffee`, `household`, `personal-care`, and `tea`; buyer discovery keeps a neutral fallback and still confirms products in the current merchant catalog. |
+| Category-routed discovery | Implemented, finalized, and live-tested across three USD shops | The controller-bound Discovery Facets contract stores current record hash, category-set commitment, count, generation, and indexed category declarations. A live `tea` query matched all three on-chain declarations before catalog access; buyer discovery keeps a neutral fallback and still confirms products in each current merchant catalog. |
 | Buyer quote and payment readiness | Implemented in source after the first workstation-agent run exposed the ambiguity | Discovery explicitly requires no wallet; payment readiness is reported separately without invoking payment tools; country/postcode quotes are comparison-only; approval, payment, and checkout require a refreshed financially consistent quote with a complete buyer-supplied delivery address. Publish the updated skill/plugin and repeat the external run |
 | Buyer verified-light-client transport | Implemented fail-closed profile; upstream fix merged | Myotis merge `f639a7a7253aab2941400ba9c3827fbc23be429e` now exports the finalized execution height. Pin that revision or later and complete the ShopBridge sync, log-index, registry replay, restart, and weak-subjectivity freshness drill before production use |
-| Registry contract | Live on Tempo Moderato with a finalized register/revoke/recover drill | The recovered USD record is active; source publication and independent security review remain open |
+| Registry contracts | Merchant Registry and Discovery Facets live on Tempo Moderato | Three USD records are active and category-current; source publication and independent security review remain open |
 | Merchant onchain enrollment | Implemented for a supervised Tempo Moderato pilot | Two-phase `prepare` derives four public WordPress identity values, validates the immutable merchant record, selects and simulates register/update, and emits a secret-free external-wallet request. Retained plans support revoke preparation even when the shop is unavailable |
 | Registry write operator | Implemented with 30-minute intent-hash-bound plans, runtime/creation-boundary and finalized-state preflight, immutable-record revalidation, signer/controller matching, immediate post-broadcast journaling, exact transaction-inclusion verification, canonical receipt finality, and post-write state verification | External wallet is primary; the environment-key `execute` path is an isolated supervised fallback. Free-form mutations are not exposed. Pilot writes must be serialized per controller because the current contract lacks an atomic expected-current-hash mutation; Ethereum, Gnosis, and Tempo mainnet writes remain blocked by default |
 | WordPress registry readiness | Implemented fail-closed with a pinned direct Tempo RPC verifier | Hosted submission, hosted event/health snapshots, and local HTTPS proof do not count as canonical inclusion. `finalized_current` requires one fresh finalized block hash, EIP-1898 canonical state reads, the pinned deployment block/creation boundary/runtime, Ethereum Keccak of the normalized shop hostname, and the exact active chain, contract, controller, controller-bound deterministic record id, record hash, domain mapping, and non-revocation. The result trusts the named pinned RPC; hosted data is retained only as labeled operator compatibility evidence |
@@ -51,6 +51,8 @@ No production chain or real-money rail was used.
 
 - Network: Tempo Moderato (`eip155:42431`)
 - Contract: `0x0965961617c5B0898167AA4034C5511dB0EfcA07`
+- Discovery Facets contract: `0x693de216d208ADC933365bD6F4FCbC062BB8Afe5`
+- Discovery Facets deployment block: `32721088`
 - Deployment transaction:
   `0xad99d0e1f877af983fd372657fdac9bfd4f6b467b3f9bfbdd024ecd5bc831481`
 - Deployment block: `30731101`
@@ -126,6 +128,17 @@ testnet quote plus human-approval packet for US delivery. No registry
 environment variable was needed. The curated EUR staging entry is therefore no
 longer returned by default because it is not registered onchain.
 
+On 2026-08-27 the same unconfigured Direct Skill discovered three active USD
+shops from the Merchant Registry at finalized block `32727192`. The hosted
+discovery index was unconfigured and unused. A live `tea` request used the
+on-chain Discovery Facets module, matched all three eligible records, sent
+private quote requests to all three verified shop domains, and ranked the
+financially consistent totals at 12.17, 15.78, and 16.07 USD. The 12.17 USD
+value shop won. Every candidate advertised a configured Tempo MPP verifier; the
+only checkout issue was the deliberately incomplete buyer address, so no
+payment or order was attempted. Detailed evidence is in
+`docs/MULTISHOP_ONCHAIN_RANKING_TEST.md`.
+
 ## Talos USD Verifier
 
 `agentcart-demo/woo-usd-verifier` runs one Ready, zero-restart replica from:
@@ -177,7 +190,11 @@ mandatory verifier restart.
 6. **Complete for the maintainer reference shop:** deploy release `v1.19.0`,
    re-run finalized discovery, and reach an approval-ready, financially
    consistent quote without executing buyer checkout.
-7. **External next step:** hand the released skill to a non-maintainer buyer
+7. **Complete for the maintainer multi-shop environment:** deploy two additional
+   USD/pathUSD shops, register all three shops and their categories on-chain,
+   and prove category-routed buyer-side quote comparison selects the lowest
+   final price without a hosted discovery index.
+8. **External next step:** hand the released skill to a non-maintainer buyer
    agent, and run a non-maintainer merchant installation and Tempo Moderato
    enrollment session.
 
@@ -205,8 +222,6 @@ The remaining gates are explicit:
 - drill the fixed Myotis adapter only if the verified light-client path is part
   of the Ethereum/Gnosis network evaluation, including daily weak-subjectivity
   freshness expectations for intermittently online mobile/desktop harnesses;
-- add at least one independent USD/pathUSD merchant and repeat category-routed
-  cross-shop discovery;
 - accept a new ADR before any Ethereum, Gnosis, or Tempo production deployment.
 
 Detailed redacted evidence is in
