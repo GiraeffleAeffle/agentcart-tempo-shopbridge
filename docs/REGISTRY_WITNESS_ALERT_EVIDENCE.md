@@ -31,6 +31,9 @@ Both paths agreed on chain, registry, and canonical event history. The hosted
 snapshot contains no RPC URL and publishes only through the common matched
 finalized block.
 
+The sanitized machine-readable capture is
+`docs/examples/pilot-evidence/registry-witness-match-2026-08-27.json`.
+
 ## Authenticated delivery drill
 
 An authenticated receiver was deployed at
@@ -54,6 +57,9 @@ At `2026-08-27T18:49:21Z` the sender received HTTP 204 for both:
 The receiver logged both events with chain `eip155:42431`, the exact registry
 address, and witness `tenderly-public-moderato`. No RPC URL, bearer token, or
 other secret appeared in either payload or retained evidence.
+
+The sanitized delivery capture is
+`docs/examples/pilot-evidence/registry-alert-delivery-2026-08-27.json`.
 
 ## Remaining production boundary
 

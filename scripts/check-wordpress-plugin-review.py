@@ -70,9 +70,9 @@ def check_external_http_verifier_calls(source: str) -> None:
     registry_body = function_body(source, "call_registry_connection")
     public_fetch_body = function_body(source, "fetch_public_json")
     registry_health_body = function_body(source, "fetch_registry_connection_json")
-    if source.count("wp_remote_post(") != 2:
+    if source.count("wp_remote_post(") + source.count("wp_safe_remote_post(") != 2:
         fail("external HTTP calls should be limited to the payment/refund verifier and registry connection wrappers")
-    if source.count("wp_remote_get(") != 2:
+    if source.count("wp_remote_get(") + source.count("wp_safe_remote_get(") != 2:
         fail("external HTTP GET calls should be limited to public endpoint checks and registry health checks")
     for name, body in [("payment verifier", payment_body), ("refund verifier", refund_body)]:
         for literal in [
@@ -107,13 +107,14 @@ def check_external_http_verifier_calls(source: str) -> None:
         if literal not in source:
             fail(f"verifier URL SSRF guard missing review marker: {literal}")
     for literal in [
-        "wp_remote_post($registry_url",
+        "wp_safe_remote_post($registry_url",
         "'Content-Type' => 'application/json'",
         "'Accept' => 'application/json'",
         "$headers['Authorization'] = 'Bearer ' . $token",
         "wp_json_encode($payload",
         "'timeout' =>",
         "'redirection' => 0",
+        "'limit_response_size' => self::REGISTRY_RESPONSE_MAX_BYTES + 1",
         "is_wp_error($response)",
         "wp_remote_retrieve_response_code($response)",
         "wp_remote_retrieve_body($response)",
@@ -121,9 +122,12 @@ def check_external_http_verifier_calls(source: str) -> None:
     ]:
         if literal not in registry_body:
             fail(f"registry connection HTTP call missing review guard: {literal}")
-    for name, body in [("public endpoint fetch", public_fetch_body), ("registry health fetch", registry_health_body)]:
+    for name, body, transport in [
+        ("public endpoint fetch", public_fetch_body, "wp_remote_get("),
+        ("registry health fetch", registry_health_body, "wp_safe_remote_get("),
+    ]:
         for literal in [
-            "wp_remote_get(",
+            transport,
             "'Accept' => 'application/json'",
             "'timeout' =>",
             "is_wp_error($response)",
@@ -137,6 +141,7 @@ def check_external_http_verifier_calls(source: str) -> None:
         "$headers['Authorization'] = 'Bearer ' . $token",
         "$headers['X-AgentCart-Token'] = $token",
         "'redirection' => 0",
+        "'limit_response_size' => self::REGISTRY_RESPONSE_MAX_BYTES + 1",
     ]:
         if literal not in registry_health_body:
             fail(f"registry health HTTP call missing review guard: {literal}")

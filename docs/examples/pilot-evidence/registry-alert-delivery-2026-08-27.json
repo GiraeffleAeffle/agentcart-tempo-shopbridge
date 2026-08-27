@@ -1,0 +1,33 @@
+{
+  "schema": "agentcart.registry_alert_delivery_evidence.v1",
+  "recorded_at": "2026-08-27T18:49:21Z",
+  "sender": "live finalized-registry-indexer container",
+  "receiver": "registry-alerts.staging.agentcart.eu",
+  "chain_id": "eip155:42431",
+  "registry_address": "0x0965961617c5b0898167aa4034c5511db0efca07",
+  "witness": "tenderly-public-moderato",
+  "events": [
+    {
+      "state": "firing",
+      "severity": "critical",
+      "code": "registry_witness_delivery_drill",
+      "http_status": 204,
+      "receiver_log_observed": true
+    },
+    {
+      "state": "resolved",
+      "severity": "info",
+      "code": "registry_witness_delivery_drill",
+      "http_status": 204,
+      "receiver_log_observed": true
+    }
+  ],
+  "redactions": [
+    "webhook_path",
+    "bearer_token"
+  ],
+  "limitations": [
+    "delivery drill only; no chain divergence was fabricated",
+    "does not prove human response time"
+  ]
+}

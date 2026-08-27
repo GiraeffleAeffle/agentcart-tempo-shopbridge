@@ -127,11 +127,25 @@ jobs:
             [[ "$(jq -r '.runtimeMatch // .match // empty' "$status_file")" == exact_match ]]
             [[ "$(jq -r '.chainId // empty' "$status_file")" == "$CHAIN_ID" ]]
             [[ "$(jq -r '.address // empty' "$status_file" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$address" | tr '[:upper:]' '[:lower:]')" ]]
+            jq --exit-status \
+              --slurpfile expected_sources "$sources_file" \
+              --slurpfile expected_payload "$payload" \
+              --arg identifier "$identifier" \
+              --arg creation_tx "$creation_tx" \
+              '(.sources == $expected_sources[0]) and
+               (.stdJsonInput.sources == $expected_sources[0]) and
+               (.compilerVersion == $expected_payload[0].compilerVersion) and
+               (.compilerSettings == $expected_payload[0].stdJsonInput.settings) and
+               (.stdJsonInput.settings == $expected_payload[0].stdJsonInput.settings) and
+               (.fullyQualifiedName == $identifier) and
+               ((.transactionHash | ascii_downcase) == ($creation_tx | ascii_downcase))' \
+              "$status_file" > /dev/null
 
             {
               printf -- '- %s: `%s`\n' "$name" "$address"
               echo '  - Match: `exact_match`'
               echo '  - Runtime match: `exact_match`'
+              echo '  - Published source and compiler settings: exact checkout match'
             } >> "$GITHUB_STEP_SUMMARY"
           }
 

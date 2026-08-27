@@ -3491,16 +3491,6 @@ class AgentCartService:
 
         result = registry_trust.verify_registry_record(
             record,
-            # The hosted service is a compatibility cache and verifies the
-            # archived documents it ingested. Buyer-authoritative Direct Skill
-            # discovery does not pass these uncommitted embedded snapshots and
-            # fetches the merchant's current proof/revocation documents.
-            proof=record.get("proof_snapshot") if isinstance(record.get("proof_snapshot"), dict) else None,
-            revocation=(
-                record.get("revocation_snapshot")
-                if isinstance(record.get("revocation_snapshot"), dict)
-                else None
-            ),
             fetch_json=fetch_json,
             policy=registry_trust.TrustPolicy(
                 max_age_days=self.config.merchant_registry_max_age_days,

@@ -39,10 +39,14 @@ neutral global registry:
 - every buyer result must display the chain id, registry address, governance
   mode, finalized boundary, and verification authority. A shop appearing on
   one chain is not silently treated as registered on another;
-- one merchant may commit the same HTTPS Registry Record hash on both networks,
-  but each onchain membership and controller lifecycle is independently
-  verified. Cross-chain deduplication uses normalized domain plus the verified
-  record claim, never a Hosted Registry list.
+- the current `registry_claim_hash` is network-specific because its claim
+  includes payment and `onchain_identity` fields. Both the claim hash and the
+  full Registry Record hash therefore differ across networks. Each onchain
+  membership and controller lifecycle is independently verified. The buyer UI
+  may group records only by the same normalized domain after each network's
+  fresh HTTPS domain-control proof passes; it must preserve both identities and
+  must not imply one registration covers the other. No unimplemented
+  network-neutral claim hash or Hosted Registry list is used for deduplication.
 
 The first production contracts are new v2 deployments. The immutable Moderato
 contracts remain public testnet evidence and are never relabeled as production.

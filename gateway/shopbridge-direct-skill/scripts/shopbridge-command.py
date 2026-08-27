@@ -1269,10 +1269,39 @@ def onchain_registry_index_from_document(
     document: Any,
     *,
     require_finality: bool = False,
+    require_independent_verification: bool = False,
     expected_chain_id: str = "",
     expected_registry_address: str = "",
     expected_implementation: str = onchain_projection.RPC_INDEXER_IMPLEMENTATION,
 ) -> dict[str, Any]:
+    if require_independent_verification:
+        verification = document.get("independent_verification") if isinstance(document, dict) else None
+        primary = verification.get("primary") if isinstance(verification, dict) else None
+        witness = verification.get("witness_path") if isinstance(verification, dict) else None
+        finality = document.get("finality") if isinstance(document, dict) else None
+        authority_errors: list[str] = []
+        if not isinstance(document, dict) or document.get("completeness_authority") != "independently_verified":
+            authority_errors.append("contract_events_independent_authority_required")
+        if not isinstance(verification, dict) or verification.get("status") != "matched":
+            authority_errors.append("contract_events_independent_match_required")
+        if isinstance(verification, dict):
+            if verification.get("chain_id_match") is not True:
+                authority_errors.append("contract_events_independent_chain_mismatch")
+            if verification.get("registry_address_match") is not True:
+                authority_errors.append("contract_events_independent_registry_mismatch")
+        if not isinstance(finality, dict) or not isinstance(verification, dict) or (
+            verification.get("common_finalized_block") != finality.get("indexed_to_block")
+        ):
+            authority_errors.append("contract_events_independent_range_mismatch")
+        primary_hash = str(primary.get("canonical_events_sha256") or "") if isinstance(primary, dict) else ""
+        witness_hash = str(witness.get("canonical_events_sha256") or "") if isinstance(witness, dict) else ""
+        if not is_sha256_hex(primary_hash) or primary_hash.lower() != witness_hash.lower():
+            authority_errors.append("contract_events_independent_history_mismatch")
+        if authority_errors:
+            raise SystemExit(json.dumps({
+                "error": "onchain_registry_contract_events_invalid",
+                "detail": {"errors": authority_errors},
+            }, sort_keys=True))
     index = onchain_projection.index_contract_document(
         document,
         record_hash=registry_record_hash,
@@ -1769,6 +1798,7 @@ def registry_records_from_source(
         index = onchain_registry_index_from_document(
             fetch_json_url(onchain_events_url),
             require_finality=True,
+            require_independent_verification=True,
         )
         records = onchain_projection.overlay_records(
             records,
@@ -1779,6 +1809,7 @@ def registry_records_from_source(
         index = onchain_registry_index_from_document(
             fetch_json_url(advertised_events_url),
             require_finality=True,
+            require_independent_verification=True,
         )
         records = onchain_projection.overlay_records(
             records,
@@ -1838,9 +1869,6 @@ def registry_records_from_args(
 def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
     record = registry_record_from_args(args)
     manifest_url = str(record.get("manifest_url") or "")
-    manifest = args.get("manifest_snapshot") if isinstance(args.get("manifest_snapshot"), dict) else None
-    proof_document = args.get("proof_snapshot") if isinstance(args.get("proof_snapshot"), dict) else None
-    revocation_document = args.get("revocation_snapshot") if isinstance(args.get("revocation_snapshot"), dict) else None
     def fetch_json(url: str) -> dict[str, Any]:
         try:
             return fetch_json_url(url)
@@ -1849,9 +1877,6 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
 
     result = registry_trust.verify_registry_record(
         record,
-        manifest=manifest,
-        proof=proof_document,
-        revocation=revocation_document,
         fetch_json=fetch_json,
         policy=registry_trust.TrustPolicy(max_age_days=registry_max_age_days(args)),
     )
@@ -3882,20 +3907,10 @@ def merchant_snapshot_arg(args: dict[str, Any], name: str, merchant_id: str) -> 
 
 
 def resolve_record_for_discovery(record: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    merchant_id = str(record.get("merchant_id") or "")
     resolve_args: dict[str, Any] = {
         "registry_record": record,
         "include_manifest": bool(args.get("include_manifest")),
     }
-    manifest_snapshot = merchant_snapshot_arg(args, "manifest_snapshots", merchant_id)
-    proof_snapshot = merchant_snapshot_arg(args, "proof_snapshots", merchant_id)
-    revocation_snapshot = merchant_snapshot_arg(args, "revocation_snapshots", merchant_id)
-    if manifest_snapshot:
-        resolve_args["manifest_snapshot"] = manifest_snapshot
-    if proof_snapshot:
-        resolve_args["proof_snapshot"] = proof_snapshot
-    if revocation_snapshot:
-        resolve_args["revocation_snapshot"] = revocation_snapshot
     return command_resolve_merchant(resolve_args)
 
 

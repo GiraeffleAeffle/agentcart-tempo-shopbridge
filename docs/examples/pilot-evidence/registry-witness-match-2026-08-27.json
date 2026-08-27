@@ -1,0 +1,24 @@
+{
+  "schema": "agentcart.registry_witness_match_evidence.v1",
+  "recorded_at": "2026-08-27T18:48:04Z",
+  "source": "https://registry.agentcart.eu/v1/registry/onchain/events",
+  "chain_id": "eip155:42431",
+  "registry_address": "0x0965961617c5b0898167aa4034c5511db0efca07",
+  "completeness_authority": "independently_verified",
+  "independent_verification": {
+    "status": "matched",
+    "chain_id_match": true,
+    "registry_address_match": true,
+    "common_finalized_block": 32732792,
+    "common_event_count": 9,
+    "canonical_events_sha256": "ae32e72caab65941ed7da29bbab33f84916991aae7fadf9ecb9faea07c738cdd",
+    "primary_finalized_block": 32732792,
+    "witness_finalized_block": 32732849,
+    "finalized_time_lag_seconds": 35,
+    "max_finalized_time_lag_seconds": 300
+  },
+  "redactions": [
+    "primary_rpc_url",
+    "witness_rpc_url"
+  ]
+}

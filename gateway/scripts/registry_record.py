@@ -902,6 +902,13 @@ def verify_registry_record(
         service = agentcart.AgentCartService(
             minimal_config(pathlib.Path(raw_tmp), hmac_secret=hmac_secret, max_age_days=max_age_days)
         )
+        offline_documents = {
+            str(record.get("manifest_url") or ""): manifest_snapshot,
+            str((record.get("proof") or {}).get("url") or ""): proof_snapshot,
+            str(record.get("revocation_url") or ""): revocation_snapshot,
+        }
+        if any(isinstance(value, dict) for value in offline_documents.values()):
+            service.registry_http_json = lambda url, timeout=10: offline_documents[url]  # type: ignore[method-assign]
         entry = service.verify_registry_record(candidate)
     verification = entry.get("verification") if isinstance(entry.get("verification"), dict) else {}
     return {

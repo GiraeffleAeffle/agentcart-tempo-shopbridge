@@ -261,10 +261,11 @@ def install_domain_proof_http_json(
     record: dict[str, object],
     manifest: dict[str, object],
     *,
+    proof: dict[str, object] | None = None,
     revocation: dict[str, object] | None = None,
 ) -> list[str]:
     clean_record = agentcart.registry_record_without_local_snapshots(record)
-    proof = domain_proof_document(clean_record)
+    proof = proof or domain_proof_document(clean_record)
     urls = {
         str(clean_record["manifest_url"]): manifest,
         str(clean_record["proof"]["url"]): proof,
@@ -284,6 +285,10 @@ def install_domain_proof_http_json(
         return urls[url]
 
     service.registry_http_json = fake_http_json  # type: ignore[attr-defined]
+    # AgentCart builds adapters during construction. Rebuild after installing
+    # the live-document transport so registry-backed adapters are evaluated
+    # through the same URL-fetch path used in production.
+    service.refresh_registry_adapters()  # type: ignore[attr-defined]
     return calls
 
 
@@ -1485,13 +1490,15 @@ class AgentCartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = pathlib.Path(raw_tmp)
             manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest)
             registry_path = tmp / "registry.json"
             registry_path.write_text(
-                json.dumps({"entries": [domain_proof_registry_record(manifest)]}),
+                json.dumps({"entries": [record]}),
                 encoding="utf-8",
             )
 
             service = make_service(tmp, merchant_registry_path=registry_path)
+            install_domain_proof_http_json(service, record, manifest)
             registry = service.registry_document()
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
@@ -1516,6 +1523,7 @@ class AgentCartTests(unittest.TestCase):
             )
 
             service = make_service(tmp, merchant_registry_path=registry_path)
+            install_domain_proof_http_json(service, record, manifest)
             registry = service.registry_document()
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
@@ -2620,6 +2628,12 @@ class AgentCartTests(unittest.TestCase):
             registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
 
             service = make_service(tmp, merchant_registry_path=registry_path)
+            install_domain_proof_http_json(
+                service,
+                record,
+                manifest,
+                revocation=record["revocation_snapshot"],  # type: ignore[arg-type]
+            )
             registry = service.registry_document()
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
@@ -2647,6 +2661,12 @@ class AgentCartTests(unittest.TestCase):
             registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
 
             service = make_service(tmp, merchant_registry_path=registry_path)
+            install_domain_proof_http_json(
+                service,
+                record,
+                manifest,
+                revocation=record["revocation_snapshot"],  # type: ignore[arg-type]
+            )
             registry = service.registry_document()
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
@@ -2660,13 +2680,20 @@ class AgentCartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = pathlib.Path(raw_tmp)
             manifest = signed_registry_manifest()
+            record = domain_proof_registry_record(manifest, record_hash="0" * 64)
             registry_path = tmp / "registry.json"
             registry_path.write_text(
-                json.dumps({"entries": [domain_proof_registry_record(manifest, record_hash="0" * 64)]}),
+                json.dumps({"entries": [record]}),
                 encoding="utf-8",
             )
 
             service = make_service(tmp, merchant_registry_path=registry_path)
+            install_domain_proof_http_json(
+                service,
+                record,
+                manifest,
+                proof=record["proof_snapshot"],  # type: ignore[arg-type]
+            )
             registry = service.registry_document()
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
@@ -2693,6 +2720,12 @@ class AgentCartTests(unittest.TestCase):
             registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
 
             service = make_service(tmp, merchant_registry_path=registry_path)
+            install_domain_proof_http_json(
+                service,
+                record,
+                manifest,
+                proof=record["proof_snapshot"],  # type: ignore[arg-type]
+            )
             registry = service.registry_document()
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}
@@ -2719,6 +2752,12 @@ class AgentCartTests(unittest.TestCase):
             registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
 
             service = make_service(tmp, merchant_registry_path=registry_path)
+            install_domain_proof_http_json(
+                service,
+                record,
+                manifest,
+                proof=record["proof_snapshot"],  # type: ignore[arg-type]
+            )
             registry = service.registry_document()
 
             entries = {entry["merchant_id"]: entry for entry in registry["entries"]}

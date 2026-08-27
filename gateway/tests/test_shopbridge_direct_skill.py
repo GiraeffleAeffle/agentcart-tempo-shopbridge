@@ -242,6 +242,22 @@ def registry_manifest_and_record(
     return manifest, record, proof
 
 
+def live_registry_fetch(*document_sets):
+    documents_by_url = {}
+    for manifest, record, proof, *optional_revocation in document_sets:
+        documents_by_url[str(record["manifest_url"])] = manifest
+        documents_by_url[str(record["proof"]["url"])] = proof
+        if optional_revocation and record.get("revocation_url"):
+            documents_by_url[str(record["revocation_url"])] = optional_revocation[0]
+
+    def fetch(url: str, *, timeout_seconds: int = 30):
+        if url not in documents_by_url:
+            raise SystemExit(f"test document not found: {url}")
+        return documents_by_url[url]
+
+    return fetch
+
+
 def onchain_events_document(record, *, event_record_hash: str | None = None):
     record_hash = shopbridge_direct.registry_record_hash(record)
     event_hash = event_record_hash or record_hash
@@ -342,6 +358,39 @@ def finalized_onchain_events_document(
                 },
             }
         )
+    comparable_events = []
+    for event in document["events"]:
+        normalized = {
+            "event": str(event.get("event") or ""),
+            "block_number": int(event.get("block_number") or 0),
+            "block_hash": str(event.get("block_hash") or "").lower(),
+            "block_time": str(event.get("block_time") or ""),
+            "transaction_hash": str(event.get("transaction_hash") or "").lower(),
+            "log_index": int(event.get("log_index") or 0),
+            "args": event.get("args") if isinstance(event.get("args"), dict) else {},
+        }
+        if isinstance(event.get("registry_record"), dict):
+            normalized["registry_record"] = event["registry_record"]
+        comparable_events.append(normalized)
+    event_hash = shopbridge_direct.onchain_projection.canonical_json_hash(comparable_events)
+    document["completeness_authority"] = "independently_verified"
+    document["independent_verification"] = {
+        "schema": "agentcart.onchain_registry_independent_verification.v1",
+        "status": "matched",
+        "common_finalized_block": document["finality"]["indexed_to_block"],
+        "chain_id_match": True,
+        "registry_address_match": True,
+        "finalized_head_hash_match": None,
+        "finalized_time_lag_within_limit": True,
+        "primary": {
+            "event_count": len(document["events"]),
+            "canonical_events_sha256": event_hash,
+        },
+        "witness_path": {
+            "event_count": len(document["events"]),
+            "canonical_events_sha256": event_hash,
+        },
+    }
     return document
 
 
@@ -716,6 +765,26 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual([entry["merchant_id"] for entry in records], ["merchant-tea-shop"])
         self.assertEqual(fetch.call_count, 2)
 
+    def test_remote_hosted_projection_requires_independent_verification(self) -> None:
+        _manifest, record, _proof = registry_manifest_and_record()
+        record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
+        events = finalized_onchain_events_document(record)
+        events["completeness_authority"] = "rpc_asserted_complete"
+        registry_document = {
+            "entries": [record],
+            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+        }
+
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            side_effect=[registry_document, events],
+        ):
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+
+        self.assertIn("contract_events_independent_authority_required", str(raised.exception))
+
     def test_finalized_projection_validates_independent_rpc_proof(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
         record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
@@ -960,14 +1029,12 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
     def test_doctor_can_verify_configured_registry_records_when_requested(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
 
-        result = shopbridge_direct.command_doctor(
-            {
-                "registry_records": [record],
-                "manifest_snapshots": {"merchant-tea-shop": manifest},
-                "proof_snapshots": {"merchant-tea-shop": proof},
-                "verify_merchants": True,
-            }
-        )
+        with mock.patch.object(
+            shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+        ):
+            result = shopbridge_direct.command_doctor(
+                {"registry_records": [record], "verify_merchants": True}
+            )
 
         self.assertTrue(result["ok"], result)
         verification_check = next(check for check in result["checks"] if check["id"] == "registry_record_verification")
@@ -1578,13 +1645,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
     def test_resolve_merchant_verifies_registry_record_and_returns_base_url(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
 
-        result = shopbridge_direct.command_resolve_merchant(
-            {
-                "registry_record": record,
-                "manifest_snapshot": manifest,
-                "proof_snapshot": proof,
-            }
-        )
+        with mock.patch.object(
+            shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+        ):
+            result = shopbridge_direct.command_resolve_merchant({"registry_record": record})
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["base_url"], "https://merchant.example")
@@ -1599,14 +1663,12 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             registry_path = Path(raw_tmp) / "registry.json"
             registry_path.write_text(json.dumps({"entries": [record]}), encoding="utf-8")
 
-            result = shopbridge_direct.command_resolve_merchant(
-                {
-                    "registry_path": str(registry_path),
-                    "merchant_id": "merchant-tea-shop",
-                    "manifest_snapshot": manifest,
-                    "proof_snapshot": proof,
-                }
-            )
+            with mock.patch.object(
+                shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+            ):
+                result = shopbridge_direct.command_resolve_merchant(
+                    {"registry_path": str(registry_path), "merchant_id": "merchant-tea-shop"}
+                )
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["base_url"], "https://merchant.example")
@@ -1618,14 +1680,12 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             events_path = Path(raw_tmp) / "onchain-events.json"
             events_path.write_text(json.dumps(onchain_events_document(record)), encoding="utf-8")
 
-            result = shopbridge_direct.command_resolve_merchant(
-                {
-                    "onchain_registry_events_path": str(events_path),
-                    "merchant_id": "merchant-tea-shop",
-                    "manifest_snapshot": manifest,
-                    "proof_snapshot": proof,
-                }
-            )
+            with mock.patch.object(
+                shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+            ):
+                result = shopbridge_direct.command_resolve_merchant(
+                    {"onchain_registry_events_path": str(events_path), "merchant_id": "merchant-tea-shop"}
+                )
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["base_url"], "https://merchant.example")
@@ -1678,13 +1738,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = shopbridge_direct.command_resolve_merchant(
-                {
-                    "registry_path": str(registry_path),
-                    "manifest_snapshot": manifest,
-                    "proof_snapshot": proof,
-                }
-            )
+            with mock.patch.object(
+                shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+            ):
+                result = shopbridge_direct.command_resolve_merchant({"registry_path": str(registry_path)})
 
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["base_url"], "https://merchant.example")
@@ -1709,13 +1766,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         manifest, record, proof = registry_manifest_and_record()
         proof["record_hash"] = "0" * 64
 
-        result = shopbridge_direct.command_resolve_merchant(
-            {
-                "registry_record": record,
-                "manifest_snapshot": manifest,
-                "proof_snapshot": proof,
-            }
-        )
+        with mock.patch.object(
+            shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+        ):
+            result = shopbridge_direct.command_resolve_merchant({"registry_record": record})
 
         self.assertFalse(result["ok"], result)
         self.assertIn("domain_proof_record_hash_mismatch", result["verification"]["errors"])
@@ -1723,14 +1777,12 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
     def test_resolve_merchant_rejects_stale_registry_record(self) -> None:
         manifest, record, proof = registry_manifest_and_record(updated_at="2000-01-01T00:00:00Z")
 
-        result = shopbridge_direct.command_resolve_merchant(
-            {
-                "registry_record": record,
-                "manifest_snapshot": manifest,
-                "proof_snapshot": proof,
-                "registry_max_age_days": 180,
-            }
-        )
+        with mock.patch.object(
+            shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+        ):
+            result = shopbridge_direct.command_resolve_merchant(
+                {"registry_record": record, "registry_max_age_days": 180}
+            )
 
         self.assertFalse(result["ok"], result)
         self.assertIn("record_stale", result["verification"]["errors"])
@@ -1739,13 +1791,10 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         future = (shopbridge_direct.utcnow() + shopbridge_direct.dt.timedelta(days=1)).replace(microsecond=0)
         manifest, record, proof = registry_manifest_and_record(updated_at=future.isoformat().replace("+00:00", "Z"))
 
-        result = shopbridge_direct.command_resolve_merchant(
-            {
-                "registry_record": record,
-                "manifest_snapshot": manifest,
-                "proof_snapshot": proof,
-            }
-        )
+        with mock.patch.object(
+            shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+        ):
+            result = shopbridge_direct.command_resolve_merchant({"registry_record": record})
 
         self.assertFalse(result["ok"], result)
         self.assertIn("updated_at_in_future", result["verification"]["errors"])
@@ -1760,14 +1809,12 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             }
         )
 
-        result = shopbridge_direct.command_resolve_merchant(
-            {
-                "registry_record": record,
-                "manifest_snapshot": manifest,
-                "proof_snapshot": proof,
-                "revocation_snapshot": revocation,
-            }
-        )
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            side_effect=live_registry_fetch((manifest, record, proof, revocation)),
+        ):
+            result = shopbridge_direct.command_resolve_merchant({"registry_record": record})
 
         self.assertFalse(result["ok"], result)
         self.assertIn("record_revoked_by_revocation_document", result["verification"]["errors"])
@@ -1782,13 +1829,17 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             }
         )
 
-        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected catalog call")):
+        with (
+            mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected catalog call")),
+            mock.patch.object(
+                shopbridge_direct,
+                "fetch_json_url",
+                side_effect=live_registry_fetch((manifest, record, proof, revocation)),
+            ),
+        ):
             result = shopbridge_direct.command_discover_quotes(
                 {
                     "registry_records": [record],
-                    "manifest_snapshots": {"merchant-tea-shop": manifest},
-                    "proof_snapshots": {"merchant-tea-shop": proof},
-                    "revocation_snapshots": {"merchant-tea-shop": revocation},
                     "query": "tea",
                     "country": "DE",
                     "postal_code": "10115",
@@ -1935,12 +1986,20 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 payment_requirements=payment_requirements("acct_beta"),
             )
 
-        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+        with (
+            mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+            mock.patch.object(
+                shopbridge_direct,
+                "fetch_json_url",
+                side_effect=live_registry_fetch(
+                    (manifest_a, record_a, proof_a),
+                    (manifest_b, record_b, proof_b),
+                ),
+            ),
+        ):
             result = shopbridge_direct.command_discover_quotes(
                 {
                     "registry_records": [record_a, record_b],
-                    "manifest_snapshots": {"shop-a": manifest_a, "shop-b": manifest_b},
-                    "proof_snapshots": {"shop-a": proof_a, "shop-b": proof_b},
                     "query": "tea",
                     "country": "DE",
                     "postal_code": "10115",
@@ -2134,11 +2193,14 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             with (
                 mock.patch.object(shopbridge_direct, "REGISTRY_PATH", str(registry_path)),
                 mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+                mock.patch.object(
+                    shopbridge_direct,
+                    "fetch_json_url",
+                    side_effect=live_registry_fetch((manifest, record, proof)),
+                ),
             ):
                 result = shopbridge_direct.command_discover_quotes(
                     {
-                        "manifest_snapshots": {"merchant-tea-shop": manifest},
-                        "proof_snapshots": {"merchant-tea-shop": proof},
                         "query": "tea",
                         "country": "DE",
                         "postal_code": "10115",
@@ -2249,12 +2311,20 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 payment_requirements=payment_requirements("acct_bulk"),
             )
 
-        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+        with (
+            mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+            mock.patch.object(
+                shopbridge_direct,
+                "fetch_json_url",
+                side_effect=live_registry_fetch(
+                    (manifest_a, record_a, proof_a),
+                    (manifest_b, record_b, proof_b),
+                ),
+            ),
+        ):
             result = shopbridge_direct.command_discover_quotes(
                 {
                     "registry_records": [record_a, record_b],
-                    "manifest_snapshots": {"shop-a": manifest_a, "shop-b": manifest_b},
-                    "proof_snapshots": {"shop-a": proof_a, "shop-b": proof_b},
                     "query": "tea",
                     "country": "DE",
                     "payment_rail": "stripe-card-mpp",
@@ -2271,12 +2341,15 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         manifest, record, proof = registry_manifest_and_record()
         proof["record_hash"] = "0" * 64
 
-        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+        with (
+            mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")),
+            mock.patch.object(
+                shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+            ),
+        ):
             result = shopbridge_direct.command_discover_quotes(
                 {
                     "registry_records": [record],
-                    "manifest_snapshots": {"merchant-tea-shop": manifest},
-                    "proof_snapshots": {"merchant-tea-shop": proof},
                     "query": "tea",
                 }
             )
@@ -2396,12 +2469,20 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 payment_requirements=payment_requirements("acct_complete"),
             )
 
-        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+        with (
+            mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+            mock.patch.object(
+                shopbridge_direct,
+                "fetch_json_url",
+                side_effect=live_registry_fetch(
+                    (manifest_a, record_a, proof_a),
+                    (manifest_b, record_b, proof_b),
+                ),
+            ),
+        ):
             result = shopbridge_direct.command_discover_basket_quotes(
                 {
                     "registry_records": [record_a, record_b],
-                    "manifest_snapshots": {"shop-a": manifest_a, "shop-b": manifest_b},
-                    "proof_snapshots": {"shop-a": proof_a, "shop-b": proof_b},
                     "basket": [
                         {"query": "tea", "quantity": 1},
                         {"query": "filters", "quantity": 2},
@@ -2492,12 +2573,15 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 payment_requirements=payment_requirements("acct_substitution"),
             )
 
-        with mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request):
+        with (
+            mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+            mock.patch.object(
+                shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+            ),
+        ):
             result = shopbridge_direct.command_discover_basket_quotes(
                 {
                     "registry_records": [record],
-                    "manifest_snapshots": {"shop-a": manifest},
-                    "proof_snapshots": {"shop-a": proof},
                     "basket": [
                         {
                             "query": "organic milk",
@@ -2522,12 +2606,15 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         manifest, record, proof = registry_manifest_and_record()
         proof["record_hash"] = "0" * 64
 
-        with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")):
+        with (
+            mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("unexpected merchant call")),
+            mock.patch.object(
+                shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch((manifest, record, proof))
+            ),
+        ):
             result = shopbridge_direct.command_discover_basket_quotes(
                 {
                     "registry_records": [record],
-                    "manifest_snapshots": {"merchant-tea-shop": manifest},
-                    "proof_snapshots": {"merchant-tea-shop": proof},
                     "basket": [{"query": "tea", "quantity": 1}],
                 }
             )

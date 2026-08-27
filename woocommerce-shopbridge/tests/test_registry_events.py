@@ -1,3 +1,4 @@
+import hashlib
 import json
 import pathlib
 import shutil
@@ -45,9 +46,10 @@ echo json_encode(AgentCart_ShopBridge_Registry_Events::project(
         return json.loads(completed.stdout)
 
     def finalized_document(self) -> dict:
-        return {
+        document = {
             "schema": "agentcart.onchain_registry_contract_events.v1",
             "implementation": "agentcart.onchain_registry_rpc_indexer.v1",
+            "completeness_authority": "independently_verified",
             "chain_id": self.identity["chain_id"],
             "registry_address": self.identity["registry_address"],
             "finality": {
@@ -61,6 +63,17 @@ echo json_encode(AgentCart_ShopBridge_Registry_Events::project(
             "indexed_at": "2026-08-26T12:00:00Z",
             "complete": True,
             "errors": [],
+            "independent_verification": {
+                "schema": "agentcart.onchain_registry_independent_verification.v1",
+                "status": "matched",
+                "chain_id_match": True,
+                "registry_address_match": True,
+                "finalized_head_hash_match": None,
+                "finalized_time_lag_within_limit": True,
+                "common_finalized_block": 140,
+                "primary": {"event_count": 3},
+                "witness_path": {"event_count": 3},
+            },
             "events": [
                 {
                     "event": "MerchantRegistered",
@@ -96,6 +109,24 @@ echo json_encode(AgentCart_ShopBridge_Registry_Events::project(
                 },
             ],
         }
+        comparable = [
+            {
+                "event": event.get("event", ""),
+                "block_number": int(event.get("block_number", 0)),
+                "block_hash": str(event.get("block_hash", "")).lower(),
+                "block_time": str(event.get("block_time", "")),
+                "transaction_hash": str(event.get("transaction_hash", "")).lower(),
+                "log_index": int(event.get("log_index", 0)),
+                "args": event.get("args") if isinstance(event.get("args"), dict) else {},
+            }
+            for event in document["events"]
+        ]
+        event_hash = hashlib.sha256(
+            json.dumps(comparable, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        ).hexdigest()
+        document["independent_verification"]["primary"]["canonical_events_sha256"] = event_hash
+        document["independent_verification"]["witness_path"]["canonical_events_sha256"] = event_hash
+        return document
 
     def test_replays_finalized_revoke_and_recovery_to_the_exact_current_record(self) -> None:
         result = self.run_php(self.finalized_document())
@@ -121,6 +152,28 @@ echo json_encode(AgentCart_ShopBridge_Registry_Events::project(
         self.assertFalse(result["onchain_source"]["snapshot_valid"])
         self.assertEqual(result["current_record"], [])
         self.assertIn("events_implementation_invalid", result["errors"])
+
+    def test_requires_independently_matched_hosted_history(self) -> None:
+        document = self.finalized_document()
+        document["completeness_authority"] = "rpc_asserted_complete"
+
+        result = self.run_php(document)
+
+        self.assertFalse(result["onchain_source"]["snapshot_valid"])
+        self.assertEqual(result["current_record"], [])
+        self.assertIn("events_independent_authority_required", result["errors"])
+
+    def test_independent_history_hash_must_match_the_projected_events(self) -> None:
+        document = self.finalized_document()
+        document["events"].pop(1)
+        document["independent_verification"]["primary"]["event_count"] = 2
+        document["independent_verification"]["witness_path"]["event_count"] = 2
+
+        result = self.run_php(document)
+
+        self.assertFalse(result["onchain_source"]["snapshot_valid"])
+        self.assertEqual(result["current_record"], [])
+        self.assertIn("events_independent_history_mismatch", result["errors"])
 
     def test_requires_hashed_events_in_one_strictly_increasing_log_order(self) -> None:
         cases = {

@@ -596,16 +596,16 @@ def verify_registry_record(
     signature = str(record.get("signature") or "")
     proof_type = ""
     proof_url = ""
-    # Proof and revocation snapshots embedded in the Registry Record are not
-    # covered by registry_record_hash(). A live verifier with a fetch adapter
-    # must therefore consult the current well-known documents instead of
-    # allowing an uncommitted snapshot to mask loss of domain control or a
-    # later revocation. Explicit snapshots remain available for deterministic
-    # offline verification and tests.
+    # Proof and revocation snapshots are not buyer-authoritative. A live
+    # verifier with a fetch adapter must consult the current well-known control
+    # documents instead of allowing either an embedded or caller-supplied
+    # snapshot to mask loss of domain control or a later revocation. Explicit
+    # control snapshots remain available only to callers that opt into
+    # deterministic offline library verification by omitting fetch_json.
     live_documents = fetch_json is not None
     proof_document, proof_source = _document(
         record,
-        proof,
+        None if live_documents else proof,
         "proof_snapshot",
         allow_embedded_snapshot=not live_documents,
     )
@@ -645,7 +645,7 @@ def verify_registry_record(
 
     revocation_document, revocation_source = _document(
         record,
-        revocation,
+        None if live_documents else revocation,
         "revocation_snapshot",
         allow_embedded_snapshot=not live_documents,
     )
@@ -670,6 +670,10 @@ def verify_registry_record(
             if revocation_document_revokes_record(record, revocation_document):
                 errors.append("record_revoked_by_revocation_document")
 
+    # A manifest snapshot is safe to retain as an archive input because the
+    # Registry Record commits its identity, endpoints, payment, shipping, and
+    # registry claim fields and all are checked below. Unlike proof/revocation,
+    # it is not a mutable domain-control signal.
     manifest_document, manifest_source = _document(record, manifest, "manifest_snapshot")
     manifest_url_issues = secure_url_errors(manifest_url, field="manifest_url", domain=domain)
     if manifest_document is None and not manifest_url_issues:
