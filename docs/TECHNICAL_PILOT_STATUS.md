@@ -1,6 +1,6 @@
 # Technical Pilot Status
 
-> Snapshot: 2026-08-26. This is a testnet engineering status, not a production
+> Snapshot: 2026-08-27. This is a testnet engineering status, not a production
 > or mainnet-readiness claim.
 
 ## Outcome
@@ -35,7 +35,7 @@ No production chain or real-money rail was used.
 | Immutable full-record archive | Implemented in the public-registry chart and as merchant-hosted content-addressed WordPress snapshots | Old content hashes remain fetchable after revoke/recovery while the plugin remains installed. Production still needs a separately operated append-only copy because disablement makes the merchant route unavailable and uninstall removes the plugin archive |
 | Reference RPC indexer | Implemented and live on the public testnet registry; independent witness mode is packaged | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it. Optional witness mode publishes only the common matched range and rejects stalled or divergent paths |
 | Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; hosted event feeds remain compatibility inputs |
-| Category-routed discovery | Implemented in source; live record refresh pending | Optional bounded facets are derived from the merchant's exposed catalog, hash-committed by the Registry Record, and projected through an untrusted record-id index. Buyer discovery keeps a neutral fallback and still confirms products in the current merchant catalog. Re-enroll the Tempo merchant with a facet-bearing record before the public index can advertise categories |
+| Category-routed discovery | Implemented and finalized for the USD reference shop | Optional bounded facets are derived from the merchant's exposed catalog, hash-committed by the Registry Record, and projected through an untrusted record-id index. The active record advertises `coffee`, `household`, `personal-care`, and `tea`; buyer discovery keeps a neutral fallback and still confirms products in the current merchant catalog. |
 | Buyer quote and payment readiness | Implemented in source after the first workstation-agent run exposed the ambiguity | Discovery explicitly requires no wallet; payment readiness is reported separately without invoking payment tools; country/postcode quotes are comparison-only; approval, payment, and checkout require a refreshed financially consistent quote with a complete buyer-supplied delivery address. Publish the updated skill/plugin and repeat the external run |
 | Buyer verified-light-client transport | Implemented fail-closed profile; upstream fix merged | Myotis merge `f639a7a7253aab2941400ba9c3827fbc23be429e` now exports the finalized execution height. Pin that revision or later and complete the ShopBridge sync, log-index, registry replay, restart, and weak-subjectivity freshness drill before production use |
 | Registry contract | Live on Tempo Moderato with a finalized register/revoke/recover drill | The recovered USD record is active; source publication and independent security review remain open |
@@ -67,7 +67,7 @@ requires a typed acknowledgement, and fails unless the service reports
 
 The public HTTPS registry was upgraded to chart 0.3.0 on 2026-08-23. Helm
 revision 13 is deployed with two ready replicas and two ready service endpoints.
-Health and records return HTTP 200 with the two curated staging entries and
+Health and records return HTTP 200 with the active USD staging entry and
 advertise the real Tempo contract as `testnet_only`. Ethereum remains
 `not_deployed`, OCI `/v2/` remains available, registry mutations remain HTTP
 405, and the same-origin finalized-events route is live. Each pod runs the
@@ -205,8 +205,8 @@ The remaining gates are explicit:
 - drill the fixed Myotis adapter only if the verified light-client path is part
   of the Ethereum/Gnosis network evaluation, including daily weak-subjectivity
   freshness expectations for intermittently online mobile/desktop harnesses;
-- regenerate and finalize the Tempo merchant's facet-bearing Registry Record,
-  publish the resulting discovery-index entry, and repeat cross-shop discovery;
+- add at least one independent USD/pathUSD merchant and repeat category-routed
+  cross-shop discovery;
 - accept a new ADR before any Ethereum, Gnosis, or Tempo production deployment.
 
 Detailed redacted evidence is in
