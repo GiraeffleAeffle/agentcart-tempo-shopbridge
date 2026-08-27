@@ -28,6 +28,7 @@ Public verifier records:
 The sanitized machine-readable capture, including SHA-256 values for every
 published source file, is
 `docs/examples/pilot-evidence/tempo-source-verification-2026-08-27.json`.
+Guarded workflow run `33108166297` passed on the reviewed PR branch.
 
 Source publication makes review possible; it is not a security audit or a
 production endorsement.

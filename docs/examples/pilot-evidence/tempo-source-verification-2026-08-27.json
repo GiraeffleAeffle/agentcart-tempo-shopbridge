@@ -4,6 +4,12 @@
   "chain_id": "42431",
   "verifier": "https://contracts.tempo.xyz",
   "compiler_version": "0.8.28+commit.7893614a",
+  "workflow_run": {
+    "id": 33108166297,
+    "url": "https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/actions/runs/33108166297",
+    "ref": "codex/production-mainnet-gates",
+    "conclusion": "success"
+  },
   "contracts": [
     {
       "name": "AgentCartMerchantRegistry",
