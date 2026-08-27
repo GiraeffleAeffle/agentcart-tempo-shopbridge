@@ -393,16 +393,28 @@ export async function prepareMerchantEnrollment({
     now: () => preparedAt,
   });
   const domainHash = keccak256(toBytes(domain));
-  const recordId = normalizeBytes32(
+  const currentRecordId = normalizeBytes32(
     await publicClient.readContract({
+      address: registryAddress,
+      abi: merchantRegistryAbi,
+      functionName: "recordIdForDomain",
+      args: [domainHash],
+      blockNumber: finalizedBlock.number,
+    }),
+    "domain_record_id",
+  );
+  // A controller rotation intentionally preserves the record id. Derive a
+  // new id only for an unregistered domain; otherwise the domain mapping is
+  // the stable identity anchor.
+  const recordId = currentRecordId === ZERO_BYTES32
+    ? normalizeBytes32(await publicClient.readContract({
       address: registryAddress,
       abi: merchantRegistryAbi,
       functionName: "computeRecordId",
       args: [domainHash, normalizedController],
       blockNumber: finalizedBlock.number,
-    }),
-    "record_id",
-  );
+    }), "record_id")
+    : currentRecordId;
   const plan = basePlan({
     bundle,
     bundleUrl: normalizedBundleUrl,
@@ -455,28 +467,19 @@ export async function prepareMerchantEnrollment({
     immutable_uri_verified: true,
   };
 
-  const [writesPaused, currentRecordId] = await Promise.all([
-    publicClient.readContract({
+  const writesPaused = await publicClient.readContract({
       address: registryAddress,
       abi: merchantRegistryAbi,
       functionName: "writesPaused",
       blockNumber: finalizedBlock.number,
-    }),
-    publicClient.readContract({
-      address: registryAddress,
-      abi: merchantRegistryAbi,
-      functionName: "recordIdForDomain",
-      args: [domainHash],
-      blockNumber: finalizedBlock.number,
-    }),
-  ]);
+    });
   plan.chain_snapshot.writes_paused = Boolean(writesPaused);
-  plan.chain_snapshot.domain_record_id = String(currentRecordId).toLowerCase();
+  plan.chain_snapshot.domain_record_id = currentRecordId;
   if (writesPaused) throw new Error("registry_writes_paused");
 
   let functionName;
   let args;
-  const normalizedCurrentRecordId = normalizeBytes32(currentRecordId, "domain_record_id");
+  const normalizedCurrentRecordId = currentRecordId;
   if (normalizedCurrentRecordId === ZERO_BYTES32) {
     functionName = "register";
     args = [domainHash, computedRecordHash, recordUri];

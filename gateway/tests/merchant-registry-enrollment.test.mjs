@@ -208,6 +208,7 @@ test("prepare chooses update for the controller's active record with a different
 
   assert.equal(plan.state, "ready_to_update");
   assert.equal(plan.operation, "update");
+  assert.equal(publicClient.calls.includes("read:computeRecordId"), false);
   assert.ok(publicClient.calls.includes(`simulate:update:${controller}`));
 });
 
@@ -234,6 +235,7 @@ test("prepare reports the exact finalized record as current without another tran
   assert.equal(plan.operation, "none");
   assert.equal(plan.ready, true);
   assert.equal(plan.transaction_request, null);
+  assert.equal(publicClient.calls.includes("read:computeRecordId"), false);
   assert.equal(publicClient.calls.some((call) => call.startsWith("simulate:")), false);
 });
 

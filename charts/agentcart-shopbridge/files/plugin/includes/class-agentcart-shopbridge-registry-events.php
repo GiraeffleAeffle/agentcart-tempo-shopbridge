@@ -55,6 +55,35 @@ final class AgentCart_ShopBridge_Registry_Events {
         if (($document['complete'] ?? null) !== true) {
             $errors[] = 'events_snapshot_incomplete';
         }
+        $independent = is_array($document['independent_verification'] ?? null)
+            ? $document['independent_verification']
+            : [];
+        $primary = is_array($independent['primary'] ?? null) ? $independent['primary'] : [];
+        $witness = is_array($independent['witness_path'] ?? null) ? $independent['witness_path'] : [];
+        if (($document['completeness_authority'] ?? '') !== 'independently_verified') {
+            $errors[] = 'events_independent_authority_required';
+        }
+        if (
+            ($independent['schema'] ?? '') !== 'agentcart.onchain_registry_independent_verification.v1' ||
+            ($independent['status'] ?? '') !== 'matched' ||
+            ($independent['chain_id_match'] ?? null) !== true ||
+            ($independent['registry_address_match'] ?? null) !== true ||
+            ($independent['finalized_time_lag_within_limit'] ?? null) !== true ||
+            !in_array($independent['finalized_head_hash_match'] ?? null, [null, true], true)
+        ) {
+            $errors[] = 'events_independent_match_required';
+        }
+        if (
+            self::strict_nonnegative_int($independent['common_finalized_block'] ?? null) !==
+            self::strict_nonnegative_int($raw_finality['indexed_to_block'] ?? null)
+        ) {
+            $errors[] = 'events_independent_range_mismatch';
+        }
+        $primary_hash = self::normalize_hash((string) ($primary['canonical_events_sha256'] ?? ''));
+        $witness_hash = self::normalize_hash((string) ($witness['canonical_events_sha256'] ?? ''));
+        if ($primary_hash === '' || $witness_hash === '' || !hash_equals($primary_hash, $witness_hash)) {
+            $errors[] = 'events_independent_history_mismatch';
+        }
         $document_errors = $document['errors'] ?? null;
         if (!is_array($document_errors) || !self::is_list($document_errors) || $document_errors !== []) {
             $errors[] = 'events_snapshot_has_errors';
@@ -86,6 +115,41 @@ final class AgentCart_ShopBridge_Registry_Events {
         if (!is_array($events) || !self::is_list($events)) {
             $errors[] = 'events_entries_invalid';
             $events = [];
+        }
+        $comparable_events = [];
+        foreach ($events as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+            $normalized_event = [
+                'event' => (string) ($event['event'] ?? ''),
+                'block_number' => intval($event['block_number'] ?? 0),
+                'block_hash' => strtolower((string) ($event['block_hash'] ?? '')),
+                'block_time' => (string) ($event['block_time'] ?? ''),
+                'transaction_hash' => strtolower((string) ($event['transaction_hash'] ?? '')),
+                'log_index' => intval($event['log_index'] ?? 0),
+                'args' => is_array($event['args'] ?? null) ? $event['args'] : [],
+            ];
+            if (is_array($event['registry_record'] ?? null)) {
+                $normalized_event['registry_record'] = $event['registry_record'];
+            }
+            if (!empty($event['record_fetch_error'])) {
+                $normalized_event['record_fetch_error'] = (string) $event['record_fetch_error'];
+            }
+            $comparable_events[] = $normalized_event;
+        }
+        $actual_events_hash = hash('sha256', self::canonical_json($comparable_events));
+        $primary_count = self::strict_nonnegative_int($primary['event_count'] ?? null);
+        $witness_count = self::strict_nonnegative_int($witness['event_count'] ?? null);
+        if (
+            $primary_count !== count($events) ||
+            $witness_count !== count($events) ||
+            $primary_hash === '' ||
+            $witness_hash === '' ||
+            !hash_equals($actual_events_hash, $primary_hash) ||
+            !hash_equals($actual_events_hash, $witness_hash)
+        ) {
+            $errors[] = 'events_independent_history_mismatch';
         }
         $state = 'none';
         $active_hash = '';
@@ -328,6 +392,30 @@ final class AgentCart_ShopBridge_Registry_Events {
             $value = substr($value, 2);
         }
         return preg_match('/^[a-f0-9]{64}$/D', $value) === 1 ? $value : '';
+    }
+
+    /**
+     * Encode the cross-runtime canonical JSON form used by both RPC paths.
+     *
+     * @param mixed $value JSON value.
+     */
+    private static function canonical_json($value): string {
+        if (is_array($value)) {
+            if (self::is_list($value)) {
+                return '[' . implode(',', array_map([self::class, 'canonical_json'], $value)) . ']';
+            }
+            ksort($value, SORT_STRING);
+            $members = [];
+            foreach ($value as $key => $member) {
+                $members[] = self::canonical_json((string) $key) . ':' . self::canonical_json($member);
+            }
+            return '{' . implode(',', $members) . '}';
+        }
+        $encoded = wp_json_encode(
+            $value,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION
+        );
+        return is_string($encoded) ? $encoded : 'null';
     }
 
     /**

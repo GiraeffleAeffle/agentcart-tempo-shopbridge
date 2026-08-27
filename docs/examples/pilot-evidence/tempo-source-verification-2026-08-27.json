@@ -1,0 +1,42 @@
+{
+  "schema": "agentcart.contract_source_verification_evidence.v1",
+  "recorded_at": "2026-08-27T19:02:00Z",
+  "chain_id": "42431",
+  "verifier": "https://contracts.tempo.xyz",
+  "compiler_version": "0.8.28+commit.7893614a",
+  "workflow_run": {
+    "id": 33108166297,
+    "url": "https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/actions/runs/33108166297",
+    "ref": "codex/production-mainnet-gates",
+    "conclusion": "success"
+  },
+  "contracts": [
+    {
+      "name": "AgentCartMerchantRegistry",
+      "address": "0x0965961617c5b0898167aa4034c5511db0efca07",
+      "fully_qualified_name": "contracts/AgentCartMerchantRegistry.sol:AgentCartMerchantRegistry",
+      "creation_transaction_hash": "0xad99d0e1f877af983fd372657fdac9bfd4f6b467b3f9bfbdd024ecd5bc831481",
+      "match": "exact_match",
+      "runtime_match": "exact_match",
+      "verified_at": "2026-08-23 16:03:10",
+      "source_sha256": {
+        "contracts/AgentCartMerchantRegistry.sol": "ee65163ebb02c5ce626f59efc942fd8b88b0f7be520326e8f4c2ca4b44e9cbc8",
+        "contracts/interfaces/IAgentCartMerchantRegistry.sol": "8a573f2a39f9616368dcad578b0e1b1166c158d37d67e2e429b0ae14f6c7aa62"
+      }
+    },
+    {
+      "name": "AgentCartMerchantDiscoveryFacets",
+      "address": "0x693de216d208adc933365bd6f4fcbc062bb8afe5",
+      "fully_qualified_name": "contracts/AgentCartMerchantDiscoveryFacets.sol:AgentCartMerchantDiscoveryFacets",
+      "creation_transaction_hash": "0x3247fa0c58002748cc297bec861c8d5b1c3e99930ca99a52690df3162403c17e",
+      "match": "exact_match",
+      "runtime_match": "exact_match",
+      "verified_at": "2026-08-27 18:35:46",
+      "source_sha256": {
+        "contracts/AgentCartMerchantDiscoveryFacets.sol": "141ccff5806a5440296fc49c1e6eb7fa28582d7e988589c16ca1e3af14e793b1",
+        "contracts/interfaces/IAgentCartMerchantDiscoveryFacets.sol": "4633211f5c58fe97c197664ef783e97c300f856964d1c52729714e6590fff53b",
+        "contracts/interfaces/IAgentCartMerchantRegistry.sol": "8a573f2a39f9616368dcad578b0e1b1166c158d37d67e2e429b0ae14f6c7aa62"
+      }
+    }
+  ]
+}

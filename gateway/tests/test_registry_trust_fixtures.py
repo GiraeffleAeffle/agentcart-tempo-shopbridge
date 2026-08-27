@@ -77,15 +77,22 @@ def documents_for_case(contract: dict, case: dict) -> tuple[dict, dict, dict, di
 
 
 def direct_skill_result(record: dict, manifest: dict, proof: dict, revocation: dict, *, max_age_days: int) -> dict:
-    return shopbridge_direct.command_resolve_merchant(
-        {
-            "registry_record": copy.deepcopy(record),
-            "manifest_snapshot": copy.deepcopy(manifest),
-            "proof_snapshot": copy.deepcopy(proof),
-            "revocation_snapshot": copy.deepcopy(revocation),
-            "registry_max_age_days": max_age_days,
-        }
-    )
+    documents_by_url = {
+        str(record.get("manifest_url") or ""): copy.deepcopy(manifest),
+        str((record.get("proof") or {}).get("url") or ""): copy.deepcopy(proof),
+        str(record.get("revocation_url") or ""): copy.deepcopy(revocation),
+    }
+    with mock.patch.object(
+        shopbridge_direct,
+        "fetch_json_url",
+        side_effect=lambda url, timeout_seconds=30: documents_by_url[url],
+    ):
+        return shopbridge_direct.command_resolve_merchant(
+            {
+                "registry_record": copy.deepcopy(record),
+                "registry_max_age_days": max_age_days,
+            }
+        )
 
 
 def service_result(record: dict, manifest: dict, proof: dict, revocation: dict, *, max_age_days: int) -> dict:
@@ -97,6 +104,12 @@ def service_result(record: dict, manifest: dict, proof: dict, revocation: dict, 
         service = agentcart.AgentCartService(
             registry_record_tool.minimal_config(pathlib.Path(raw_tmp), max_age_days=max_age_days)
         )
+        documents_by_url = {
+            str(record.get("manifest_url") or ""): copy.deepcopy(manifest),
+            str((record.get("proof") or {}).get("url") or ""): copy.deepcopy(proof),
+            str(record.get("revocation_url") or ""): copy.deepcopy(revocation),
+        }
+        service.registry_http_json = lambda url, timeout=10: documents_by_url[url]  # type: ignore[method-assign]
         entry = service.verify_registry_record(candidate)
     verification = entry.get("verification") if isinstance(entry.get("verification"), dict) else {}
     return {"ok": verification.get("state") == "verified", "verification": verification, "entry": entry}
@@ -113,6 +126,42 @@ def registry_tool_result(record: dict, manifest: dict, proof: dict, revocation: 
 
 
 class RegistryTrustFixtureTests(unittest.TestCase):
+    def test_live_verification_ignores_uncommitted_embedded_and_explicit_control_snapshots(self) -> None:
+        documents = copy.deepcopy(fixture_contract()["base"])
+        record = documents["record"]
+        record["proof_snapshot"] = {"record_hash": "0" * 64}
+        record["revocation_snapshot"] = {
+            "merchant_id": record["merchant_id"],
+            "domain": record["domain"],
+            "revoked": True,
+        }
+
+        def fetch_json(url: str) -> dict:
+            if url == record["manifest_url"]:
+                return documents["manifest"]
+            if url == record["proof"]["url"]:
+                return documents["proof"]
+            if url == record["revocation_url"]:
+                return documents["revocation"]
+            raise AssertionError(f"unexpected URL: {url}")
+
+        result = shopbridge_direct.registry_trust.verify_registry_record(
+            record,
+            manifest=documents["manifest"],
+            proof={"record_hash": "1" * 64},
+            revocation={
+                "merchant_id": record["merchant_id"],
+                "domain": record["domain"],
+                "revoked": True,
+            },
+            fetch_json=fetch_json,
+            policy=shopbridge_direct.registry_trust.TrustPolicy(max_age_days=36500),
+        )
+
+        self.assertEqual(result["state"], "verified", result)
+        self.assertEqual(result["proof_source"], "url")
+        self.assertEqual(result["revocation_source"], "url")
+
     def test_shared_domain_normalization_contract(self) -> None:
         fixture = json.loads(DOMAIN_FIXTURE_PATH.read_text(encoding="utf-8"))
         for case in fixture["cases"]:

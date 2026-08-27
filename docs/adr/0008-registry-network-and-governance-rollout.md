@@ -101,14 +101,13 @@ The empty trusted-operator contract was deployed on 2026-08-21:
 | Prepared pilot controller | `0x015f6aB1b682aEa664A1E4896f363ca3093e4591` |
 | Prepared pilot record id | `0xc6a2be430634e0d8fa335a15bf2b0696573c83c5d218c0bad8831be7d9b85a5b` |
 
-The deployed runtime bytecode hash matches the locally compiled contract.
-Contract source publication has not been authorized, so source verification
-remains an operational evidence item and must not be conflated with the
-runtime-bytecode match. A manual GitHub workflow pins the original compiler,
-optimizer, EVM target, source paths, and creation transaction; it requires a
-typed acknowledgement and accepts only `exact_match`. The workflow has not
-been triggered. Ethereum mainnet, Gnosis mainnet, and Tempo production remain
-untouched.
+The deployed runtime bytecode hash matches the locally compiled contract. On
+2026-08-27 Tempo's verifier returned `exact_match` and runtime `exact_match`
+for both the Merchant Registry and Discovery Facets with their complete import
+sets. The guarded workflow pins both deployments and treats an already-published
+contract as success only after retrieving that exact result. Evidence is in
+`docs/CONTRACT_SOURCE_PUBLICATION.md`; publication is not a security audit.
+Ethereum mainnet, Gnosis mainnet, and Tempo production remain untouched.
 
 On 2026-08-21, the reference indexer replayed deployment block `30731101`
 through finalized block `31831769` (`0x8efe988fa5c66ebf7786c18d42833398e35e67de4a49e388ce0462313c179d78`).
@@ -147,9 +146,12 @@ manual independent-reconstruction part of promotion gate 4 is therefore
 complete. The registry chart now packages automatic cross-RPC comparison that
 publishes only the common matched finalized range, rejects mismatched chain,
 contract, event hash, equal-height block hash, or excessive finality-time lag,
-and emits throttled firing/resolved webhook events. Promotion gate 4 remains
-open until an independently operated full-history witness and real receiver are
-enabled on the pilot and the matched/divergence/recovery evidence is retained.
+and emits throttled firing/resolved webhook events. On 2026-08-27 Tenderly was
+activated as the recurring independent witness. An authenticated receiver then
+accepted controlled firing and resolved events from the live indexer sender.
+Matched and delivery evidence is retained in
+`docs/REGISTRY_WITNESS_ALERT_EVIDENCE.md`; a real divergence exercise and
+secondary paging route remain production work.
 
 The complete redacted lifecycle record is
 `pilot-evidence/woo-usd-staging/attachments/tempo-registry-lifecycle-2026-08-23.md`.

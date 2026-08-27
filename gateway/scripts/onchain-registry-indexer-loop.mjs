@@ -197,6 +197,7 @@ export async function collectIndependentlyVerifiedSnapshot(config, dependencies 
   }
   return {
     ...primary,
+    completeness_authority: "independently_verified",
     finality: {
       ...primary.finality,
       indexed_to_block: verification.common_finalized_block,

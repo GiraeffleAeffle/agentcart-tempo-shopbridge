@@ -19,10 +19,11 @@ rejects divergence or excessive finality lag, and can send throttled firing and
 resolved webhook events. The supervised merchant package is now implemented in
 source: WordPress publishes public controller-bound identity and immutable
 record snapshots, while a two-phase operator plan hands the exact transaction
-to an external wallet and verifies exact state only at finality. This package
-has not yet passed a non-maintainer merchant session. What remains is operator
-activation and delivery evidence, source publication, external verifier and
-security/governance evidence, and non-maintainer buyer and merchant evidence.
+to an external wallet and verifies exact state only at finality. The recurring
+witness and authenticated receiver are now active, both contracts are publicly
+source-verified, and a Daybreak Blue model-assisted review is recorded. What
+remains is production-v2 hardening, named governance, external human review,
+secondary alerting, and non-maintainer buyer and merchant evidence.
 No production chain or real-money rail was used.
 
 ## Package Status
@@ -33,18 +34,18 @@ No production chain or real-money rail was used.
 | Buyer discovery HTTP boundary | Implemented as a portable redirect-free, size-bounded, DNS-pinned transport | Private/local targets require explicit opt-in |
 | Finalized onchain projection | Implemented and fail-closed | Covers registration, update, controller rotation, suspension, attestation, revoke, and supersession/recovery |
 | Immutable full-record archive | Implemented in the public-registry chart and as merchant-hosted content-addressed WordPress snapshots | Old content hashes remain fetchable after revoke/recovery while the plugin remains installed. Production still needs a separately operated append-only copy because disablement makes the merchant route unavailable and uninstall removes the plugin archive |
-| Reference RPC indexer | Implemented and live on the public testnet registry; independent witness mode is packaged | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it. Optional witness mode publishes only the common matched range and rejects stalled or divergent paths |
+| Reference RPC indexer | Implemented and live with an independent Tenderly witness | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, and publishes only the common range after both RPC paths agree. The public snapshot declares `independently_verified`; a failure preserves the last good snapshot until buyer freshness enforcement expires it |
 | Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; hosted event feeds remain compatibility inputs |
 | Category-routed discovery | Implemented, finalized, and live-tested across three USD shops | The controller-bound Discovery Facets contract stores current record hash, category-set commitment, count, generation, and indexed category declarations. A live `tea` query matched all three on-chain declarations before catalog access; buyer discovery keeps a neutral fallback and still confirms products in each current merchant catalog. |
 | Buyer quote and payment readiness | Implemented in source after the first workstation-agent run exposed the ambiguity | Discovery explicitly requires no wallet; payment readiness is reported separately without invoking payment tools; country/postcode quotes are comparison-only; approval, payment, and checkout require a refreshed financially consistent quote with a complete buyer-supplied delivery address. Publish the updated skill/plugin and repeat the external run |
 | Buyer verified-light-client transport | Implemented fail-closed profile; upstream fix merged | Myotis merge `f639a7a7253aab2941400ba9c3827fbc23be429e` now exports the finalized execution height. Pin that revision or later and complete the ShopBridge sync, log-index, registry replay, restart, and weak-subjectivity freshness drill before production use |
-| Registry contracts | Merchant Registry and Discovery Facets live on Tempo Moderato | Three USD records are active and category-current; source publication and independent security review remain open |
+| Registry contracts | Merchant Registry and Discovery Facets live on Tempo Moderato with public exact-match source | Three USD records are active and category-current. The Daybreak Blue model-assisted review found no critical issue and drove buyer-trust, rotation, WordPress SSRF, completeness-label, and publication fixes; production v2 and an external human review remain open |
 | Merchant onchain enrollment | Implemented for a supervised Tempo Moderato pilot | Two-phase `prepare` derives four public WordPress identity values, validates the immutable merchant record, selects and simulates register/update, and emits a secret-free external-wallet request. Retained plans support revoke preparation even when the shop is unavailable |
 | Registry write operator | Implemented with 30-minute intent-hash-bound plans, runtime/creation-boundary and finalized-state preflight, immutable-record revalidation, signer/controller matching, immediate post-broadcast journaling, exact transaction-inclusion verification, canonical receipt finality, and post-write state verification | External wallet is primary; the environment-key `execute` path is an isolated supervised fallback. Free-form mutations are not exposed. Pilot writes must be serialized per controller because the current contract lacks an atomic expected-current-hash mutation; Ethereum, Gnosis, and Tempo mainnet writes remain blocked by default |
-| WordPress registry readiness | Implemented fail-closed with a pinned direct Tempo RPC verifier | Hosted submission, hosted event/health snapshots, and local HTTPS proof do not count as canonical inclusion. `finalized_current` requires one fresh finalized block hash, EIP-1898 canonical state reads, the pinned deployment block/creation boundary/runtime, Ethereum Keccak of the normalized shop hostname, and the exact active chain, contract, controller, controller-bound deterministic record id, record hash, domain mapping, and non-revocation. The result trusts the named pinned RPC; hosted data is retained only as labeled operator compatibility evidence |
+| WordPress registry readiness | Implemented fail-closed with a pinned direct Tempo RPC verifier | Hosted submission, hosted event/health snapshots, and local HTTPS proof do not count as canonical inclusion. `finalized_current` requires one fresh finalized block hash, EIP-1898 canonical state reads, the pinned deployment block/creation boundary/runtime, Ethereum Keccak of the normalized shop hostname, and the exact active chain, contract, current controller, stable domain-mapped record id, record hash, status, and non-revocation. The result trusts the named pinned RPC; hosted data is retained only as labeled operator compatibility evidence |
 | External verifier | Implemented and live on Talos from the pinned GHCR digest | Payment, refund, replay-conflict, backup, and restart evidence pass; alert-webhook delivery remains open |
-| Helm operations | Implemented and exercised | Verifier-only external mode, Bound PVC-backed SQLite replay state, restricted network policy, and opt-in Secret-backed alert delivery are packaged; the live receiver is still unconfigured |
-| Independent reconstruction | Passed manually with dRPC and Tenderly; automatic comparison and webhook alerting implemented | Activate it with an independently operated full-history RPC and real receiver, then retain matched, firing, and resolved delivery evidence. Conduit's pruned history cannot replay from deployment |
+| Helm operations | Implemented and exercised | Verifier-only external mode, Bound PVC-backed SQLite replay state, restricted network policy, independent registry witness, and Secret-backed authenticated alert delivery are live. Payment-verifier alert delivery remains separate and open |
+| Independent reconstruction | Live recurring comparison against Tenderly; matched and firing/resolved delivery evidence retained | Add a durable secondary pager and perform a real controlled witness outage/divergence exercise. Conduit's pruned history cannot replay from deployment |
 | Ethereum/Gnosis/Tempo production | Not approved | Requires the promotion gates in ADR 0008 and a new production-network ADR |
 
 ## Testnet Deployment
@@ -59,13 +60,11 @@ No production chain or real-money rail was used.
 - Governance: dedicated EOA, trusted-operator testnet pilot
 - State: recovered USD merchant record active after finalized revoke/re-register
 
-The deployment receipt records a local/runtime bytecode hash match. Explorer
-source publication remains outstanding and must not be confused with bytecode
-matching. Publishing the full source to `contracts.tempo.xyz` requires a
-separate explicit external-publication approval. The manual
-`tempo-contract-verification.yml` workflow performs that publication in GitHub,
-requires a typed acknowledgement, and fails unless the service reports
-`exact_match`; it has not been triggered.
+Tempo's public verifier now reports `exact_match` and runtime `exact_match` for
+both pilot contracts and exposes their complete source sets. The guarded
+`tempo-contract-verification.yml` workflow checks both deployments and accepts
+an already-published result only after retrieving the authoritative exact
+match. See `docs/CONTRACT_SOURCE_PUBLICATION.md`.
 
 The public HTTPS registry was upgraded to chart 0.3.0 on 2026-08-23. Helm
 revision 13 is deployed with two ready replicas and two ready service endpoints.
@@ -207,13 +206,12 @@ shop rollout succeeded; no developer-machine container build was used.
 
 The remaining gates are explicit:
 
-- provision an independently operated full-history witness RPC, activate the
-  packaged comparison mode, and retain matched/divergence/resolution evidence;
-- configure a real verifier alert receiver and observe delivery;
-- explicitly authorize contract-source publication, then record the verification
-  result;
-- obtain an independent contract/security review and production governance
-  decision;
+- implement and externally review the production-v2 validator, admission, and
+  candidate-backfill hardening recorded by the security review;
+- name and configure the production Safe/timelock operators required by ADR
+  0012;
+- add secondary durable registry paging and run a controlled real witness
+  outage/divergence exercise;
 - run the released skill with a non-maintainer buyer agent and complete an
   external merchant installation, controller-wallet, update, and revoke
   session;
