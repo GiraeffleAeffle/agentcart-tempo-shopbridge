@@ -41,6 +41,12 @@ export const tempoModeratoDeployment = Object.freeze({
   deployment_block_hash: "0x8646ecbbb11ac5cf6195dd7e288acb2541f02ef0d580e3bc9afa2e42045edd26",
   runtime_code_hash: "0x6ef95b4471732ea43ea30a6a6f40117e117357a7291587e66b13d824f83509a4",
   rpc_url: "https://rpc.moderato.tempo.xyz",
+  discovery_facets: Object.freeze({
+    address: "0x693de216d208ADC933365bD6F4FCbC062BB8Afe5",
+    deployment_block: 32721088,
+    deployment_block_hash: "0xc3742bb0f7b5db034ccb36f8fdd252be4b8aeacb17018b374d77c0cf5fdcc8dd",
+    runtime_code_hash: "0x3a5d6e537b74546d91a80f3fa728acff2b9f217efea0cbf22a848ae43af27d12",
+  }),
   finality: Object.freeze({
     block_tag: "finalized",
     max_age_seconds: MAX_FINALITY_AGE_SECONDS,
@@ -142,6 +148,17 @@ export function validateMerchantRegistryDeployment(deployment) {
   }
   normalizeBytes32(deployment.deployment_block_hash, "deployment_block_hash");
   normalizeBytes32(deployment.runtime_code_hash, "runtime_code_hash");
+  if (deployment.discovery_facets !== undefined) {
+    const facets = deployment.discovery_facets;
+    if (!isAddress(facets?.address || "")) {
+      throw new Error("deployment_discovery_facets_address_invalid");
+    }
+    if (!Number.isSafeInteger(facets.deployment_block) || facets.deployment_block < deployment.deployment_block) {
+      throw new Error("deployment_discovery_facets_block_invalid");
+    }
+    normalizeBytes32(facets.deployment_block_hash, "deployment_discovery_facets_block_hash");
+    normalizeBytes32(facets.runtime_code_hash, "deployment_discovery_facets_runtime_code_hash");
+  }
   if (
     deployment.finality?.block_tag !== "finalized" ||
     !Number.isSafeInteger(deployment.finality?.max_age_seconds) ||

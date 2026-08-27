@@ -116,6 +116,13 @@ class DiscoveryFacetsTests(unittest.TestCase):
         value = record("0x" + "33" * 32, ["gift-sets", "tea"])["discovery_facets"]
         self.assertEqual(facets.matching_categories(value, "show me teas"), ["tea"])
 
+    def test_query_category_candidates_are_canonical_and_bounded(self) -> None:
+        self.assertEqual(
+            facets.query_category_candidates("Find me personal care products"),
+            ["care", "personal", "personal-care"],
+        )
+        self.assertEqual(facets.query_category_candidates("show me teas"), ["tea", "teas"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,7 @@ SOURCE_EXPOSED_CATALOG = "exposed_catalog_snapshot"
 ALLOWED_SOURCES = {SOURCE_EXPOSED_CATALOG}
 MAX_CATEGORIES = 8
 MAX_INDEX_ENTRIES = 5_000
+MAX_QUERY_CATEGORY_CANDIDATES = 16
 CATEGORY_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 RECORD_ID_PATTERN = re.compile(r"0x[0-9a-f]{64}")
 ADDRESS_PATTERN = re.compile(r"0x[0-9a-f]{40}")
@@ -42,8 +43,13 @@ QUERY_STOP_WORDS = {
     "near",
     "of",
     "or",
+    "item",
+    "items",
     "please",
+    "product",
+    "products",
     "selling",
+    "show",
     "shop",
     "some",
     "store",
@@ -160,6 +166,27 @@ def query_terms(value: Any) -> set[str]:
         if len(token) > 3 and token.endswith("s") and not token.endswith("ss")
     }
     return terms | singular
+
+
+def query_category_candidates(value: Any) -> list[str]:
+    """Derive bounded canonical category slugs from a buyer search phrase."""
+
+    tokens = [
+        token
+        for token in QUERY_TOKEN_PATTERN.findall(str(value or "").lower())
+        if len(token) > 1 and token not in QUERY_STOP_WORDS
+    ]
+    candidates = {normalized_category(token) for token in tokens}
+    candidates.update(
+        normalized_category(token[:-1])
+        for token in tokens
+        if len(token) > 3 and token.endswith("s") and not token.endswith("ss")
+    )
+    if len(tokens) > 1:
+        candidates.add(normalized_category("-".join(tokens)))
+    return sorted(
+        candidate for candidate in candidates if candidate
+    )[:MAX_QUERY_CATEGORY_CANDIDATES]
 
 
 def category_terms(category: Any) -> set[str]:

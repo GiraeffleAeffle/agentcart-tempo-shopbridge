@@ -43,6 +43,8 @@ metadata:
   labels:
     {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
 data:
+  class-agentcart-shopbridge-discovery-facets.php: |
+{{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-discovery-facets.php" | indent 4 }}
   class-agentcart-shopbridge-onchain-identity.php: |
 {{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-onchain-identity.php" | indent 4 }}
   class-agentcart-shopbridge-registry-archive.php: |

@@ -639,6 +639,41 @@ function agentcart_demo_update_stock($sku, $quantity) {
     $product->save();
 }
 
+function agentcart_demo_update_price($sku, $price) {
+    $product_id = agentcart_demo_product_id($sku);
+    $product = $product_id ? wc_get_product($product_id) : null;
+    if (!$product) {
+        return;
+    }
+    $product->set_regular_price(number_format((float) $price, 2, '.', ''));
+    $product->set_price(number_format((float) $price, 2, '.', ''));
+    $product->save();
+}
+
+function agentcart_demo_update_shipping($zone_name, $title, $cost) {
+    foreach (WC_Shipping_Zones::get_zones() as $zone_data) {
+        $zone = new WC_Shipping_Zone((int) $zone_data['zone_id']);
+        if ($zone->get_zone_name() !== $zone_name) {
+            continue;
+        }
+        foreach ($zone->get_shipping_methods(false) as $method) {
+            if ($method->id !== 'flat_rate') {
+                continue;
+            }
+            $settings = [
+                'title' => $title,
+                'tax_status' => 'none',
+                'cost' => number_format((float) $cost, 2, '.', ''),
+                'class_costs' => '',
+                'type' => 'class',
+            ];
+            update_option($method->get_instance_option_key(), $settings);
+            update_option('woocommerce_' . $method->id . '_' . $method->instance_id . '_settings', $settings);
+        }
+    }
+    WC_Cache_Helper::get_transient_version('shipping', true);
+}
+
 foreach ($demo_skus as $sku) {
     $product_id = agentcart_demo_product_id($sku);
     if (!$product_id || !$existing_profile_policy_term_ids) {
@@ -651,6 +686,26 @@ update_option('agentcart_shopbridge_stock_hold_mode', 'soft');
 update_option('agentcart_shopbridge_stock_hold_minutes', 15);
 
 if ($profile === 'baseline-eu-tax-shipping') {
+    printf("Applied AgentCart WooCommerce merchant variance profile: %s\n", $profile);
+    return;
+}
+
+if ($profile === 'ranking-value-usd') {
+    if (get_woocommerce_currency() !== 'USD') {
+        throw new RuntimeException('ranking-value-usd requires the USD market profile');
+    }
+    agentcart_demo_update_price('AGENT-TEA-HAZEL', '7.50');
+    agentcart_demo_update_shipping('AgentCart USD Demo', 'Value tracked parcel', '4.00');
+    printf("Applied AgentCart WooCommerce merchant variance profile: %s\n", $profile);
+    return;
+}
+
+if ($profile === 'ranking-premium-usd') {
+    if (get_woocommerce_currency() !== 'USD') {
+        throw new RuntimeException('ranking-premium-usd requires the USD market profile');
+    }
+    agentcart_demo_update_price('AGENT-TEA-HAZEL', '12.00');
+    agentcart_demo_update_shipping('AgentCart USD Demo', 'Premium tracked parcel', '3.00');
     printf("Applied AgentCart WooCommerce merchant variance profile: %s\n", $profile);
     return;
 }

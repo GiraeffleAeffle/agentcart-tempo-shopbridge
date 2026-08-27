@@ -9,18 +9,22 @@ metadata:
 
 Use this skill when a buyer wants to discover or buy from shops that implement
 ShopBridge without running the AgentCart service. Start with `doctor`. Normal
-public discovery queries the Tempo Moderato smart contract directly over
-JSON-RPC, from its deployment block through the RPC `finalized` head. Treat
-that contract as the authority for candidate membership and lifecycle
-commitments. Fetch only the selected current full-record URI, verify its hash,
-controller/domain binding, and offchain eligibility evidence, then resolve the
-merchant before any catalog or quote call.
+public discovery queries the Tempo Moderato Merchant Registry and its linked
+Discovery Facets contract directly over JSON-RPC, from their deployment blocks
+through the RPC `finalized` head. Treat the Merchant Registry as the authority
+for membership and lifecycle, and finalized category declarations as the
+candidate-routing source. Fetch only the selected current full-record URI,
+verify its record and category-set commitments, controller/domain binding, and
+offchain eligibility evidence, then resolve the merchant before any catalog or
+quote call.
 
-The current testnet deployment is `eip155:42431`, contract
-`0x0965961617c5B0898167AA4034C5511dB0EfcA07`, deployment block `30731101`.
-The hosted `https://registry.agentcart.eu/v1/registry/records` list is an
-optional compatibility/cache source, not the default authority. Use
-`SHOPBRIDGE_BASE_URL` only when the buyer explicitly supplies one known
+The current testnet deployment is `eip155:42431`: Merchant Registry
+`0x0965961617c5B0898167AA4034C5511dB0EfcA07` from block `30731101`, and
+Discovery Facets `0x693de216d208ADC933365bD6F4FCbC062BB8Afe5` from block `32721088`.
+Normal discovery does not call `registry.agentcart.eu`. Its `/v1/registry/*`
+routes are legacy compatibility/diagnostic APIs on the host that also serves
+the OCI image registry; they are not the shop registry used by this workflow.
+Use `SHOPBRIDGE_BASE_URL` only when the buyer explicitly supplies one known
 merchant or for local tests.
 
 The portable runtime contract is model- and harness-neutral: `SKILL.md`
@@ -62,6 +66,14 @@ Optional environment for a different onchain deployment or RPC:
 - `SHOPBRIDGE_ONCHAIN_CHAIN_ID`: expected numeric EVM chain id; default `42431`
 - `SHOPBRIDGE_ONCHAIN_REGISTRY_ADDRESS`: expected registry contract address
 - `SHOPBRIDGE_ONCHAIN_FROM_BLOCK`: registry deployment block
+- `SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_ADDRESS`: expected controller-bound
+  category-declaration contract address
+- `SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_FROM_BLOCK`: category contract
+  deployment block
+- `SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_DEPLOYMENT_BLOCK_HASH`: independently
+  recorded canonical hash of the category contract's deployment block
+- `SHOPBRIDGE_ONCHAIN_DISCOVERY_FACETS_RUNTIME_CODE_HASH`: independently
+  recorded Keccak-256 hash of the category contract runtime bytecode
 - `SHOPBRIDGE_ONCHAIN_DEPLOYMENT_BLOCK_HASH`: independently recorded canonical
   hash of that deployment block; optional for a standard historical RPC and
   required for Myotis
@@ -77,11 +89,9 @@ Optional environment for a different onchain deployment or RPC:
   uses hash-committed category facets when available, reserves a neutral
   query-seeded fallback, and happens before committed-record, catalog, and
   quote requests.
-- `SHOPBRIDGE_DISCOVERY_INDEX_URL`: optional replaceable category-to-record-id
-  routing index. The current Tempo deployment defaults to
-  `https://registry.agentcart.eu/v1/registry/discovery-index`; other chains
-  require an explicit deployment-specific URL. The index is never an
-  eligibility authority.
+- `SHOPBRIDGE_DISCOVERY_INDEX_URL`: explicit legacy compatibility override for
+  a replaceable category-to-record-id routing index. There is no default. The
+  current Tempo path gets candidates from finalized on-chain declarations.
 - `SHOPBRIDGE_ONCHAIN_RPC_PROFILE`: `auto` (default), `standard`, or `myotis`;
   `auto` detects `Myotis/verified-light-client`
 - `SHOPBRIDGE_ALLOW_PRIVATE_RPC`: allow a private/plain-HTTP RPC only for an
@@ -91,7 +101,9 @@ For an Ethereum mainnet or Gnosis deployment, the RPC URL may be a same-device
 [Myotis](https://github.com/biafra23/myotis) verified light-client endpoint.
 Use the Rust engine, configure its log index for the registry address from the
 real deployment block, wait until both beacon sync and log-index backfill are
-complete, then set the deployment variables above. Mainnet uses loopback port
+complete, then set the deployment variables above. A Myotis deployment must
+pin both category-contract descriptor hashes because it cannot independently
+reconstruct the historical contract-creation boundary. Mainnet uses loopback port
 `8545`; Gnosis uses `8546`. Set `SHOPBRIDGE_ALLOW_PRIVATE_RPC=1` for loopback
 and preferably `SHOPBRIDGE_ONCHAIN_RPC_PROFILE=myotis` to fail if the endpoint
 is not Myotis. The profile also requires `myotis_beaconStatus` to expose a
@@ -177,14 +189,15 @@ Install/configuration doctor:
 {"command":"doctor","args":{"format":"toon"}}
 ```
 
-This is the first command to run after installing the skill. It queries the
-smart contract directly but does not call merchant manifest/catalog/quote
+This is the first command to run after installing the skill. It queries both
+on-chain contracts directly but does not call merchant manifest/catalog/quote
 endpoints unless `probe:true` or `verify_merchants:true` is supplied. It calls
-`eth_chainId`, obtains the finalized boundary, verifies deployed contract code,
-loads the eligibility-changing logs from the deployment block, reconstructs
-current lifecycle state, selects a bounded active candidate set, and fetches
-only those records' current committed URIs. Historical record documents need
-not remain online. It checks the selected records against contract storage.
+`eth_chainId`, obtains the finalized boundary, verifies both deployed contracts
+and their binding, loads lifecycle and matching category-declaration logs,
+checks current category generations, selects a bounded active candidate set,
+and fetches only those records' current committed URIs. Historical record
+documents need not remain online. It checks the selected records and their
+category-set commitments against contract storage.
 With a standard RPC, the storage check is pinned to the same finalized block.
 With Myotis, the skill reads the true finalized height from
 `myotis_beaconStatus`, uses its receipt-root-verified log index for that range,
@@ -228,7 +241,7 @@ For a registry JSON document with multiple `entries`, pass a URL and optional me
 {"command":"resolve_merchant","args":{"registry_record_url":"https://registry.example/agentcart.json","merchant_id":"merchant-tea-shop"}}
 ```
 
-With a hosted compatibility source, or when the merchant was present in the
+With an explicitly configured hosted compatibility source, or when the merchant was present in the
 current bounded onchain sample, the agent can resolve by merchant id without
 passing a record each time:
 
@@ -305,15 +318,14 @@ With a configured registry source, omit `registry_records`:
 {"command":"discover_quotes","args":{"query":"tea","country":"DE","postal_code":"10115","payment_rail":"stripe-card-mpp","format":"toon"}}
 ```
 
-By default the buyer itself calls `eth_getLogs` for the deployed contract and
-only the event topics that can alter eligibility: register, update, controller
-rotation, revoke, suspend, and unsuspend. Supersession activation also emits a
-revoke/register pair, so it is covered by this projection. The skill fetches
-an optional category index first and treats matching record ids only as routing
-hints. It keeps a neutral query-seeded fallback, then verifies every selected
-record id against the contract and the record's committed hash. Missing,
-invalid, incomplete, or incorrect facets therefore cannot create eligibility
-or eliminate fallback discovery. The skill fetches
+By default the buyer itself calls `eth_getLogs` for both contracts: registry
+events that alter eligibility and indexed `CategoryDeclared` events matching
+canonical hashes derived from the buyer query. A declaration routes only when
+its generation, record hash, category-set hash, and count match current
+finalized contract state. The skill keeps a neutral query-seeded fallback,
+then verifies every selected record id against the registry and the record's
+committed hash. Missing, invalid, incomplete, or incorrect facets therefore
+cannot create eligibility or eliminate fallback discovery. The skill fetches
 the full `registry_record` from the event's `recordURI`, verifies the exact
 committed hash, controller, record id, registry address, chain id, and domain
 hash, replays the lifecycle, then compares the projected record with the
@@ -327,10 +339,9 @@ finality.
 
 `SHOPBRIDGE_ONCHAIN_REGISTRY_EVENTS_URL` remains available only for a trusted
 hosted-indexer compatibility path; `onchain_registry_events_path` is useful for
-offline fixtures. A hosted snapshot is not direct onchain discovery. The
-`registry.agentcart.eu` host may still serve immutable full-record documents
-referenced by contract events; hosting those documents does not make its
-`/records` list authoritative.
+offline fixtures. A hosted snapshot is not direct onchain discovery. A
+record's exact on-chain `recordURI` may point to an HTTPS document, but no
+hosted list decides candidate membership or category routing.
 
 This resolves each registry record first, rejects failed registry/domain-proof
 or revocation checks, stale records, and future-dated records before catalog or

@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for the testnet pilot.
+Superseded by ADR 0011 for new registry deployments. Retained as the historical
+decision behind the first Tempo pilot contract.
 
 ## Context
 

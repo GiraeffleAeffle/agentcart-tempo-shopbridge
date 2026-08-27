@@ -51,6 +51,9 @@ RPC_PROFILES = {RPC_PROFILE_AUTO, RPC_PROFILE_STANDARD, RPC_PROFILE_MYOTIS}
 RECORD_SELECTOR = "0xb5c645bd"
 RECORD_ID_FOR_DOMAIN_SELECTOR = "0x15daecde"
 REVOKED_RECORD_HASHES_SELECTOR = "0xf30566db"
+DISCOVERY_FACETS_REGISTRY_SELECTOR = "0x7b103999"
+DISCOVERY_FACET_STATE_SELECTOR = "0x8e5f8614"
+DISCOVERY_CATEGORY_DECLARED_TOPIC = "0x4551117e5d0504f18451c9c628ff65603a21ae2bea44f44b8487f56317ab579c"
 OWNERSHIP_TRANSFERRED_TOPIC = "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0"
 ZERO_ADDRESS_TOPIC = "0x" + "0" * 64
 
@@ -89,6 +92,23 @@ def _load_registry_trust_module():
 registry_trust = _load_registry_trust_module()
 
 
+def _load_discovery_facets_module():
+    existing = sys.modules.get("shopbridge_discovery_facets")
+    if existing is not None:
+        return existing
+    path = pathlib.Path(__file__).resolve().with_name("shopbridge_discovery_facets.py")
+    spec = importlib.util.spec_from_file_location("shopbridge_discovery_facets", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("portable ShopBridge discovery facets module is missing")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+discovery_facets = _load_discovery_facets_module()
+
+
 class OnchainRpcError(RuntimeError):
     def __init__(self, code: str, detail: str = "") -> None:
         super().__init__(code if not detail else f"{code}: {detail}")
@@ -107,6 +127,10 @@ class RegistryDeployment:
     rpc_profile: str = RPC_PROFILE_AUTO
     max_finality_age_seconds: int | None = None
     deployment_block_hash: str = ""
+    discovery_facets_address: str = ""
+    discovery_facets_from_block: int = 0
+    discovery_facets_deployment_block_hash: str = ""
+    discovery_facets_runtime_code_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -720,6 +744,285 @@ def _collect_logs(
     return logs
 
 
+def _decode_address_call(value: Any, *, field: str) -> str:
+    data = _hex_bytes(value, field=field)
+    if len(data) != 32 or any(data[:12]):
+        raise OnchainRpcError("contract_address_call_result_invalid", field)
+    return "0x" + data[12:].hex()
+
+
+def _decode_facet_state_call(value: Any) -> dict[str, Any]:
+    data = _hex_bytes(value, field="discovery_facet_state_call")
+    if len(data) != 4 * 32:
+        raise OnchainRpcError("discovery_facet_state_call_result_invalid")
+    words = [data[index : index + 32] for index in range(0, len(data), 32)]
+    generation = int.from_bytes(words[2], "big")
+    category_count = int.from_bytes(words[3], "big")
+    if generation >= 2**64 or category_count > discovery_facets.MAX_CATEGORIES:
+        raise OnchainRpcError("discovery_facet_state_call_result_invalid")
+    return {
+        "record_hash": "0x" + words[0].hex(),
+        "category_set_hash": "0x" + words[1].hex(),
+        "generation": generation,
+        "category_count": category_count,
+    }
+
+
+def _collect_category_declarations(
+    client: JsonRpcClient,
+    *,
+    facets_address: str,
+    from_block: int,
+    to_block: int,
+    chunk_size: int,
+    category_hashes: set[str],
+) -> list[dict[str, Any]]:
+    requested = {_fixed_hash(value, field="category_hash") for value in category_hashes}
+    if not requested:
+        return []
+    logs: list[dict[str, Any]] = []
+    start = from_block
+    while start <= to_block:
+        end = min(to_block, start + chunk_size - 1)
+        result = client.call(
+            "eth_getLogs",
+            [
+                {
+                    "address": facets_address,
+                    "fromBlock": hex(start),
+                    "toBlock": hex(end),
+                    "topics": [DISCOVERY_CATEGORY_DECLARED_TOPIC, sorted(requested)],
+                }
+            ],
+        )
+        if not isinstance(result, list):
+            raise OnchainRpcError("discovery_category_logs_result_invalid")
+        logs.extend(_rpc_log(log, facets_address) for log in result)
+        start = end + 1
+    logs.sort(
+        key=lambda value: (
+            _hex_int(value.get("blockNumber"), field="blockNumber"),
+            _hex_int(value.get("logIndex"), field="logIndex"),
+        )
+    )
+    declarations: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for log in logs:
+        block_number = _hex_int(log.get("blockNumber"), field="blockNumber")
+        if block_number < from_block or block_number > to_block:
+            raise OnchainRpcError("discovery_category_event_block_out_of_range")
+        topics = log.get("topics")
+        if not isinstance(topics, list) or len(topics) != 4:
+            raise OnchainRpcError("discovery_category_event_topics_invalid")
+        topic0 = _fixed_hash(topics[0], field="topics[0]")
+        category_hash = _fixed_hash(topics[1], field="categoryHash")
+        record_id = _fixed_hash(topics[2], field="recordId")
+        generation_data = _hex_bytes(topics[3], field="generation")
+        if (
+            topic0 != DISCOVERY_CATEGORY_DECLARED_TOPIC
+            or category_hash not in requested
+            or len(generation_data) != 32
+            or len(_hex_bytes(log.get("data"), field="data")) != 0
+        ):
+            raise OnchainRpcError("discovery_category_event_invalid")
+        generation = int.from_bytes(generation_data, "big")
+        if generation < 1 or generation >= 2**64:
+            raise OnchainRpcError("discovery_category_event_generation_invalid")
+        key = (
+            _fixed_hash(log.get("transactionHash"), field="transactionHash"),
+            _hex_int(log.get("logIndex"), field="logIndex"),
+        )
+        if key in seen:
+            raise OnchainRpcError("discovery_category_log_duplicate")
+        seen.add(key)
+        declarations.append(
+            {
+                "category_hash": category_hash,
+                "record_id": record_id,
+                "generation": generation,
+            }
+        )
+    return declarations
+
+
+def _onchain_category_hints(
+    client: JsonRpcClient,
+    *,
+    deployment: RegistryDeployment,
+    registry_address: str,
+    block_selector: str,
+    finalized_number: int,
+    chunk_size: int,
+    rpc_profile: str,
+    lifecycle: dict[str, dict[str, Any]],
+    category_hash_groups: list[set[str]],
+) -> tuple[set[str], dict[str, dict[str, Any]], dict[str, Any]]:
+    diagnostics: dict[str, Any] = {
+        "schema": "agentcart.onchain_category_routing.v1",
+        "authority": "smart_contract_routing_hint",
+        "configured": bool(deployment.discovery_facets_address),
+        "used": False,
+        "query_group_count": len(category_hash_groups),
+        "matched_record_count": 0,
+        "fallback_required": True,
+    }
+    if not deployment.discovery_facets_address or not category_hash_groups:
+        return set(), {}, diagnostics
+    facets_address = _address(
+        deployment.discovery_facets_address,
+        field="discovery_facets_address",
+    )
+    from_block = int(deployment.discovery_facets_from_block or deployment.from_block)
+    if from_block < 0 or from_block > finalized_number:
+        raise OnchainRpcError("discovery_facets_from_block_invalid")
+    current_code = client.call("eth_getCode", [facets_address, block_selector])
+    if not _has_contract_code(current_code):
+        raise OnchainRpcError("discovery_facets_contract_code_missing")
+    runtime_code_hash = str(deployment.discovery_facets_runtime_code_hash or "").lower()
+    if runtime_code_hash:
+        _fixed_hash(runtime_code_hash, field="discovery_facets_runtime_code_hash")
+        actual_runtime_code_hash = "0x" + keccak256(
+            _hex_bytes(current_code, field="discovery_facets_runtime_code")
+        ).hex()
+        if actual_runtime_code_hash != runtime_code_hash:
+            raise OnchainRpcError("discovery_facets_runtime_code_hash_mismatch")
+    deployment_block_hash = str(
+        deployment.discovery_facets_deployment_block_hash or ""
+    ).lower()
+    if deployment_block_hash:
+        _fixed_hash(
+            deployment_block_hash,
+            field="discovery_facets_deployment_block_hash",
+        )
+    if rpc_profile != RPC_PROFILE_MYOTIS:
+        deployment_block = _block_header(
+            client,
+            hex(from_block),
+            field="discovery_facets_deployment_block",
+            expected_number=from_block,
+        )
+        actual_deployment_block_hash = _fixed_hash(
+            deployment_block.get("hash"),
+            field="discovery_facets_deployment_block.hash",
+        )
+        if deployment_block_hash and actual_deployment_block_hash != deployment_block_hash:
+            raise OnchainRpcError("discovery_facets_deployment_block_hash_mismatch")
+        if not _has_contract_code(
+            client.call("eth_getCode", [facets_address, hex(from_block)])
+        ):
+            raise OnchainRpcError("discovery_facets_code_missing_at_deployment_block")
+        if from_block > 0 and _has_contract_code(
+            client.call("eth_getCode", [facets_address, hex(from_block - 1)])
+        ):
+            raise OnchainRpcError(
+                "discovery_facets_block_not_contract_creation_boundary"
+            )
+        deployment_verification = {
+            "status": "matched",
+            "block_number": from_block,
+            "block_hash": actual_deployment_block_hash,
+            "runtime_code_hash": "0x" + keccak256(
+                _hex_bytes(current_code, field="discovery_facets_runtime_code")
+            ).hex(),
+            "scope": "historical_code_creation_boundary_and_finalized_runtime",
+            "pinned_block_hash": bool(deployment_block_hash),
+            "pinned_runtime_code_hash": bool(runtime_code_hash),
+        }
+    else:
+        if not deployment_block_hash or not runtime_code_hash:
+            raise OnchainRpcError("myotis_discovery_facets_descriptor_incomplete")
+        deployment_verification = {
+            "status": "pinned",
+            "block_number": from_block,
+            "block_hash": deployment_block_hash,
+            "runtime_code_hash": runtime_code_hash,
+            "scope": "pinned_descriptor_verified_log_coverage_and_finalized_runtime",
+            "pinned_block_hash": True,
+            "pinned_runtime_code_hash": True,
+        }
+    linked_registry = _decode_address_call(
+        client.call(
+            "eth_call",
+            [{"to": facets_address, "data": DISCOVERY_FACETS_REGISTRY_SELECTOR}, block_selector],
+        ),
+        field="discovery_facets_registry_call",
+    )
+    if linked_registry != registry_address:
+        raise OnchainRpcError("discovery_facets_registry_mismatch")
+    normalized_groups = [
+        {_fixed_hash(value, field="category_hash") for value in group}
+        for group in category_hash_groups
+        if group
+    ]
+    if not normalized_groups:
+        return set(), {}, diagnostics
+    declarations = _collect_category_declarations(
+        client,
+        facets_address=facets_address,
+        from_block=from_block,
+        to_block=finalized_number,
+        chunk_size=chunk_size,
+        category_hashes=set().union(*normalized_groups),
+    )
+    by_record: dict[str, dict[int, set[str]]] = {}
+    for declaration in declarations:
+        record_id = declaration["record_id"]
+        generation = declaration["generation"]
+        by_record.setdefault(record_id, {}).setdefault(generation, set()).add(
+            declaration["category_hash"]
+        )
+    hinted: set[str] = set()
+    states: dict[str, dict[str, Any]] = {}
+    for record_id, generations in sorted(by_record.items()):
+        current = lifecycle.get(record_id)
+        if current is None or int(current.get("status") or 0) != 1:
+            continue
+        state = _decode_facet_state_call(
+            client.call(
+                "eth_call",
+                [
+                    {
+                        "to": facets_address,
+                        "data": _encode_call(DISCOVERY_FACET_STATE_SELECTOR, record_id),
+                    },
+                    block_selector,
+                ],
+            )
+        )
+        declared = generations.get(state["generation"], set())
+        if (
+            state["record_hash"] != str(current.get("record_hash") or "").lower()
+            or state["category_set_hash"] == ZERO_ADDRESS_TOPIC
+            or state["category_count"] < 1
+            or not all(group.intersection(declared) for group in normalized_groups)
+        ):
+            continue
+        hinted.add(record_id)
+        states[record_id] = state
+    diagnostics.update(
+        {
+            "used": bool(hinted),
+            "facets_address": facets_address,
+            "from_block": from_block,
+            "declaration_count": len(declarations),
+            "matched_record_count": len(hinted),
+            "deployment_verification": deployment_verification,
+        }
+    )
+    return hinted, states, diagnostics
+
+
+def _record_category_commitment(record: dict[str, Any]) -> tuple[str, int]:
+    facets = record.get("discovery_facets")
+    if discovery_facets.validate_discovery_facets(facets):
+        raise OnchainRpcError("registry_record_discovery_facets_invalid")
+    categories = facets.get("categories") if isinstance(facets, dict) else None
+    if not isinstance(categories, list):
+        raise OnchainRpcError("registry_record_discovery_facets_invalid")
+    category_hashes = sorted(keccak256(category.encode("utf-8")) for category in categories)
+    return "0x" + keccak256(b"".join(category_hashes)).hex(), len(category_hashes)
+
+
 def _block_time(client: JsonRpcClient, block_number: int, cache: dict[int, dict[str, Any]]) -> tuple[str, str]:
     if block_number not in cache:
         cache[block_number] = _block_header(
@@ -846,6 +1149,7 @@ def collect_finalized_events(
     preferred_record_ids: set[str] | None = None,
     preferred_domain_hashes: set[str] | None = None,
     hinted_record_ids: set[str] | None = None,
+    category_hash_groups: list[set[str]] | None = None,
 ) -> dict[str, Any]:
     registry_address, from_block, chunk_size, requested_profile, max_finality_age_seconds = (
         _validate_deployment(deployment)
@@ -1019,11 +1323,27 @@ def collect_finalized_events(
         for record_id, state in sorted(lifecycle.items())
         if int(state["status"]) == 1
     ]
+    onchain_hinted_ids, onchain_facet_states, onchain_facet_diagnostics = (
+        _onchain_category_hints(
+            client,
+            deployment=deployment,
+            registry_address=registry_address,
+            block_selector=state_selector,
+            finalized_number=finalized_number,
+            chunk_size=chunk_size,
+            rpc_profile=rpc_profile,
+            lifecycle=lifecycle,
+            category_hash_groups=category_hash_groups or [],
+        )
+    )
     preferred_ids = {str(value).lower() for value in (preferred_record_ids or set())}
     preferred_domains = {
         str(value).lower() for value in (preferred_domain_hashes or set())
     }
-    hinted_ids = {str(value).lower() for value in (hinted_record_ids or set())}
+    hinted_ids = {
+        *(str(value).lower() for value in (hinted_record_ids or set())),
+        *onchain_hinted_ids,
+    }
     scoped_pool = active_pool
     selection_mode = "query_seeded_sample"
     if preferred_ids or preferred_domains:
@@ -1096,6 +1416,14 @@ def collect_finalized_events(
                 "domain_hash": str(state["domain_hash"]),
             },
         )
+        facet_state = onchain_facet_states.get(record_id)
+        if facet_state is not None:
+            category_set_hash, category_count = _record_category_commitment(loaded)
+            if (
+                category_set_hash != facet_state["category_set_hash"]
+                or category_count != facet_state["category_count"]
+            ):
+                raise OnchainRpcError("registry_record_discovery_facet_commitment_mismatch")
         return loaded
 
     if active_candidates:
@@ -1158,6 +1486,7 @@ def collect_finalized_events(
             "selected_neutral_fallback_count": selected_fallback_count,
             "before_record_fetch": True,
         },
+        "onchain_discovery_facets": onchain_facet_diagnostics,
         "eligibility_event_topics": list(EVENT_SPECS),
         "contract_storage_verification": storage_verification,
         "deployment_verification": deployment_verification,

@@ -2078,7 +2078,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(diagnostics["facet_match_count"], 0)
         self.assertEqual(diagnostics["algorithm"], "sha256-query-seeded-merchant-sample")
 
-    def test_default_discovery_index_is_not_reused_for_another_chain(self) -> None:
+    def test_hosted_discovery_index_requires_explicit_configuration(self) -> None:
         self.assertEqual(
             shopbridge_direct.configured_discovery_index_url(
                 {"onchain_chain_id": 1, "onchain_registry_address": "0x" + "11" * 20}
@@ -2087,6 +2087,12 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         )
         self.assertEqual(
             shopbridge_direct.configured_discovery_index_url({}),
+            "",
+        )
+        self.assertEqual(
+            shopbridge_direct.configured_discovery_index_url(
+                {"discovery_index_url": shopbridge_direct.DEFAULT_DISCOVERY_INDEX_URL}
+            ),
             shopbridge_direct.DEFAULT_DISCOVERY_INDEX_URL,
         )
 
@@ -2278,6 +2284,33 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["candidates"], [])
         self.assertEqual(result["rejected"][0]["reason"], "merchant registry verification failed")
         self.assertIn("domain_proof_record_hash_mismatch", result["rejected"][0]["detail"]["errors"])
+
+    def test_quote_comparison_defers_checkout_only_verifier_and_address_issues(self) -> None:
+        preflight = {
+            "issues": [
+                "incomplete_delivery_address",
+                "external_verifier_required_for_public_checkout",
+            ],
+            "payment_destination": {
+                "rail": "tempo-mpp",
+                "recipient": "0x1111111111111111111111111111111111111111",
+                "network": "testnet",
+            },
+        }
+
+        self.assertEqual(shopbridge_direct.comparison_quote_blockers(preflight), [])
+        reasons = shopbridge_direct.quote_rank_reasons(
+            {"total_cents": 1217, "currency": "USD"},
+            {"verification": {"state": "verified"}},
+            preflight,
+        )
+        self.assertTrue(any("checkout verifier not configured" in reason for reason in reasons))
+
+        preflight["issues"].append("quote_total_mismatch")
+        self.assertEqual(
+            shopbridge_direct.comparison_quote_blockers(preflight),
+            ["quote_total_mismatch"],
+        )
 
     def test_discover_basket_quotes_compares_complete_baskets_across_verified_merchants(self) -> None:
         manifest_a, record_a, proof_a = registry_manifest_and_record(
