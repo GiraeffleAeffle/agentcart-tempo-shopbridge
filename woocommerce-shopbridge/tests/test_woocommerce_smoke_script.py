@@ -28,6 +28,9 @@ def args(**overrides):
         "postcode": "10115",
         "city": "Berlin",
         "address": "Demo Street 1",
+        "first_name": "AgentCart",
+        "last_name": "Smoke",
+        "state": "",
         "currency": "EUR",
         "merchant_token": "agentcart-woo-demo-token",
         "expect_shipping_cents": None,
@@ -350,6 +353,25 @@ def sample_cancellation_response():
 
 
 class WooCommerceShopBridgeSmokeTests(unittest.TestCase):
+    def test_quote_payload_contains_checkout_ready_delivery_identity(self) -> None:
+        payload = smoke.quote_payload(
+            sample_catalog_product(),
+            args(country="US", postcode="10001", city="New York", state="NY"),
+        )
+
+        self.assertEqual(
+            {
+                "first_name": "AgentCart",
+                "last_name": "Smoke",
+                "country": "US",
+                "postcode": "10001",
+                "city": "New York",
+                "address_1": "Demo Street 1",
+                "state": "NY",
+            },
+            payload["ship_to"],
+        )
+
     def test_capability_and_manifest_require_setup_and_endpoint_contracts(self) -> None:
         smoke.validate_capability(sample_capability())
         smoke.validate_manifest(sample_manifest())
