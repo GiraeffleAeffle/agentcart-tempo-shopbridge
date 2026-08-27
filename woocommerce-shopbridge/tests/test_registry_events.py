@@ -26,6 +26,9 @@ class RegistryEventsBehaviorTests(unittest.TestCase):
     def run_php(self, document: dict) -> dict:
         script = f"""<?php
 define('ABSPATH', '/');
+function wp_json_encode($value, $flags = 0, $depth = 512) {{
+    return json_encode($value, $flags, $depth);
+}}
 require {json.dumps(str(IDENTITY_MODULE))};
 require {json.dumps(str(EVENTS_MODULE))};
 echo json_encode(AgentCart_ShopBridge_Registry_Events::project(

@@ -411,7 +411,7 @@ final class AgentCart_ShopBridge_Registry_Events {
             }
             return '{' . implode(',', $members) . '}';
         }
-        $encoded = json_encode(
+        $encoded = wp_json_encode(
             $value,
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION
         );
