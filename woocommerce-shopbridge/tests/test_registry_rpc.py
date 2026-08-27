@@ -290,17 +290,6 @@ echo json_encode([
                 change_rpc_domain_hash,
                 "rpc_record_domain_hash_mismatch",
             ),
-            "wrong deterministic record id": (
-                lambda responses: responses.__setitem__(
-                    "eth_call:0xe26ec9d5"
-                    + self.domain_hash[2:]
-                    + "0" * 24
-                    + self.controller[2:]
-                    + f":hash:{'0x' + '55' * 32}:canonical",
-                    "0x" + "77" * 32,
-                ),
-                "rpc_computed_record_id_mismatch",
-            ),
         }
         for label, (mutate, error) in cases.items():
             with self.subTest(label=label):

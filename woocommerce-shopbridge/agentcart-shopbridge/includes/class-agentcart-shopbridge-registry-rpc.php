@@ -17,7 +17,6 @@ final class AgentCart_ShopBridge_Registry_Rpc {
     private const RECORD_SELECTOR = '0xb5c645bd'; // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- ABI selectors are opaque strings.
     private const DOMAIN_RECORD_SELECTOR = '0x15daecde'; // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- ABI selectors are opaque strings.
     private const REVOKED_HASH_SELECTOR = '0xf30566db'; // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- ABI selectors are opaque strings.
-    private const COMPUTE_RECORD_ID_SELECTOR = '0xe26ec9d5'; // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- ABI selectors are opaque strings.
 
     /**
      * Verify the configured identity and record at the pinned finalized chain.
@@ -170,19 +169,6 @@ final class AgentCart_ShopBridge_Registry_Rpc {
                             $finalized_ref,
                         ],
                     ],
-                    [
-                        'method' => 'eth_call',
-                        'params' => [
-                            [
-                                'to' => $registry_address,
-                                'data' => self::COMPUTE_RECORD_ID_SELECTOR .
-                                    substr($expected_domain_hash, 2) .
-                                    str_repeat('0', 24) .
-                                    substr($controller, 2),
-                            ],
-                            $finalized_ref,
-                        ],
-                    ],
                 ]
             );
             $code_at_finality = $state_reads[0] ?? null;
@@ -226,14 +212,6 @@ final class AgentCart_ShopBridge_Registry_Rpc {
             if (preg_match('/^0{64}$/D', $revoked) !== 1) {
                 self::fail('rpc_record_hash_revoked');
             }
-            $computed_record_id = self::word_result(
-                $state_reads[4] ?? null,
-                'rpc_computed_record_id_result_invalid'
-            );
-            if ('0x' . $computed_record_id !== $record_id) {
-                self::fail('rpc_computed_record_id_mismatch');
-            }
-
             $finality = [
                 'block_tag' => 'finalized',
                 'block_number' => $finalized_number,

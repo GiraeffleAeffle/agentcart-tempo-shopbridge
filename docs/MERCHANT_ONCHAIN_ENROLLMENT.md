@@ -72,7 +72,8 @@ node scripts/onchain-registry-operator.mjs prepare \
 ```
 
 This first call is read-only. It verifies the pinned deployment and finalized
-RPC view, derives the domain hash and deterministic record id, and should return
+RPC view, derives a deterministic record id for a new domain or reads the
+stable mapped id for an existing domain, and should return
 `state: store_identity_required` plus four `wordpress_settings` values:
 
 | CLI field | WordPress field |
@@ -142,7 +143,7 @@ observer compare the plan against the intended:
 - operation (`register` or `update`);
 - Tempo Moderato chain and pinned registry contract;
 - merchant domain and controller address;
-- deterministic record id;
+- stable domain-mapped record id (deterministic at first registration);
 - exact record hash and merchant-hosted immutable record URI; and
 - zero transaction value.
 
@@ -170,7 +171,7 @@ For a supervised pilot only, an operator may use the isolated signer fallback:
 `execute` rejects an expired or changed plan and a signer that is not the
 controller. Immediately before signing it re-verifies the pinned deployment
 runtime and creation boundary, freshness of the finalized head, current domain
-mapping/status/hash precondition, deterministic record id, and the immutable
+mapping/status/hash precondition, stable record id, and the immutable
 merchant record. It then re-simulates the exact transaction. Immediately after
 broadcast it writes a mode-0600 submission journal next to the plan, preserving
 the transaction hash even if receipt/finality verification later fails. Never
@@ -212,7 +213,7 @@ may show **Finalized** only when the plugin captures a fresh finalized block
 hash through its pinned, read-only Tempo RPC and pins every state read to it
 with EIP-1898 `requireCanonical`. The check verifies the registry runtime and
 creation boundary, Ethereum Keccak of the normalized shop hostname, the exact
-active controller, controller-bound deterministic record id, domain mapping,
+active controller, stable domain-mapped record id, domain mapping,
 record hash, and non-revoked state. This removes dependence on the Hosted
 Registry but still trusts the named Tempo RPC. Hosted health and event
 documents are labeled operator snapshots; they can help diagnose the registry

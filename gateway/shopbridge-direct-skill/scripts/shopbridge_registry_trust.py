@@ -539,11 +539,13 @@ def _document(
     record: dict[str, Any],
     explicit: dict[str, Any] | None,
     snapshot_field: str,
+    *,
+    allow_embedded_snapshot: bool = True,
 ) -> tuple[dict[str, Any] | None, str]:
     if isinstance(explicit, dict):
         return explicit, "snapshot"
     snapshot = record.get(snapshot_field)
-    if isinstance(snapshot, dict):
+    if allow_embedded_snapshot and isinstance(snapshot, dict):
         return snapshot, "snapshot"
     return None, "url"
 
@@ -594,7 +596,19 @@ def verify_registry_record(
     signature = str(record.get("signature") or "")
     proof_type = ""
     proof_url = ""
-    proof_document, proof_source = _document(record, proof, "proof_snapshot")
+    # Proof and revocation snapshots embedded in the Registry Record are not
+    # covered by registry_record_hash(). A live verifier with a fetch adapter
+    # must therefore consult the current well-known documents instead of
+    # allowing an uncommitted snapshot to mask loss of domain control or a
+    # later revocation. Explicit snapshots remain available for deterministic
+    # offline verification and tests.
+    live_documents = fetch_json is not None
+    proof_document, proof_source = _document(
+        record,
+        proof,
+        "proof_snapshot",
+        allow_embedded_snapshot=not live_documents,
+    )
     if signature_alg in {"https-domain-proof", "agentcart-domain-v1"}:
         proof_descriptor = record.get("proof") if isinstance(record.get("proof"), dict) else {}
         proof_type = str(proof_descriptor.get("type") or "").lower()
@@ -629,7 +643,12 @@ def verify_registry_record(
     else:
         errors.append("signature_alg_unsupported")
 
-    revocation_document, revocation_source = _document(record, revocation, "revocation_snapshot")
+    revocation_document, revocation_source = _document(
+        record,
+        revocation,
+        "revocation_snapshot",
+        allow_embedded_snapshot=not live_documents,
+    )
     revocation_url = str(record.get("revocation_url") or "")
     if revocation_url:
         revocation_url_issues = secure_url_errors(

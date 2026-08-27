@@ -19,6 +19,9 @@ jobs:
   verify:
     name: Publish and verify source
     runs-on: ubuntu-latest
+    env:
+      CHAIN_ID: "42431"
+      VERIFIER_URL: https://contracts.tempo.xyz
     steps:
       - name: Require explicit publication acknowledgement
         env:
@@ -28,83 +31,123 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Submit exact deployment inputs
-        id: submit
+      - name: Publish and require exact matches
         env:
-          CHAIN_ID: "42431"
-          CONTRACT_ADDRESS: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
-          CREATION_TRANSACTION_HASH: "0xad99d0e1f877af983fd372657fdac9bfd4f6b467b3f9bfbdd024ecd5bc831481"
-          VERIFIER_URL: https://contracts.tempo.xyz
+          REGISTRY_ADDRESS: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+          REGISTRY_CREATION_TX: "0xad99d0e1f877af983fd372657fdac9bfd4f6b467b3f9bfbdd024ecd5bc831481"
+          FACETS_ADDRESS: "0x693de216d208ADC933365bD6F4FCbC062BB8Afe5"
+          FACETS_CREATION_TX: "0x3247fa0c58002748cc297bec861c8d5b1c3e99930ca99a52690df3162403c17e"
         run: |
           set -euo pipefail
-          payload="$RUNNER_TEMP/tempo-registry-verification-payload.json"
-          response="$RUNNER_TEMP/tempo-registry-verification-submit.json"
 
-          jq -n \
-            --rawfile implementation contracts/AgentCartMerchantRegistry.sol \
-            --rawfile interface contracts/interfaces/IAgentCartMerchantRegistry.sol \
-            --arg creation_transaction_hash "$CREATION_TRANSACTION_HASH" \
-            '{
-              stdJsonInput: {
-                language: "Solidity",
-                sources: {
+          publish_and_verify() {
+            local name="$1"
+            local address="$2"
+            local creation_tx="$3"
+            local identifier="$4"
+            local payload="$RUNNER_TEMP/${name}-verification-payload.json"
+            local response="$RUNNER_TEMP/${name}-verification-response.json"
+            local status_file="$RUNNER_TEMP/${name}-verification-status.json"
+            local sources_file="$RUNNER_TEMP/${name}-sources.json"
+
+            if [[ "$name" == registry ]]; then
+              jq -n \
+                --rawfile implementation contracts/AgentCartMerchantRegistry.sol \
+                --rawfile interface contracts/interfaces/IAgentCartMerchantRegistry.sol \
+                '{
                   "contracts/AgentCartMerchantRegistry.sol": {content: $implementation},
                   "contracts/interfaces/IAgentCartMerchantRegistry.sol": {content: $interface}
-                },
-                settings: {
-                  optimizer: {enabled: true, runs: 200},
-                  evmVersion: "prague",
-                  metadata: {bytecodeHash: "ipfs"},
-                  remappings: [],
-                  libraries: {},
-                  outputSelection: {"*": {"*": ["abi", "evm.bytecode", "evm.deployedBytecode", "metadata"]}}
-                }
-              },
-              compilerVersion: "0.8.28+commit.7893614a",
-              contractIdentifier: "contracts/AgentCartMerchantRegistry.sol:AgentCartMerchantRegistry",
-              creationTransactionHash: $creation_transaction_hash
-            }' > "$payload"
-
-          curl --fail --silent --show-error \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --data-binary "@$payload" \
-            "$VERIFIER_URL/v2/verify/$CHAIN_ID/$CONTRACT_ADDRESS" > "$response"
-
-          verification_id="$(jq -er '.verificationId' "$response")"
-          echo "verification_id=$verification_id" >> "$GITHUB_OUTPUT"
-
-      - name: Require an exact source match
-        env:
-          CHAIN_ID: "42431"
-          CONTRACT_ADDRESS: "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
-          VERIFICATION_ID: ${{ steps.submit.outputs.verification_id }}
-          VERIFIER_URL: https://contracts.tempo.xyz
-        run: |
-          set -euo pipefail
-          status_file="$RUNNER_TEMP/tempo-registry-verification-status.json"
-
-          completed=false
-          for attempt in {1..40}; do
-            curl --fail --silent --show-error \
-              "$VERIFIER_URL/v2/verify/$VERIFICATION_ID" > "$status_file"
-            if [[ "$(jq -r '.isJobCompleted // false' "$status_file")" == true ]]; then
-              completed=true
-              break
+                }' > "$sources_file"
+            else
+              jq -n \
+                --rawfile implementation contracts/AgentCartMerchantDiscoveryFacets.sol \
+                --rawfile interface contracts/interfaces/IAgentCartMerchantDiscoveryFacets.sol \
+                --rawfile registry_interface contracts/interfaces/IAgentCartMerchantRegistry.sol \
+                '{
+                  "contracts/AgentCartMerchantDiscoveryFacets.sol": {content: $implementation},
+                  "contracts/interfaces/IAgentCartMerchantDiscoveryFacets.sol": {content: $interface},
+                  "contracts/interfaces/IAgentCartMerchantRegistry.sol": {content: $registry_interface}
+                }' > "$sources_file"
             fi
-            sleep 5
-          done
 
-          [[ "$completed" == true ]]
-          [[ "$(jq -r '.contract.match // empty' "$status_file")" == exact_match ]]
-          [[ "$(jq -r '.contract.chainId // empty' "$status_file")" == "$CHAIN_ID" ]]
-          [[ "$(jq -r '.contract.address // empty' "$status_file" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$CONTRACT_ADDRESS" | tr '[:upper:]' '[:lower:]')" ]]
+            jq -n \
+              --slurpfile sources "$sources_file" \
+              --arg creation_transaction_hash "$creation_tx" \
+              --arg contract_identifier "$identifier" \
+              '{
+                stdJsonInput: {
+                  language: "Solidity",
+                  sources: $sources[0],
+                  settings: {
+                    optimizer: {enabled: true, runs: 200},
+                    evmVersion: "prague",
+                    metadata: {bytecodeHash: "ipfs"},
+                    remappings: [],
+                    libraries: {},
+                    outputSelection: {"*": {"*": ["abi", "evm.bytecode", "evm.deployedBytecode", "metadata"]}}
+                  }
+                },
+                compilerVersion: "0.8.28+commit.7893614a",
+                contractIdentifier: $contract_identifier,
+                creationTransactionHash: $creation_transaction_hash
+              }' > "$payload"
+
+            http_code="$(curl --silent --show-error \
+              --output "$response" \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header 'Content-Type: application/json' \
+              --data-binary "@$payload" \
+              "$VERIFIER_URL/v2/verify/$CHAIN_ID/$address")"
+
+            if [[ "$http_code" == 202 ]]; then
+              verification_id="$(jq -er '.verificationId' "$response")"
+              completed=false
+              for attempt in {1..40}; do
+                curl --fail --silent --show-error \
+                  "$VERIFIER_URL/v2/verify/$verification_id" > "$status_file"
+                if [[ "$(jq -r '.isJobCompleted // false' "$status_file")" == true ]]; then
+                  completed=true
+                  break
+                fi
+                sleep 5
+              done
+              [[ "$completed" == true ]]
+              [[ "$(jq -r '.contract.match // empty' "$status_file")" == exact_match ]]
+            elif [[ "$http_code" == 409 && "$(jq -r '.customCode // empty' "$response")" == already_verified ]]; then
+              : # Idempotent rerun; the retrieval check below is authoritative.
+            else
+              jq . "$response" >&2
+              return 1
+            fi
+
+            curl --fail --silent --show-error \
+              "$VERIFIER_URL/v2/contract/$CHAIN_ID/$address?fields=all" > "$status_file"
+            [[ "$(jq -r '.match // empty' "$status_file")" == exact_match ]]
+            [[ "$(jq -r '.runtimeMatch // .match // empty' "$status_file")" == exact_match ]]
+            [[ "$(jq -r '.chainId // empty' "$status_file")" == "$CHAIN_ID" ]]
+            [[ "$(jq -r '.address // empty' "$status_file" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$address" | tr '[:upper:]' '[:lower:]')" ]]
+
+            {
+              printf -- '- %s: `%s`\n' "$name" "$address"
+              echo '  - Match: `exact_match`'
+              echo '  - Runtime match: `exact_match`'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
 
           {
             echo '### Tempo registry source verification'
             echo
-            printf -- '- Verification id: `%s`\n' "$VERIFICATION_ID"
-            printf -- '- Contract: `%s`\n' "$CONTRACT_ADDRESS"
             printf -- '- Chain id: `%s`\n' "$CHAIN_ID"
-            echo '- Match: `exact_match`'
           } >> "$GITHUB_STEP_SUMMARY"
+
+          publish_and_verify \
+            registry \
+            "$REGISTRY_ADDRESS" \
+            "$REGISTRY_CREATION_TX" \
+            contracts/AgentCartMerchantRegistry.sol:AgentCartMerchantRegistry
+          publish_and_verify \
+            discovery-facets \
+            "$FACETS_ADDRESS" \
+            "$FACETS_CREATION_TX" \
+            contracts/AgentCartMerchantDiscoveryFacets.sol:AgentCartMerchantDiscoveryFacets

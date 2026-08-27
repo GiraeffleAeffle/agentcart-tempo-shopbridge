@@ -113,6 +113,34 @@ def registry_tool_result(record: dict, manifest: dict, proof: dict, revocation: 
 
 
 class RegistryTrustFixtureTests(unittest.TestCase):
+    def test_live_verification_ignores_uncommitted_embedded_control_snapshots(self) -> None:
+        documents = copy.deepcopy(fixture_contract()["base"])
+        record = documents["record"]
+        record["proof_snapshot"] = {"record_hash": "0" * 64}
+        record["revocation_snapshot"] = {
+            "merchant_id": record["merchant_id"],
+            "domain": record["domain"],
+            "revoked": True,
+        }
+
+        def fetch_json(url: str) -> dict:
+            if url == record["proof"]["url"]:
+                return documents["proof"]
+            if url == record["revocation_url"]:
+                return documents["revocation"]
+            raise AssertionError(f"unexpected URL: {url}")
+
+        result = shopbridge_direct.registry_trust.verify_registry_record(
+            record,
+            manifest=documents["manifest"],
+            fetch_json=fetch_json,
+            policy=shopbridge_direct.registry_trust.TrustPolicy(max_age_days=36500),
+        )
+
+        self.assertEqual(result["state"], "verified", result)
+        self.assertEqual(result["proof_source"], "url")
+        self.assertEqual(result["revocation_source"], "url")
+
     def test_shared_domain_normalization_contract(self) -> None:
         fixture = json.loads(DOMAIN_FIXTURE_PATH.read_text(encoding="utf-8"))
         for case in fixture["cases"]:

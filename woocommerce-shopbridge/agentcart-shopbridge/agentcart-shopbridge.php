@@ -222,7 +222,7 @@ final class AgentCart_ShopBridge {
         ]);
         register_setting('agentcart_shopbridge', self::REGISTRY_CONNECTION_URL_OPTION, [
             'type' => 'string',
-            'sanitize_callback' => 'esc_url_raw',
+            'sanitize_callback' => [__CLASS__, 'sanitize_registry_connection_url_setting'],
             'default' => self::DEFAULT_REGISTRY_CONNECTION_URL,
         ]);
         register_setting('agentcart_shopbridge', self::REGISTRY_CONNECTION_TOKEN_OPTION, [
@@ -2857,12 +2857,34 @@ final class AgentCart_ShopBridge {
 
     private static function registry_connection_url() {
         if (defined('AGENTCART_REGISTRY_CONNECTION_URL')) {
-            $value = esc_url_raw((string) AGENTCART_REGISTRY_CONNECTION_URL);
+            $value = self::sanitize_registry_connection_url_setting(
+                (string) AGENTCART_REGISTRY_CONNECTION_URL
+            );
             if ($value !== '') {
                 return $value;
             }
         }
-        return esc_url_raw((string) get_option(self::REGISTRY_CONNECTION_URL_OPTION, self::DEFAULT_REGISTRY_CONNECTION_URL));
+        return self::sanitize_registry_connection_url_setting(
+            (string) get_option(self::REGISTRY_CONNECTION_URL_OPTION, self::DEFAULT_REGISTRY_CONNECTION_URL)
+        );
+    }
+
+    public static function sanitize_registry_connection_url_setting($value) {
+        $url = esc_url_raw(trim((string) $value), ['https']);
+        $parts = $url !== '' ? wp_parse_url($url) : false;
+        if (
+            !is_array($parts) ||
+            strtolower((string) ($parts['scheme'] ?? '')) !== 'https' ||
+            empty($parts['host']) ||
+            isset($parts['user']) ||
+            isset($parts['pass'])
+        ) {
+            return '';
+        }
+        if (function_exists('wp_http_validate_url') && wp_http_validate_url($url) === false) {
+            return '';
+        }
+        return $url;
     }
 
     private static function registry_connection_token() {
@@ -2929,6 +2951,15 @@ final class AgentCart_ShopBridge {
     }
 
     private static function call_registry_connection($registry_url, $payload) {
+        $registry_url = self::sanitize_registry_connection_url_setting($registry_url);
+        if ($registry_url === '') {
+            return [
+                'state' => 'failed',
+                'status' => 0,
+                'message' => 'Registry connection URL must be a public HTTPS endpoint.',
+                'response' => null,
+            ];
+        }
         $headers = [
             'Content-Type' => 'application/json',
             'Accept' => 'application/json',
@@ -2938,9 +2969,10 @@ final class AgentCart_ShopBridge {
         if ($token !== '') {
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-        $response = wp_remote_post($registry_url, [
+        $response = wp_safe_remote_post($registry_url, [
             'timeout' => 12,
             'redirection' => 0,
+            'limit_response_size' => self::REGISTRY_RESPONSE_MAX_BYTES + 1,
             'headers' => $headers,
             'body' => wp_json_encode($payload, JSON_UNESCAPED_SLASHES),
         ]);
@@ -2954,6 +2986,14 @@ final class AgentCart_ShopBridge {
         }
         $status = intval(wp_remote_retrieve_response_code($response));
         $raw_body = wp_remote_retrieve_body($response);
+        if (strlen($raw_body) > self::REGISTRY_RESPONSE_MAX_BYTES) {
+            return [
+                'state' => 'failed',
+                'status' => $status,
+                'message' => 'Registry response exceeded the size limit.',
+                'response' => null,
+            ];
+        }
         $decoded = json_decode($raw_body, true);
         $message = is_array($decoded)
             ? sanitize_text_field((string) ($decoded['message'] ?? $decoded['state'] ?? ''))
@@ -3158,7 +3198,16 @@ final class AgentCart_ShopBridge {
             $headers['X-AgentCart-Token'] = $token;
             $headers['X-AgentCart-Registry-Token'] = $token;
         }
-        $response = wp_remote_get(esc_url_raw((string) $url), [
+        $url = self::sanitize_registry_connection_url_setting($url);
+        if ($url === '') {
+            return [
+                'ok' => false,
+                'status' => 0,
+                'error' => 'registry_url_requires_public_https',
+                'body' => null,
+            ];
+        }
+        $response = wp_safe_remote_get($url, [
             'timeout' => 8,
             'redirection' => 0,
             'limit_response_size' => self::REGISTRY_RESPONSE_MAX_BYTES + 1,

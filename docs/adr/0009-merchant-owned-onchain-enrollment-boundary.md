@@ -40,7 +40,8 @@ Split enrollment into four explicit authorities:
    surface. Its submission response is not proof of contract inclusion.
 
 Enrollment is a two-phase prepare flow. The first prepare call derives the
-domain hash and deterministic record id and returns four public WordPress
+domain hash and either computes the first-registration record id or reads the
+existing stable domain mapping, then returns four public WordPress
 settings: controller, CAIP-2 chain id, registry contract, and record id. After
 the merchant saves those settings, the record hash changes to bind that public
 identity. The second prepare call verifies the merchant-hosted immutable record,
@@ -66,8 +67,8 @@ and resulting registry state. WooCommerce may display `Finalized` only after
 its pinned read-only RPC verifier captures one fresh finalized block hash and
 uses EIP-1898 `requireCanonical` selectors for every state read. It checks the
 deployment block and creation boundary, runtime code, Ethereum Keccak hash of
-the normalized shop hostname, controller, domain mapping, controller-bound
-deterministic record id, record hash, active status, and non-revocation. The
+the normalized shop hostname, controller, stable domain-mapped record id,
+record hash, active status, and non-revocation. The
 result removes dependence on the Hosted Registry but still trusts the pinned
 Tempo RPC. Hosted health and event documents remain explicitly labeled operator
 snapshots and cannot set public discovery readiness. A merchant-id-only match,

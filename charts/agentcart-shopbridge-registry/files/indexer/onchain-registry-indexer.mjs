@@ -684,6 +684,7 @@ export async function collectFinalizedEvents(options, injectedClient = null) {
   const document = {
     schema: CONTRACT_EVENTS_SCHEMA,
     implementation: INDEXER_IMPLEMENTATION,
+    completeness_authority: "rpc_asserted_complete",
     chain_id: `eip155:${chainId}`,
     registry_address: registryAddress,
     finality: {

@@ -1447,6 +1447,7 @@ def collect_finalized_events(
     return {
         "schema": CONTRACT_EVENTS_SCHEMA,
         "implementation": DIRECT_RPC_IMPLEMENTATION,
+        "completeness_authority": "rpc_asserted_complete",
         "source": "myotis_verified_json_rpc" if rpc_profile == RPC_PROFILE_MYOTIS else "direct_json_rpc",
         "rpc": {
             "profile": rpc_profile,
