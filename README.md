@@ -11,7 +11,7 @@ Current status: production-candidate alpha. The USD pilot merchant is active in
 the ShopBridge registry contract on Tempo Moderato; the Direct Skill queries
 that contract over JSON-RPC for buyer discovery. The read-only
 `https://registry.agentcart.eu/v1/registry/records` endpoint remains a
-maintainer-curated compatibility/cache view with two public staging shops, not
+maintainer-curated compatibility/cache view of the active USD testnet shop, not
 the authority for onchain candidate membership or lifecycle. This supports merchant installability and
 buyer-agent discovery testing; it is not a production-payment pilot. The
 WooCommerce plugin, buyer skill, registry contract, verifier contract, package

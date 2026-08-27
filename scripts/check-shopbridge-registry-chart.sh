@@ -106,8 +106,17 @@ grep -Fq 'location = /v1/registry/onchain/records/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 grep -Fq 'Cache-Control "public, max-age=31536000, immutable"' "$rendered"
 grep -Fq '"merchant_id": "immutable-test"' "$rendered"
 grep -Fq '"status": "not_deployed"' "$rendered"
-grep -Fq 'woocommerce-demo-shop-eur' "$rendered"
 grep -Fq 'woocommerce-demo-shop-usd' "$rendered"
+grep -Fq '6947c68eb613692d1fcb096ae8c330c27683aeacc79d674d2c3d7e9e75930690' "$rendered"
+grep -Fq 'agentcart.discovery_facets.v1' "$rendered"
+grep -Fq '"coffee"' "$rendered"
+grep -Fq '"household"' "$rendered"
+grep -Fq '"personal-care"' "$rendered"
+grep -Fq '"tea"' "$rendered"
+if grep -Fq 'woocommerce-demo-shop-eur' "$rendered"; then
+  printf 'registry pilot values still advertise the unsupported EUR shop\n' >&2
+  exit 1
+fi
 
 if "$helm_bin" lint "$chart" \
   --set registry.onchain.tempo.status=testnet_only \
