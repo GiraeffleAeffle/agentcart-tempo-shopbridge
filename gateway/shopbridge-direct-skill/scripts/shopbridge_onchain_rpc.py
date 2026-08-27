@@ -845,6 +845,7 @@ def collect_finalized_events(
     myotis_ready_timeout_seconds: float = MYOTIS_READY_TIMEOUT_SECONDS,
     preferred_record_ids: set[str] | None = None,
     preferred_domain_hashes: set[str] | None = None,
+    hinted_record_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     registry_address, from_block, chunk_size, requested_profile, max_finality_age_seconds = (
         _validate_deployment(deployment)
@@ -1022,6 +1023,7 @@ def collect_finalized_events(
     preferred_domains = {
         str(value).lower() for value in (preferred_domain_hashes or set())
     }
+    hinted_ids = {str(value).lower() for value in (hinted_record_ids or set())}
     scoped_pool = active_pool
     selection_mode = "query_seeded_sample"
     if preferred_ids or preferred_domains:
@@ -1042,10 +1044,38 @@ def collect_finalized_events(
                 f"must be 1..{MAX_RECORD_CANDIDATES}",
             )
     seed = str(record_candidate_seed or "shopbridge-default-candidate-sample")
-    active_candidates = sorted(
-        scoped_pool,
-        key=lambda item: hashlib.sha256(f"{seed}\0{item[0]}".encode("utf-8")).digest(),
-    )[:candidate_limit]
+    def query_seeded_order(pool: list[tuple[str, dict[str, Any]]]) -> list[tuple[str, dict[str, Any]]]:
+        return sorted(
+            pool,
+            key=lambda item: hashlib.sha256(f"{seed}\0{item[0]}".encode("utf-8")).digest(),
+        )
+
+    selected_hint_count = 0
+    selected_fallback_count = 0
+    matched_hint_count = 0
+    if hinted_ids and not preferred_ids and not preferred_domains:
+        hinted_pool = [item for item in scoped_pool if item[0] in hinted_ids]
+        neutral_pool = [item for item in scoped_pool if item[0] not in hinted_ids]
+        matched_hint_count = len(hinted_pool)
+        if hinted_pool:
+            hint_budget = candidate_limit if candidate_limit == 1 else candidate_limit - 1
+            active_candidates = query_seeded_order(hinted_pool)[:hint_budget]
+            selected_hint_count = len(active_candidates)
+            fallback = query_seeded_order(neutral_pool)[: candidate_limit - len(active_candidates)]
+            active_candidates.extend(fallback)
+            selected_fallback_count = len(fallback)
+            if len(active_candidates) < candidate_limit:
+                selected_ids = {record_id for record_id, _state in active_candidates}
+                remainder = [item for item in query_seeded_order(hinted_pool) if item[0] not in selected_ids]
+                active_candidates.extend(remainder[: candidate_limit - len(active_candidates)])
+                selected_hint_count = len(active_candidates) - selected_fallback_count
+            selection_mode = "discovery_facets_with_neutral_fallback"
+        else:
+            active_candidates = query_seeded_order(scoped_pool)[:candidate_limit]
+            selected_fallback_count = len(active_candidates)
+            selection_mode = "discovery_facets_no_match_fallback"
+    else:
+        active_candidates = query_seeded_order(scoped_pool)[:candidate_limit]
     selected_record_ids = [record_id for record_id, _state in active_candidates]
 
     def resolve_record(record_id: str, state: dict[str, Any]) -> dict[str, Any]:
@@ -1122,6 +1152,10 @@ def collect_finalized_events(
             "candidate_limit": candidate_limit,
             "selected_record_count": len(active_candidates),
             "selected_record_ids": selected_record_ids,
+            "hinted_record_count": len(hinted_ids),
+            "matched_hint_count": matched_hint_count,
+            "selected_hint_count": selected_hint_count,
+            "selected_neutral_fallback_count": selected_fallback_count,
             "before_record_fetch": True,
         },
         "eligibility_event_topics": list(EVENT_SPECS),

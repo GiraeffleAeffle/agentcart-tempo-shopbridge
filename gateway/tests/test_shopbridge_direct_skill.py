@@ -2037,6 +2037,59 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(catalog_mock.call_count, 1)
         self.assertEqual(quote_mock.call_count, 1)
 
+    def test_prequote_candidate_sample_prioritizes_facets_and_keeps_neutral_fallback(self) -> None:
+        def record(merchant_id: str, categories: list[str] | None = None) -> dict:
+            value = {"merchant_id": merchant_id, "domain": f"{merchant_id}.example"}
+            if categories:
+                value["discovery_facets"] = {
+                    "schema": shopbridge_direct.discovery_facets.FACETS_SCHEMA,
+                    "taxonomy": shopbridge_direct.discovery_facets.TAXONOMY,
+                    "source": shopbridge_direct.discovery_facets.SOURCE_EXPOSED_CATALOG,
+                    "categories": categories,
+                    "category_count_total": len(categories),
+                    "coverage": "complete",
+                    "truncated": False,
+                }
+            return value
+
+        selected, diagnostics = shopbridge_direct.prequote_candidate_sample(
+            [record("coffee", ["coffee"]), record("tea", ["tea"]), record("unknown")],
+            {"query": "find tea", "merchant_candidate_limit": 2, "candidate_seed": "buyer"},
+        )
+
+        self.assertEqual(selected[0]["merchant_id"], "tea")
+        self.assertNotEqual(selected[1]["merchant_id"], "tea")
+        self.assertEqual(diagnostics["facet_match_count"], 1)
+        self.assertEqual(diagnostics["neutral_fallback_count"], 1)
+        self.assertEqual(diagnostics["facet_authority"], "routing_hint_only")
+
+    def test_prequote_candidate_sample_falls_back_when_facets_have_no_match(self) -> None:
+        records = [
+            {"merchant_id": "coffee", "domain": "coffee.example"},
+            {"merchant_id": "unknown", "domain": "unknown.example"},
+        ]
+
+        selected, diagnostics = shopbridge_direct.prequote_candidate_sample(
+            records,
+            {"query": "tea", "merchant_candidate_limit": 1, "candidate_seed": "buyer"},
+        )
+
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(diagnostics["facet_match_count"], 0)
+        self.assertEqual(diagnostics["algorithm"], "sha256-query-seeded-merchant-sample")
+
+    def test_default_discovery_index_is_not_reused_for_another_chain(self) -> None:
+        self.assertEqual(
+            shopbridge_direct.configured_discovery_index_url(
+                {"onchain_chain_id": 1, "onchain_registry_address": "0x" + "11" * 20}
+            ),
+            "",
+        )
+        self.assertEqual(
+            shopbridge_direct.configured_discovery_index_url({}),
+            shopbridge_direct.DEFAULT_DISCOVERY_INDEX_URL,
+        )
+
     def test_discover_quotes_uses_configured_registry_path_without_inline_records(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
 

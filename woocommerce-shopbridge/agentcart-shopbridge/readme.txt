@@ -86,6 +86,9 @@ actions.
   ShopBridge does not request, store, or use a controller private key.
 * Content-addressed merchant-hosted Registry Record snapshots. Existing hashes
   are never rewritten when merchant settings produce a new record.
+* Bounded category Discovery Facets derived from the products already exposed
+  in the saved catalog snapshot. They are committed by the Registry Record for
+  buyer-side routing, never ranking or product truth.
 * Normalized fulfillment tracking adapter metadata from common WooCommerce
   shipment/tracking plugin fields.
 * Structured policy metadata for restricted goods, perishables, deposits,
@@ -178,7 +181,9 @@ and [Tempo Privacy Policy](https://wallet.tempo.xyz/support/privacy-policy).
 7. Preview product exposure, review the catalog diff, and save a current
    catalog snapshot after confirming the agent-readable catalog looks right.
 8. In the Registry Proof section, refresh metadata when stable identity/payment
-   settings change, then run the public endpoint check.
+   settings or exposed product categories change, then run the public endpoint
+   check. The refreshed Registry Record automatically includes up to eight
+   category facets from the exposed catalog; no keyword list is required.
 9. For the supervised Tempo Moderato pilot, give the public registry bundle URL
    and a merchant-controlled public controller address to the pilot observer.
    The observer prepares the four public onchain identity values. Save those

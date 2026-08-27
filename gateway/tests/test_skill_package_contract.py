@@ -19,6 +19,20 @@ SPEC.loader.exec_module(skill_package)
 
 
 class SkillPackageContractTest(unittest.TestCase):
+    def test_gateway_image_copies_every_imported_skill_helper(self) -> None:
+        dockerfile = (ROOT / "gateway" / "Dockerfile").read_text(encoding="utf-8")
+
+        for helper in (
+            "shopbridge_discovery_facets.py",
+            "shopbridge_safe_http.py",
+            "shopbridge_registry_trust.py",
+            "shopbridge_onchain_projection.py",
+        ):
+            self.assertIn(
+                f"COPY shopbridge-direct-skill/scripts/{helper} ",
+                dockerfile,
+            )
+
     def test_source_skill_folder_is_installable(self) -> None:
         errors = skill_package.validate_skill_dir(ROOT / "gateway" / "shopbridge-direct-skill")
 
@@ -29,6 +43,7 @@ class SkillPackageContractTest(unittest.TestCase):
             {
                 "SKILL.md",
                 "scripts/shopbridge-command.py",
+                "scripts/shopbridge_discovery_facets.py",
                 "scripts/shopbridge_safe_http.py",
                 "scripts/shopbridge_registry_trust.py",
                 "scripts/shopbridge_onchain_projection.py",
@@ -53,6 +68,7 @@ class SkillPackageContractTest(unittest.TestCase):
             with zipfile.ZipFile(zip_path, "w") as archive:
                 archive.writestr("shopbridge-direct-skill/SKILL.md", "portable workflow")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge-command.py", "")
+                archive.writestr("shopbridge-direct-skill/scripts/shopbridge_discovery_facets.py", "")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_safe_http.py", "")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_registry_trust.py", "")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_onchain_projection.py", "")

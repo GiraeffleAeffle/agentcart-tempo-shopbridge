@@ -99,10 +99,12 @@ verified current contract views. A conventional RPC is supported. For an
 Ethereum or Gnosis deployment, a local Myotis verified light client is also a
 compatible transport when its Rust contract-log index is configured from the
 true deployment block and fully backfilled, and its JSON-RPC status exposes the
-non-zero finalized execution block. The inspected 2026-08-23 Myotis main
-adapter still zeroes that status field, so this path currently fails closed
-pending a small upstream fix. Myotis is not a registry or an offchain record
-host; it only replaces the chain-data transport.
+non-zero finalized execution block. Myotis merge commit
+`f639a7a7253aab2941400ba9c3827fbc23be429e` now maps the Rust engine's
+finalized execution block into that status field. The upstream blocker is
+resolved; a pinned ShopBridge integration drill is still required before this
+transport counts as production evidence. Myotis is not a registry or an
+offchain record host; it only replaces the chain-data transport.
 
 Because Myotis only serves a short window of historical headers, an immutable
 deployment descriptor must independently pin chain id, registry address,
@@ -140,6 +142,11 @@ the fixed non-ranking registration-bond/anti-spam policy and the bounded,
 buyer-query-seeded candidate sample in the Fairness section must be implemented
 and tested. The current Tempo contract is a public pilot contract, not the
 final spam-resistant mainnet registry.
+
+ADR 0010 adds bounded, hash-committed Discovery Facets to the offchain Registry
+Record and permits replaceable routing indexes. This does not add product
+metadata to contract storage: facets only select which records to verify before
+catalog calls, and a neutral query-seeded fallback remains mandatory.
 
 ## Controller-Bound Domain Proof
 

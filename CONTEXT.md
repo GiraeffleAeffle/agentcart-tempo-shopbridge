@@ -18,6 +18,8 @@ The product is a production-candidate alpha. The codebase has strong contract ch
 | Merchant Registry | The smart-contract authority for candidate membership and record lifecycle commitments. It emits the URI of each full offchain Registry Record; a candidate becomes an eligible Merchant only after the buyer verifies that record, domain proof, manifest, payment binding, freshness, and revocation state. |
 | Hosted Registry | A replaceable cache, archive, monitor, and compatibility interface over Merchant Registry state. Its `/records` list is not the default merchant-list authority. |
 | Registry Record | A public merchant identity and integrity record binding merchant id, domain, manifest URL, registry claim hash, payment destination, freshness, proof, and revocation pointer. |
+| Discovery Facets | Optional bounded public product-category hints in a Registry Record. They route pre-catalog discovery only and never establish eligibility, product truth, or ranking. |
+| Discovery Index | A replaceable projection from Discovery Facets to onchain record ids. It is an untrusted routing hint; buyers still verify contract state, the committed Registry Record, and the merchant catalog. |
 | Immutable Registry Record URI | A merchant-hosted, content-addressed HTTPS path whose filename is the canonical Registry Record SHA-256. Historical paths remain byte-stable after updates and revocation. |
 | Registry Metadata Readiness | The Manifest, domain proof, revocation document, bundle, and immutable current record are valid over merchant HTTPS. It does not mean the record is onchain. |
 | Registry Controller | The public wallet address authorized to register, update, or revoke one merchant record. Its signing key never belongs in WordPress. |

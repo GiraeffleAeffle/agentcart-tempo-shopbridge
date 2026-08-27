@@ -17,6 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 require_once __DIR__ . '/includes/trait-agentcart-shopbridge-verifier-client.php';
+require_once __DIR__ . '/includes/class-agentcart-shopbridge-discovery-facets.php';
 require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-archive.php';
 require_once __DIR__ . '/includes/class-agentcart-shopbridge-onchain-identity.php';
 require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-events.php';
@@ -3751,11 +3752,21 @@ final class AgentCart_ShopBridge {
             'proof_url' => self::registry_proof_url(),
             'revocation_url' => self::registry_revocation_url(),
         ];
+        $discovery_facets = self::registry_discovery_facets();
+        if (!empty($discovery_facets)) {
+            $claim['discovery_facets'] = $discovery_facets;
+        }
         $onchain_identity = self::registry_onchain_identity();
         if (!empty($onchain_identity)) {
             $claim['onchain_identity'] = $onchain_identity;
         }
         return $claim;
+    }
+
+    private static function registry_discovery_facets() {
+        return AgentCart_ShopBridge_Discovery_Facets::from_exposure_snapshot(
+            self::product_exposure_snapshot_result()
+        );
     }
 
     private static function registry_onchain_identity() {
@@ -5778,6 +5789,7 @@ final class AgentCart_ShopBridge {
                 'registry_claim_hash_alg' => 'sha-256',
                 'registry_claim_hash' => self::registry_claim_hash(),
                 'registry_claim' => self::registry_claim(),
+                'discovery_facets' => self::registry_discovery_facets(),
                 'registry_record_hash' => self::registry_record_hash_value(),
                 'registry_updated_at' => self::registry_updated_at(),
                 'registry_ready' => $public_discovery_ready && self::merchant_registry_profile_configured(),

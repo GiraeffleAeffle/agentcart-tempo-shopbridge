@@ -112,13 +112,22 @@ Deployment block: 30731101
 
 It requests the RPC `finalized` head, reads the eligibility-changing contract
 logs from the deployment block, and reconstructs current lifecycle state. It
-then chooses a bounded set of active candidates and fetches only each selected
-record's current `recordURI`; historical record documents do not have to remain
-online. The skill checks the committed hash, controller/domain binding,
+uses the public category index as an untrusted routing hint when a Registry
+Record has hash-committed Discovery Facets, while reserving a deterministic
+neutral fallback. It then chooses a bounded set of active candidates and
+fetches only each selected record's current `recordURI`; historical record
+documents do not have to remain online. The skill checks the committed hash,
+controller/domain binding,
 lifecycle projection, and the contract's current storage views at the verified
 boundary. Only after that does it verify the merchant domain proof, manifest,
 payment binding, freshness, and revocation document. Revoked, suspended,
 incomplete, wrong-chain, wrong-contract, or unfinalized state fails closed.
+
+The index is not a product database or ranking service. A category match merely
+reduces which records are fetched before catalog search; the current merchant
+catalog must still contain the requested product. For another chain, configure
+its own `SHOPBRIDGE_DISCOVERY_INDEX_URL` or omit the index and use bounded
+query-seeded fallback discovery.
 
 To use a different deployment or RPC:
 
@@ -143,17 +152,13 @@ node. Myotis exposes the Ethereum JSON-RPC methods the skill needs and, on its
 Rust engine, maintains an opt-in receipt-root-verified `eth_getLogs` index for
 selected contracts.
 
-There is one upstream blocker in Myotis commit
-`1cc9f09a854846c20b0ca03b517f0ac6a0712ebd`: the Rust adapter parses
-`finalizedBlockNumber`, but `RustChainHandle.beaconStatus()` currently exports
-`executionBlockNumber` as `0`. The ShopBridge profile intentionally rejects
-that with `myotis_finalized_block_unavailable`; it will not substitute the
-optimistic head and call it finalized. The minimal Myotis fix is to populate
-that `BeaconStatus` field from `s.finalizedBlockNumber()`. The latest inspected
-pre-release, v0.1.7, also predates the generic log-index build commands below,
-so pin a later fixed commit or release before treating this as usable.
+Myotis merge commit `f639a7a7253aab2941400ba9c3827fbc23be429e`
+resolved the finalized-height adapter bug. Pin that revision or a later release
+that contains it; older builds reporting `executionBlockNumber: 0` still fail
+closed with `myotis_finalized_block_unavailable`. A ShopBridge end-to-end drill
+against the pinned revision remains required before production use.
 
-Once that field is fixed, Myotis must know the exact registry contract and its
+Myotis must know the exact registry contract and its
 deployment block, and its log-index backfill must finish before discovery can
 succeed. Following the current main-branch daemon interface, prepare Gnosis and
 start the Rust daemon in one terminal:
@@ -217,6 +222,15 @@ merchant endpoints remain offchain and must still be reachable. Pin and test a
 specific Myotis release or commit before production because the project is
 still evolving. Build the log index locally for the trustless path; do not treat
 an imported portable snapshot as independently verified provenance.
+
+For the Gnosis evaluation, treat regular consensus sync as an operational
+requirement: an always-on harness is preferred, and an intermittently online
+desktop or mobile harness must resume, refresh its weak-subjectivity checkpoint
+when required, and reach `SYNCED` at least once per day before ShopBridge
+discovery is considered ready. Android should use a foreground service. On iOS,
+where background execution can be suspended, embed Myotis in the active app and
+fail discovery while it has not recently resynchronized; do not assume a
+background loopback daemon stays available.
 Myotis binds its unauthenticated RPC to loopback intentionally. If the buyer
 agent runs inside a container, `127.0.0.1` must be in the same network namespace
 or connected through a narrowly scoped local bridge; do not expose the raw RPC

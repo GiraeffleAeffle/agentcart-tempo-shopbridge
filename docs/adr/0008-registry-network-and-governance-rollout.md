@@ -79,15 +79,13 @@ path; an imported snapshot is not independent provenance. The base light-client
 disk footprint is small, but the optional index grows with contract activity
 and its production resource profile still needs measurement.
 
-The inspected Myotis main commit
-`1cc9f09a854846c20b0ca03b517f0ac6a0712ebd` has one blocking adapter defect:
-the Rust status parser contains `finalizedBlockNumber`, while
-`RustChainHandle.beaconStatus()` exports `executionBlockNumber` as zero. The
-ShopBridge Myotis profile therefore fails closed. Mapping that field to
-`s.finalizedBlockNumber()` and releasing the newer generic log-index commands
-are prerequisites for an end-to-end compatibility drill. Until that drill is
-recorded, Myotis is an integration candidate, not a satisfied production RPC
-or witness gate.
+Myotis merge commit `f639a7a7253aab2941400ba9c3827fbc23be429e`
+resolved the blocking adapter defect by mapping the Rust engine's finalized
+execution block into `beaconStatus`. ShopBridge no longer has a known upstream
+compatibility blocker, but it still requires a pinned-revision end-to-end sync,
+log-index backfill, finalized-height, registry replay, and restart drill. Until
+that evidence is recorded, Myotis is an integration candidate, not a satisfied
+production RPC or witness gate.
 
 ## Testnet Deployment Evidence
 

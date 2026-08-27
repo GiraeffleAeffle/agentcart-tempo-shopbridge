@@ -35,8 +35,9 @@ No production chain or real-money rail was used.
 | Immutable full-record archive | Implemented in the public-registry chart and as merchant-hosted content-addressed WordPress snapshots | Old content hashes remain fetchable after revoke/recovery while the plugin remains installed. Production still needs a separately operated append-only copy because disablement makes the merchant route unavailable and uninstall removes the plugin archive |
 | Reference RPC indexer | Implemented and live on the public testnet registry; independent witness mode is packaged | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, atomically publishes only complete snapshots, and preserves the last good snapshot until buyer freshness enforcement expires it. Optional witness mode publishes only the common matched range and rejects stalled or divergent paths |
 | Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; hosted event feeds remain compatibility inputs |
+| Category-routed discovery | Implemented in source; live record refresh pending | Optional bounded facets are derived from the merchant's exposed catalog, hash-committed by the Registry Record, and projected through an untrusted record-id index. Buyer discovery keeps a neutral fallback and still confirms products in the current merchant catalog. Re-enroll the Tempo merchant with a facet-bearing record before the public index can advertise categories |
 | Buyer quote and payment readiness | Implemented in source after the first workstation-agent run exposed the ambiguity | Discovery explicitly requires no wallet; payment readiness is reported separately without invoking payment tools; country/postcode quotes are comparison-only; approval, payment, and checkout require a refreshed financially consistent quote with a complete buyer-supplied delivery address. Publish the updated skill/plugin and repeat the external run |
-| Buyer verified-light-client transport | Implemented fail-closed profile; upstream compatibility blocked | Myotis supports the required verified logs and contract reads on Ethereum/Gnosis, but inspected Rust main currently exports finalized execution block `0`; ShopBridge refuses it pending the one-line adapter fix and a pinned-release drill |
+| Buyer verified-light-client transport | Implemented fail-closed profile; upstream fix merged | Myotis merge `f639a7a7253aab2941400ba9c3827fbc23be429e` now exports the finalized execution height. Pin that revision or later and complete the ShopBridge sync, log-index, registry replay, restart, and weak-subjectivity freshness drill before production use |
 | Registry contract | Live on Tempo Moderato with a finalized register/revoke/recover drill | The recovered USD record is active; source publication and independent security review remain open |
 | Merchant onchain enrollment | Implemented for a supervised Tempo Moderato pilot | Two-phase `prepare` derives four public WordPress identity values, validates the immutable merchant record, selects and simulates register/update, and emits a secret-free external-wallet request. Retained plans support revoke preparation even when the shop is unavailable |
 | Registry write operator | Implemented with 30-minute intent-hash-bound plans, runtime/creation-boundary and finalized-state preflight, immutable-record revalidation, signer/controller matching, immediate post-broadcast journaling, exact transaction-inclusion verification, canonical receipt finality, and post-write state verification | External wallet is primary; the environment-key `execute` path is an isolated supervised fallback. Free-form mutations are not exposed. Pilot writes must be serialized per controller because the current contract lacks an atomic expected-current-hash mutation; Ethereum, Gnosis, and Tempo mainnet writes remain blocked by default |
@@ -201,8 +202,11 @@ The remaining gates are explicit:
   session;
 - complete merchant-specific external-verifier onboarding against the published
   plugin flow;
-- resolve and drill the Myotis finalized-height adapter only if the verified
-  light-client path is part of the Ethereum/Gnosis network evaluation; and
+- drill the fixed Myotis adapter only if the verified light-client path is part
+  of the Ethereum/Gnosis network evaluation, including daily weak-subjectivity
+  freshness expectations for intermittently online mobile/desktop harnesses;
+- regenerate and finalize the Tempo merchant's facet-bearing Registry Record,
+  publish the resulting discovery-index entry, and repeat cross-shop discovery;
 - accept a new ADR before any Ethereum, Gnosis, or Tempo production deployment.
 
 Detailed redacted evidence is in

@@ -784,6 +784,23 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
         )
         self.assertEqual(len(loader_calls), 1)
         self.assertEqual(document["record_selection"]["selected_record_ids"], [expected_id])
+        hinted_id = "0x" + "8" * 64
+        hinted_document = onchain_rpc.collect_finalized_events(
+            onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100),
+            record_loader=load_record,
+            request_json=rpc.request,
+            record_candidate_limit=2,
+            record_candidate_seed=seed,
+            hinted_record_ids={hinted_id},
+        )
+        hinted_selection = hinted_document["record_selection"]
+        self.assertEqual(
+            hinted_selection["selection_mode"],
+            "discovery_facets_with_neutral_fallback",
+        )
+        self.assertEqual(hinted_selection["selected_record_ids"][0], hinted_id)
+        self.assertEqual(hinted_selection["selected_hint_count"], 1)
+        self.assertEqual(hinted_selection["selected_neutral_fallback_count"], 1)
         index = onchain_projection.index_contract_document(
             document,
             record_hash=lambda record: str(record["_expected_hash"]).removeprefix("0x"),

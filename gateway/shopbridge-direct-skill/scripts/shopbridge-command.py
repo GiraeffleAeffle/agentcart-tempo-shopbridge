@@ -42,6 +42,9 @@ def env_bool(name: str, default: bool = False) -> bool:
 DEFAULT_BASE_URL = "http://127.0.0.1:8098"
 BASE_URL = os.getenv("SHOPBRIDGE_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
 DEFAULT_REGISTRY_URL = "https://registry.agentcart.eu/v1/registry/records"
+DEFAULT_DISCOVERY_INDEX_URL = "https://registry.agentcart.eu/v1/registry/discovery-index"
+DEFAULT_ONCHAIN_CHAIN_ID = 42431
+DEFAULT_ONCHAIN_REGISTRY_ADDRESS = "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
 DISABLE_DEFAULT_REGISTRY = env_bool("SHOPBRIDGE_DISABLE_DEFAULT_REGISTRY", False)
 ALLOW_PRIVATE_ORIGIN = env_bool(
     "SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN",
@@ -63,6 +66,11 @@ REGISTRY_MAX_AGE_DAYS = env_int(
 REGISTRY_PATH = (
     os.getenv("SHOPBRIDGE_REGISTRY_PATH")
     or os.getenv("AGENTCART_MERCHANT_REGISTRY_PATH")
+    or ""
+).strip()
+DISCOVERY_INDEX_URL = (
+    os.getenv("SHOPBRIDGE_DISCOVERY_INDEX_URL")
+    or os.getenv("AGENTCART_DISCOVERY_INDEX_URL")
     or ""
 ).strip()
 ONCHAIN_REGISTRY_EVENTS_URL = (
@@ -93,12 +101,12 @@ ONCHAIN_RPC_URL = (
 ).strip()
 ONCHAIN_RPC_CHAIN_ID = env_int(
     "SHOPBRIDGE_ONCHAIN_CHAIN_ID",
-    env_int("AGENTCART_ONCHAIN_CHAIN_ID", 42431),
+    env_int("AGENTCART_ONCHAIN_CHAIN_ID", DEFAULT_ONCHAIN_CHAIN_ID),
 )
 ONCHAIN_RPC_REGISTRY_ADDRESS = (
     os.getenv("SHOPBRIDGE_ONCHAIN_REGISTRY_ADDRESS")
     or os.getenv("AGENTCART_ONCHAIN_REGISTRY_ADDRESS")
-    or "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
+    or DEFAULT_ONCHAIN_REGISTRY_ADDRESS
 ).strip()
 ONCHAIN_RPC_FROM_BLOCK = env_int(
     "SHOPBRIDGE_ONCHAIN_FROM_BLOCK",
@@ -183,6 +191,34 @@ def load_safe_http_module():
 
 
 safe_http = load_safe_http_module()
+
+
+def load_discovery_facets_module():
+    candidates = (
+        pathlib.Path(__file__).resolve().with_name("shopbridge_discovery_facets.py"),
+        pathlib.Path(__file__).resolve().parents[2]
+        / "shopbridge-direct-skill"
+        / "scripts"
+        / "shopbridge_discovery_facets.py",
+    )
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        module_name = "shopbridge_discovery_facets"
+        loaded = sys.modules.get(module_name)
+        if loaded is not None:
+            return loaded
+        spec = importlib.util.spec_from_file_location(module_name, candidate)
+        if spec is None or spec.loader is None:
+            continue
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return module
+    raise RuntimeError("portable ShopBridge Discovery Facets module is missing")
+
+
+discovery_facets = load_discovery_facets_module()
 
 
 def load_registry_trust_module():
@@ -1290,6 +1326,94 @@ def configured_registry_path(args: dict[str, Any]) -> str:
     ).strip()
 
 
+def configured_discovery_index_url(args: dict[str, Any]) -> str:
+    explicit = str(
+        args.get("discovery_index_url")
+        or args.get("registry_discovery_index_url")
+        or DISCOVERY_INDEX_URL
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    if default_registry_disabled(args) or boolish(args.get("disable_discovery_index"), False):
+        return ""
+    try:
+        configured_chain_id = int(
+            args.get("onchain_chain_id") or args.get("chain_id") or ONCHAIN_RPC_CHAIN_ID
+        )
+    except (TypeError, ValueError):
+        return ""
+    configured_registry_address = str(
+        args.get("onchain_registry_address")
+        or args.get("registry_address")
+        or ONCHAIN_RPC_REGISTRY_ADDRESS
+    ).lower()
+    if (
+        configured_chain_id != DEFAULT_ONCHAIN_CHAIN_ID
+        or configured_registry_address != DEFAULT_ONCHAIN_REGISTRY_ADDRESS.lower()
+    ):
+        return ""
+    return DEFAULT_DISCOVERY_INDEX_URL
+
+
+def discovery_index_queries(args: dict[str, Any]) -> tuple[list[str], bool]:
+    query = str(args.get("query") or args.get("q") or args.get("search") or "").strip()
+    if query:
+        return [query], False
+    basket = args.get("basket") if isinstance(args.get("basket"), list) else []
+    queries = [
+        str(item.get("query") or item.get("search") or item.get("category") or "").strip()
+        for item in basket
+        if isinstance(item, dict)
+    ]
+    queries = [value for value in queries if value]
+    return queries, bool(queries)
+
+
+def discovery_index_hints(args: dict[str, Any]) -> tuple[set[str], dict[str, Any]]:
+    url = configured_discovery_index_url(args)
+    queries, require_all_queries = discovery_index_queries(args)
+    diagnostics: dict[str, Any] = {
+        "schema": discovery_facets.INDEX_SCHEMA,
+        "authority": "routing_hint_only",
+        "configured": bool(url),
+        "used": False,
+        "fallback_required": True,
+        "errors": [],
+    }
+    if not url or not queries:
+        return set(), diagnostics
+    try:
+        expected_chain_id = f"eip155:{int(args.get('onchain_chain_id') or args.get('chain_id') or ONCHAIN_RPC_CHAIN_ID)}"
+    except (TypeError, ValueError):
+        diagnostics["errors"] = ["discovery_index_chain_id_invalid"]
+        return set(), diagnostics
+    expected_registry_address = str(
+        args.get("onchain_registry_address")
+        or args.get("registry_address")
+        or ONCHAIN_RPC_REGISTRY_ADDRESS
+    )
+    try:
+        validate_registry_source_url(url, field="discovery_index_url")
+        document = fetch_json_url(url, timeout_seconds=10)
+    except SystemExit as exc:
+        diagnostics["errors"] = ["discovery_index_unavailable"]
+        diagnostics["detail"] = str(exc)
+        return set(), diagnostics
+    hinted, parsed = discovery_facets.hinted_record_ids(
+        document,
+        queries,
+        require_all_queries=require_all_queries,
+        expected_chain_id=expected_chain_id,
+        expected_registry_address=expected_registry_address,
+    )
+    diagnostics.update(parsed)
+    diagnostics["configured"] = True
+    diagnostics["used"] = bool(hinted)
+    diagnostics["url"] = onchain_rpc.rpc_url_label(url)
+    return hinted, diagnostics
+
+
 def configured_onchain_registry_events_url(args: dict[str, Any]) -> str:
     return str(
         args.get("onchain_registry_events_url")
@@ -1492,6 +1616,10 @@ def registry_records_from_source(
         try:
             deployment = configured_onchain_deployment(args)
             preferred_record_ids, preferred_domain_hashes = preferred_onchain_candidates(args)
+            hinted_record_ids: set[str] = set()
+            facet_diagnostics: dict[str, Any] = {}
+            if not preferred_record_ids and not preferred_domain_hashes:
+                hinted_record_ids, facet_diagnostics = discovery_index_hints(args)
             document = onchain_rpc.collect_finalized_events(
                 deployment,
                 record_loader=committed_registry_record,
@@ -1499,6 +1627,7 @@ def registry_records_from_source(
                 record_candidate_seed=merchant_candidate_seed(args),
                 preferred_record_ids=preferred_record_ids,
                 preferred_domain_hashes=preferred_domain_hashes,
+                hinted_record_ids=hinted_record_ids,
             )
         except onchain_rpc.OnchainRpcError as exc:
             raise SystemExit(onchain_rpc.error_document(exc)) from exc
@@ -1529,6 +1658,7 @@ def registry_records_from_source(
                     "contract_storage_verification": document["contract_storage_verification"],
                     "record_resolution_errors": document.get("record_errors", []),
                     "record_selection": document.get("record_selection", {}),
+                    "discovery_index": facet_diagnostics,
                 }
             )
         return [record for record in index["records"] if isinstance(record, dict)]
@@ -3728,12 +3858,47 @@ def prequote_candidate_sample(
             f"{seed}\0{stable_identity(record)}".encode("utf-8")
         ).digest(),
     )
-    selected = ordered[:limit]
+    queries, require_all_queries = discovery_index_queries(args)
+
+    def matches_queries(record: dict[str, Any]) -> bool:
+        facets = record.get("discovery_facets")
+        matches = [bool(discovery_facets.matching_categories(facets, query)) for query in queries]
+        if not matches:
+            return False
+        return all(matches) if require_all_queries else any(matches)
+
+    facet_matches = [record for record in ordered if matches_queries(record)]
+    facet_match_identities = {stable_identity(record) for record in facet_matches}
+    neutral_fallbacks = [
+        record for record in ordered if stable_identity(record) not in facet_match_identities
+    ]
+    if facet_matches:
+        selected = facet_matches[:limit]
+        neutral_fallback_count = 0
+        if neutral_fallbacks and limit > 1:
+            selected = facet_matches[: limit - 1] + neutral_fallbacks[:1]
+            neutral_fallback_count = 1
+        if len(selected) < limit:
+            selected_identities = {stable_identity(record) for record in selected}
+            selected.extend(
+                record
+                for record in ordered
+                if stable_identity(record) not in selected_identities
+            )
+            selected = selected[:limit]
+        algorithm = "discovery-facets-with-query-seeded-neutral-fallback"
+    else:
+        selected = ordered[:limit]
+        neutral_fallback_count = len(selected)
+        algorithm = "sha256-query-seeded-merchant-sample"
     return selected, {
         "schema": "agentcart.prequote_candidate_selection.v1",
-        "algorithm": "sha256-query-seeded-merchant-sample",
+        "algorithm": algorithm,
         "seed_sha256": hashlib.sha256(seed.encode("utf-8")).hexdigest(),
         "eligible_pool_count": len(records),
+        "facet_match_count": len(facet_matches),
+        "neutral_fallback_count": neutral_fallback_count,
+        "facet_authority": "routing_hint_only",
         "candidate_limit": limit,
         "selected_count": len(selected),
         "selected_merchants": [

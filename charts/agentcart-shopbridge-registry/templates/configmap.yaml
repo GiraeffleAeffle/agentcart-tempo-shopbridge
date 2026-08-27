@@ -1,4 +1,32 @@
 {{- $entryCount := len .Values.registry.entries -}}
+{{- $discoveryIndexEntries := list -}}
+{{- range .Values.registry.entries -}}
+{{- $identity := get . "onchain_identity" | default dict -}}
+{{- $facets := get . "discovery_facets" | default dict -}}
+{{- $recordId := get $identity "record_id" | default "" -}}
+{{- $chainId := get $identity "chain_id" | default "" -}}
+{{- $registryAddress := get $identity "registry_address" | default "" -}}
+{{- $categories := get $facets "categories" | default list -}}
+{{- $coverage := get $facets "coverage" | default "" -}}
+{{- if and
+  (regexMatch "^0x[0-9a-fA-F]{64}$" $recordId)
+  (regexMatch "^eip155:[1-9][0-9]*$" $chainId)
+  (regexMatch "^0x[0-9a-fA-F]{40}$" $registryAddress)
+  (eq (get $facets "schema" | default "") "agentcart.discovery_facets.v1")
+  (eq (get $facets "taxonomy" | default "") "woocommerce-product-category-slug-v1")
+  (gt (len $categories) 0)
+  (le (len $categories) 8)
+  (has $coverage (list "complete" "partial")) -}}
+{{- $discoveryIndexEntries = append $discoveryIndexEntries (dict
+  "record_id" ($recordId | lower)
+  "chain_id" $chainId
+  "registry_address" ($registryAddress | lower)
+  "merchant_id" (get . "merchant_id" | default "")
+  "domain" (get . "domain" | default "")
+  "categories" $categories
+  "coverage" $coverage) -}}
+{{- end -}}
+{{- end -}}
 {{- $onchainEventsUrl := "" -}}
 {{- $rpcIndexerEnabled := and .Values.registry.onchainEvents.enabled (eq .Values.registry.onchainEvents.source "rpc_indexer") -}}
 {{- if .Values.registry.onchainEvents.enabled -}}
@@ -16,6 +44,7 @@
   "revocations" (list)
   "entry_count" $entryCount
   "revocation_count" 0
+  "discovery_index_url" "/v1/registry/discovery-index"
   "submission_mode" .Values.registry.submissionMode
   "onchain" $onchain
 -}}
@@ -35,9 +64,18 @@
     "enabled" true
     "entry_count" $entryCount
     "records_url" "/v1/registry/records"
+    "discovery_index_url" "/v1/registry/discovery-index"
     "transparency_url" "/v1/registry/transparency")
   "onchain" $onchain
   "entries" .Values.registry.entries
+-}}
+{{- $discoveryIndex := dict
+  "schema" "agentcart.registry_discovery_index.v1"
+  "generated_at" .Values.registry.updatedAt
+  "authority" "routing_hint_only"
+  "taxonomy" "woocommerce-product-category-slug-v1"
+  "entry_count" (len $discoveryIndexEntries)
+  "entries" $discoveryIndexEntries
 -}}
 {{- $health := dict
   "schema" "agentcart.merchant_registry_health.v1"
@@ -102,6 +140,10 @@ data:
           default_type application/json;
           try_files /records.json =404;
         }
+        location = /v1/registry/discovery-index {
+          default_type application/json;
+          try_files /discovery-index.json =404;
+        }
         location = /v1/registry/health {
           default_type application/json;
           try_files /health.json =404;
@@ -151,7 +193,7 @@ data:
       <main>
         <h1>AgentCart ShopBridge Registry</h1>
         <p>This pilot registry lets buyer agents discover ShopBridge merchants from HTTPS domain-bound records.</p>
-        <p><a href="/v1/registry/records">Merchant records</a> · <a href="/v1/registry/health">Registry status</a> · <a href="/v1/registry/onchain">Onchain status</a>{{ if .Values.registry.onchainEvents.enabled }} · <a href="/v1/registry/onchain/events">Finalized events</a>{{ end }}</p>
+        <p><a href="/v1/registry/records">Merchant records</a> · <a href="/v1/registry/discovery-index">Category index</a> · <a href="/v1/registry/health">Registry status</a> · <a href="/v1/registry/onchain">Onchain status</a>{{ if .Values.registry.onchainEvents.enabled }} · <a href="/v1/registry/onchain/events">Finalized events</a>{{ end }}</p>
         <p>Install the buyer skill, then ask your agent to discover a ShopBridge merchant:</p>
         <p><code>npx -y skills@latest add https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/gateway/shopbridge-direct-skill -g -y</code></p>
         <p>The Ethereum mainnet and Tempo registry status is reported explicitly by the onchain endpoint. No undeployed contract is presented as live.</p>
@@ -161,6 +203,8 @@ data:
     </html>
   records.json: |
 {{ $records | toPrettyJson | indent 4 }}
+  discovery-index.json: |
+{{ $discoveryIndex | toPrettyJson | indent 4 }}
   registry.json: |
 {{ $registry | toPrettyJson | indent 4 }}
   health.json: |

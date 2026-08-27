@@ -97,6 +97,20 @@ def manifest_discovery(manifest: dict[str, Any]) -> dict[str, Any]:
     return manifest.get("discovery") if isinstance(manifest.get("discovery"), dict) else {}
 
 
+def manifest_discovery_facets(manifest: dict[str, Any]) -> dict[str, Any]:
+    discovery = manifest_discovery(manifest)
+    facets = discovery.get("discovery_facets")
+    if not isinstance(facets, dict):
+        claim = discovery.get("registry_claim")
+        facets = claim.get("discovery_facets") if isinstance(claim, dict) else None
+    if facets is None:
+        return {}
+    errors = agentcart.discovery_facets.validate_discovery_facets(facets)
+    if errors:
+        raise ValueError("invalid discovery facets: " + ", ".join(errors))
+    return copy.deepcopy(facets)
+
+
 def suggested_record_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     discovery = manifest_discovery(manifest)
     record = discovery.get("suggested_registry_record")
@@ -227,6 +241,9 @@ def registry_claim(
         "proof_url": proof_url_for(manifest, final_manifest_url, proof_url),
         "revocation_url": revocation_url_for(manifest, final_manifest_url, revocation_url),
     }
+    facets = manifest_discovery_facets(manifest)
+    if facets:
+        claim["discovery_facets"] = facets
     return claim
 
 
@@ -241,8 +258,14 @@ def build_registry_record(
     hmac_secret: str = "",
     include_manifest_snapshot: bool = False,
 ) -> dict[str, Any]:
+    facets = manifest_discovery_facets(manifest)
     record = suggested_record_from_manifest(manifest)
     if record:
+        record_facets = record.get("discovery_facets")
+        if facets and not isinstance(record_facets, dict):
+            raise ValueError("suggested registry record is missing manifest discovery facets")
+        if facets and record_facets != facets:
+            raise ValueError("suggested registry record discovery facets do not match manifest")
         if updated_at:
             record["updated_at"] = updated_at
         if proof_url:
@@ -293,6 +316,8 @@ def build_registry_record(
                 "signature_alg": signature_alg,
                 "signature": "",
             }
+        if facets:
+            record["discovery_facets"] = facets
         if merchant.get("terms_url"):
             record["terms_url"] = str(merchant["terms_url"])
         if merchant.get("returns_url"):
