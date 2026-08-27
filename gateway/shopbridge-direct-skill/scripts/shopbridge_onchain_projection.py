@@ -364,11 +364,17 @@ def finalized_document_errors(
             scope_count = strict_nonnegative_int(selection.get("selection_scope_count"))
             selected_count = strict_nonnegative_int(selection.get("selected_record_count"))
             candidate_limit = strict_nonnegative_int(selection.get("candidate_limit"))
+            selection_mode = selection.get("selection_mode")
             if (
                 selection.get("schema") != "agentcart.onchain_registry_candidate_selection.v1"
                 or selection.get("algorithm") != "sha256-query-seeded-record-id-sample"
-                or selection.get("selection_mode")
-                not in {"query_seeded_sample", "exact_record_or_domain"}
+                or selection_mode
+                not in {
+                    "query_seeded_sample",
+                    "exact_record_or_domain",
+                    "discovery_facets_with_neutral_fallback",
+                    "discovery_facets_no_match_fallback",
+                }
                 or not re.fullmatch(r"[0-9a-f]{64}", str(selection.get("seed_sha256") or ""))
                 or selection.get("before_record_fetch") is not True
                 or not isinstance(raw_selected, list)
@@ -396,6 +402,52 @@ def finalized_document_errors(
                     errors.append({"error": "contract_events_record_selection_invalid"})
                 if any(failed_id not in set(selected_record_ids) for failed_id in seen_record_errors):
                     errors.append({"error": "contract_events_record_error_outside_selection"})
+                if selection_mode in {
+                    "discovery_facets_with_neutral_fallback",
+                    "discovery_facets_no_match_fallback",
+                }:
+                    hinted_count = strict_nonnegative_int(selection.get("hinted_record_count"))
+                    matched_hint_count = strict_nonnegative_int(selection.get("matched_hint_count"))
+                    selected_hint_count = strict_nonnegative_int(selection.get("selected_hint_count"))
+                    selected_fallback_count = strict_nonnegative_int(
+                        selection.get("selected_neutral_fallback_count")
+                    )
+                    hint_counts_valid = all(
+                        value is not None
+                        for value in (
+                            hinted_count,
+                            matched_hint_count,
+                            selected_hint_count,
+                            selected_fallback_count,
+                        )
+                    )
+                    if hint_counts_valid:
+                        assert hinted_count is not None
+                        assert matched_hint_count is not None
+                        assert selected_hint_count is not None
+                        assert selected_fallback_count is not None
+                        hint_counts_valid = (
+                            hinted_count > 0
+                            and matched_hint_count <= hinted_count
+                            and matched_hint_count <= (scope_count or 0)
+                            and selected_hint_count <= matched_hint_count
+                            and selected_hint_count + selected_fallback_count
+                            == (selected_count or 0)
+                        )
+                        if selection_mode == "discovery_facets_with_neutral_fallback":
+                            hint_counts_valid = (
+                                hint_counts_valid
+                                and matched_hint_count > 0
+                                and selected_hint_count > 0
+                            )
+                        else:
+                            hint_counts_valid = (
+                                hint_counts_valid
+                                and matched_hint_count == 0
+                                and selected_hint_count == 0
+                            )
+                    if not hint_counts_valid:
+                        errors.append({"error": "contract_events_record_selection_invalid"})
 
     independent = document.get("independent_verification")
     if independent is not None:

@@ -801,6 +801,68 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
         self.assertEqual(hinted_selection["selected_record_ids"][0], hinted_id)
         self.assertEqual(hinted_selection["selected_hint_count"], 1)
         self.assertEqual(hinted_selection["selected_neutral_fallback_count"], 1)
+        hinted_index = onchain_projection.index_contract_document(
+            hinted_document,
+            record_hash=lambda record: str(record["_expected_hash"]).removeprefix("0x"),
+            require_finality=True,
+            expected_chain_id="eip155:42431",
+            expected_registry_address=onchain_rpc.DEFAULT_REGISTRY_ADDRESS,
+            max_age_seconds=600,
+            now=dt.datetime.fromisoformat(
+                hinted_document["indexed_at"].replace("Z", "+00:00")
+            ),
+            expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION,
+        )
+        self.assertTrue(
+            hinted_index["verification"]["chain_valid"],
+            hinted_index["verification"],
+        )
+        self.assertEqual(len(hinted_index["records"]), 2)
+
+        invalid_hint_counts = copy.deepcopy(hinted_document)
+        invalid_hint_counts["record_selection"]["selected_hint_count"] = 0
+        rejected_hint_counts = onchain_projection.index_contract_document(
+            invalid_hint_counts,
+            record_hash=lambda record: str(record["_expected_hash"]).removeprefix("0x"),
+            require_finality=True,
+            expected_chain_id="eip155:42431",
+            expected_registry_address=onchain_rpc.DEFAULT_REGISTRY_ADDRESS,
+            max_age_seconds=600,
+            now=dt.datetime.fromisoformat(
+                hinted_document["indexed_at"].replace("Z", "+00:00")
+            ),
+            expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION,
+        )
+        self.assertFalse(rejected_hint_counts["verification"]["chain_valid"])
+
+        unmatched_hint_document = onchain_rpc.collect_finalized_events(
+            onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100),
+            record_loader=load_record,
+            request_json=rpc.request,
+            record_candidate_limit=1,
+            record_candidate_seed=seed,
+            hinted_record_ids={"0x" + "f" * 64},
+        )
+        self.assertEqual(
+            unmatched_hint_document["record_selection"]["selection_mode"],
+            "discovery_facets_no_match_fallback",
+        )
+        unmatched_hint_index = onchain_projection.index_contract_document(
+            unmatched_hint_document,
+            record_hash=lambda record: str(record["_expected_hash"]).removeprefix("0x"),
+            require_finality=True,
+            expected_chain_id="eip155:42431",
+            expected_registry_address=onchain_rpc.DEFAULT_REGISTRY_ADDRESS,
+            max_age_seconds=600,
+            now=dt.datetime.fromisoformat(
+                unmatched_hint_document["indexed_at"].replace("Z", "+00:00")
+            ),
+            expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION,
+        )
+        self.assertTrue(
+            unmatched_hint_index["verification"]["chain_valid"],
+            unmatched_hint_index["verification"],
+        )
         index = onchain_projection.index_contract_document(
             document,
             record_hash=lambda record: str(record["_expected_hash"]).removeprefix("0x"),
