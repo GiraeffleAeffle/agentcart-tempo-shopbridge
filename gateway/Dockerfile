@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 COPY agentcart.py /app/agentcart.py
+COPY shopbridge-direct-skill/scripts/shopbridge_discovery_facets.py /app/shopbridge-direct-skill/scripts/shopbridge_discovery_facets.py
 COPY shopbridge-direct-skill/scripts/shopbridge_safe_http.py /app/shopbridge-direct-skill/scripts/shopbridge_safe_http.py
 COPY shopbridge-direct-skill/scripts/shopbridge_registry_trust.py /app/shopbridge-direct-skill/scripts/shopbridge_registry_trust.py
 COPY shopbridge-direct-skill/scripts/shopbridge_onchain_projection.py /app/shopbridge-direct-skill/scripts/shopbridge_onchain_projection.py

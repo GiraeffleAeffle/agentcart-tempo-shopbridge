@@ -48,6 +48,20 @@ if safe_http is None:
     sys.modules["shopbridge_safe_http"] = safe_http
     SAFE_HTTP_MODULE_SPEC.loader.exec_module(safe_http)
 
+DISCOVERY_FACETS_MODULE_PATH = (
+    GATEWAY_DIR / "shopbridge-direct-skill" / "scripts" / "shopbridge_discovery_facets.py"
+)
+discovery_facets = sys.modules.get("shopbridge_discovery_facets")
+if discovery_facets is None:
+    DISCOVERY_FACETS_MODULE_SPEC = importlib.util.spec_from_file_location(
+        "shopbridge_discovery_facets", DISCOVERY_FACETS_MODULE_PATH
+    )
+    if DISCOVERY_FACETS_MODULE_SPEC is None or DISCOVERY_FACETS_MODULE_SPEC.loader is None:
+        raise RuntimeError(f"cannot load Discovery Facets module: {DISCOVERY_FACETS_MODULE_PATH}")
+    discovery_facets = importlib.util.module_from_spec(DISCOVERY_FACETS_MODULE_SPEC)
+    sys.modules["shopbridge_discovery_facets"] = discovery_facets
+    DISCOVERY_FACETS_MODULE_SPEC.loader.exec_module(discovery_facets)
+
 TRUST_MODULE_PATH = GATEWAY_DIR / "shopbridge-direct-skill" / "scripts" / "shopbridge_registry_trust.py"
 registry_trust = sys.modules.get("shopbridge_registry_trust")
 if registry_trust is None:
@@ -2670,7 +2684,14 @@ class AgentCartService:
             "revocation_count": len(store.get("revocations", [])),
             "transparency": transparency,
             "feed_proof_url": "/v1/registry/feed-proof",
+            "discovery_index_url": "/v1/registry/discovery-index",
         }
+
+    def hosted_registry_discovery_index(self) -> dict[str, Any]:
+        return discovery_facets.build_discovery_index(
+            self.hosted_registry_records(),
+            generated_at=isoformat(utcnow()),
+        )
 
     def hosted_registry_feed_proof_payload(self, store: dict[str, Any]) -> dict[str, Any]:
         revoked_hashes = self.hosted_registry_revoked_hashes(store)
@@ -3162,6 +3183,7 @@ class AgentCartService:
             "verification": verification,
             "registry_url": f"{self.config.public_url}/v1/registry",
             "registry_records_url": f"{self.config.public_url}/v1/registry/records",
+            "registry_discovery_index_url": f"{self.config.public_url}/v1/registry/discovery-index",
             "registry_feed_proof_url": f"{self.config.public_url}/v1/registry/feed-proof",
             "registry_transparency_url": f"{self.config.public_url}/v1/registry/transparency",
             "transparency_event_hash": transparency_event["event_hash"],
@@ -3237,6 +3259,7 @@ class AgentCartService:
             "domain": domain,
             "record_hash": record_hash,
             "registry_records_url": f"{self.config.public_url}/v1/registry/records",
+            "registry_discovery_index_url": f"{self.config.public_url}/v1/registry/discovery-index",
             "registry_feed_proof_url": f"{self.config.public_url}/v1/registry/feed-proof",
             "registry_transparency_url": f"{self.config.public_url}/v1/registry/transparency",
             "transparency_event_hash": transparency_event["event_hash"],
@@ -4212,6 +4235,7 @@ class AgentCartService:
                 "revocation_count": hosted_feed["revocation_count"],
                 "updated_at": hosted_feed.get("updated_at"),
                 "records_url": "/v1/registry/records",
+                "discovery_index_url": "/v1/registry/discovery-index",
                 "submit_url": "/v1/registry/records",
                 "feed_proof_url": "/v1/registry/feed-proof",
                 "transparency_url": "/v1/registry/transparency",
@@ -4225,6 +4249,7 @@ class AgentCartService:
                 "entry_count": 0,
                 "revocation_count": 0,
                 "records_url": "/v1/registry/records",
+                "discovery_index_url": "/v1/registry/discovery-index",
                 "submit_url": "/v1/registry/records",
                 "feed_proof_url": "/v1/registry/feed-proof",
                 "transparency_url": "/v1/registry/transparency",
@@ -5632,6 +5657,7 @@ class AgentCartService:
                 "llms": "/llms.txt",
                 "registry": "/v1/registry",
                 "registry_records": "/v1/registry/records",
+                "registry_discovery_index": "/v1/registry/discovery-index",
                 "registry_submit": "/v1/registry/records",
                 "registry_feed_proof": "/v1/registry/feed-proof",
                 "registry_transparency": "/v1/registry/transparency",
@@ -6115,6 +6141,19 @@ class AgentCartService:
                             "401": {"description": "Registry submit token required"},
                         },
                     },
+                },
+                "/v1/registry/discovery-index": {
+                    "get": {
+                        "operationId": "getRegistryDiscoveryIndex",
+                        "summary": "Get untrusted category routing hints for onchain registry records",
+                        "security": [],
+                        "responses": {
+                            "200": {
+                                "description": "Replaceable discovery-facets index",
+                                "content": {"application/json": {"schema": {"type": "object"}}},
+                            }
+                        },
+                    }
                 },
                 "/v1/registry/feed-proof": {
                     "get": {
@@ -6937,7 +6976,7 @@ Discovery:
 - MCP-style tool catalog: /v1/mcp/tools or /mcp/tools.json
 - Capabilities: /.well-known/agentcart.json
 - Standards profile mappings: /.well-known/agentcart-standards.json or /v1/standards/profiles
-- Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records, feed proof: GET /v1/registry/feed-proof, transparency log: GET /v1/registry/transparency
+- Merchant registry: GET /v1/registry, raw hosted records: GET /v1/registry/records, non-authoritative category hints: GET /v1/registry/discovery-index, feed proof: GET /v1/registry/feed-proof, transparency log: GET /v1/registry/transparency
 - Registry health: GET /v1/registry/health
 - Registry monitor: GET /v1/registry/monitor, POST /v1/registry/monitor/run
 
@@ -9816,6 +9855,9 @@ class AgentCartHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/registry/records":
             self.send_json(self.service.hosted_registry_feed())
+            return
+        if path == "/v1/registry/discovery-index":
+            self.send_json(self.service.hosted_registry_discovery_index())
             return
         if path == "/v1/registry/feed-proof":
             self.send_json(self.service.hosted_registry_feed_proof())

@@ -74,9 +74,14 @@ Optional environment for a different onchain deployment or RPC:
   bounded worker pool and one broken record never suppresses other merchants
 - `SHOPBRIDGE_ONCHAIN_RECORD_CANDIDATE_LIMIT`: maximum active onchain records
   resolved before a discovery request, default `12` and maximum `50`. Selection
-  is deterministic from a hash of the buyer query (or explicit
-  `candidate_seed`) and happens before committed-record, catalog, and quote
-  requests.
+  uses hash-committed category facets when available, reserves a neutral
+  query-seeded fallback, and happens before committed-record, catalog, and
+  quote requests.
+- `SHOPBRIDGE_DISCOVERY_INDEX_URL`: optional replaceable category-to-record-id
+  routing index. The current Tempo deployment defaults to
+  `https://registry.agentcart.eu/v1/registry/discovery-index`; other chains
+  require an explicit deployment-specific URL. The index is never an
+  eligibility authority.
 - `SHOPBRIDGE_ONCHAIN_RPC_PROFILE`: `auto` (default), `standard`, or `myotis`;
   `auto` detects `Myotis/verified-light-client`
 - `SHOPBRIDGE_ALLOW_PRIVATE_RPC`: allow a private/plain-HTTP RPC only for an
@@ -91,15 +96,24 @@ complete, then set the deployment variables above. Mainnet uses loopback port
 and preferably `SHOPBRIDGE_ONCHAIN_RPC_PROFILE=myotis` to fail if the endpoint
 is not Myotis. The profile also requires `myotis_beaconStatus` to expose a
 non-zero finalized `executionBlockNumber`; Myotis builds that report `0` are
-not compatible and fail with `myotis_finalized_block_unavailable`. Myotis does
-not currently support Tempo, and it does not host the offchain record documents
-committed by `recordURI`.
+not compatible and fail with `myotis_finalized_block_unavailable`. Upstream
+merge `f639a7a7253aab2941400ba9c3827fbc23be429e` contains the fix; pin it or a
+later release and complete an integration drill. Myotis does not currently
+support Tempo, and it does not host the offchain record documents committed by
+`recordURI`.
 
 Capture the deployment block hash from the deployment receipt/manifest, not
 from the same Myotis instance being checked. Myotis cannot re-read arbitrary
 ancient block headers, so the skill combines this pinned descriptor with the
 receipt-root-verified constructor `OwnershipTransferred(address(0), owner)` log
 and full log-index coverage from that exact block.
+
+For Gnosis, prefer an always-on Myotis harness. If a desktop or mobile harness
+is intermittent, require it to resume consensus sync and reach `SYNCED` at
+least daily before discovery; refresh its weak-subjectivity checkpoint when the
+client requires it. Android can use a foreground service. On iOS, embed Myotis
+in the active app and fail readiness while resync is stale because background
+apps may be suspended.
 
 Optional environment for a known single merchant or local testing:
 
@@ -295,6 +309,11 @@ By default the buyer itself calls `eth_getLogs` for the deployed contract and
 only the event topics that can alter eligibility: register, update, controller
 rotation, revoke, suspend, and unsuspend. Supersession activation also emits a
 revoke/register pair, so it is covered by this projection. The skill fetches
+an optional category index first and treats matching record ids only as routing
+hints. It keeps a neutral query-seeded fallback, then verifies every selected
+record id against the contract and the record's committed hash. Missing,
+invalid, incomplete, or incorrect facets therefore cannot create eligibility
+or eliminate fallback discovery. The skill fetches
 the full `registry_record` from the event's `recordURI`, verifies the exact
 committed hash, controller, record id, registry address, chain id, and domain
 hash, replays the lifecycle, then compares the projected record with the

@@ -11,9 +11,12 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import hmac
+import importlib.util
 import ipaddress
 import json
+import pathlib
 import re
+import sys
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -22,6 +25,23 @@ from typing import Any, Callable
 TRUST_CONTRACT = "agentcart.registry_trust_contract.v1"
 TRUST_IMPLEMENTATION = "shopbridge_registry_trust.v1"
 JsonFetcher = Callable[[str], dict[str, Any]]
+
+
+def _load_discovery_facets_module():
+    loaded = sys.modules.get("shopbridge_discovery_facets")
+    if loaded is not None:
+        return loaded
+    path = pathlib.Path(__file__).resolve().with_name("shopbridge_discovery_facets.py")
+    spec = importlib.util.spec_from_file_location("shopbridge_discovery_facets", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load Discovery Facets module: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["shopbridge_discovery_facets"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+discovery_facets = _load_discovery_facets_module()
 
 
 @dataclass(frozen=True)
@@ -432,6 +452,14 @@ def verify_registry_claim(record: dict[str, Any], manifest: dict[str, Any]) -> l
         supplied = sorted(normalizer(value) for value in claim.get(field, []) if value)
         if expected and expected != supplied:
             errors.append(f"registry_claim_{field}_mismatch")
+    expected_facets = record.get("discovery_facets")
+    supplied_facets = claim.get("discovery_facets")
+    if isinstance(expected_facets, dict) and not isinstance(supplied_facets, dict):
+        errors.append("registry_claim_discovery_facets_missing")
+    elif isinstance(supplied_facets, dict) and not isinstance(expected_facets, dict):
+        errors.append("registry_record_discovery_facets_missing")
+    elif isinstance(expected_facets, dict) and canonical_json_hash(expected_facets) != canonical_json_hash(supplied_facets):
+        errors.append("registry_claim_discovery_facets_mismatch")
     expected_onchain = onchain_identity_payload(record)
     supplied_onchain = onchain_identity_payload(claim)
     if expected_onchain and not supplied_onchain:
@@ -560,6 +588,7 @@ def verify_registry_record(
     errors.extend(verify_updated_at(record, policy))
     errors.extend(secure_url_errors(manifest_url, field="manifest_url", domain=domain))
     errors.extend(verify_onchain_identity(record))
+    errors.extend(discovery_facets.validate_discovery_facets(record.get("discovery_facets")))
 
     signature_alg = str(record.get("signature_alg") or "").lower()
     signature = str(record.get("signature") or "")

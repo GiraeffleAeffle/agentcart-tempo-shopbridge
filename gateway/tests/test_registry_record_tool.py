@@ -178,6 +178,47 @@ class RegistryRecordToolTests(unittest.TestCase):
             registry_record_tool.agentcart.canonical_json_hash(manifest),
         )
 
+    def test_carries_valid_manifest_discovery_facets_into_record_claim(self) -> None:
+        manifest = shopbridge_manifest()
+        facets = {
+            "schema": "agentcart.discovery_facets.v1",
+            "taxonomy": "woocommerce-product-category-slug-v1",
+            "source": "exposed_catalog_snapshot",
+            "categories": ["beverages", "tea"],
+            "category_count_total": 2,
+            "coverage": "complete",
+            "truncated": False,
+        }
+        manifest["discovery"]["discovery_facets"] = facets
+
+        record = registry_record_tool.build_registry_record(manifest)
+        claim = registry_record_tool.registry_claim(manifest)
+
+        self.assertEqual(record["discovery_facets"], facets)
+        self.assertEqual(claim["discovery_facets"], facets)
+
+    def test_rejects_invalid_manifest_discovery_facets(self) -> None:
+        manifest = shopbridge_manifest()
+        manifest["discovery"]["discovery_facets"] = {"categories": ["Tea"]}
+
+        with self.assertRaisesRegex(ValueError, "invalid discovery facets"):
+            registry_record_tool.build_registry_record(manifest)
+
+    def test_rejects_suggested_record_that_omits_manifest_discovery_facets(self) -> None:
+        manifest = shopbridge_manifest_with_published_claim()
+        manifest["discovery"]["discovery_facets"] = {
+            "schema": "agentcart.discovery_facets.v1",
+            "taxonomy": "woocommerce-product-category-slug-v1",
+            "source": "exposed_catalog_snapshot",
+            "categories": ["tea"],
+            "category_count_total": 1,
+            "coverage": "complete",
+            "truncated": False,
+        }
+
+        with self.assertRaisesRegex(ValueError, "missing manifest discovery facets"):
+            registry_record_tool.build_registry_record(manifest)
+
     def test_builds_record_from_protocol_profiles_without_legacy_payment_protocols(self) -> None:
         manifest = shopbridge_profile_manifest()
         claim = registry_record_tool.registry_claim(manifest)

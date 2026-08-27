@@ -1570,6 +1570,48 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn("signed-tea-shop", service.adapters)
             self.assertEqual(registry["registry"]["hosted_store"]["entry_count"], 1)
 
+    def test_hosted_registry_discovery_index_projects_only_valid_onchain_facets(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            service = make_service(tmp)
+            store = service.empty_hosted_registry_store()
+            store["entries"] = [
+                {
+                    "merchant_id": "tea-shop",
+                    "domain": "tea.example",
+                    "onchain_identity": {
+                        "record_id": "0x" + "12" * 32,
+                        "chain_id": "eip155:42431",
+                        "registry_address": "0x" + "ab" * 20,
+                    },
+                    "discovery_facets": {
+                        "schema": "agentcart.discovery_facets.v1",
+                        "taxonomy": "woocommerce-product-category-slug-v1",
+                        "source": "exposed_catalog_snapshot",
+                        "categories": ["beverages", "tea"],
+                        "category_count_total": 2,
+                        "coverage": "complete",
+                        "truncated": False,
+                    },
+                },
+                {
+                    "merchant_id": "not-onchain",
+                    "domain": "unknown.example",
+                },
+            ]
+            service.write_hosted_registry_store(store)
+
+            index = service.hosted_registry_discovery_index()
+
+            self.assertEqual(index["schema"], "agentcart.registry_discovery_index.v1")
+            self.assertEqual(index["authority"], "routing_hint_only")
+            self.assertEqual(index["entry_count"], 1)
+            self.assertEqual(index["entries"][0]["categories"], ["beverages", "tea"])
+            self.assertEqual(
+                service.hosted_registry_feed()["discovery_index_url"],
+                "/v1/registry/discovery-index",
+            )
+
     def test_registry_monitor_persists_snapshots_and_alert_deltas(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = pathlib.Path(raw_tmp)

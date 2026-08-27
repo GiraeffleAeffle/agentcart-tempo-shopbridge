@@ -210,7 +210,9 @@ not pay or checkout until I explicitly approve the final approval hash.
 
 The skill queries the Tempo Moderato registry contract directly from deployment
 block `30731101` through the RPC `finalized` head, reconstructs the complete
-lifecycle, then fetches and verifies only each currently active record version.
+lifecycle, uses the public category index only as a record-routing hint with a
+neutral fallback, then fetches and verifies selected active record versions.
+A requested product is still confirmed against each merchant's current catalog.
 A broken or malicious candidate becomes ineligible without hiding other
 merchants. See `docs/BUYER_SETUP.md` for
 project-local, ZIP, source, alternate-RPC, compatibility-feed, and
@@ -219,9 +221,9 @@ service-backed setup. To build the portable ZIP instead, run
 For a future Ethereum or Gnosis deployment, the same reader has a fail-closed
 [Myotis](https://github.com/biafra23/myotis) profile for a local verified
 light-client RPC and contract-scoped log index, avoiding a hosted RPC or full
-node. The currently inspected Myotis Rust adapter still needs to expose its
-parsed finalized execution block over JSON-RPC before this path is usable;
-Myotis also does not support Tempo.
+node. Myotis merge `f639a7a7253aab2941400ba9c3827fbc23be429e` fixes the
+finalized-height adapter; the pinned ShopBridge integration drill remains open.
+Myotis does not support Tempo.
 If a merchant enables signed request mode, configure either the
 merchant-provided `SHOPBRIDGE_SIGNED_REQUEST_SECRET` or your
 `SHOPBRIDGE_SIGNED_REQUEST_PRIVATE_KEY`. The RSA path is preferred for public
@@ -321,8 +323,11 @@ python3 gateway/scripts/registry_record.py verify --record-file merchant-registr
 ```
 
 The hosted alpha feed is available at `GET /v1/registry/records`; a compact feed
-proof is available at `GET /v1/registry/feed-proof`; the normalized agent-facing
-registry remains `GET /v1/registry`. Operators and agents can also check
+proof is available at `GET /v1/registry/feed-proof`; bounded category routing
+hints are available at `GET /v1/registry/discovery-index`; the normalized
+agent-facing registry remains `GET /v1/registry`. The category index is
+replaceable and non-authoritative: buyers verify hinted record ids onchain and
+confirm products in merchant catalogs. Operators and agents can also check
 aggregate verifier state, freshness, revocations, and action items at
 `GET /v1/registry/health`. Authenticated operators can persist monitor snapshots
 and alert deltas with `POST /v1/registry/monitor/run`, then read the history at

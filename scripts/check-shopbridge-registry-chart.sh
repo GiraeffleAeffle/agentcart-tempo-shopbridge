@@ -25,6 +25,9 @@ trap cleanup EXIT INT TERM
   --set-json 'registry.onchainRecords=[{"recordHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","document":{"registry_record":{"merchant_id":"immutable-test"}}}]' \
   --set-json 'registry.onchainEvents.document={"schema":"agentcart.onchain_registry_contract_events.v1","implementation":"agentcart.onchain_registry_rpc_indexer.v1","chain_id":"eip155:42431","registry_address":"0x1111111111111111111111111111111111111111","finality":{"block_tag":"finalized","block_number":10,"block_hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","indexed_from_block":1,"indexed_to_block":10},"indexed_at":"2026-08-13T00:00:00Z","complete":true,"errors":[],"events":[]}' \
   >>"$rendered"
+"$helm_bin" template registry-discovery "$chart" --namespace registry-check \
+  --set-json 'registry.entries=[{"merchant_id":"tea-shop","name":"Tea Shop","domain":"tea.example","manifest_url":"https://tea.example/.well-known/agentcart.json","proof_url":"https://tea.example/.well-known/agentcart-registry-proof.json","revocation_url":"https://tea.example/.well-known/agentcart-registry-revocations.json","updated_at":"2026-08-27T00:00:00Z","onchain_identity":{"record_id":"0x1212121212121212121212121212121212121212121212121212121212121212","chain_id":"eip155:42431","registry_address":"0x1111111111111111111111111111111111111111"},"discovery_facets":{"schema":"agentcart.discovery_facets.v1","taxonomy":"woocommerce-product-category-slug-v1","source":"exposed_catalog_snapshot","categories":["beverages","tea"],"category_count_total":2,"coverage":"complete","truncated":false}}]' \
+  >>"$rendered"
 "$helm_bin" template registry-rpc-indexer "$chart" --namespace registry-check \
   --set registry.onchainEvents.enabled=true \
   --set registry.onchainEvents.source=rpc_indexer \
@@ -67,6 +70,12 @@ grep -Fq 'http-request deny deny_status 405 unless { method GET HEAD }' "$render
 grep -Fq 'path: /v1/registry' "$rendered"
 grep -Fq 'pathType: Exact' "$rendered"
 grep -Fq 'agentcart.hosted_merchant_registry_feed.v1' "$rendered"
+grep -Fq 'agentcart.registry_discovery_index.v1' "$rendered"
+grep -Fq 'location = /v1/registry/discovery-index' "$rendered"
+grep -Fq '"authority": "routing_hint_only"' "$rendered"
+grep -Fq '"record_id": "0x1212121212121212121212121212121212121212121212121212121212121212"' "$rendered"
+grep -Fq '"categories": [' "$rendered"
+grep -Fq '"tea"' "$rendered"
 grep -Fq 'agentcart.onchain_registry_rpc_indexer.v1' "$rendered"
 grep -Fq '"onchain_events_url": "https://registry.example.test/v1/registry/onchain/events"' "$rendered"
 grep -Fq 'location = /v1/registry/onchain/events' "$rendered"

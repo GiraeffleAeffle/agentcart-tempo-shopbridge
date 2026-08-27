@@ -12,6 +12,7 @@ sources=(
   woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php
   woocommerce-shopbridge/agentcart-shopbridge/readme.txt
   woocommerce-shopbridge/agentcart-shopbridge/uninstall.php
+  woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-discovery-facets.php
   woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-onchain-identity.php
   woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-archive.php
   woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-events.php
@@ -26,6 +27,7 @@ destinations=(
   charts/agentcart-shopbridge/files/plugin/agentcart-shopbridge.php
   charts/agentcart-shopbridge/files/plugin/readme.txt
   charts/agentcart-shopbridge/files/plugin/uninstall.php
+  charts/agentcart-shopbridge/files/plugin/includes/class-agentcart-shopbridge-discovery-facets.php
   charts/agentcart-shopbridge/files/plugin/includes/class-agentcart-shopbridge-onchain-identity.php
   charts/agentcart-shopbridge/files/plugin/includes/class-agentcart-shopbridge-registry-archive.php
   charts/agentcart-shopbridge/files/plugin/includes/class-agentcart-shopbridge-registry-events.php
