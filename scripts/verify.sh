@@ -143,6 +143,10 @@ bash -n "$ROOT_DIR/scripts/check-helm-chart.sh"
 bash "$ROOT_DIR/scripts/check-helm-chart.sh"
 bash -n "$ROOT_DIR/scripts/check-shopbridge-registry-chart.sh"
 bash "$ROOT_DIR/scripts/check-shopbridge-registry-chart.sh"
+docker run --rm \
+  --volume "$ROOT_DIR/charts/agentcart-shopbridge/files/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  docker.io/library/nginx@sha256:3bcf852aed06467cf075c6105892e4d5a6ebbbafa0ce22d35062db9e90ddef4c \
+  nginx -t
 
 section "WooCommerce ShopBridge live smoke"
 if [ -n "${AGENTCART_WOO_SMOKE_BASE_URL:-}" ]; then

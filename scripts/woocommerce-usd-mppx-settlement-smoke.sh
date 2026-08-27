@@ -117,6 +117,9 @@ STAGING_SHOPBRIDGE_TOKEN="$STAGING_SHOPBRIDGE_TOKEN" \
     --postcode 10001 \
     --city "New York" \
     --address "Demo Street 1" \
+    --first-name "AgentCart" \
+    --last-name "Smoke" \
+    --state NY \
     --currency USD \
     --require-shipping \
     --endpoint-harness \

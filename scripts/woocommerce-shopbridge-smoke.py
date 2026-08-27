@@ -388,14 +388,19 @@ def select_product(catalog: dict[str, Any], product_id: str = "") -> dict[str, A
 def quote_payload(product: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     product_id = str(product.get("product_id") or product.get("id") or "")
     require(bool(product_id), "selected catalog product is missing product_id")
+    ship_to = {
+        "first_name": args.first_name,
+        "last_name": args.last_name,
+        "country": args.country,
+        "postcode": args.postcode,
+        "city": args.city,
+        "address_1": args.address,
+    }
+    if args.state:
+        ship_to["state"] = args.state
     return {
         "items": [{"product_id": product_id, "quantity": args.quantity}],
-        "ship_to": {
-            "country": args.country,
-            "postcode": args.postcode,
-            "city": args.city,
-            "address_1": args.address,
-        },
+        "ship_to": ship_to,
     }
 
 
@@ -1113,6 +1118,9 @@ def parser() -> argparse.ArgumentParser:
     parser.add_argument("--postcode", default=os.getenv("AGENTCART_WOO_SMOKE_POSTCODE", "10115"))
     parser.add_argument("--city", default=os.getenv("AGENTCART_WOO_SMOKE_CITY", "Berlin"))
     parser.add_argument("--address", default=os.getenv("AGENTCART_WOO_SMOKE_ADDRESS", "Demo Street 1"))
+    parser.add_argument("--first-name", default=os.getenv("AGENTCART_WOO_SMOKE_FIRST_NAME", "AgentCart"))
+    parser.add_argument("--last-name", default=os.getenv("AGENTCART_WOO_SMOKE_LAST_NAME", "Smoke"))
+    parser.add_argument("--state", default=os.getenv("AGENTCART_WOO_SMOKE_STATE", ""))
     parser.add_argument("--currency", default=os.getenv("AGENTCART_WOO_SMOKE_CURRENCY", "EUR"))
     parser.add_argument("--limit", type=int, default=int(os.getenv("AGENTCART_WOO_SMOKE_LIMIT", "12")))
     parser.add_argument("--rounding-tolerance-cents", type=int, default=int(os.getenv("AGENTCART_WOO_SMOKE_ROUNDING_TOLERANCE_CENTS", "1")))
