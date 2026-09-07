@@ -19,6 +19,8 @@ sources=(
   woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-rpc.php
   woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-readiness.php
   woocommerce-shopbridge/agentcart-shopbridge/includes/trait-agentcart-shopbridge-verifier-client.php
+  woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-checkout-store.php
+  woocommerce-shopbridge/agentcart-shopbridge/includes/trait-agentcart-shopbridge-checkout-recovery.php
   demo/woocommerce/seed-products.sh
   gateway/scripts/onchain-registry-indexer.mjs
   gateway/scripts/onchain-registry-indexer-loop.mjs
@@ -34,6 +36,8 @@ destinations=(
   charts/agentcart-shopbridge/files/plugin/includes/class-agentcart-shopbridge-registry-rpc.php
   charts/agentcart-shopbridge/files/plugin/includes/class-agentcart-shopbridge-registry-readiness.php
   charts/agentcart-shopbridge/files/plugin/includes/trait-agentcart-shopbridge-verifier-client.php
+  charts/agentcart-shopbridge/files/plugin/includes/class-agentcart-shopbridge-checkout-store.php
+  charts/agentcart-shopbridge/files/plugin/includes/trait-agentcart-shopbridge-checkout-recovery.php
   charts/agentcart-shopbridge/files/bootstrap/seed-products.sh
   charts/agentcart-shopbridge-registry/files/indexer/onchain-registry-indexer.mjs
   charts/agentcart-shopbridge-registry/files/indexer/onchain-registry-indexer-loop.mjs

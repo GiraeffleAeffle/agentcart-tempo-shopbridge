@@ -1,5 +1,9 @@
 const releaseAssets = [
   {
+    path: "dist/agentcart-release.sig",
+    label: "Release manifest signature (when signing is configured)",
+  },
+  {
     path: "dist/agentcart-shopbridge.zip",
     label: "AgentCart ShopBridge WooCommerce plugin ZIP",
   },
@@ -10,6 +14,14 @@ const releaseAssets = [
   {
     path: "dist/agentcart-release.json",
     label: "AgentCart release manifest with artifact checksums",
+  },
+  {
+    path: "dist/agentcart-service-skill.zip",
+    label: "AgentCart service buyer skill ZIP",
+  },
+  {
+    path: "dist/household-os-skill.zip",
+    label: "Household OS skill ZIP",
   },
 ];
 

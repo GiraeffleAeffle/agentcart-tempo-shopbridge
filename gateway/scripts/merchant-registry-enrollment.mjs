@@ -24,7 +24,7 @@ export const merchantRegistryAbi = parseAbi([
   "function recordIdForDomain(bytes32 domainHash) view returns (bytes32)",
   "function computeRecordId(bytes32 domainHash, address controller) view returns (bytes32)",
   "function revokedRecordHashes(bytes32 recordHash) view returns (bool)",
-  "function record(bytes32 recordId) view returns ((address controller, bytes32 recordHash, bytes32 domainHash, uint64 updatedAt, uint64 attestedAt, uint64 attestationExpiresAt, uint32 attestationGeneration, uint16 attestationCount, uint8 status))",
+  "function record(bytes32 recordId) view returns ((address controller, bytes32 recordHash, bytes32 domainHash, uint64 updatedAt, uint64 attestedAt, uint64 attestationExpiresAt, uint64 attestationGeneration, uint16 attestationCount, uint8 status))",
   "function register(bytes32 domainHash, bytes32 recordHash, string recordURI) returns (bytes32 recordId)",
   "function update(bytes32 recordId, bytes32 recordHash, string recordURI)",
   "function revoke(bytes32 recordId, bytes32 reasonHash)",

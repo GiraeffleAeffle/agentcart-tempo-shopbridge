@@ -1,0 +1,165 @@
+{
+  "schema": "agentcart.local_validation.v1",
+  "release_version": "1.23.0",
+  "date": "2026-09-07",
+  "source_baseline": {
+    "release": "v1.22.0",
+    "commit": "4f570bee76cf069a9d42c48140e0d5c5515fd123",
+    "branch_baseline": "235a9c75b638309b6888a37fa78076751e904ee6",
+    "trees_match": true
+  },
+  "source_worktree_dirty": true,
+  "production_evidence": false,
+  "scope": "Local code, packages and actual WooCommerce/MariaDB datastores; all payment/refund provider results are fixtures.",
+  "unit_and_contract_tests": 629,
+  "checks": [
+    {
+      "check": "gateway_python",
+      "result": "passed",
+      "log_sha256": "59f377381aa28e48540461b18bb5e6fd068204f35f85b19dadfce371045c5d84",
+      "tests": 386,
+      "date": "2026-09-06"
+    },
+    {
+      "check": "woocommerce_python",
+      "result": "passed",
+      "log_sha256": "cccc204c09676907f9cf574ffd376be8267c77998f9df42e43af188890a3b267",
+      "tests": 129,
+      "date": "2026-09-07"
+    },
+    {
+      "check": "household_python",
+      "result": "passed",
+      "log_sha256": "19ce4c3fe936ba5a289b545d890b7ffce48ced29d4b7b20a8c6b10a871321dd4",
+      "tests": 13,
+      "date": "2026-09-06"
+    },
+    {
+      "check": "registry_node",
+      "result": "passed",
+      "log_sha256": "e04ccf8ed4019780000d85ace081da95d61e53c1795cebdcf3b36a375459f899",
+      "tests": 52,
+      "date": "2026-09-07"
+    },
+    {
+      "check": "refund_node",
+      "result": "passed",
+      "log_sha256": "d1ff313b1d26361112528d5ea6c35516c192d659137a316d441d4884ab030907",
+      "tests": 14,
+      "date": "2026-09-06"
+    },
+    {
+      "check": "solidity",
+      "result": "passed",
+      "log_sha256": "5f4a80b24382e417889afb449e553a82ce016fc533550e74bb73c441c8d7c57a",
+      "tests": 35,
+      "date": "2026-09-06"
+    },
+    {
+      "check": "wordpress_official",
+      "result": "passed",
+      "log_sha256": "00bdf419fb7863ab06057b341bed18d3c279fd5e00ad4be43f0fd17cfa5900c7",
+      "date": "2026-09-07"
+    },
+    {
+      "check": "store_helm",
+      "result": "passed",
+      "log_sha256": "2a3881c38f3d6b5ad0feb9a1d505bfd9f25d52fb21f0bcbbf1ff4165aab4f542",
+      "date": "2026-09-07"
+    },
+    {
+      "check": "registry_helm",
+      "result": "passed",
+      "log_sha256": "cf2f37bf29a8185cd2e24238a42e6de1238637ac659e878a8bd1313c772827e1",
+      "date": "2026-09-06"
+    },
+    {
+      "check": "release_manifest",
+      "result": "passed",
+      "log_sha256": "f3ac160900bdcffb0286a013a41c9f87a5c5fb536a0abf02c5500fa08524d27b",
+      "date": "2026-09-07"
+    },
+    {
+      "check": "wordpress_7_1_woocommerce_11_legacy",
+      "result": "passed",
+      "log_sha256": "b9b8263444edb463e8eba75e2ee62641778af3c19c62264842f8fdc8726c00af",
+      "behavior_assertions": 28,
+      "date": "2026-09-06"
+    },
+    {
+      "check": "wordpress_7_1_woocommerce_11_hpos",
+      "result": "passed",
+      "log_sha256": "0372fee90637a946b06d5c31a36fc5ac18ad2ae151f3ab1373ef4335c4f0f2cb",
+      "behavior_assertions": 28,
+      "date": "2026-09-06"
+    },
+    {
+      "check": "wordpress_7_0_3_woocommerce_11_hpos",
+      "date": "2026-09-07",
+      "result": "passed",
+      "log_sha256": "0372fee90637a946b06d5c31a36fc5ac18ad2ae151f3ab1373ef4335c4f0f2cb",
+      "behavior_assertions": 28
+    },
+    {
+      "check": "wordpress_7_0_3_woocommerce_11_legacy",
+      "date": "2026-09-07",
+      "result": "passed",
+      "log_sha256": "b9b8263444edb463e8eba75e2ee62641778af3c19c62264842f8fdc8726c00af",
+      "behavior_assertions": 28
+    },
+    {
+      "check": "final_phpcs",
+      "date": "2026-09-07",
+      "result": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "artifacts": [
+    {
+      "bytes": 131728,
+      "component": "woocommerce_shopbridge",
+      "file": "dist/agentcart-shopbridge.zip",
+      "sha256": "210df632d75bec49d78e0723fcd6a283851da9dc81ce58207a7b11542cf4eb60",
+      "version": "1.23.0"
+    },
+    {
+      "bytes": 97951,
+      "component": "shopbridge_direct_skill",
+      "file": "dist/shopbridge-direct-skill.zip",
+      "sha256": "83d5ba780c640cd869cb1d82fd0c045c0706235576bdfba50991db5752c2f350",
+      "version": "1.23.0"
+    },
+    {
+      "bytes": 6067,
+      "component": "agentcart_service_skill",
+      "file": "dist/agentcart-service-skill.zip",
+      "sha256": "ca7298e73b1cefdfdfbc86ccc04e9b5cdd3152555c80ea426dc06f9328dbcf4a",
+      "version": "1.23.0"
+    },
+    {
+      "bytes": 3130,
+      "component": "household_os_skill",
+      "file": "dist/household-os-skill.zip",
+      "sha256": "c9775eaeb1ee4eb6ab37cac9e0f7e5c282fbad959ef078b1cb130b64b0105c42",
+      "version": "1.23.0"
+    }
+  ],
+  "remaining_launch_gates": [
+    "Funded order liability/exposure and dispute/chargeback accounting",
+    "Independent v2 audit, validator/governance setup, deployment and enrollment integration",
+    "Real provider, process-death and restore drills, reconciliation scheduling and paging",
+    "Independent merchant/buyer trials and fresh Astra evaluations"
+  ],
+  "deployed": false,
+  "real_payments_or_refunds": false,
+  "test_count_note": "Aggregate local evidence: updated WooCommerce (129) and registry Node (52) suites ran on September 7; unchanged gateway, household, refund and Solidity suites retain the September 6 results below.",
+  "chart_wordpress_version": "7.0.3",
+  "registry_v2_scope": "PHP behavior and WordPress transport fixtures, operator configuration export, readiness expiry and configuration binding, chart rendering. No external v2 contract deployment or independent validators were exercised.",
+  "source_files_sha256": {
+    "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php": "70c6adb4a4e6e46a7c1a6b1e1c061370bc330e5016a5c00ebf2b72509a139d83",
+    "woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-rpc.php": "471bf1367e61e0983068693d34708684be56fd8432d4248b9fc451ee97c6580b",
+    "woocommerce-shopbridge/agentcart-shopbridge/includes/class-agentcart-shopbridge-registry-readiness.php": "6eaca86149f37b8af11f27e8f2329384c8ce1359ba6bcda4b0f4e2f95f107ae9",
+    "gateway/scripts/registry-v2-plans.mjs": "6770889e1a7f3aad7cd145d3668a040b39b87a94a52c792e191bd0a4c3526b05",
+    "charts/agentcart-shopbridge/templates/storefront.yaml": "2d13982c223ab297b5fae68a45512724525eded6071fd0a779d25780d6dc7a83"
+  }
+}

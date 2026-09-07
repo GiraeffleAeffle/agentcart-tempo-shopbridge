@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AgentCart ShopBridge
  * Description: Exposes opt-in WooCommerce catalog, quote, and paid-order endpoints for AgentCart household agents.
- * Version: 0.2.0
+ * Version: 1.23.0
  * Requires at least: 6.4
  * Requires PHP: 8.1
  * Requires Plugins: woocommerce
@@ -23,9 +23,12 @@ require_once __DIR__ . '/includes/class-agentcart-shopbridge-onchain-identity.ph
 require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-events.php';
 require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-rpc.php';
 require_once __DIR__ . '/includes/class-agentcart-shopbridge-registry-readiness.php';
+require_once __DIR__ . '/includes/class-agentcart-shopbridge-checkout-store.php';
+require_once __DIR__ . '/includes/trait-agentcart-shopbridge-checkout-recovery.php';
 
 final class AgentCart_ShopBridge {
     use AgentCart_ShopBridge_Verifier_Client;
+    use AgentCart_ShopBridge_Checkout_Recovery;
 
     /**
      * Whether the current order request is an admin-only dry checkout.
@@ -33,6 +36,12 @@ final class AgentCart_ShopBridge {
      * @var bool
      */
     private static $sandbox_checkout_active = false;
+    /**
+     * Whether this invocation replays the encrypted, previously accepted intent.
+     *
+     * @var bool
+     */
+    private static $checkout_recovery_active = false;
 
     const API_NAMESPACE = 'agentcart/v1';
     const TOKEN_OPTION = 'agentcart_shopbridge_token';
@@ -122,6 +131,9 @@ final class AgentCart_ShopBridge {
     const STOCK_HOLDS_OPTION = 'agentcart_shopbridge_stock_holds';
 
     public static function init() {
+        AgentCart_ShopBridge_Checkout_Store::init();
+        add_action('agentcart_shopbridge_recover_checkout', [__CLASS__, 'recover_checkout_job']);
+        add_action('admin_post_agentcart_checkout_recovery', [__CLASS__, 'handle_checkout_recovery_action']);
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         add_action('admin_menu', [__CLASS__, 'register_admin_menu']);
         add_action('admin_init', [__CLASS__, 'ensure_token']);
@@ -149,6 +161,16 @@ final class AgentCart_ShopBridge {
         register_rest_route(self::API_NAMESPACE, '/support-diagnostics', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [__CLASS__, 'support_diagnostics'],
+            'permission_callback' => [__CLASS__, 'authorize_support_diagnostics'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/checkout-recovery', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [__CLASS__, 'checkout_recovery_queue'],
+            'permission_callback' => [__CLASS__, 'authorize_support_diagnostics'],
+        ]);
+        register_rest_route(self::API_NAMESPACE, '/checkout-recovery/(?P<id>[\d]+)', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [__CLASS__, 'recover_checkout'],
             'permission_callback' => [__CLASS__, 'authorize_support_diagnostics'],
         ]);
         register_rest_route(self::API_NAMESPACE, '/catalog', [
@@ -368,7 +390,7 @@ final class AgentCart_ShopBridge {
         register_setting('agentcart_shopbridge', self::STOCK_HOLD_MODE_OPTION, [
             'type' => 'string',
             'sanitize_callback' => [__CLASS__, 'sanitize_stock_hold_mode_setting'],
-            'default' => 'soft',
+            'default' => 'hard',
         ]);
         register_setting('agentcart_shopbridge', self::STOCK_HOLD_MINUTES_OPTION, [
             'type' => 'integer',
@@ -408,7 +430,7 @@ final class AgentCart_ShopBridge {
 
     public static function sanitize_stock_hold_mode_setting($value) {
         $mode = sanitize_key((string) $value);
-        return in_array($mode, ['soft', 'hard', 'none'], true) ? $mode : 'soft';
+        return in_array($mode, ['soft', 'hard', 'none'], true) ? $mode : 'hard';
     }
 
     public static function sanitize_stock_hold_minutes_setting($value) {
@@ -758,6 +780,7 @@ final class AgentCart_ShopBridge {
             <?php self::render_credential_action_forms(); ?>
             <?php self::render_signed_request_audit_panel(); ?>
             <?php self::render_support_diagnostics_panel(); ?>
+            <?php self::render_checkout_recovery_panel(); ?>
 
             <h2 id="agentcart-product-exposure">Product Exposure</h2>
             <p style="max-width: 760px;">
@@ -1668,7 +1691,7 @@ final class AgentCart_ShopBridge {
                     <td>
                         <?php if (!empty($current_record)) : ?>
                             State: <code><?php echo esc_html((string) ($current_record['state'] ?? 'unknown')); ?></code>
-                            &middot; eligible: <code><?php echo !empty($current_record['eligible']) ? esc_html('yes') : esc_html('no'); ?></code>
+                            &middot; currently eligible: <code><?php echo !empty($onchain_readiness['ready']) ? esc_html('yes') : esc_html('no'); ?></code>
                             <?php if (isset($current_record['age_days'])) : ?>
                                 <br><span class="description">Manifest freshness: <?php echo esc_html((string) intval($current_record['age_days'])); ?> days old; updated_at <?php echo esc_html((string) ($current_record['updated_at'] ?? 'unknown')); ?></span>
                             <?php endif; ?>
@@ -1680,14 +1703,19 @@ final class AgentCart_ShopBridge {
                         <?php endif; ?>
                     </td>
                     <td>
-                        <?php self::render_admin_status_badge(!empty($current_record['eligible']) && ($current_record['state'] ?? '') === 'verified', 'Eligible', 'Not eligible'); ?>
+                        <?php self::render_admin_status_badge(!empty($onchain_readiness['ready']), 'Eligible', 'Not eligible'); ?>
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row">Pinned Tempo RPC finalized inclusion</th>
+                    <th scope="row">Pinned registry finalized inclusion</th>
                     <td>
                         State: <code><?php echo esc_html($onchain_state); ?></code>
                         <br><span class="description"><?php echo esc_html((string) ($onchain_readiness['message'] ?? 'Run registry health after enrollment.')); ?></span>
+                        <?php if (!empty($onchain_readiness['admission'])) : ?>
+                            <br>Accountable entity: <code><?php echo esc_html((string) $onchain_readiness['admission']['entity_id']); ?></code>
+                            <br>Admission expires: <?php echo esc_html(gmdate('Y-m-d H:i:s', $onchain_readiness['admission']['expires_at'])); ?> UTC
+                            <br><span class="description">A registration bond is not purchase insurance. RPC agreement does not establish validator independence.</span>
+                        <?php endif; ?>
                     </td>
                     <td><?php self::render_admin_status_badge($onchain_state === 'finalized_current', 'Finalized', 'Not finalized'); ?></td>
                 </tr>
@@ -3739,12 +3767,19 @@ final class AgentCart_ShopBridge {
         $onchain_identity = self::registry_onchain_identity();
         $onchain_readiness = self::registry_onchain_readiness();
         $onchain_state = (string) ($onchain_readiness['state'] ?? 'not_checked');
+        $v2 = (AgentCart_ShopBridge_Registry_Rpc::configured_descriptor()['registry_version'] ?? 1) === 2;
         $merchant_action = empty($onchain_identity)
             ? 'prepare_onchain_identity'
             : ($onchain_state === 'onchain_update_required'
                 ? 'prepare_onchain_update'
                 : ($onchain_state === 'finalized_current' ? 'none' : 'approve_onchain_registration'));
+        if ($v2 && !empty($onchain_identity) && $onchain_state !== 'finalized_current') {
+            $merchant_action = $onchain_state === 'admission_required'
+                ? 'renew_admission'
+                : 'check_admission_and_registration';
+        }
         return [
+            'registry_version' => $v2 ? 2 : 1,
             'type' => 'agentcart-registry-onboarding-bundle',
             'version' => '0.1',
             'merchant_id' => self::merchant()['id'],
@@ -3767,7 +3802,13 @@ final class AgentCart_ShopBridge {
             'registry_feed' => [
                 'entries' => [$record],
             ],
-            'next_steps' => [
+            'next_steps' => $v2 ? [
+                'Use registry-v2-operator identity preparation and save its four public WordPress settings. The deployment configuration belongs with the operator.',
+                'Publish this exact immutable record and request independent validator approval of domain, controller, payout, business and accountable entity.',
+                'After approval reaches quorum, prepare approveBond and register using an external wallet. Review every transaction and wait for finality.',
+                'For changes or expired admission, obtain fresh votes and prepare update or renewAdmission before checking registry health.',
+                'Check registry health to verify the exact record and current bonded admission through both configured RPC providers.',
+            ] : [
                 'Run the AgentCart registry prepare command with this bundle URL and the public controller address.',
                 'If prepare returns public WordPress identity settings, save them and run prepare again.',
                 'Review chain, contract, domain, controller, record hash, and record URI before approving the external-wallet transaction.',
@@ -3851,7 +3892,9 @@ final class AgentCart_ShopBridge {
             $metadata_ready,
             self::registry_onchain_identity(),
             $current_record_hash,
-            self::registry_health_check_result()
+            self::registry_health_check_result(),
+            null,
+            AgentCart_ShopBridge_Registry_Rpc::configured_descriptor()
         );
     }
 
@@ -4629,6 +4672,12 @@ final class AgentCart_ShopBridge {
         }
 
         $missing_production = [];
+        if (!self::hard_stock_reservation_enabled() || !self::hard_stock_reservation_adapter_available()) {
+            $missing_production[] = 'hard stock reservations';
+        }
+        if (!function_exists('openssl_encrypt') || !function_exists('openssl_decrypt')) {
+            $missing_production[] = 'encrypted checkout recovery storage';
+        }
         if (!self::credential_is_production_strength(self::merchant_token_value())) {
             $missing_production[] = 'strong merchant token';
         }
@@ -5612,7 +5661,7 @@ final class AgentCart_ShopBridge {
         $minutes_constant_defined = defined('AGENTCART_STOCK_HOLD_MINUTES');
         $modes = [
             'soft' => 'Soft quote holds',
-            'hard' => 'Hard reservation adapter',
+            'hard' => 'WooCommerce stock reservations',
             'none' => 'No quote holds',
         ];
         ?>
@@ -5629,7 +5678,7 @@ final class AgentCart_ShopBridge {
                     <?php endforeach; ?>
                 </select>
                 <p class="description">
-                    Soft holds do not reduce WooCommerce stock. Hard mode requires an inventory adapter for <code>agentcart_shopbridge_reserve_stock</code>, <code>agentcart_shopbridge_confirm_stock_reservation</code>, and <code>agentcart_shopbridge_release_stock_reservation</code>; quotes fail closed if the adapter is missing.
+                    Hard mode uses WooCommerce native reservations shared with regular checkout. It reserves stock for final quotes and stops checkout if stock cannot be held. Existing inventory adapters can override the native provider. Soft holds only coordinate ShopBridge quotes.
                     <?php if ($mode_constant_defined): ?>
                         <br><strong>Configured in wp-config.php via <code>AGENTCART_STOCK_HOLD_MODE</code>.</strong>
                     <?php endif; ?>
@@ -6007,7 +6056,9 @@ final class AgentCart_ShopBridge {
         $quote_ttl_seconds = self::stock_hold_ttl_seconds();
         $quote_id = 'woo_quote_' . wp_generate_uuid4();
         $expires_at = gmdate('c', $now + $quote_ttl_seconds);
-        $stock_reservation = self::reserve_stock_for_quote($quote_id, $quote_items, $expires_at);
+        $final_address = !is_wp_error(self::validate_checkout_address($ship_to));
+        $stock_reservation = $final_address ? self::reserve_stock_for_quote($quote_id, $quote_items, $expires_at)
+            : ['state' => 'not_reserved', 'mode' => self::stock_hold_mode(), 'reason' => 'comparison_quote'];
         if (is_wp_error($stock_reservation)) {
             $cart->empty_cart();
             return $stock_reservation;
@@ -6046,12 +6097,23 @@ final class AgentCart_ShopBridge {
         $quote['quote_hash'] = self::quote_hash($quote);
         $quote['payment_requirements'] = self::payment_requirements($quote);
         $quote['refund_policy'] = self::quote_refund_policy();
+        if ($final_address) {
+            $stored = AgentCart_ShopBridge_Checkout_Store::remember_quote($quote);
+            if (is_wp_error($stored)) {
+                self::release_stock_hold($quote_id, 'quote_persistence_failed');
+                return $stored;
+            }
+        }
         set_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id, $quote, $quote_ttl_seconds);
         $cart->empty_cart();
         return $quote;
     }
 
     public static function create_order(WP_REST_Request $request) {
+        $storage = AgentCart_ShopBridge_Checkout_Store::require_transactional_storage();
+        if (is_wp_error($storage)) {
+            return $storage;
+        }
         $body = $request->get_json_params();
         $body = is_array($body) ? $body : [];
         $receipt = isset($body['payment_receipt']) && is_array($body['payment_receipt']) ? $body['payment_receipt'] : [];
@@ -6078,7 +6140,9 @@ final class AgentCart_ShopBridge {
             if (is_wp_error($replay_error)) {
                 return $replay_error;
             }
-            return self::serialize_order_response($existing_order, 'idempotent_replay');
+            if (self::checkout_order_complete($existing_order)) {
+                return self::serialize_order_response($existing_order, 'idempotent_replay');
+            }
         }
 
         $lock = self::acquire_checkout_lock($idempotency_key);
@@ -6092,7 +6156,9 @@ final class AgentCart_ShopBridge {
                 if (is_wp_error($replay_error)) {
                     return $replay_error;
                 }
-                return self::serialize_order_response($existing_order, 'idempotent_replay');
+                if (self::checkout_order_complete($existing_order)) {
+                    return self::serialize_order_response($existing_order, 'idempotent_replay');
+                }
             }
 
         $merchant_quote_id = self::merchant_quote_id_from_body($body);
@@ -6104,11 +6170,18 @@ final class AgentCart_ShopBridge {
             return $quote_lock;
         }
         try {
+        $checkout_draft = AgentCart_ShopBridge_Checkout_Store::find($merchant_quote_id);
+        $checkout_transaction_open = false;
+        $checkout_succeeded = false;
+        $checkout_intent_bound = false;
         $existing_quote_order = self::find_existing_quote_order($merchant_quote_id);
-        if ($existing_quote_order) {
+        if ($existing_quote_order && self::checkout_order_complete($existing_quote_order)) {
             return new WP_Error('agentcart_quote_already_consumed', 'Merchant quote has already been used for an AgentCart order.', ['status' => 409]);
         }
         $quote = get_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
+        if (!is_array($quote) && AgentCart_ShopBridge_Checkout_Store::verification_attempted($checkout_draft)) {
+            $quote = AgentCart_ShopBridge_Checkout_Store::quote($checkout_draft);
+        }
         if (!is_array($quote)) {
             return self::quote_recovery_error('agentcart_quote_expired', 'Merchant quote is unknown or expired.', null, $merchant_quote_id, 'quote_unknown_or_expired');
         }
@@ -6120,7 +6193,7 @@ final class AgentCart_ShopBridge {
             }
             return new WP_Error('agentcart_bad_request', 'payment_receipt.id is required.', ['status' => 400]);
         }
-        if (strtotime((string) ($quote['expires_at'] ?? '')) < time()) {
+        if (strtotime((string) ($quote['expires_at'] ?? '')) < time() && !AgentCart_ShopBridge_Checkout_Store::verification_attempted($checkout_draft)) {
             delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
             self::release_stock_hold($merchant_quote_id);
             return self::quote_recovery_error('agentcart_quote_expired', 'Merchant quote has expired.', $quote, $merchant_quote_id, 'quote_expired');
@@ -6130,10 +6203,19 @@ final class AgentCart_ShopBridge {
         if ($supplied_quote_hash !== '' && !hash_equals($expected_quote_hash, $supplied_quote_hash)) {
             return new WP_Error('agentcart_quote_mismatch', 'quote_hash does not match the stored merchant quote.', ['status' => 409]);
         }
-        if ($supplied_quote_hash === '' && !self::has_valid_merchant_token($request)) {
+        if ($supplied_quote_hash === '' && !self::has_valid_merchant_token($request) && !self::$checkout_recovery_active) {
             return new WP_Error('agentcart_quote_hash_required', 'quote_hash is required for public checkout.', ['status' => 400]);
         }
 
+        $checkout_draft = AgentCart_ShopBridge_Checkout_Store::begin($quote, $body, $request, $checkout_request_hash, $idempotency_key);
+        if (is_wp_error($checkout_draft)) {
+            $error = $checkout_draft;
+            $checkout_draft = null;
+            return $error;
+        }
+        $checkout_intent_bound = true;
+        $saved_verification = json_decode((string) $checkout_draft->get_meta('_agentcart_payment_verification', true), true);
+        $payment_verification = is_array($saved_verification) ? $saved_verification : null;
         $validated_items = [];
         $quote_ship_to = self::normalize_address($quote['ship_to'] ?? ['country' => '']);
         $checkout_address_error = self::validate_checkout_address($quote_ship_to);
@@ -6184,32 +6266,54 @@ final class AgentCart_ShopBridge {
             $validated_items[] = [$product, $item, $quantity];
         }
 
-        $quote_drift = self::validate_live_quote_totals_for_checkout($quote, $merchant_quote_id, $validated_items);
+        // A verified payment is bound to the saved price; recovery cannot
+        // silently reprice it. Stock still has to be reserved successfully.
+        $quote_drift = $payment_verification ? true : self::validate_live_quote_totals_for_checkout($quote, $merchant_quote_id, $validated_items);
         if (is_wp_error($quote_drift)) {
             return $quote_drift;
         }
 
-        $payment_verification = self::verify_payment_receipt($quote, $receipt, $body, $request);
+        if (!$payment_verification) {
+            // Extend native stock coverage before a possibly slow settlement
+            // call, and durably distinguish attempted settlement from rejection.
+            $pre_payment_hold = self::confirm_stock_reservation_for_order($merchant_quote_id, $quote, $receipt, $body);
+            if (is_wp_error($pre_payment_hold)) {
+                return $pre_payment_hold;
+            }
+            AgentCart_ShopBridge_Checkout_Store::mark_verifying($checkout_draft);
+            $payment_verification = self::verify_payment_receipt($quote, $receipt, $body, $request);
+        }
         if (is_wp_error($payment_verification)) {
             return $payment_verification;
         }
+        AgentCart_ShopBridge_Checkout_Store::verified($checkout_draft, $payment_verification, $receipt);
 
         $stock_reservation_confirmation = self::confirm_stock_reservation_for_order($merchant_quote_id, $quote, $receipt, $body);
         if (is_wp_error($stock_reservation_confirmation)) {
             return $stock_reservation_confirmation;
         }
 
-        $order = wc_create_order([
-            'created_via' => 'agentcart-shopbridge',
-            'status' => 'processing',
-        ]);
-        if (is_wp_error($order)) {
-            self::release_stock_hold($merchant_quote_id, 'order_creation_failed');
-            return $order;
+        global $wpdb;
+        if (!self::connection_lock_owned(self::quote_lock_option_name($merchant_quote_id))) {
+            return new WP_Error('agentcart_checkout_lock_lost', 'Checkout result requires reconciliation after database recovery.', ['status' => 503]);
         }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Promote the draft, reduce stock and mark completion in one transaction.
+        if ($wpdb->query('START TRANSACTION') === false) {
+            return new WP_Error('agentcart_checkout_persistence_unavailable', 'Payment verification is retained; retry this checkout after database recovery.', ['status' => 503]);
+        }
+        $checkout_transaction_open = true;
+        $order = $checkout_draft;
+        $order->set_created_via('agentcart-shopbridge');
+        $order->remove_order_items();
+        // WooCommerce 11 defers bulk deletion until save(). Flush that deletion
+        // before add_product(), which persists replacement items immediately.
+        $order->save();
         foreach ($validated_items as $validated_item) {
             [$product, $quote_item, $quantity] = $validated_item;
             $item_id = $order->add_product($product, $quantity);
+            if (!$item_id) {
+                return new WP_Error('agentcart_order_item_persistence_failed', 'Order items could not be persisted. Payment is retained for recovery.', ['status' => 503]);
+            }
             $order_item = $order->get_item($item_id);
             if ($order_item) {
                 $line_total = intval($quote_item['line_total_cents'] ?? 0) / 100;
@@ -6284,14 +6388,40 @@ final class AgentCart_ShopBridge {
         if ($quote_total_cents > 0) {
             $order->set_total($quote_total_cents / 100);
         }
-        $order->payment_complete(sanitize_text_field((string) $receipt['id']));
+        if ($order->payment_complete(sanitize_text_field((string) $receipt['id'])) !== true || !$order->is_paid()) {
+            return new WP_Error('agentcart_order_payment_completion_failed', 'WooCommerce payment completion failed. Payment is retained for recovery.', ['status' => 503]);
+        }
         $order->set_date_paid(time());
         $order->add_order_note('AgentCart created this order after quote-bound payment verification: ' . sanitize_text_field((string) ($payment_verification['mode'] ?? 'unknown')) . '.');
         $order->save();
+        AgentCart_ShopBridge_Checkout_Store::complete($order);
+        if (!self::connection_lock_owned(self::quote_lock_option_name($merchant_quote_id))) {
+            return new WP_Error('agentcart_checkout_lock_lost', 'Checkout persistence needs reconciliation.', ['status' => 503]);
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Commit the order, native stock change and completion marker together.
+        if ($wpdb->query('COMMIT') === false) {
+            return new WP_Error('agentcart_checkout_commit_unknown', 'Retry only the same checkout request after database recovery.', ['status' => 503]);
+        }
+        $checkout_transaction_open = false;
+        $checkout_succeeded = true;
         delete_transient(self::QUOTE_TRANSIENT_PREFIX . $merchant_quote_id);
         self::release_stock_hold($merchant_quote_id, 'confirmed');
         return self::serialize_order_response($order, 'created', $payment_verification);
         } finally {
+            if (!empty($checkout_transaction_open)) {
+                global $wpdb;
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Roll back an incomplete promotion while retaining the earlier payment checkpoint.
+                $wpdb->query('ROLLBACK');
+                AgentCart_ShopBridge_Checkout_Store::invalidate_after_rollback($checkout_draft);
+            }
+            if (empty($checkout_succeeded) && !empty($checkout_draft) && !empty($checkout_intent_bound)) {
+                $checkout_draft->get_data_store()->read($checkout_draft);
+                $checkout_draft->read_meta_data(true);
+                if (!self::checkout_order_complete($checkout_draft)) {
+                    $paid = json_decode((string) $checkout_draft->get_meta('_agentcart_payment_verification', true), true);
+                    AgentCart_ShopBridge_Checkout_Store::failure($checkout_draft, 'checkout_incomplete', is_array($paid) && !empty($paid));
+                }
+            }
             self::release_quote_lock($merchant_quote_id);
         }
         } finally {
@@ -6307,10 +6437,22 @@ final class AgentCart_ShopBridge {
         return self::serialize_order_status($order);
     }
 
+    private static function checkout_order_complete($order) {
+        $state = (string) $order->get_meta(AgentCart_ShopBridge_Checkout_Store::STATE_META, true);
+        return $state === '' || $state === 'completed';
+    }
+
     public static function create_refund(WP_REST_Request $request) {
+        $storage = AgentCart_ShopBridge_Checkout_Store::require_transactional_storage();
+        if (is_wp_error($storage)) {
+            return $storage;
+        }
         $order = wc_get_order(intval($request['id']));
         if (!$order) {
             return new WP_Error('agentcart_not_found', 'Order not found.', ['status' => 404]);
+        }
+        if (!self::checkout_order_complete($order) && !self::$checkout_compensation_active) {
+            return new WP_Error('agentcart_checkout_recovery_required', 'Use manager checkout recovery to compensate an incomplete checkout.', ['status' => 409]);
         }
         if ((string) $order->get_meta('_agentcart_order_id', true) === '') {
             return new WP_Error('agentcart_not_agentcart_order', 'Only AgentCart-created orders can use the AgentCart refund endpoint.', ['status' => 409]);
@@ -6339,11 +6481,16 @@ final class AgentCart_ShopBridge {
             return self::serialize_refund_response($order, $existing_refund, 'refund_idempotent_replay');
         }
 
-        $lock = self::acquire_refund_lock($refund_idempotency_key);
+        $refund_lock_key = (string) $order->get_id();
+        $lock = self::acquire_refund_lock($refund_lock_key);
         if (is_wp_error($lock)) {
             return $lock;
         }
         try {
+            // Re-read only after obtaining the order-wide database lock.
+            $order = wc_get_order(intval($request['id']));
+            $order->get_data_store()->read($order);
+            $order->read_meta_data(true);
             $existing_refund = self::find_existing_refund($order, $refund_idempotency_key);
             if ($existing_refund) {
                 $replay_error = self::validate_existing_refund_replay($order, $existing_refund, $amount_cents, $rail, $refund_idempotency_key, $requested_reference);
@@ -6353,12 +6500,23 @@ final class AgentCart_ShopBridge {
                 return self::serialize_refund_response($order, $existing_refund, 'refund_idempotent_replay');
             }
 
+            $pending = json_decode((string) $order->get_meta('_agentcart_pending_refunds', true), true);
+            $pending = is_array($pending) ? $pending : [];
+            $pending_key = hash('sha256', $refund_idempotency_key);
+            $prior = $pending[$pending_key] ?? null;
+            $requested_reference = $requested_reference !== '' ? $requested_reference : 'order-' . $order->get_id() . '-' . $pending_key;
+            $body['requested_reference'] = $requested_reference;
             $remaining_cents = self::cents((float) $order->get_remaining_refund_amount());
+            foreach ($pending as $key => $intent) {
+                if ($key !== $pending_key) {
+                    $remaining_cents -= intval($intent['amount_cents'] ?? 0);
+                }
+            }
             if ($remaining_cents <= 0) {
                 return new WP_Error('agentcart_refund_unavailable', 'This order has no refundable amount remaining.', ['status' => 409]);
             }
             if (!isset($body['amount_cents'])) {
-                $amount_cents = $remaining_cents;
+                $amount_cents = is_array($prior) ? intval($prior['amount_cents']) : $remaining_cents;
             }
             if ($amount_cents <= 0) {
                 return new WP_Error('agentcart_refund_amount_invalid', 'Refund amount must be greater than zero.', ['status' => 400]);
@@ -6367,8 +6525,25 @@ final class AgentCart_ShopBridge {
                 return new WP_Error('agentcart_refund_amount_exceeds_remaining', 'Refund amount exceeds the remaining refundable amount.', ['status' => 409]);
             }
 
+            $intent = ['amount_cents' => $amount_cents, 'rail' => $rail, 'requested_reference' => $requested_reference];
+            if (is_array($prior) && ($prior['amount_cents'] !== $amount_cents || $prior['rail'] !== $rail || $prior['requested_reference'] !== $requested_reference)) {
+                return new WP_Error('agentcart_refund_idempotency_conflict', 'Pending refund request is bound to different parameters.', ['status' => 409]);
+            }
+            // Persist before contacting the rail; timeout/crash retains the reservation.
+            $pending[$pending_key] = $intent;
+            $order->update_meta_data('_agentcart_pending_refunds', wp_json_encode($pending));
+            $order->save();
             $refund_verification = self::verify_refund_request($order, $amount_cents, $reason, $rail, $body);
             if (is_wp_error($refund_verification)) {
+                $detail = $refund_verification->get_error_data();
+                $provider_state = is_array($detail) ? ($detail['refund_status'] ?? '') : '';
+                if (in_array($provider_state, ['failed', 'canceled'], true)) {
+                    unset($pending[$pending_key]);
+                } else {
+                    $pending[$pending_key]['refund_status'] = $provider_state ?: 'unknown';
+                }
+                $order->update_meta_data('_agentcart_pending_refunds', wp_json_encode($pending));
+                $order->save();
                 return $refund_verification;
             }
             $refund_reference = sanitize_text_field((string) ($refund_verification['refund_reference'] ?? ''));
@@ -6376,6 +6551,14 @@ final class AgentCart_ShopBridge {
                 return new WP_Error('agentcart_refund_replay', 'Refund reference has already been used for this order.', ['status' => 409]);
             }
 
+            global $wpdb;
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Lock ownership is connection state and must never be cached.
+            $lock_owned = $wpdb->get_var($wpdb->prepare('SELECT IS_USED_LOCK(%s) = CONNECTION_ID()', self::refund_lock_option_name($refund_lock_key)));
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WooCommerce refund and replay metadata must commit on this connection together.
+            if ((string) $lock_owned !== '1' || $wpdb->query('START TRANSACTION') === false) {
+                return new WP_Error('agentcart_refund_persistence_unavailable', 'Refund rail result is retained by the verifier. Retry the same request after database recovery.', ['status' => 503]);
+            }
+            $refund_transaction_open = true;
             $refund = wc_create_refund([
                 'amount' => $amount_cents / 100,
                 'reason' => $reason,
@@ -6411,6 +6594,8 @@ final class AgentCart_ShopBridge {
                 'verification' => $refund_verification,
                 'created_at' => gmdate('c'),
             ];
+            unset($pending[$pending_key]);
+            $order->update_meta_data('_agentcart_pending_refunds', wp_json_encode($pending));
             $order->update_meta_data('_agentcart_refunds', wp_json_encode($refunds));
             $order->add_order_note(
                 'AgentCart refund recorded: '
@@ -6420,9 +6605,20 @@ final class AgentCart_ShopBridge {
             );
             $order->save();
 
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Commit the refund and its replay metadata atomically.
+            if ($wpdb->query('COMMIT') === false) {
+                return new WP_Error('agentcart_refund_commit_unknown', 'Refund persistence outcome is unknown. Retry only the same request reference.', ['status' => 503]);
+            }
+            $refund_transaction_open = false;
             return self::serialize_refund_response($order, $refund, 'refund_recorded');
         } finally {
-            self::release_refund_lock($refund_idempotency_key);
+            if (!empty($refund_transaction_open)) {
+                global $wpdb;
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Roll back incomplete local refund persistence on the same connection.
+                $wpdb->query('ROLLBACK');
+                wc_delete_shop_order_transients(intval($request['id']));
+            }
+            self::release_refund_lock($refund_lock_key);
         }
     }
 
@@ -6552,7 +6748,7 @@ final class AgentCart_ShopBridge {
     private static function serialize_refund_response(WC_Order $order, $refund, $state = 'refund_recorded') {
         $verification = self::stored_refund_verification($refund);
         $response_state = $state;
-        if ($state === 'refund_recorded' && is_array($verification) && !empty($verification['real_refund_verified'])) {
+        if ($state === 'refund_recorded' && is_array($verification) && !empty($verification['real_refund_verified']) && ($verification['refund_status'] ?? '') === 'succeeded') {
             $response_state = 'rail_refund_verified';
         }
         return [
@@ -6566,7 +6762,7 @@ final class AgentCart_ShopBridge {
             'idempotency_key' => (string) $refund->get_meta(self::REFUND_IDEMPOTENCY_KEY_META, true),
             'requested_reference' => (string) $refund->get_meta(self::REFUND_REQUESTED_REFERENCE_META, true),
             'refund_reference' => (string) $refund->get_meta(self::REFUND_REFERENCE_META, true),
-            'real_refund_verified' => is_array($verification) && !empty($verification['real_refund_verified']),
+            'real_refund_verified' => is_array($verification) && !empty($verification['real_refund_verified']) && ($verification['refund_status'] ?? '') === 'succeeded',
             'provider' => is_array($verification) ? (string) ($verification['provider'] ?? '') : '',
             'verification_state' => is_array($verification) ? (string) ($verification['state'] ?? '') : '',
             'verification_mode' => is_array($verification) ? (string) ($verification['mode'] ?? '') : '',
@@ -6933,69 +7129,78 @@ final class AgentCart_ShopBridge {
     }
 
     private static function acquire_checkout_lock($idempotency_key) {
-        $option_name = self::checkout_lock_option_name($idempotency_key);
-        $now = time();
-        if (add_option($option_name, (string) $now, '', 'no')) {
-            return true;
-        }
-        $existing = intval(get_option($option_name, 0));
-        if ($existing > 0 && $existing < ($now - self::CHECKOUT_LOCK_TTL_SECONDS)) {
-            update_option($option_name, (string) $now, false);
-            return true;
-        }
-        return new WP_Error('agentcart_checkout_in_progress', 'A checkout with this idempotency key is already in progress.', ['status' => 409]);
+        return self::acquire_connection_lock(self::checkout_lock_option_name($idempotency_key));
     }
 
     private static function release_checkout_lock($idempotency_key) {
-        delete_option(self::checkout_lock_option_name($idempotency_key));
+        self::release_connection_lock(self::checkout_lock_option_name($idempotency_key));
     }
 
     private static function checkout_lock_option_name($idempotency_key) {
-        return self::CHECKOUT_LOCK_PREFIX . hash('sha256', (string) $idempotency_key);
+        return self::connection_lock_name('checkout', $idempotency_key);
     }
 
     private static function acquire_quote_lock($merchant_quote_id) {
-        $option_name = self::quote_lock_option_name($merchant_quote_id);
-        $now = time();
-        if (add_option($option_name, (string) $now, '', 'no')) {
-            return true;
-        }
-        $existing = intval(get_option($option_name, 0));
-        if ($existing > 0 && $existing < ($now - self::CHECKOUT_LOCK_TTL_SECONDS)) {
-            update_option($option_name, (string) $now, false);
-            return true;
-        }
-        return new WP_Error('agentcart_quote_checkout_in_progress', 'A checkout for this merchant quote is already in progress.', ['status' => 409]);
+        return self::acquire_connection_lock(self::quote_lock_option_name($merchant_quote_id));
     }
 
     private static function release_quote_lock($merchant_quote_id) {
-        delete_option(self::quote_lock_option_name($merchant_quote_id));
+        self::release_connection_lock(self::quote_lock_option_name($merchant_quote_id));
     }
 
     private static function quote_lock_option_name($merchant_quote_id) {
-        return self::QUOTE_LOCK_PREFIX . hash('sha256', (string) $merchant_quote_id);
+        return self::connection_lock_name('quote', $merchant_quote_id);
     }
 
-    private static function acquire_refund_lock($refund_idempotency_key) {
-        $option_name = self::refund_lock_option_name($refund_idempotency_key);
-        $now = time();
-        if (add_option($option_name, (string) $now, '', 'no')) {
+    private static function connection_lock_name($kind, $key) {
+        global $wpdb;
+        return 'ac_' . substr(hash('sha256', (defined('DB_NAME') ? DB_NAME : '') . ':' . $wpdb->prefix . ':' . $kind . ':' . $key), 0, 60);
+    }
+
+    private static function acquire_connection_lock($name) {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Connection locks serialize requests without unsafe TTL takeover.
+        if ((string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', $name)) !== '1') {
+            return new WP_Error('agentcart_checkout_in_progress', 'This checkout is already in progress.', ['status' => 409]);
+        }
+        return true;
+    }
+
+    private static function release_connection_lock($name) {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Release only the current connection's lock.
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $name));
+    }
+
+    private static function connection_lock_owned($name) {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Ownership must be read from the live database connection.
+        return (string) $wpdb->get_var($wpdb->prepare('SELECT IS_USED_LOCK(%s) = CONNECTION_ID()', $name)) === '1';
+    }
+
+    private static function acquire_refund_lock($order_id) {
+        global $wpdb;
+        // Connection-scoped MySQL lock: released on connection loss, no unsafe
+        // stale-option takeover while a slow provider request is still active.
+        $name = self::refund_lock_option_name($order_id);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL connection locks cannot use the WordPress object cache.
+        if ((string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', $name)) === '1') {
             return true;
         }
-        $existing = intval(get_option($option_name, 0));
-        if ($existing > 0 && $existing < ($now - self::CHECKOUT_LOCK_TTL_SECONDS)) {
-            update_option($option_name, (string) $now, false);
-            return true;
-        }
-        return new WP_Error('agentcart_refund_in_progress', 'A refund with this idempotency key is already in progress.', ['status' => 409]);
+        return new WP_Error('agentcart_refund_in_progress', 'A refund for this order is already in progress.', ['status' => 409]);
     }
 
-    private static function release_refund_lock($refund_idempotency_key) {
-        delete_option(self::refund_lock_option_name($refund_idempotency_key));
+    private static function release_refund_lock($order_id) {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Release only the lock held by this database connection.
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', self::refund_lock_option_name($order_id)));
     }
 
-    private static function refund_lock_option_name($refund_idempotency_key) {
-        return self::REFUND_LOCK_PREFIX . hash('sha256', (string) $refund_idempotency_key);
+    private static function refund_lock_option_name($order_id) {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Read the connection's database only when WordPress has not defined DB_NAME.
+        $database = defined('DB_NAME') ? DB_NAME : (string) $wpdb->get_var('SELECT DATABASE()');
+        return 'ac_refund_' . substr(hash('sha256', $database . ':' . $wpdb->prefix . ':' . (string) $order_id), 0, 54);
     }
 
     private static function acquire_cancellation_lock($cancellation_idempotency_key) {
@@ -7120,6 +7325,9 @@ final class AgentCart_ShopBridge {
             $verification = self::call_payment_verifier($verifier_url, $quote, $receipt, $body);
             if (is_wp_error($verification)) {
                 return $verification;
+            }
+            if (self::external_verifier_required_for_checkout() && ($verification['real_settlement_verified'] ?? false) !== true) {
+                return new WP_Error('agentcart_payment_not_real_verified', 'Production checkout requires verified real settlement.', ['status' => 402]);
             }
             return $verification;
         }
@@ -7251,7 +7459,7 @@ final class AgentCart_ShopBridge {
                 'requested_reference' => (string) $refund->get_meta(self::REFUND_REQUESTED_REFERENCE_META, true),
                 'refund_reference' => (string) $refund->get_meta(self::REFUND_REFERENCE_META, true),
                 'verification' => $verification,
-                'real_refund_verified' => is_array($verification) && !empty($verification['real_refund_verified']),
+                'real_refund_verified' => is_array($verification) && !empty($verification['real_refund_verified']) && ($verification['refund_status'] ?? '') === 'succeeded',
                 'created_at' => $refund->get_date_created() ? $refund->get_date_created()->date('c') : null,
             ];
         }
@@ -7366,7 +7574,16 @@ final class AgentCart_ShopBridge {
             $next_actions[] = 'complete_verified_refund';
         }
 
+        $pending_refunds = json_decode((string) $order->get_meta('_agentcart_pending_refunds', true), true);
+        $pending_refunds = is_array($pending_refunds) ? $pending_refunds : [];
+        $pending_refund_cents = 0;
+        foreach ($pending_refunds as $intent) {
+            $pending_refund_cents += max(0, intval($intent['amount_cents'] ?? 0));
+        }
         $state = [
+            'pending_refund_cents' => $pending_refund_cents,
+            'refund_reconciliation_required' => !empty($pending_refunds),
+            'available_for_new_refund_cents' => max(0, $remaining_refundable_cents - $pending_refund_cents),
             'order_status' => $order->get_status(),
             'order_lifecycle_state' => $order_lifecycle_state,
             'fulfillment_phase' => self::fulfillment_phase($order, $fulfillment),
@@ -7421,10 +7638,10 @@ final class AgentCart_ShopBridge {
         $latest_verification = isset($latest_refund['verification']) && is_array($latest_refund['verification'])
             ? $latest_refund['verification']
             : [];
-        $latest_refund_verified = !empty($latest_refund['real_refund_verified']);
+        $latest_refund_verified = !empty($latest_refund['real_refund_verified']) && ($latest_refund['refund_status'] ?? $latest_refund['verification']['refund_status'] ?? '') === 'succeeded';
         $any_real_refund_verified = false;
         foreach ($refunds as $refund) {
-            if (is_array($refund) && !empty($refund['real_refund_verified'])) {
+            if (is_array($refund) && !empty($refund['real_refund_verified']) && ($refund['refund_status'] ?? $refund['verification']['refund_status'] ?? '') === 'succeeded') {
                 $any_real_refund_verified = true;
                 break;
             }
@@ -7446,7 +7663,7 @@ final class AgentCart_ShopBridge {
                 'order_cancelled' => strpos($lifecycle_state, 'cancelled') === 0,
                 'refund_recorded' => $refunded_cents > 0,
                 'refund_executed' => $any_real_refund_verified,
-                'money_returned' => $any_real_refund_verified,
+                'money_returned' => false,
                 'refund_still_required' => !empty($aftercare['refund_required_after_cancellation']),
                 'carrier_exception' => !empty($aftercare['delivery_exception_requires_attention']),
             ],
@@ -7477,7 +7694,7 @@ final class AgentCart_ShopBridge {
             if ($any_real_refund_verified) {
                 $via = $provider !== '' ? ' via ' . $provider : '';
                 $reference = $refund_reference !== '' ? ' Reference: ' . $refund_reference . '.' : '';
-                $messages['refund'] = 'Refund executed and verified' . $via . '.' . $reference;
+                $messages['refund'] = 'Provider confirmed refund success' . $via . '.' . $reference;
             } else {
                 $messages['refund'] = 'Refund recorded by the merchant system. No real rail refund verification is attached.';
             }
@@ -7494,6 +7711,10 @@ final class AgentCart_ShopBridge {
             $messages['delivery'] = 'Carrier delivery exception requires attention: ' . $summary;
         }
 
+        if (!empty($aftercare['refund_reconciliation_required'])) {
+            $messages['refund'] = 'A refund request is unresolved. The merchant must reconcile the same request reference before initiating another refund.';
+            $messages['allowed_claims']['refund_reconciliation_required'] = true;
+        }
         if (!empty($latest_refund) && $latest_refund_verified) {
             $messages['allowed_claims']['latest_refund_verified'] = true;
             $messages['allowed_claims']['latest_refund_reference'] = $refund_reference;
@@ -9739,7 +9960,7 @@ final class AgentCart_ShopBridge {
         if (defined('AGENTCART_STOCK_HOLD_MODE')) {
             return self::sanitize_stock_hold_mode_setting((string) AGENTCART_STOCK_HOLD_MODE);
         }
-        return self::sanitize_stock_hold_mode_setting((string) get_option(self::STOCK_HOLD_MODE_OPTION, 'soft'));
+        return self::sanitize_stock_hold_mode_setting((string) get_option(self::STOCK_HOLD_MODE_OPTION, 'hard'));
     }
 
     private static function stock_hold_enabled() {
@@ -9794,7 +10015,19 @@ final class AgentCart_ShopBridge {
 
     private static function held_stock_quantity($product_id, $exclude_quote_id = '') {
         $quantity = 0;
+        $native_counted = false;
+        if (self::hard_stock_reservation_enabled() && function_exists('wc_get_held_stock_quantity')) {
+            $product = wc_get_product($product_id);
+            $draft = AgentCart_ShopBridge_Checkout_Store::find($exclude_quote_id);
+            if ($product) {
+                $quantity = max(0, (int) wc_get_held_stock_quantity($product, $draft ? $draft->get_id() : 0));
+                $native_counted = true;
+            }
+        }
         foreach (self::stock_holds() as $quote_id => $hold) {
+            if ($native_counted && ($hold['provider'] ?? '') === AgentCart_ShopBridge_Checkout_Store::PROVIDER) {
+                continue;
+            }
             if ($exclude_quote_id !== '' && (string) $quote_id === (string) $exclude_quote_id) {
                 continue;
             }

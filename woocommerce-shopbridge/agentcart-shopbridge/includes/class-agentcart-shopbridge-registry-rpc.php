@@ -14,6 +14,7 @@ if (!defined('ABSPATH')) {
  */
 final class AgentCart_ShopBridge_Registry_Rpc {
     private const RESPONSE_MAX_BYTES = 1048576;
+    private const ELIGIBILITY_SELECTOR = '0x46a18c77'; // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- ABI selector is an opaque string.
     private const RECORD_SELECTOR = '0xb5c645bd'; // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- ABI selectors are opaque strings.
     private const DOMAIN_RECORD_SELECTOR = '0x15daecde'; // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- ABI selectors are opaque strings.
     private const REVOKED_HASH_SELECTOR = '0xf30566db'; // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- ABI selectors are opaque strings.
@@ -22,7 +23,7 @@ final class AgentCart_ShopBridge_Registry_Rpc {
      * Verify the configured identity and record at the pinned finalized chain.
      *
      * The callable and descriptor arguments exist for deterministic tests. The
-     * plugin invokes this method without either override.
+     * plugin uses its deployment configuration when no override is supplied.
      *
      * @param array<string,mixed>      $identity Public merchant identity.
      * @param string                   $record_hash Canonical current record hash.
@@ -41,7 +42,7 @@ final class AgentCart_ShopBridge_Registry_Rpc {
         ?array $descriptor = null
     ): array {
         $reference_time = $now ?? time();
-        $deployment = $descriptor ?? self::tempo_moderato_descriptor();
+        $deployment = $descriptor ?? self::configured_descriptor();
         $chain_id = AgentCart_ShopBridge_Onchain_Identity::sanitize_chain_id($identity['chain_id'] ?? '');
         $registry_address = AgentCart_ShopBridge_Onchain_Identity::sanitize_address(
             $identity['registry_address'] ?? ''
@@ -54,6 +55,7 @@ final class AgentCart_ShopBridge_Registry_Rpc {
 
         try {
             self::validate_descriptor($deployment);
+            $v2 = ($deployment['registry_version'] ?? 1) === 2;
             if (
                 $chain_id !== $deployment['caip2'] ||
                 $registry_address !== strtolower((string) $deployment['registry_address'])
@@ -66,18 +68,18 @@ final class AgentCart_ShopBridge_Registry_Rpc {
 
             $deployment_tag = '0x' . dechex(intval($deployment['deployment_block']));
             $previous_tag = '0x' . dechex(intval($deployment['deployment_block']) - 1);
-            $initial_reads = self::request_many(
-                $rpc,
-                (string) $deployment['rpc_url'],
-                [
-                    ['method' => 'eth_chainId', 'params' => []],
-                    ['method' => 'eth_getBlockByNumber', 'params' => ['finalized', false]],
-                    ['method' => 'eth_getBlockByNumber', 'params' => [$deployment_tag, false]],
-                    ['method' => 'eth_getCode', 'params' => [$registry_address, $deployment_tag]],
-                    ['method' => 'eth_getCode', 'params' => [$registry_address, $previous_tag]],
-                    ['method' => 'web3_sha3', 'params' => ['0x' . bin2hex($merchant_domain)]],
-                ]
-            );
+            $initial_requests = [
+                ['method' => 'eth_chainId', 'params' => []],
+                ['method' => 'eth_getBlockByNumber', 'params' => ['finalized', false]],
+                ['method' => 'eth_getBlockByNumber', 'params' => [$deployment_tag, false]],
+                ['method' => 'eth_getCode', 'params' => [$registry_address, $deployment_tag]],
+                ['method' => 'eth_getCode', 'params' => [$registry_address, $previous_tag]],
+                ['method' => 'web3_sha3', 'params' => ['0x' . bin2hex($merchant_domain)]],
+            ];
+            $initial_reads = self::request_many($rpc, (string) $deployment['rpc_url'], $initial_requests);
+            if ($v2) {
+                $initial_reads = self::witness_initial($rpc, $deployment, $initial_requests, $initial_reads, $reference_time);
+            }
             $rpc_chain_id = self::hex_int($initial_reads[0] ?? null, 'rpc_chain_id_invalid');
             if ($rpc_chain_id !== intval($deployment['chain_id'])) {
                 self::fail('rpc_chain_id_mismatch');
@@ -126,7 +128,7 @@ final class AgentCart_ShopBridge_Registry_Rpc {
 
             $code_at_deployment = $initial_reads[3] ?? null;
             $code_before_deployment = $initial_reads[4] ?? null;
-            if (self::has_code($code_before_deployment)) {
+            if ($code_before_deployment !== '0x') {
                 self::fail('rpc_deployment_not_creation_boundary');
             }
             $expected_domain_hash = self::prefixed_hash(
@@ -134,43 +136,53 @@ final class AgentCart_ShopBridge_Registry_Rpc {
                 'rpc_domain_hash_invalid'
             );
 
-            $state_reads = self::request_many(
-                $rpc,
-                (string) $deployment['rpc_url'],
+            $state_requests = [
+                ['method' => 'eth_getCode', 'params' => [$registry_address, $finalized_ref]],
                 [
-                    ['method' => 'eth_getCode', 'params' => [$registry_address, $finalized_ref]],
-                    [
-                        'method' => 'eth_call',
-                        'params' => [
-                            [
-                                'to' => $registry_address,
-                                'data' => self::RECORD_SELECTOR . substr($record_id, 2),
-                            ],
-                            $finalized_ref,
+                    'method' => 'eth_call',
+                    'params' => [
+                        [
+                            'to' => $registry_address,
+                            'data' => self::RECORD_SELECTOR . substr($record_id, 2),
                         ],
+                        $finalized_ref,
                     ],
-                    [
-                        'method' => 'eth_call',
-                        'params' => [
-                            [
-                                'to' => $registry_address,
-                                'data' => self::DOMAIN_RECORD_SELECTOR . substr($expected_domain_hash, 2),
-                            ],
-                            $finalized_ref,
+                ],
+                [
+                    'method' => 'eth_call',
+                    'params' => [
+                        [
+                            'to' => $registry_address,
+                            'data' => self::DOMAIN_RECORD_SELECTOR . substr($expected_domain_hash, 2),
                         ],
+                        $finalized_ref,
                     ],
-                    [
-                        'method' => 'eth_call',
-                        'params' => [
-                            [
-                                'to' => $registry_address,
-                                'data' => self::REVOKED_HASH_SELECTOR . $expected_hash,
-                            ],
-                            $finalized_ref,
+                ],
+                [
+                    'method' => 'eth_call',
+                    'params' => [
+                        [
+                            'to' => $registry_address,
+                            'data' => self::REVOKED_HASH_SELECTOR . $expected_hash,
                         ],
+                        $finalized_ref,
                     ],
-                ]
-            );
+                ],
+            ];
+            if ($v2) {
+                $state_requests[] = [
+                    'method' => 'eth_call',
+                    'params' => [
+                        ['to' => $registry_address, 'data' => self::ELIGIBILITY_SELECTOR . substr($record_id, 2)],
+                        $finalized_ref,
+                    ],
+                ];
+            }
+            $state_reads = self::request_many($rpc, (string) $deployment['rpc_url'], $state_requests);
+            if ($v2) {
+                $witness = self::request_many($rpc, (string) $deployment['witness_rpc_url'], $state_requests);
+                self::require_agreement($state_reads, $witness);
+            }
             $code_at_finality = $state_reads[0] ?? null;
             if (!self::has_code($code_at_deployment) || !self::has_code($code_at_finality)) {
                 self::fail('rpc_registry_code_missing');
@@ -212,6 +224,7 @@ final class AgentCart_ShopBridge_Registry_Rpc {
             if (preg_match('/^0{64}$/D', $revoked) !== 1) {
                 self::fail('rpc_record_hash_revoked');
             }
+            $admission = $v2 ? self::decode_admission($state_reads[4] ?? null, $reference_time) : [];
             $finality = [
                 'block_tag' => 'finalized',
                 'block_number' => $finalized_number,
@@ -220,6 +233,11 @@ final class AgentCart_ShopBridge_Registry_Rpc {
                 'state_selector' => 'block_hash_require_canonical',
             ];
             $source = self::source(true, true, $chain_id, $registry_address, $finality);
+            if ($v2) {
+                $source['registry_version'] = 2;
+                $source['deployment_fingerprint'] = self::descriptor_fingerprint($deployment);
+                $source['witness_agreement'] = true;
+            }
             $onchain_identity = [
                 'standard' => (string) ($identity['standard'] ?? 'AgentCart-Onchain-Registry-v1'),
                 'controller' => $controller,
@@ -239,11 +257,14 @@ final class AgentCart_ShopBridge_Registry_Rpc {
                     'registry_record_hash' => $expected_hash,
                     'state' => 'verified',
                     'eligible' => true,
-                    'reason' => 'exact block-hash-pinned finalized state through the pinned RPC',
+                    'reason' => $v2
+                        ? 'exact finalized record and current admission agreed by two configured RPCs'
+                        : 'exact block-hash-pinned finalized state through the pinned RPC',
                     'errors' => [],
                     'error_count' => 0,
                     'onchain_identity' => $onchain_identity,
                     'match_type' => 'record_hash',
+                    'admission' => $admission,
                 ],
                 'errors' => [],
             ];
@@ -257,6 +278,150 @@ final class AgentCart_ShopBridge_Registry_Rpc {
                 'errors' => [$code],
             ];
         }
+    }
+
+    /**
+     * Read the operator-managed descriptor, never merchant HTTP metadata.
+     *
+     * @return array<string,mixed>
+     */
+    public static function configured_descriptor(): array {
+        if (!defined('AGENTCART_REGISTRY_V2_DEPLOYMENT')) {
+            return self::tempo_moderato_descriptor();
+        }
+        $raw = constant('AGENTCART_REGISTRY_V2_DEPLOYMENT');
+        $descriptor = is_string($raw) ? json_decode($raw, true) : $raw;
+        if (!is_array($descriptor) || ($descriptor['registry_version'] ?? null) !== 2) {
+            return ['registry_version' => 2]; // Invalid explicit configuration fails closed.
+        }
+        return $descriptor;
+    }
+
+    /**
+     * Bind cached evidence to the entire reviewed configuration, including RPCs.
+     *
+     * @param array<string,mixed> $descriptor Deployment configuration.
+     * @return string
+     */
+    public static function descriptor_fingerprint(array $descriptor): string {
+        ksort($descriptor);
+        return hash('sha256', (string) wp_json_encode($descriptor, JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Require a public HTTPS RPC hostname; WordPress also checks resolved IPs.
+     *
+     * @param mixed $url Candidate endpoint.
+     * @return string
+     */
+    private static function public_rpc_host($url): string {
+        $parts = is_string($url) ? wp_parse_url($url) : false;
+        $host = is_array($parts) ? strtolower((string) ($parts['host'] ?? '')) : '';
+        if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' ||
+            isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment']) ||
+            (isset($parts['port']) && $parts['port'] !== 443) ||
+            self::normalize_domain($host) !== $host || strpos($host, '.') === false ||
+            filter_var($host, FILTER_VALIDATE_IP) !== false || str_ends_with($host, '.localhost')) {
+            self::fail('rpc_public_https_endpoint_required');
+        }
+        return $host;
+    }
+
+    /**
+     * Check both finalized heads and choose the lower common canonical boundary.
+     *
+     * @param callable|null                  $rpc Test transport.
+     * @param array<string,mixed>            $deployment Pinned deployment.
+     * @param array<int,array<string,mixed>> $requests Initial reads.
+     * @param array<int,mixed>               $primary Primary results.
+     * @param int                            $now Evaluation time.
+     * @return array<int,mixed>
+     */
+    private static function witness_initial(?callable $rpc, array $deployment, array $requests, array $primary, int $now): array {
+        $witness = self::request_many($rpc, (string) $deployment['witness_rpc_url'], $requests);
+        $primary_head = self::block_boundary($primary[1] ?? null);
+        $witness_head = self::block_boundary($witness[1] ?? null);
+        foreach ([$primary_head, $witness_head] as $head) {
+            if ($head['timestamp'] < $now - $deployment['max_finality_age_seconds'] ||
+                $head['timestamp'] > $now + $deployment['max_future_skew_seconds']) {
+                self::fail('rpc_witness_finality_not_fresh');
+            }
+        }
+        $number = min($primary_head['number'], $witness_head['number']);
+        $request = [['method' => 'eth_getBlockByNumber', 'params' => ['0x' . dechex($number), false]]];
+        $left = self::request_many($rpc, (string) $deployment['rpc_url'], $request)[0] ?? null;
+        $right = self::request_many($rpc, (string) $deployment['witness_rpc_url'], $request)[0] ?? null;
+        $boundary = self::block_boundary($left);
+        self::require_agreement($boundary, self::block_boundary($right));
+        if ($boundary['number'] !== $number ||
+            ($primary_head['number'] === $number && $primary_head !== $boundary) ||
+            ($witness_head['number'] === $number && $witness_head !== $boundary)) {
+            self::fail('rpc_witness_finality_mismatch');
+        }
+        $primary[1] = $left;
+        $witness[1] = $left;
+        // Providers may expose different extra header fields, which are not evidence.
+        self::require_agreement(self::block_boundary($primary[2] ?? null), self::block_boundary($witness[2] ?? null));
+        $witness[2] = $primary[2];
+        self::require_agreement($primary, $witness);
+        return $primary;
+    }
+
+    /**
+     * Normalize the header fields used as verification evidence.
+     *
+     * @param mixed $block RPC block.
+     * @return array<string,mixed>
+     */
+    private static function block_boundary($block): array {
+        if (!is_array($block)) {
+            self::fail('rpc_block_response_invalid');
+        }
+        return [
+            'number' => self::hex_int($block['number'] ?? null, 'rpc_block_number_invalid'),
+            'hash' => self::prefixed_hash($block['hash'] ?? null, 'rpc_block_hash_invalid'),
+            'timestamp' => self::hex_int($block['timestamp'] ?? null, 'rpc_block_time_invalid'),
+        ];
+    }
+
+    /**
+     * Fail closed on any disagreement, including differently encoded state.
+     *
+     * @param array<mixed> $primary Primary view.
+     * @param array<mixed> $witness Witness view.
+     */
+    private static function require_agreement(array $primary, array $witness): void {
+        if ($primary !== $witness) {
+            self::fail('rpc_witness_disagreement');
+        }
+    }
+
+    /**
+     * Decode contract eligibility without rounding uint256 bond amounts.
+     *
+     * @param mixed $value ABI response.
+     * @param int   $now Evaluation time.
+     * @return array<string,mixed>
+     */
+    private static function decode_admission($value, int $now): array {
+        if (!is_string($value) || preg_match('/^0x[a-fA-F0-9]{256}$/D', $value) !== 1) {
+            self::fail('rpc_admission_result_invalid');
+        }
+        $hex = strtolower(substr($value, 2));
+        $eligible = self::word_int(self::word($hex, 0), 'rpc_admission_boolean_invalid');
+        $entity = self::word($hex, 1);
+        $expires = self::word_int(self::word($hex, 2), 'rpc_admission_expiry_invalid');
+        $bond = self::word($hex, 3);
+        if ($eligible !== 1 || trim($entity, '0') === '' || trim($bond, '0') === '') {
+            self::fail('rpc_admission_ineligible');
+        }
+        if ($expires <= $now) {
+            self::fail('rpc_admission_expired');
+        }
+        return [
+			'eligible' => true, 'entity_id' => '0x' . $entity,
+            'expires_at' => $expires, 'bond_base_units_hex' => '0x' . $bond,
+		];
     }
 
     /**
@@ -286,7 +451,9 @@ final class AgentCart_ShopBridge_Registry_Rpc {
      */
     private static function validate_descriptor(array $descriptor): void {
         if (
+            !in_array($descriptor['registry_version'] ?? 1, [1, 2], true) ||
             !is_int($descriptor['chain_id'] ?? null) ||
+            $descriptor['chain_id'] <= 0 ||
             ($descriptor['caip2'] ?? '') !== 'eip155:' . $descriptor['chain_id'] ||
             AgentCart_ShopBridge_Onchain_Identity::sanitize_address(
                 $descriptor['registry_address'] ?? ''
@@ -297,11 +464,20 @@ final class AgentCart_ShopBridge_Registry_Rpc {
             preg_match('/^[a-f0-9]{64}$/D', (string) ($descriptor['runtime_code_sha256'] ?? '')) !== 1 ||
             !is_int($descriptor['max_finality_age_seconds'] ?? null) ||
             intval($descriptor['max_finality_age_seconds']) <= 0 ||
+            intval($descriptor['max_finality_age_seconds']) > 600 ||
             !is_int($descriptor['max_future_skew_seconds'] ?? null) ||
             intval($descriptor['max_future_skew_seconds']) < 0 ||
+            intval($descriptor['max_future_skew_seconds']) > 300 ||
             !is_string($descriptor['rpc_url'] ?? null)
         ) {
             self::fail('rpc_deployment_descriptor_invalid');
+        }
+        if (($descriptor['registry_version'] ?? 1) === 2) {
+            $primary_host = self::public_rpc_host($descriptor['rpc_url']);
+            $witness_host = self::public_rpc_host($descriptor['witness_rpc_url'] ?? null);
+            if ($primary_host === $witness_host) {
+                self::fail('rpc_witness_must_be_distinct');
+            }
         }
     }
 
@@ -489,7 +665,7 @@ final class AgentCart_ShopBridge_Registry_Rpc {
             ) {
                 self::fail('rpc_request_invalid');
             }
-            $results[] = $rpc($request['method'], $request['params']);
+            $results[] = $rpc($request['method'], $request['params'], $url);
         }
         return $results;
     }
@@ -531,6 +707,7 @@ final class AgentCart_ShopBridge_Registry_Rpc {
         $response = wp_remote_post($url, [
             'timeout' => 8,
             'redirection' => 0,
+            'reject_unsafe_urls' => true,
             'limit_response_size' => self::RESPONSE_MAX_BYTES + 1,
             'headers' => [
                 'Accept' => 'application/json',

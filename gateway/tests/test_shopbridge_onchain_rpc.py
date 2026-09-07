@@ -934,6 +934,81 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
             ["merchant-example"],
         )
 
+        # Force the broken record into the only primary slot; a valid reserve
+        # must still be fetched and included in the verifiable projection.
+        seed = next(str(i) for i in range(100) if onchain_rpc.hashlib.sha256(f"{i}\0{broken_id}".encode()).digest()
+                    < onchain_rpc.hashlib.sha256(f"{i}\0{rpc.record_id}".encode()).digest())
+        backfilled = onchain_rpc.collect_finalized_events(
+            onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100),
+            record_loader=load_record, request_json=rpc.request, record_candidate_limit=1, record_candidate_seed=seed,
+        )
+        self.assertEqual(backfilled["record_selection"]["selected_record_ids"], [broken_id, rpc.record_id])
+        self.assertEqual(backfilled["resolved_record_count"], 1)
+        self.assertTrue(self.project_direct(backfilled, rpc.record_hash)["verification"]["chain_valid"])
+
+    def test_v2_admission_requires_pins_and_filters_before_document_fetch(self) -> None:
+        rpc = FakeRpc()
+        selector = "0x" + onchain_rpc.keccak256(b"eligibility(bytes32)").hex()[:8]
+        checked_blocks = []
+        eligible = True
+
+        def request(url, **kwargs):
+            payload = kwargs["payload"]
+            if payload["method"] == "eth_call" and payload["params"][0]["data"].startswith(selector):
+                checked_blocks.append(payload["params"][1])
+                raw = word(int(eligible)) + bytes32("0x" + "e" * 64) + word(rpc.finalized_timestamp + 1000) + word(100)
+                return {"jsonrpc": "2.0", "id": payload["id"], "result": "0x" + raw.hex()}
+            return rpc.request(url, **kwargs)
+
+        fields = dict(rpc_url="https://rpc.example", from_block=100, registry_version=2,
+                      admission_witness_rpc_url="https://witness.example",
+                      deployment_block_hash=rpc.block_hash,
+                      runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex())
+        document = onchain_rpc.collect_finalized_events(onchain_rpc.RegistryDeployment(**fields),
+            record_loader=lambda *_: rpc.record(), request_json=request)
+        self.assertEqual(checked_blocks, [hex(120), hex(120)])
+        self.assertEqual(document["admission_verification"]["policy"], "two_rpc_agreement")
+        self.assertTrue(document["admissions"][rpc.record_id]["eligible"])
+        eligible = False
+        document = onchain_rpc.collect_finalized_events(onchain_rpc.RegistryDeployment(**fields),
+            record_loader=lambda *_: self.fail("ineligible shop document was fetched"), request_json=request)
+        self.assertEqual(document["resolved_record_count"], 0)
+        for changed in ({"runtime_code_hash": "0x" + "0" * 64}, {"deployment_block_hash": ""}):
+            with self.assertRaises(onchain_rpc.OnchainRpcError):
+                onchain_rpc.collect_finalized_events(onchain_rpc.RegistryDeployment(**{**fields, **changed}),
+                    record_loader=lambda *_: self.fail("untrusted deployment was fetched"), request_json=request)
+
+    def test_v2_rejects_witness_disagreement_before_loading_shops(self) -> None:
+        rpc = FakeRpc()
+        selector = "0x" + onchain_rpc.keccak256(b"eligibility(bytes32)").hex()[:8]
+        fields = dict(rpc_url="https://rpc.example", from_block=100, registry_version=2,
+                      admission_witness_rpc_url="https://witness.example", deployment_block_hash=rpc.block_hash,
+                      runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex())
+        for disagreement in ("admission", "logs", "boundary", "code"):
+            def request(url, **kwargs):
+                payload = kwargs["payload"]
+                witness = "witness.example" in url
+                method, params = payload["method"], payload["params"]
+                if method == "eth_call" and params[0]["data"].startswith(selector):
+                    admitted = not (witness and disagreement == "admission")
+                    raw = word(int(admitted)) + bytes32("0x" + "e" * 64) + word(rpc.finalized_timestamp + 1000) + word(100)
+                    return {"jsonrpc": "2.0", "id": payload["id"], "result": "0x" + raw.hex()}
+                result = rpc.request(url, **kwargs)
+                if witness and disagreement == "logs" and method == "eth_getLogs":
+                    result = {**result, "result": []}
+                elif witness and disagreement == "boundary" and method == "eth_getBlockByNumber" and params[0] == hex(120):
+                    result = {**result, "result": {**result["result"], "hash": "0x" + "e" * 64}}
+                elif witness and disagreement == "code" and method == "eth_getCode" and params[1] == hex(120):
+                    result = {**result, "result": "0x6000"}
+                return result
+            with self.subTest(disagreement=disagreement), self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "witness_.*mismatch"):
+                onchain_rpc.collect_finalized_events(onchain_rpc.RegistryDeployment(**fields),
+                    record_loader=lambda *_: self.fail("shop fetched before witness agreement"), request_json=request)
+        for witness_url in ("", "https://rpc.example/another-key"):
+            with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "witness_required"):
+                onchain_rpc.collect_finalized_events(onchain_rpc.RegistryDeployment(**{**fields, "admission_witness_rpc_url": witness_url}),
+                    record_loader=lambda *_: self.fail("shop fetched without distinct witness"), request_json=rpc.request)
+
     def test_onchain_candidate_sample_bounds_record_fetch_and_projection(self) -> None:
         rpc = FakeRpc()
         documents: dict[str, dict] = {}

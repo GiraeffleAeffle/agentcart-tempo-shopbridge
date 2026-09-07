@@ -134,7 +134,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         return [
             'state' => 'verified',
             'mode' => 'external_verifier',
-            'real_settlement_verified' => !empty($decoded['real_settlement_verified']),
+            'real_settlement_verified' => ($decoded['real_settlement_verified'] ?? false) === true,
             'amount_cents' => $verified_amount,
             'currency' => $expected_currency,
             'rail' => $verified_rail,
@@ -227,10 +227,18 @@ trait AgentCart_ShopBridge_Verifier_Client {
         if ($verified_rail === '' || $verified_rail !== $rail) {
             return new WP_Error('agentcart_refund_rail_mismatch', 'External refund verifier response does not match the refund rail.', ['status' => 402]);
         }
+        $refund_status = sanitize_key((string) ($decoded['refund_status'] ?? ''));
+        if ($refund_status !== 'succeeded') {
+            return new WP_Error('agentcart_refund_pending_or_failed', 'Refund is not confirmed successful. Retry the same request reference to reconcile.', [
+                'status' => 409, 'refund_status' => $refund_status ?: 'unknown',
+                'refund_reference' => $refund_reference,
+                'retryable' => array_key_exists('retryable', $decoded) ? $decoded['retryable'] === true : !in_array($refund_status, ['failed', 'canceled', 'review_required'], true),
+            ]);
+        }
         if ($refund_reference === '') {
             return new WP_Error('agentcart_refund_reference_required', 'External refund verifier must return a refund_reference.', ['status' => 402]);
         }
-        if (empty($decoded['real_refund_verified'])) {
+        if (($decoded['real_refund_verified'] ?? false) !== true) {
             return new WP_Error('agentcart_refund_not_real_verified', 'External refund verifier did not confirm real rail refund execution.', ['status' => 402]);
         }
         return [

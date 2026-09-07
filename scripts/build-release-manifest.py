@@ -53,8 +53,8 @@ def gateway_version() -> str:
     return version
 
 
-def skill_metadata() -> dict[str, str]:
-    source = read_text(ROOT / "gateway/shopbridge-direct-skill/SKILL.md")
+def skill_metadata(path: str = "gateway/shopbridge-direct-skill/SKILL.md") -> dict[str, str]:
+    source = read_text(ROOT / path)
     match = re.match(r"---\n(.*?)\n---\n", source, flags=re.S)
     if not match:
         raise SystemExit("ShopBridge direct skill frontmatter not found")
@@ -106,6 +106,10 @@ def build_release() -> dict[str, Any]:
     DIST.mkdir(exist_ok=True)
     skill = skill_metadata()
     skill_version = skill.get("version") or "0.1.0-alpha"
+    service_skills = {
+        "agentcart_service_skill": ("gateway/openclaw-skill/SKILL.md", "agentcart-service-skill.zip"),
+        "household_os_skill": ("household-os/openclaw-skill/SKILL.md", "household-os-skill.zip"),
+    }
     return {
         "schema": "agentcart.release.v1",
         "release": {
@@ -127,6 +131,8 @@ def build_release() -> dict[str, Any]:
                 "source": "gateway/shopbridge-direct-skill/SKILL.md",
                 "name": skill["name"],
             },
+            **{component: {"source": source, "version": skill_metadata(source)["version"], "name": skill_metadata(source)["name"]}
+               for component, (source, _) in service_skills.items()},
         },
         "artifacts": [
             artifact(
@@ -139,6 +145,8 @@ def build_release() -> dict[str, Any]:
                 component="shopbridge_direct_skill",
                 version=skill_version,
             ),
+            *[artifact(DIST / archive, component=component, version=skill_metadata(source)["version"])
+              for component, (source, archive) in service_skills.items()],
         ],
         "upgrade": {
             "plugin": "Upload dist/agentcart-shopbridge.zip in WordPress, or replace wp-content/plugins/agentcart-shopbridge after backing up settings.",

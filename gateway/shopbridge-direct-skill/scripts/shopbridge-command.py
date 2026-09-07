@@ -8,9 +8,11 @@ import hmac
 import importlib.util
 import ipaddress
 import json
+import math
 import os
 import pathlib
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -20,6 +22,13 @@ import time
 import urllib.parse
 import uuid
 from typing import Any
+
+
+_market_spec = importlib.util.spec_from_file_location("shopbridge_market", pathlib.Path(__file__).resolve().with_name("shopbridge_market.py"))
+if _market_spec is None or _market_spec.loader is None:
+    raise RuntimeError("ShopBridge comparison module is missing")
+market = importlib.util.module_from_spec(_market_spec)
+_market_spec.loader.exec_module(market)
 
 
 def env_int(name: str, default: int) -> int:
@@ -1553,17 +1562,9 @@ def merchant_candidate_seed(args: dict[str, Any]) -> str:
     explicit = str(args.get("candidate_seed") or "").strip()
     if explicit:
         return explicit
-    payload = {
-        "query": str(args.get("query") or args.get("q") or args.get("search") or "").strip().lower(),
-        "basket": args.get("basket") if isinstance(args.get("basket"), list) else [],
-        "ship_to": args.get("ship_to") if isinstance(args.get("ship_to"), dict) else {},
-        "country": str(args.get("country") or "").upper(),
-        "postal_code": str(args.get("postal_code") or ""),
-        "merchant_id": str(args.get("merchant_id") or ""),
-        "merchant_domain": str(args.get("merchant_domain") or ""),
-        "record_id": str(args.get("record_id") or args.get("onchain_record_id") or ""),
-    }
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    if not args.get("_candidate_nonce"):
+        args["_candidate_nonce"] = secrets.token_hex(32)
+    return str(args["_candidate_nonce"])
 
 
 def preferred_onchain_candidates(args: dict[str, Any]) -> tuple[set[str], set[str]]:
@@ -1674,6 +1675,9 @@ def configured_onchain_deployment(args: dict[str, Any]) -> Any:
                 else ""
             )
         ),
+        registry_version=onchain_config_int(args.get("onchain_registry_version") or os.getenv("SHOPBRIDGE_ONCHAIN_REGISTRY_VERSION"), default=1, code="registry_version_invalid"),
+        runtime_code_hash=str(args.get("onchain_runtime_code_hash") or os.getenv("SHOPBRIDGE_ONCHAIN_RUNTIME_CODE_HASH") or ""),
+        admission_witness_rpc_url=str(args.get("onchain_admission_witness_rpc_url") or os.getenv("SHOPBRIDGE_ONCHAIN_ADMISSION_WITNESS_RPC_URL") or ""),
         discovery_facets_runtime_code_hash=str(
             args.get("onchain_discovery_facets_runtime_code_hash")
             or args.get("discovery_facets_runtime_code_hash")
@@ -1721,6 +1725,8 @@ def registry_records_from_source(
     if onchain_rpc_url:
         try:
             deployment = configured_onchain_deployment(args)
+            if (deployment.chain_id in {1, 100, 4217} or arg_bool(args, "require_admission", env_bool("SHOPBRIDGE_REQUIRE_ADMISSION", False))) and deployment.registry_version != 2:
+                raise onchain_rpc.OnchainRpcError("marketplace_registry_v2_admission_required")
             preferred_record_ids, preferred_domain_hashes = preferred_onchain_candidates(args)
             hinted_record_ids: set[str] = set()
             facet_diagnostics: dict[str, Any] = {}
@@ -1734,8 +1740,8 @@ def registry_records_from_source(
             document = onchain_rpc.collect_finalized_events(
                 deployment,
                 record_loader=committed_registry_record,
-                record_candidate_limit=merchant_candidate_limit(args),
-                record_candidate_seed=merchant_candidate_seed(args),
+                record_candidate_limit=min(onchain_rpc.MAX_RECORD_CANDIDATES, merchant_candidate_limit(args) * (3 if args.get("_discovery_backfill") else 1)),
+                record_candidate_seed=str(args.get("candidate_seed") or ""),
                 preferred_record_ids=preferred_record_ids,
                 preferred_domain_hashes=preferred_domain_hashes,
                 hinted_record_ids=hinted_record_ids,
@@ -1743,6 +1749,8 @@ def registry_records_from_source(
             )
         except onchain_rpc.OnchainRpcError as exc:
             raise SystemExit(onchain_rpc.error_document(exc)) from exc
+        args["_candidate_nonce"] = document.get("record_selection", {}).get("selection_nonce")
+        args["_verified_admissions"] = document.get("admissions", {})
         expected_chain = f"eip155:{deployment.chain_id}"
         index = onchain_registry_index_from_document(
             document,
@@ -1764,6 +1772,7 @@ def registry_records_from_source(
                     "registry_address": deployment.registry_address,
                     "deployment_block": deployment.from_block,
                     "deployment_verification": document["deployment_verification"],
+                    "admission_verification": document.get("admission_verification", {}),
                     "finalized_block": document["finality"]["block_number"],
                     "finalized_block_hash": document["finality"]["block_hash"],
                     "finality_max_age_seconds": document["finality"].get("max_age_seconds"),
@@ -2354,8 +2363,8 @@ def buyer_aftercare_messages(aftercare_state: dict[str, Any], refunds: list[Any]
     remaining_cents = bounded_int(state.get("remaining_refundable_cents"), default=0, minimum=0, maximum=999999999)
     refund_records = [refund for refund in refunds if isinstance(refund, dict)]
     latest_refund = refund_records[-1] if refund_records else {}
-    latest_refund_verified = bool(latest_refund.get("real_refund_verified"))
-    any_real_refund_verified = any(bool(refund.get("real_refund_verified")) for refund in refund_records)
+    latest_refund_verified = (latest_refund.get("real_refund_verified") is True and (latest_refund.get("refund_status") or (latest_refund.get("verification") or {}).get("refund_status")) == "succeeded")
+    any_real_refund_verified = any((refund.get("real_refund_verified") is True and (refund.get("refund_status") or (refund.get("verification") or {}).get("refund_status")) == "succeeded") for refund in refund_records)
     refund_reference = str(latest_refund.get("refund_reference") or latest_refund.get("merchant_refund_id") or latest_refund.get("id") or "")
     provider = str(latest_refund.get("provider") or latest_refund.get("rail") or "")
     refund_state = str(state.get("refund_state") or "")
@@ -2371,7 +2380,7 @@ def buyer_aftercare_messages(aftercare_state: dict[str, Any], refunds: list[Any]
             "order_cancelled": lifecycle_state.startswith("cancelled"),
             "refund_recorded": refunded_cents > 0,
             "refund_executed": any_real_refund_verified,
-            "money_returned": any_real_refund_verified,
+            "money_returned": False,
             "refund_still_required": bool(state.get("refund_required_after_cancellation")),
             "carrier_exception": bool(state.get("delivery_exception_requires_attention")),
         },
@@ -2403,7 +2412,7 @@ def buyer_aftercare_messages(aftercare_state: dict[str, Any], refunds: list[Any]
         if any_real_refund_verified:
             reference = f" Reference: {refund_reference}." if refund_reference else ""
             via = f" via {provider}" if provider else ""
-            messages["refund"] = f"Refund executed and verified{via}.{reference}"
+            messages["refund"] = f"Provider confirmed refund success{via}.{reference} Bank posting may take additional time."
         else:
             messages["refund"] = "Refund recorded by the merchant system. No real rail refund verification is attached."
     elif refund_state == "refund_available":
@@ -3597,7 +3606,7 @@ def package_size_from_product(product: dict[str, Any]) -> dict[str, Any]:
             quantity = float(normalized_quantity)
         except (TypeError, ValueError):
             quantity = 0
-        if quantity > 0:
+        if quantity > 0 and math.isfinite(quantity) and normalized_unit in {"g", "ml", "unit"}:
             return {
                 "available": True,
                 "label": label or f"{format_quantity(quantity)} {normalized_unit}",
@@ -3612,7 +3621,7 @@ def package_size_from_product(product: dict[str, Any]) -> dict[str, Any]:
             normalized_quantity, normalized_unit = normalize_package_quantity(float(quantity), unit)
         except (TypeError, ValueError):
             normalized_quantity, normalized_unit = 0, ""
-        if normalized_quantity > 0:
+        if normalized_quantity > 0 and math.isfinite(normalized_quantity):
             return {
                 "available": True,
                 "label": label or f"{format_quantity(float(quantity))} {unit}",
@@ -3625,7 +3634,7 @@ def package_size_from_product(product: dict[str, Any]) -> dict[str, Any]:
     if match:
         quantity = float(match.group(1).replace(",", "."))
         normalized_quantity, normalized_unit = normalize_package_quantity(quantity, match.group(2))
-        if normalized_quantity > 0:
+        if normalized_quantity > 0 and math.isfinite(normalized_quantity):
             return {
                 "available": True,
                 "label": text,
@@ -3663,12 +3672,13 @@ def unit_value_for_candidate(product: dict[str, Any], quote: dict[str, Any], pro
     normalized_unit = str(package["normalized_unit"])
     basis_quantity = 100 if normalized_unit in {"g", "ml"} else 1
     basis_label = f"100 {normalized_unit}" if normalized_unit in {"g", "ml"} else normalized_unit
-    cents_per_basis = int(round((line_total_cents / total_normalized_quantity) * basis_quantity))
+    cents_per_basis = int(round((int(quote["total_cents"]) / total_normalized_quantity) * basis_quantity))
     currency = str(quote.get("currency") or product.get("currency") or "EUR")
     return {
         "available": True,
         "package": package,
         "line_total": money(line_total_cents, currency),
+        "includes_shipping_and_tax": True,
         "normalized_total_quantity": total_normalized_quantity,
         "normalized_unit": normalized_unit,
         "cents_per_basis": cents_per_basis,
@@ -3911,7 +3921,15 @@ def resolve_record_for_discovery(record: dict[str, Any], args: dict[str, Any]) -
         "registry_record": record,
         "include_manifest": bool(args.get("include_manifest")),
     }
-    return command_resolve_merchant(resolve_args)
+    result = command_resolve_merchant(resolve_args)
+    identity = record.get("onchain_identity") or {}
+    record_id = str(identity.get("record_id") or "").lower()
+    admission = (args.get("_verified_admissions") or {}).get(record_id)
+    require_admission = arg_bool(args, "require_admission", env_bool("SHOPBRIDGE_REQUIRE_ADMISSION", False)) or str(identity.get("chain_id") or "") in {"eip155:1", "eip155:100", "eip155:4217"}
+    if require_admission and (not isinstance(admission, dict) or admission.get("eligible") is not True):
+        raise SystemExit("merchant requires a fresh pinned v2 admission before marketplace comparison")
+    result["admission"] = admission or {"eligible": False, "state": "identity_only_pilot"}
+    return result
 
 
 def quote_latest_delivery_key(quote: dict[str, Any]) -> str:
@@ -3987,12 +4005,27 @@ def prequote_candidate_sample(
             )
         )
 
-    ordered = sorted(
-        records,
-        key=lambda record: hashlib.sha256(
-            f"{seed}\0{stable_identity(record)}".encode("utf-8")
-        ).digest(),
-    )
+    def selection_key(record):
+        identity = record.get("onchain_identity") or {}
+        admission = (args.get("_verified_admissions") or {}).get(str(identity.get("record_id") or "").lower()) or {}
+        owner = admission.get("entity_id") if admission.get("eligible") is True else None
+        return (hashlib.sha256(f"{seed}\0{owner or stable_identity(record)}".encode()).digest(),
+                hashlib.sha256(f"{seed}\0brand\0{stable_identity(record)}".encode()).digest())
+
+    ordered = sorted(records, key=selection_key)
+    # Only independently read v2 admission data can establish common ownership.
+    seen_entities = set()
+    grouped = []
+    for record in ordered:
+        identity = record.get("onchain_identity") or {}
+        admission = (args.get("_verified_admissions") or {}).get(str(identity.get("record_id") or "").lower()) or {}
+        entity = admission.get("entity_id") if admission.get("eligible") is True else None
+        if entity and entity in seen_entities:
+            continue
+        if entity:
+            seen_entities.add(entity)
+        grouped.append(record)
+    ordered = grouped
     queries, require_all_queries = discovery_index_queries(args)
 
     def matches_queries(record: dict[str, Any]) -> bool:
@@ -4026,9 +4059,17 @@ def prequote_candidate_sample(
         selected = ordered[:limit]
         neutral_fallback_count = len(selected)
         algorithm = "sha256-query-seeded-merchant-sample"
+    primary_count = len(selected)
+    if args.get("_discovery_backfill"):
+        chosen = {stable_identity(record) for record in selected}
+        selected += [record for record in ordered if stable_identity(record) not in chosen][
+            :max(0, min(onchain_rpc.MAX_RECORD_CANDIDATES, limit * 3) - primary_count)]
     return selected, {
         "schema": "agentcart.prequote_candidate_selection.v1",
         "algorithm": algorithm,
+        "selection_nonce": seed,
+        "network_budget": {"seconds": 90, "requests": 256, "response_bytes": 67108864},
+        "backfill_count": len(selected) - primary_count,
         "seed_sha256": hashlib.sha256(seed.encode("utf-8")).hexdigest(),
         "eligible_pool_count": len(records),
         "facet_match_count": len(facet_matches),
@@ -4048,6 +4089,7 @@ def prequote_candidate_sample(
     }
 
 
+@safe_http.budgeted_discovery
 def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query") or args.get("q") or args.get("search") or "").strip()
     if not query:
@@ -4062,11 +4104,19 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
     rank_by_unit_price = rank_by in {"unit_price", "unit_value", "package_value", "value"}
     candidates: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
-    seen_quotes: set[str] = set()
+    seen_quotes: set[tuple[str, str]] = set()
+    args = dict(args)
+    args["_verified_admissions"] = {}
+    args["_discovery_backfill"] = True
     registry_records = registry_records_from_args(args)
     selected_records, candidate_selection = prequote_candidate_sample(registry_records, args)
 
     for record in selected_records:
+        comparison_currency = str(args.get("comparison_currency") or args.get("currency") or "").upper()
+        successful = {c["merchant_id"] for c in candidates if c.get("full_basket") is not False
+                      and (not comparison_currency or c["currency"].upper() == comparison_currency)}
+        if len(successful) >= merchant_candidate_limit(args):
+            break
         merchant_id = str(record.get("merchant_id") or "")
         try:
             resolved = resolve_record_for_discovery(record, args)
@@ -4110,6 +4160,9 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                         "reason": "product is not eligible for agent checkout",
                     }
                 )
+                continue
+            if not product_matches_basket_item(product, {"constraints": args.get("constraints") or {}}):
+                rejected.append({"merchant_id": merchant_id, "product_id": product_id, "reason": "product does not meet buyer constraints"})
                 continue
             if not product_ships_to_country(product, country):
                 rejected.append(
@@ -4164,7 +4217,7 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 )
                 continue
             quote_id = str(quote.get("id") or "")
-            quote_key = quote_id or sha256_hex(quote)
+            quote_key = (merchant_id, quote_id or sha256_hex(quote))
             if quote_key in seen_quotes:
                 continue
             seen_quotes.add(quote_key)
@@ -4192,6 +4245,7 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                     "registry": {
                         "manifest_url": resolved.get("manifest_url"),
                         "registry_record_hash": resolved.get("registry_record_hash"),
+                        "admission": resolved.get("admission"),
                         "verification": verification,
                         "paid_placement": False,
                     },
@@ -4199,14 +4253,19 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
+    candidates, other_offers, comparison = market.comparable_offers(
+        candidates, currency=str(args.get("comparison_currency") or args.get("currency") or ""),
+        unit=str(args.get("comparison_unit") or ""), by_unit=rank_by_unit_price,
+    )
+
     if rank_by_unit_price:
         candidates.sort(
             key=lambda candidate: (
                 not bool(candidate["_unit_value"].get("available")),
-                int(candidate["_unit_value"].get("cents_per_basis") or 10**12),
+                market.unit_price_key(candidate),
                 int(candidate["total_cents"]),
                 quote_latest_delivery_key(candidate["_quote"]),
-                str(candidate["merchant_name"]),
+                market.tie_key(merchant_candidate_seed(args), candidate),
             )
         )
     else:
@@ -4214,7 +4273,7 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
             key=lambda candidate: (
                 int(candidate["total_cents"]),
                 quote_latest_delivery_key(candidate["_quote"]),
-                str(candidate["merchant_name"]),
+                market.tie_key(merchant_candidate_seed(args), candidate),
             )
         )
     public_candidates = []
@@ -4243,10 +4302,14 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
             "rank_by": "unit_price" if rank_by_unit_price else "total",
             "candidate_selection": candidate_selection,
         },
+        "comparison": comparison,
+        "other_offers": other_offers,
         "candidates": public_candidates,
         "winner": winner,
         "rejected": rejected,
         "next_step": (
+            "Choose a comparison currency/unit or adjust product requirements before selecting an offer."
+            if not winner else
             "Ask the buyer for the missing delivery fields, request a fresh quote from only winner.registry/merchant origin, run payment_readiness, and only then show an approval summary."
             if winner and not winner["approval_packet"]["approval_ready"]
             else "Run payment_readiness, show the exact winner approval summary, and wait for explicit approval before payment handoff or checkout."
@@ -4314,6 +4377,7 @@ def resolved_product_for_basket_item(
     return None, None, rejections
 
 
+@safe_http.budgeted_discovery
 def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
     basket = basket_items_from_args(args)
     ship_to = quote_ship_to_from_args(args)
@@ -4323,10 +4387,18 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
     allow_partial = args.get("allow_partial", False) is True
     candidates: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
+    args = dict(args)
+    args["_verified_admissions"] = {}
+    args["_discovery_backfill"] = True
     registry_records = registry_records_from_args(args)
     selected_records, candidate_selection = prequote_candidate_sample(registry_records, args)
 
     for record in selected_records:
+        comparison_currency = str(args.get("comparison_currency") or args.get("currency") or "").upper()
+        successful = {c["merchant_id"] for c in candidates if c.get("full_basket") is not False
+                      and (not comparison_currency or c["currency"].upper() == comparison_currency)}
+        if len(successful) >= merchant_candidate_limit(args):
+            break
         merchant_id = str(record.get("merchant_id") or "")
         try:
             resolved = resolve_record_for_discovery(record, args)
@@ -4482,6 +4554,7 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 "registry": {
                     "manifest_url": resolved.get("manifest_url"),
                     "registry_record_hash": resolved.get("registry_record_hash"),
+                    "admission": resolved.get("admission"),
                     "verification": verification,
                     "paid_placement": False,
                 },
@@ -4490,12 +4563,17 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    candidates, other_offers, comparison = market.comparable_offers(
+        candidates, currency=str(args.get("comparison_currency") or args.get("currency") or ""),
+        unit=str(args.get("comparison_unit") or ""), by_unit=False,
+    )
+
     candidates.sort(
         key=lambda candidate: (
             not bool(candidate["full_basket"]),
             int(candidate["total_cents"]),
             quote_latest_delivery_key(candidate["_quote"]),
-            str(candidate["merchant_name"]),
+            market.tie_key(merchant_candidate_seed(args), candidate),
         )
     )
     public_candidates = []
@@ -4523,10 +4601,14 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
             "allow_partial": allow_partial,
             "candidate_selection": candidate_selection,
         },
+        "comparison": comparison,
+        "other_offers": other_offers,
         "candidates": public_candidates,
         "winner": winner,
         "rejected": rejected,
         "next_step": (
+            "Choose a comparison currency/unit or adjust product requirements before selecting an offer."
+            if not winner else
             "Ask the buyer for the missing delivery fields, request a fresh quote from only winner.registry/merchant origin, run payment_readiness, and only then show an approval summary."
             if winner and not winner["approval_packet"]["approval_ready"]
             else "Run payment_readiness, show the exact winner approval summary, and wait for explicit approval before payment handoff or checkout."

@@ -2090,7 +2090,8 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
         selection = result["market_design"]["candidate_selection"]
         self.assertEqual(selection["eligible_pool_count"], 3)
-        self.assertEqual(selection["selected_count"], 1)
+        self.assertEqual(selection["selected_count"], 3)
+        self.assertEqual(selection["backfill_count"], 2)
         self.assertTrue(selection["before_catalog_and_quote_requests"])
         self.assertEqual(resolve_mock.call_count, 1)
         self.assertEqual(catalog_mock.call_count, 1)
@@ -2748,15 +2749,16 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 "currency": "EUR",
                 "rail": "tempo_mpp",
                 "real_refund_verified": True,
+                "refund_status": "succeeded",
                 "refund_reference": "tempo-refund-abc",
             }
         ]
 
         result = shopbridge_direct.command_aftercare_summary({"order": order})
 
-        self.assertIn("Refund executed and verified", result["buyer_aftercare_messages"]["refund"])
+        self.assertIn("Provider confirmed refund success", result["buyer_aftercare_messages"]["refund"])
         self.assertTrue(result["buyer_aftercare_messages"]["allowed_claims"]["refund_executed"])
-        self.assertTrue(result["buyer_aftercare_messages"]["allowed_claims"]["money_returned"])
+        self.assertFalse(result["buyer_aftercare_messages"]["allowed_claims"]["money_returned"])
         self.assertEqual(
             result["buyer_aftercare_messages"]["allowed_claims"]["latest_refund_reference"],
             "tempo-refund-abc",

@@ -2,9 +2,19 @@
   "schema": "agentcart.buyer_agent_adapter_example.v1",
   "id": "codex-shopbridge-direct-alpha",
   "runtime_id": "shopbridge-direct-skill",
-  "title": "Codex-style skill-only buyer agent",
+  "title": "Codex with GPT-6 Astra and the ShopBridge Direct Skill",
   "integration_mode": "skill_only",
   "goal": "Use the packaged ShopBridge direct skill without running the AgentCart service.",
+  "model_configuration": {
+    "runtime": "codex",
+    "model": "gpt-6-astra",
+    "model_reasoning_effort": "medium",
+    "project_config": ".codex/config.toml",
+    "project_skill": ".agents/skills/shopbridge-direct",
+    "launch_command": "codex --model gpt-6-astra -c 'model_reasoning_effort=\"medium\"'",
+    "setup_doc": "docs/BUYER_SETUP.md#codex-with-gpt-6-astra",
+    "model_evaluation_status": "external_buyer_evidence_required"
+  },
   "install": {
     "skill_directory": "gateway/shopbridge-direct-skill",
     "package_command": "./scripts/package-shopbridge-direct-skill.sh",

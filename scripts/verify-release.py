@@ -64,12 +64,12 @@ def version_from_source(root: pathlib.Path, component: str, meta: dict[str, Any]
     if component == "woocommerce_shopbridge":
         match = re.search(r"^\s*\*\s*Version:\s*([^\s]+)\s*$", text, flags=re.MULTILINE)
         return match.group(1) if match else None
-    if component == "shopbridge_direct_skill":
+    if component in {"shopbridge_direct_skill", "agentcart_service_skill", "household_os_skill"}:
         match = re.match(r"---\n(.*?)\n---\n", text, flags=re.S)
         if not match:
             return None
         for line in match.group(1).splitlines():
-            if line.startswith("version:"):
+            if line.strip().startswith("version:"):
                 return line.split(":", 1)[1].strip().strip('"')
     return None
 

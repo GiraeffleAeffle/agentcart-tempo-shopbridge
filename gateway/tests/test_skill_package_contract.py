@@ -43,6 +43,7 @@ class SkillPackageContractTest(unittest.TestCase):
             {
                 "SKILL.md",
                 "scripts/shopbridge-command.py",
+                "scripts/shopbridge_market.py",
                 "scripts/shopbridge_discovery_facets.py",
                 "scripts/shopbridge_safe_http.py",
                 "scripts/shopbridge_registry_trust.py",
@@ -68,6 +69,7 @@ class SkillPackageContractTest(unittest.TestCase):
             with zipfile.ZipFile(zip_path, "w") as archive:
                 archive.writestr("shopbridge-direct-skill/SKILL.md", "portable workflow")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge-command.py", "")
+                archive.writestr("shopbridge-direct-skill/scripts/shopbridge_market.py", "")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_discovery_facets.py", "")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_safe_http.py", "")
                 archive.writestr("shopbridge-direct-skill/scripts/shopbridge_registry_trust.py", "")

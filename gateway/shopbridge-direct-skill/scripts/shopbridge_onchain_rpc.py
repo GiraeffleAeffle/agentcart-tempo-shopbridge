@@ -9,6 +9,8 @@ buyer eligibility is decided later by offchain trust verification.
 
 from __future__ import annotations
 
+import contextvars
+import secrets
 import datetime as dt
 import hashlib
 import importlib.util
@@ -131,6 +133,9 @@ class RegistryDeployment:
     discovery_facets_from_block: int = 0
     discovery_facets_deployment_block_hash: str = ""
     discovery_facets_runtime_code_hash: str = ""
+    registry_version: int = 1
+    runtime_code_hash: str = ""
+    admission_witness_rpc_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -744,6 +749,54 @@ def _collect_logs(
     return logs
 
 
+def _log_fingerprint(logs: list[dict[str, Any]]) -> str:
+    # Ignore transport-only fields; compare every consensus-relevant log field.
+    rows = [
+        [_hex_int(log.get("blockNumber"), field="log.blockNumber"),
+         _fixed_hash(log.get("blockHash"), field="log.blockHash"),
+         _fixed_hash(log.get("transactionHash"), field="log.transactionHash"),
+         _hex_int(log.get("logIndex"), field="log.logIndex"),
+         [_fixed_hash(topic, field="log.topic") for topic in log.get("topics", [])],
+         _hex_bytes(log.get("data"), field="log.data").hex()]
+        for log in logs
+    ]
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
+
+
+def _v2_witness(deployment: RegistryDeployment, *, request_json: Callable[..., Any] | None,
+                registry_address: str, finalized_number: int, finalized_hash: str,
+                finalized_timestamp: int, from_block: int, chunk_size: int,
+                logs: list[dict[str, Any]]) -> tuple[JsonRpcClient, dict[str, Any]]:
+    witness_url = deployment.admission_witness_rpc_url
+    if not witness_url:
+        raise OnchainRpcError("registry_v2_admission_witness_required")
+    primary_host = urllib.parse.urlsplit(deployment.rpc_url).hostname
+    witness_host = urllib.parse.urlsplit(witness_url).hostname
+    if not witness_host or primary_host == witness_host:
+        raise OnchainRpcError("registry_v2_distinct_witness_required")
+    witness = JsonRpcClient(witness_url, allow_private=deployment.allow_private_rpc, request_json=request_json)
+    if _hex_int(witness.call("eth_chainId", []), field="witness.chain_id") != deployment.chain_id:
+        raise OnchainRpcError("registry_v2_witness_chain_mismatch")
+    head = _block_header(witness, "finalized", field="witness.finalized")
+    if _hex_int(head.get("number"), field="witness.finalized.number") < finalized_number:
+        raise OnchainRpcError("registry_v2_witness_not_finalized")
+    boundary = _block_header(witness, hex(finalized_number), field="witness.boundary", expected_number=finalized_number)
+    if (_fixed_hash(boundary.get("hash"), field="witness.boundary.hash") != finalized_hash
+            or _hex_int(boundary.get("timestamp"), field="witness.boundary.timestamp") != finalized_timestamp):
+        raise OnchainRpcError("registry_v2_witness_boundary_mismatch")
+    code = _hex_bytes(witness.call("eth_getCode", [registry_address, hex(finalized_number)]), field="witness.code")
+    if "0x" + keccak256(code).hex() != deployment.runtime_code_hash.lower():
+        raise OnchainRpcError("registry_v2_witness_code_mismatch")
+    _verify_deployment_boundary(witness, deployment=deployment, registry_address=registry_address, rpc_profile=RPC_PROFILE_STANDARD)
+    witness_logs = _collect_logs(witness, registry_address=registry_address, from_block=from_block,
+                                 to_block=finalized_number, chunk_size=chunk_size)
+    digest = _log_fingerprint(logs)
+    if _log_fingerprint(witness_logs) != digest:
+        raise OnchainRpcError("registry_v2_witness_logs_mismatch")
+    return witness, {"policy": "two_rpc_agreement", "witness_rpc": rpc_url_label(witness_url),
+                     "block_number": finalized_number, "block_hash": finalized_hash, "logs_sha256": digest}
+
+
 def _decode_address_call(value: Any, *, field: str) -> str:
     data = _hex_bytes(value, field=field)
     if len(data) != 32 or any(data[:12]):
@@ -1198,8 +1251,19 @@ def collect_finalized_events(
         state_block = finalized_number
         state_selector = hex(finalized_number)
         storage_scope = "same_finalized_block"
-    if not _has_contract_code(client.call("eth_getCode", [registry_address, state_selector])):
+    current_code = client.call("eth_getCode", [registry_address, state_selector])
+    if not _has_contract_code(current_code):
         raise OnchainRpcError("registry_contract_code_missing")
+    if deployment.registry_version not in {1, 2}:
+        raise OnchainRpcError("registry_version_unsupported")
+    if deployment.registry_version == 2:
+        if storage_scope != "same_finalized_block":
+            raise OnchainRpcError("registry_v2_finalized_state_required")
+        if not deployment.runtime_code_hash or not deployment.deployment_block_hash:
+            raise OnchainRpcError("registry_v2_deployment_pins_required")
+        actual_hash = "0x" + keccak256(_hex_bytes(current_code, field="registry_code")).hex()
+        if actual_hash != deployment.runtime_code_hash.lower():
+            raise OnchainRpcError("registry_runtime_code_hash_mismatch")
     deployment_verification = _verify_deployment_boundary(
         client,
         deployment=deployment,
@@ -1214,6 +1278,12 @@ def collect_finalized_events(
         to_block=finalized_number,
         chunk_size=chunk_size,
     )
+    witness_client = None
+    admission_verification: dict[str, Any] = {}
+    if deployment.registry_version == 2:
+        witness_client, admission_verification = _v2_witness(deployment, request_json=request_json,
+            registry_address=registry_address, finalized_number=finalized_number, finalized_hash=finalized_hash,
+            finalized_timestamp=finalized_timestamp, from_block=from_block, chunk_size=chunk_size, logs=logs)
     blocks: dict[int, dict[str, Any]] = {}
     lifecycle: dict[str, dict[str, Any]] = {}
     events: list[dict[str, Any]] = []
@@ -1336,6 +1406,15 @@ def collect_finalized_events(
             category_hash_groups=category_hash_groups or [],
         )
     )
+    if witness_client is not None:
+        witnessed_ids, witnessed_facets, _ = _onchain_category_hints(
+            witness_client, deployment=deployment, registry_address=registry_address,
+            block_selector=state_selector, finalized_number=finalized_number,
+            chunk_size=chunk_size, rpc_profile=RPC_PROFILE_STANDARD,
+            lifecycle=lifecycle, category_hash_groups=category_hash_groups or [],
+        )
+        if witnessed_ids != onchain_hinted_ids or witnessed_facets != onchain_facet_states:
+            raise OnchainRpcError("registry_v2_witness_facets_mismatch")
     preferred_ids = {str(value).lower() for value in (preferred_record_ids or set())}
     preferred_domains = {
         str(value).lower() for value in (preferred_domain_hashes or set())
@@ -1345,15 +1424,53 @@ def collect_finalized_events(
         *onchain_hinted_ids,
     }
     scoped_pool = active_pool
+    admissions: dict[str, dict[str, Any]] = {}
+    if deployment.registry_version == 2:
+        selector = "0x" + keccak256(b"eligibility(bytes32)").hex()[:8]
+        for record_id, _state in active_pool:
+            admission_call = [{"to": registry_address, "data": _encode_call(selector, record_id)}, state_selector]
+            raw = _hex_bytes(client.call("eth_call", admission_call), field="admission")
+            witnessed = _hex_bytes(witness_client.call("eth_call", admission_call), field="witness.admission")
+            if raw != witnessed:
+                raise OnchainRpcError("registry_v2_witness_admission_mismatch")
+            if len(raw) != 128 or int.from_bytes(raw[:32], "big") not in {0, 1}:
+                raise OnchainRpcError("registry_admission_invalid")
+            admitted = raw[:32] == bytes(31) + b"\x01"
+            entity = "0x" + raw[32:64].hex()
+            expiry = int.from_bytes(raw[64:96], "big")
+            bond = int.from_bytes(raw[96:128], "big")
+            if admitted and (entity == "0x" + "0" * 64 or expiry <= finalized_timestamp or bond == 0):
+                raise OnchainRpcError("registry_admission_invalid")
+            admissions[record_id] = {"eligible": admitted, "entity_id": entity, "expires_at": expiry,
+                "bond_base_units": str(bond), "registry_version": 2, "block_number": state_block,
+                "registry_address": registry_address, "runtime_code_hash": deployment.runtime_code_hash}
+        scoped_pool = [item for item in active_pool if admissions[item[0]]["eligible"]]
     selection_mode = "query_seeded_sample"
     if preferred_ids or preferred_domains:
         scoped_pool = [
             (record_id, state)
-            for record_id, state in active_pool
+            for record_id, state in scoped_pool
             if record_id in preferred_ids
             or str(state.get("domain_hash") or "").lower() in preferred_domains
         ]
         selection_mode = "exact_record_or_domain"
+    seed = str(record_candidate_seed or secrets.token_hex(32))
+    def query_seeded_order(pool: list[tuple[str, dict[str, Any]]]) -> list[tuple[str, dict[str, Any]]]:
+        return sorted(
+            pool,
+            key=lambda item: hashlib.sha256(f"{seed}\0{admissions.get(item[0], {}).get('entity_id') or item[0]}".encode("utf-8")).digest(),
+        )
+
+    if admissions:
+        seen_entities = set()
+        grouped_pool = []
+        for item in sorted(scoped_pool, key=lambda item: hashlib.sha256(f"{seed}\0brand\0{item[0]}".encode()).digest()):
+            entity = admissions[item[0]]["entity_id"]
+            if entity not in seen_entities:
+                seen_entities.add(entity)
+                grouped_pool.append(item)
+        scoped_pool = grouped_pool
+
     if record_candidate_limit is None:
         candidate_limit = len(scoped_pool)
     else:
@@ -1363,12 +1480,6 @@ def collect_finalized_events(
                 "record_candidate_limit_invalid",
                 f"must be 1..{MAX_RECORD_CANDIDATES}",
             )
-    seed = str(record_candidate_seed or "shopbridge-default-candidate-sample")
-    def query_seeded_order(pool: list[tuple[str, dict[str, Any]]]) -> list[tuple[str, dict[str, Any]]]:
-        return sorted(
-            pool,
-            key=lambda item: hashlib.sha256(f"{seed}\0{item[0]}".encode("utf-8")).digest(),
-        )
 
     selected_hint_count = 0
     selected_fallback_count = 0
@@ -1426,11 +1537,21 @@ def collect_finalized_events(
                 raise OnchainRpcError("registry_record_discovery_facet_commitment_mismatch")
         return loaded
 
-    if active_candidates:
-        with ThreadPoolExecutor(max_workers=min(MAX_RECORD_FETCH_WORKERS, len(active_candidates))) as pool:
+    # Backfill only failed documents, at the same finalized snapshot. Each wave
+    # is bounded by missing slots; never fetch the entire public registry.
+    target_count = min(candidate_limit, MAX_RECORD_CANDIDATES)
+    attempt_limit = min(MAX_RECORD_CANDIDATES, target_count * 3)
+    active_candidates = active_candidates[:target_count]
+    chosen_ids = {record_id for record_id, _ in active_candidates}
+    reserves = [item for item in query_seeded_order(scoped_pool) if item[0] not in chosen_ids]
+    attempted = []
+    wave = active_candidates
+    resolved_count = 0
+    while wave and len(attempted) < attempt_limit:
+        with ThreadPoolExecutor(max_workers=min(MAX_RECORD_FETCH_WORKERS, len(wave))) as pool:
             pending = {
-                pool.submit(resolve_record, record_id, state): (record_id, state)
-                for record_id, state in active_candidates
+                pool.submit(contextvars.copy_context().run, resolve_record, record_id, state): (record_id, state)
+                for record_id, state in wave
             }
             for future in as_completed(pending):
                 record_id, state = pending[future]
@@ -1438,11 +1559,18 @@ def collect_finalized_events(
                     record = future.result()
                 except (Exception, SystemExit) as exc:
                     code = exc.code if isinstance(exc, OnchainRpcError) else "registry_record_fetch_failed"
-                    record_errors.append(
-                        _record_resolution_error(record_id, str(state["record_hash"]), str(code))
-                    )
+                    record_errors.append(_record_resolution_error(record_id, str(state["record_hash"]), str(code)))
                     continue
                 events[int(state["document_event_index"])]["registry_record"] = record
+                resolved_count += 1
+        attempted.extend(wave)
+        count = min(target_count - resolved_count, attempt_limit - len(attempted))
+        wave, reserves = reserves[:count], reserves[count:]
+    active_candidates = attempted
+    selected_record_ids = [record_id for record_id, _ in attempted]
+    if selection_mode.startswith("discovery_facets"):
+        selected_hint_count = sum(record_id in hinted_ids for record_id in selected_record_ids)
+        selected_fallback_count = len(selected_record_ids) - selected_hint_count
     record_errors.sort(key=lambda value: value["record_id"])
     return {
         "schema": CONTRACT_EVENTS_SCHEMA,
@@ -1471,6 +1599,8 @@ def collect_finalized_events(
         "lifecycle_record_count": len(lifecycle),
         "resolved_record_count": len(active_candidates) - len(record_errors),
         "record_errors": record_errors,
+        "admissions": admissions,
+        "admission_verification": admission_verification,
         "record_selection": {
             "schema": "agentcart.onchain_registry_candidate_selection.v1",
             "algorithm": "sha256-query-seeded-record-id-sample",
@@ -1478,7 +1608,9 @@ def collect_finalized_events(
             "active_candidate_count": len(active_pool),
             "selection_scope_count": len(scoped_pool),
             "selection_mode": selection_mode,
-            "candidate_limit": candidate_limit,
+            "candidate_limit": attempt_limit,
+            "target_candidate_count": target_count,
+            "selection_nonce": seed,
             "selected_record_count": len(active_candidates),
             "selected_record_ids": selected_record_ids,
             "hinted_record_count": len(hinted_ids),

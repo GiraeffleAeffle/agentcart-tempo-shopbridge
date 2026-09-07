@@ -14,6 +14,7 @@ FIXTURE_DIR = ROOT / "docs" / "fixtures" / "verifier"
 PLUGIN = ROOT / "woocommerce-shopbridge" / "agentcart-shopbridge" / "agentcart-shopbridge.php"
 VERIFIER_CLIENT = PLUGIN.parent / "includes" / "trait-agentcart-shopbridge-verifier-client.php"
 STRIPE_VERIFIER = ROOT / "gateway" / "scripts" / "stripe-mpp-verifier.mjs"
+REFUND_OPERATIONS = ROOT / "gateway" / "scripts" / "verifier-refund-operations.mjs"
 SQLITE_REPLAY_STORE = ROOT / "gateway" / "scripts" / "verifier-sqlite-replay-store.mjs"
 SQLITE_REPLAY_SMOKE = ROOT / "gateway" / "scripts" / "verifier-sqlite-replay-smoke.sh"
 SUPPORTED_RAILS = {"stripe-card-mpp", "tempo-mpp"}
@@ -506,8 +507,11 @@ def verify_stripe_verifier_replay_fields() -> None:
         "replay_conflict",
         "request_hash",
         "claimReplayReference(\"payments\"",
-        "claimReplayReference(\"refund_requests\"",
-        "claimReplayReference(\"refunds\"",
+        "durableRefundStore()",
+        "store.reserve(requestedReference",
+        "await advanceStripeRefund(store, op, stripeClient)",
+        "await advanceTempoRefund(store, op",
+        "Real refunds require the durable SQLite replay and refund ledger.",
         "refund.requested_reference is required",
         "AGENTCART_TEMPO_SETTLEMENT_MODE",
         "waitForTransactionReceipt",
@@ -521,7 +525,6 @@ def verify_stripe_verifier_replay_fields() -> None:
         "Tempo refund wallet does not match the original payment recipient.",
         "Tempo refund recipient must match the original payer address.",
         "Tempo refund requires real settlement evidence on the original payment.",
-        "idempotencyKey: requestedReference",
         "authoritativeContractHashes",
         "payment_contract_hash is required from the request, expected block, or quote.",
         "payment_contract_hash must be a SHA-256 hex digest.",
@@ -559,9 +562,18 @@ def verify_stripe_verifier_replay_fields() -> None:
     ]:
         require(literal in source, f"stripe verifier missing replay guard: {literal}")
     require(
-        source.count("await claimReplayReference(") >= 4,
-        "stripe verifier replay claims must be awaited so file locking is effective",
+        source.count("await claimReplayReference(") >= 2,
+        "stripe verifier payment replay claims must be awaited so file locking is effective",
     )
+    refund_source = REFUND_OPERATIONS.read_text(encoding="utf-8")
+    for literal in [
+        "BEGIN IMMEDIATE", "SUM(amount_cents)", "refund_operations", "refund_events",
+        "Original verified payment is missing from the durable ledger",
+        "idempotencyKey: `shopbridge-refund-${op.request_key}`",
+        "real_refund_verified: op.state === \"succeeded\"",
+        "broadcast(op.signed_transaction)",
+    ]:
+        require(literal in refund_source, f"durable refund ledger missing guard: {literal}")
     sqlite_source = SQLITE_REPLAY_STORE.read_text(encoding="utf-8")
     for literal in [
         "agentcart.verifierReplay.sqlite.v1",

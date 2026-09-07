@@ -10,12 +10,15 @@ opt-in for development fixtures.
 from __future__ import annotations
 
 import http.client
+import contextvars
+import functools
 import ipaddress
 import json
 import queue
 import socket
 import ssl
 import threading
+import time
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -32,6 +35,42 @@ class SafeHttpError(RuntimeError):
         self.code = code
         self.status = status
         self.detail = detail
+
+
+class DiscoveryBudget:
+    def __init__(self, seconds: float = 90, requests: int = 256, response_bytes: int = 64 * 1024 * 1024):
+        self.deadline = time.monotonic() + seconds
+        self.requests_remaining = requests
+        self.bytes_remaining = response_bytes
+        self.lock = threading.Lock()
+
+    def reserve(self, timeout: float, size: int) -> tuple[float, int]:
+        with self.lock:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0 or self.requests_remaining <= 0 or self.bytes_remaining <= 1:
+                raise SafeHttpError("discovery_budget_exhausted")
+            self.requests_remaining -= 1
+            size = min(size, self.bytes_remaining - 1)
+            self.bytes_remaining -= size + 1
+            return min(timeout, remaining), size
+
+    def finish(self, allocation: int, used: int) -> None:
+        with self.lock:
+            self.bytes_remaining += allocation + 1 - used
+
+
+discovery_budget: contextvars.ContextVar[DiscoveryBudget | None] = contextvars.ContextVar("discovery_budget", default=None)
+
+
+def budgeted_discovery(function):
+    @functools.wraps(function)
+    def wrapped(*args, **kwargs):
+        token = discovery_budget.set(DiscoveryBudget())
+        try:
+            return function(*args, **kwargs)
+        finally:
+            discovery_budget.reset(token)
+    return wrapped
 
 
 @dataclass(frozen=True)
@@ -167,6 +206,10 @@ def request_json(
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     if body is not None and len(body) > max_request_bytes:
         raise SafeHttpError("request_too_large")
+    budget = discovery_budget.get()
+    if budget is not None:
+        timeout_seconds, max_response_bytes = budget.reserve(timeout_seconds, max_response_bytes)
+    request_deadline = time.monotonic() + timeout_seconds
 
     request_headers = {"Accept": "application/json", "Connection": "close", **(headers or {})}
     if body is not None and not any(name.lower() == "content-type" for name in request_headers):
@@ -178,10 +221,14 @@ def request_json(
 
     def perform_request() -> None:
         connection: http.client.HTTPConnection | None = None
+        received_bytes = None
         try:
             target = resolve_safe_target(url, allow_private=allow_private, resolver=resolver)
+            remaining = request_deadline - time.monotonic()
+            if remaining <= 0:
+                raise SafeHttpError("request_timeout")
             connection_type = _PinnedHttpsConnection if target.url.scheme == "https" else _PinnedHttpConnection
-            connection = connection_type(target, timeout=timeout_seconds)
+            connection = connection_type(target, timeout=remaining)
             with connection_lock:
                 active_connection.append(connection)
             connection.request(
@@ -199,6 +246,7 @@ def request_json(
                 except ValueError as exc:
                     raise SafeHttpError("content_length_invalid", status=response.status) from exc
             raw = response.read(max_response_bytes + 1)
+            received_bytes = len(raw)
             if len(raw) > max_response_bytes:
                 raise SafeHttpError("response_too_large", status=response.status)
             if 300 <= response.status < 400:
@@ -223,6 +271,10 @@ def request_json(
         except BaseException as exc:  # Preserve unexpected worker failures for the caller.
             result_queue.put((False, exc))
         finally:
+            if budget is not None:
+                # A failed read may have consumed a partial body; keep its whole
+                # allocation charged when the byte count is unknown.
+                budget.finish(max_response_bytes, received_bytes if received_bytes is not None else max_response_bytes + 1)
             if connection is not None:
                 with connection_lock:
                     if connection in active_connection:

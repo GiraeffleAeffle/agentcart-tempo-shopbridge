@@ -43,11 +43,16 @@ set_string AGENTCART_REGISTRY_ONCHAIN_CONTROLLER "${AGENTCART_REGISTRY_ONCHAIN_C
 set_string AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID "${AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID:-}"
 set_string AGENTCART_REGISTRY_ONCHAIN_ADDRESS "${AGENTCART_REGISTRY_ONCHAIN_ADDRESS:-}"
 set_string AGENTCART_REGISTRY_ONCHAIN_RECORD_ID "${AGENTCART_REGISTRY_ONCHAIN_RECORD_ID:-}"
+if [[ -n "${AGENTCART_REGISTRY_V2_DEPLOYMENT:-}" ]]; then
+  set_string AGENTCART_REGISTRY_V2_DEPLOYMENT "$AGENTCART_REGISTRY_V2_DEPLOYMENT"
+fi
 set_string AGENTCART_PAYMENT_VERIFIER_URL "${AGENTCART_PAYMENT_VERIFIER_URL:-}"
 set_string AGENTCART_PAYMENT_VERIFIER_TOKEN "${AGENTCART_PAYMENT_VERIFIER_TOKEN:-}"
 set_raw AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL "${AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL:-false}"
 set_string AGENTCART_PAYMENT_VERIFIER_TRUST_MODE "${AGENTCART_PAYMENT_VERIFIER_TRUST_MODE:-public}"
 set_string AGENTCART_CHECKOUT_MODE "$AGENTCART_CHECKOUT_MODE"
+set_string AGENTCART_STOCK_HOLD_MODE "${AGENTCART_STOCK_HOLD_MODE:-hard}"
+set_string AGENTCART_STOCK_HOLD_MINUTES "${AGENTCART_STOCK_HOLD_MINUTES:-15}"
 set_string AGENTCART_SIGNED_REQUEST_MODE "$AGENTCART_SIGNED_REQUEST_MODE"
 set_string AGENTCART_SIGNED_REQUEST_SECRET "$AGENTCART_SIGNED_REQUEST_SECRET"
 
@@ -65,7 +70,7 @@ wp core verify-checksums --version=7.0.3 --allow-root >/dev/null
 [[ "$(wp core version --allow-root)" == '7.0.3' ]]
 [[ "$(wp plugin get woocommerce --field=version --allow-root)" == '11.0.0' ]]
 wp plugin verify-checksums woocommerce --allow-root >/dev/null
-[[ "$(wp plugin get agentcart-shopbridge --field=version --allow-root)" == '0.2.0' ]]
+[[ "$(wp plugin get agentcart-shopbridge --field=version --allow-root)" == "${AGENTCART_PLUGIN_VERSION:?release version is required}" ]]
 
 # Keep the WordPress core tree checksum-clean until every source verification
 # has passed. The wrapper is needed by later operator commands in the running

@@ -1,0 +1,4 @@
+# Project default for the Codex buyer using the ShopBridge Direct Skill.
+# Model selection belongs to the buyer harness; ShopBridge stays model-independent.
+model = "gpt-6-astra"
+model_reasoning_effort = "medium"

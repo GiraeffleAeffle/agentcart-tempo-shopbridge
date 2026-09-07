@@ -19,11 +19,12 @@ final class AgentCart_ShopBridge_Registry_Readiness {
     /**
      * Evaluate the current merchant registry state.
      *
-     * @param bool                $metadata_ready Whether HTTPS metadata is valid.
-     * @param array<string,mixed> $identity Complete public onchain identity.
-     * @param string              $record_hash Current canonical record hash.
-     * @param array<string,mixed> $health Last registry health response.
-     * @param int|null            $now Optional Unix timestamp for deterministic evaluation.
+     * @param bool                     $metadata_ready Whether HTTPS metadata is valid.
+     * @param array<string,mixed>      $identity Complete public onchain identity.
+     * @param string                   $record_hash Current canonical record hash.
+     * @param array<string,mixed>      $health Last registry health response.
+     * @param int|null                 $now Optional Unix timestamp for deterministic evaluation.
+     * @param array<string,mixed>|null $deployment Current operator configuration.
      * @return array<string,mixed>
      */
     public static function evaluate(
@@ -31,7 +32,8 @@ final class AgentCart_ShopBridge_Registry_Readiness {
         array $identity,
         string $record_hash,
         array $health,
-        ?int $now = null
+        ?int $now = null,
+        ?array $deployment = null
     ): array {
         $reference_time = $now ?? time();
         if (!$metadata_ready) {
@@ -55,6 +57,14 @@ final class AgentCart_ShopBridge_Registry_Readiness {
         $health_body = is_array($health['health'] ?? null) ? $health['health'] : [];
         $source = is_array($health_body['onchain_source'] ?? null) ? $health_body['onchain_source'] : [];
         $finality = is_array($source['finality'] ?? null) ? $source['finality'] : [];
+        $v2 = ($deployment['registry_version'] ?? 1) === 2 || ($source['registry_version'] ?? 1) === 2;
+        if ($v2 && (($source['registry_version'] ?? null) !== 2 ||
+            ($source['witness_agreement'] ?? null) !== true || $deployment === null ||
+            !hash_equals(AgentCart_ShopBridge_Registry_Rpc::descriptor_fingerprint($deployment),
+            (string) ($source['deployment_fingerprint'] ?? '')))) {
+            return self::result('source_unverified', false, 'Check registry health using the current v2 deployment and both configured RPC providers.');
+        }
+
         $source_valid = !empty($source['enabled'])
             && !empty($source['chain_valid'])
             && !empty($source['canonical_chain_verified'])
@@ -87,7 +97,21 @@ final class AgentCart_ShopBridge_Registry_Readiness {
             return self::result('not_included', false, 'The finalized registry entry does not exactly match the current merchant identity and record.');
         }
 
-        $result = self::result('finalized_current', true, 'The exact current record is active at one canonical finalized block through the pinned RPC.');
+        $admission = is_array($record['admission'] ?? null) ? $record['admission'] : [];
+        if ($v2 && (($admission['eligible'] ?? null) !== true ||
+            !is_int($admission['expires_at'] ?? null) || $admission['expires_at'] <= $reference_time ||
+            preg_match('/^0x[a-f0-9]{64}$/D', (string) ($admission['entity_id'] ?? '')) !== 1 ||
+            trim(substr((string) ($admission['entity_id'] ?? ''), 2), '0') === '' ||
+            preg_match('/^0x[a-f0-9]{64}$/D', (string) ($admission['bond_base_units_hex'] ?? '')) !== 1 ||
+            trim(substr((string) ($admission['bond_base_units_hex'] ?? ''), 2), '0') === '')) {
+            return self::result('admission_required', false, 'Admission is missing or expired. Obtain validator approval, renew onchain, and check registry health.');
+        }
+        $result = self::result('finalized_current', true, $v2
+            ? 'The exact record, accountable entity and bonded admission agree at a common finalized block on both configured RPCs.'
+        : 'The exact current record is active at one canonical finalized block through the pinned RPC.');
+        if ($v2) {
+            $result['admission'] = $admission;
+        }
         $result['finality'] = $finality;
         return $result;
     }
