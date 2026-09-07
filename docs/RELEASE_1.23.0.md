@@ -6,6 +6,9 @@ registry v2 contract. The remaining paid-launch gates are listed below.
 
 ## Changes
 
+- Update transitive `@toon-format/toon` to 2.3.1 to address the
+  prototype-pollution advisory GHSA-p95v-992w-h6c3.
+
 - Codex buyer configuration selects `gpt-6-astra` with the ShopBridge Direct
   Skill. ShopBridge services themselves do not call an AI model.
 - Registry v2 adds quorum admission, entity identity, expiring approvals,
