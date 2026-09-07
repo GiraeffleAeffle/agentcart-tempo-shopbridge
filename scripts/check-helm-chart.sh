@@ -29,6 +29,9 @@ trap cleanup EXIT INT TERM
   --set images.verifier.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
   --set store.registryOnchain.controller=0x1111111111111111111111111111111111111111 \
   --set store.registryOnchain.chainId=eip155:42431 \
+  --set store.registryOnchain.v2Deployment.registry_version=2 \
+  --set store.registryOnchain.v2Deployment.rpc_url=https://primary.example \
+  --set store.registryOnchain.v2Deployment.witness_rpc_url=https://witness.example \
   --set store.registryOnchain.registryAddress=0x2222222222222222222222222222222222222222 \
   --set store.registryOnchain.recordId=0x3333333333333333333333333333333333333333333333333333333333333333 \
   >"$rendered_verifier"
@@ -127,6 +130,12 @@ grep -Fq 'kind: PersistentVolumeClaim' "$rendered_verifier"
 grep -Fq 'app.kubernetes.io/component: verifier' "$rendered_verifier"
 grep -Fq 'AGENTCART_REGISTRY_ONCHAIN_CONTROLLER' "$rendered_verifier"
 grep -Fq 'eip155:42431' "$rendered_verifier"
+grep -Fq 'AGENTCART_REGISTRY_V2_DEPLOYMENT, value:' "$rendered_verifier"
+grep -Fq 'https://witness.example' "$rendered_verifier"
+if grep -Fq 'AGENTCART_REGISTRY_V2_DEPLOYMENT, value:' "$rendered"; then
+  printf 'pilot defaults unexpectedly enabled v2 configuration\n' >&2
+  exit 1
+fi
 
 rendered_bytes="$(wc -c <"$rendered" | tr -d ' ')"
 (( rendered_bytes < 900000 )) || {

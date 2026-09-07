@@ -42,7 +42,8 @@ The product is a production-candidate alpha. The codebase has strong contract ch
 | Payment Wallet | The buyer-controlled wallet or provider used only after a Final Quote and explicit approval. Discovery does not require it. |
 | Payment Requirements | Quote-bound rail requirements for MPP, Stripe/card MPP, x402-compatible flows, or future rails, plus verifier expectations. |
 | External Verifier | The settlement authority that proves payment or refund evidence for a selected rail before ShopBridge claims real money movement. |
-| Order | A WooCommerce order created only after quote, approval, idempotency, stock, drift, and payment verification checks pass. |
+| Checkout Draft | An unpaid internal WooCommerce record used to reserve stock for a Final Quote and retain an interrupted checkout request. It cannot authorize fulfillment. |
+| Order | A Checkout Draft promoted to a paid WooCommerce order only after quote, approval, idempotency, stock, drift, and payment verification checks pass. |
 | Aftercare | The structured order-status, fulfillment, cancellation, refund, tracking, support, and buyer-message state after checkout. |
 | Audit Packet | Portable hash-linked evidence for quote, approval, payment handoff, checkout, order, refund, and import/export events. |
 

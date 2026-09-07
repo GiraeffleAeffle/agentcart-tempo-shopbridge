@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+import contextlib
 import datetime as dt
 import difflib
 import hashlib
 import html
+import fcntl
 import hmac
 import http.cookies
 import importlib.util
@@ -37,7 +39,15 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 
+_market_spec = importlib.util.spec_from_file_location("shopbridge_market", pathlib.Path(__file__).resolve().parent / "shopbridge-direct-skill" / "scripts" / "shopbridge_market.py")
+if _market_spec is None or _market_spec.loader is None:
+    raise RuntimeError("ShopBridge comparison module is missing")
+market = importlib.util.module_from_spec(_market_spec)
+_market_spec.loader.exec_module(market)
+
+
 GATEWAY_DIR = pathlib.Path(__file__).resolve().parent
+RELEASE_VERSION = json.loads((GATEWAY_DIR / "package.json").read_text(encoding="utf-8"))["version"]
 SAFE_HTTP_MODULE_PATH = GATEWAY_DIR / "shopbridge-direct-skill" / "scripts" / "shopbridge_safe_http.py"
 safe_http = sys.modules.get("shopbridge_safe_http")
 if safe_http is None:
@@ -5386,12 +5396,20 @@ class AgentCartService:
         registry_entries = {entry["merchant_id"]: entry for entry in self.registry_document()["entries"]}
         candidates = []
         rejected = []
-        seen: set[str] = set()
-        for product in catalog["products"]:
+        nonce = str(request.get("candidate_seed") or secrets.token_hex(32))
+        merchant_limit = safe_int(request.get("merchant_candidate_limit", 12), field="merchant_candidate_limit", minimum=1, maximum=32)
+        scheduled = market.diverse_products(catalog["products"], nonce, merchant_limit)
+        deadline = time.monotonic() + 45
+        seen: set[tuple[str, str]] = set()
+        for product in scheduled:
+            if time.monotonic() >= deadline:
+                rejected.append({"reason": "quote collection deadline reached"})
+                break
             product_id = str(product.get("id") or product.get("product_id") or "")
-            if not product_id or product_id in seen:
+            identity = (str(product.get("merchant_id") or ""), product_id)
+            if not product_id or identity in seen:
                 continue
-            seen.add(product_id)
+            seen.add(identity)
             if not product.get("eligible_for_agent_checkout", True):
                 rejected.append({"product_id": product_id, "reason": "product is not eligible for agent checkout"})
                 continue
@@ -5449,6 +5467,10 @@ class AgentCartService:
                     }
                 )
                 continue
+            if quote.get("merchant_id") != merchant_id:
+                rejected.append({"merchant_id": merchant_id, "product_id": product_id,
+                                 "reason": "quote merchant does not match selected merchant"})
+                continue
             policy = quote.get("policy_result", {})
             delivery = quote.get("delivery_window") or {}
             registry_entry = registry_entries.get(quote["merchant_id"], registry_entry)
@@ -5494,16 +5516,18 @@ class AgentCartService:
                 "rank_reasons": self.quote_rank_reasons(quote, registry_entry),
             }
             candidates.append(candidate)
-            if len(candidates) >= max_candidates:
-                break
+        candidates, other_offers, comparison = market.comparable_offers(
+            candidates, currency=str(request.get("comparison_currency") or request.get("currency") or ""),
+        )
         candidates.sort(
             key=lambda candidate: (
                 candidate["policy_result"].get("decision") == "deny",
                 int(candidate["total_cents"]),
                 str(candidate.get("delivery_window", {}).get("latest_date") or "9999-12-31"),
-                str(candidate["merchant_name"]),
+                market.tie_key(nonce, candidate),
             )
         )
+        candidates = candidates[:max_candidates]
         for index, candidate in enumerate(candidates, start=1):
             candidate["rank"] = index
             candidate["winner"] = index == 1 and candidate["policy_result"].get("decision") != "deny"
@@ -5518,6 +5542,11 @@ class AgentCartService:
                 "quote_request": "private RFQ to selected merchants",
                 "ranking": "local user policy, total price, delivery window; no paid placement",
             },
+            "candidate_selection": {"nonce": nonce, "merchant_contact_limit": merchant_limit,
+                "product_attempt_limit": merchant_limit * 2, "scheduled_products": len(scheduled),
+                "deadline_seconds": 45, "deadline_exhausted": time.monotonic() >= deadline},
+            "comparison": comparison,
+            "other_offers": other_offers,
             "candidates": candidates,
             "winner": winner,
             "rejected": rejected,
@@ -5583,7 +5612,7 @@ class AgentCartService:
         protocol_profiles = self.service_protocol_profiles()
         return {
             "name": "AgentCart",
-            "version": "0.2.0",
+            "version": RELEASE_VERSION,
             "description": "Household-safe merchant adapter for agent-compatible checkout.",
             "protocol_profiles": protocol_profiles,
             "protocol_profile_ids": [str(profile["id"]) for profile in protocol_profiles],
@@ -5712,7 +5741,7 @@ class AgentCartService:
         return {
             "schema": "agentcart.mcp_tools.v1",
             "name": "AgentCart Commerce Tools",
-            "version": "0.1.0-alpha",
+            "version": RELEASE_VERSION,
             "description": "MCP-style tool definitions for safe merchant discovery, quote comparison, approval, checkout, aftercare, and audit.",
             "transport": {
                 "kind": "http-json",
@@ -5988,7 +6017,7 @@ class AgentCartService:
             "openapi": "3.1.0",
             "info": {
                 "title": "AgentCart Household Commerce Bridge",
-                "version": "0.2.0",
+                "version": RELEASE_VERSION,
                 "description": (
                     "AgentCart exposes opt-in merchant catalog, quote, policy, approval, "
                     "checkout, order, and audit endpoints for household agents."
@@ -9263,9 +9292,9 @@ separate human confirmation.
         refunded_cents = max(0, int(refund_progress.get("refunded_cents") or self.refunded_cents(order)))
         remaining_cents = max(0, int(aftercare.get("remaining_refundable_cents") or 0))
         latest_refund = self.latest_refund(order) or {}
-        latest_refund_verified = bool(latest_refund.get("real_refund_verified"))
+        latest_refund_verified = (latest_refund.get("real_refund_verified") is True and (latest_refund.get("refund_status") or (latest_refund.get("verification") or {}).get("refund_status")) == "succeeded")
         any_real_refund_verified = any(
-            bool(refund.get("real_refund_verified"))
+            (refund.get("real_refund_verified") is True and (refund.get("refund_status") or (refund.get("verification") or {}).get("refund_status")) == "succeeded")
             for refund in order.get("refunds", [])
             if isinstance(refund, dict)
         )
@@ -9284,7 +9313,7 @@ separate human confirmation.
                 "order_cancelled": lifecycle_state.startswith("cancelled"),
                 "refund_recorded": refunded_cents > 0,
                 "refund_executed": any_real_refund_verified,
-                "money_returned": any_real_refund_verified,
+                "money_returned": False,
                 "refund_still_required": bool(aftercare.get("refund_required_after_cancellation")),
                 "carrier_exception": bool(aftercare.get("delivery_exception_requires_attention")),
             },
@@ -9316,7 +9345,7 @@ separate human confirmation.
             if any_real_refund_verified:
                 reference = f" Reference: {refund_reference}." if refund_reference else ""
                 via = f" via {provider}" if provider else ""
-                messages["refund"] = f"Refund executed and verified{via}.{reference}"
+                messages["refund"] = f"Provider confirmed refund success{via}.{reference} Bank posting may take additional time."
             else:
                 messages["refund"] = "Refund recorded by the merchant system. No real rail refund verification is attached."
         elif refund_state == "refund_available":
@@ -9386,7 +9415,7 @@ separate human confirmation.
         expected_rail: str,
     ) -> dict[str, Any]:
         verification = merchant_refund.get("verification") if isinstance(merchant_refund.get("verification"), dict) else {}
-        real_refund_verified = bool(merchant_refund.get("real_refund_verified") or verification.get("real_refund_verified"))
+        real_refund_verified = merchant_refund.get("real_refund_verified") is True or verification.get("real_refund_verified") is True
         refund_reference = str(
             merchant_refund.get("refund_reference")
             or verification.get("refund_reference")
@@ -9419,6 +9448,8 @@ separate human confirmation.
         if merchant_currency != expected_currency.upper():
             raise UpstreamError("merchant refund currency does not match the request")
         if real_refund_verified:
+            if refund_status != "succeeded":
+                raise UpstreamError("merchant real refund evidence is not succeeded")
             if not verification:
                 raise UpstreamError("merchant claimed a real refund without verifier evidence")
             if verification_mode not in {"external_verifier", "provider_api", "rail_verifier"}:
@@ -11498,6 +11529,23 @@ class AgentCartServer(ThreadingHTTPServer):
         super().server_close()
 
 
+@contextlib.contextmanager
+def exclusive_state_writer(state_path: pathlib.Path):
+    """Hold a process-lifetime lock before loading the JSON state snapshot."""
+    state_path = state_path.resolve()
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = state_path.with_name(state_path.name + ".writer.lock")
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError(f"Another AgentCart process owns {state_path}; JSON state requires one writer.") from exc
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the AgentCart MVP service.")
     parser.add_argument("--bind", default=None)
@@ -11508,15 +11556,16 @@ def main(argv: list[str] | None = None) -> int:
         config = Config(**{**config.__dict__, "bind": args.bind})
     if args.port:
         config = Config(**{**config.__dict__, "port": args.port})
-    service = AgentCartService(config)
-    server = AgentCartServer((config.bind, config.port), service)
-    print(f"AgentCart listening on http://{config.bind}:{config.port}", flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("Stopping AgentCart", flush=True)
-    finally:
-        server.server_close()
+    with exclusive_state_writer(config.state_path):
+        service = AgentCartService(config)
+        server = AgentCartServer((config.bind, config.port), service)
+        print(f"AgentCart listening on http://{config.bind}:{config.port}", flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("Stopping AgentCart", flush=True)
+        finally:
+            server.server_close()
     return 0
 
 

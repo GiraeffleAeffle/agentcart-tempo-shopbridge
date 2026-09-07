@@ -24,6 +24,11 @@ payment rail operations must pass.
 
 ## What Is In This Repo
 
+The prepared 1.23.0 changes include Codex Astra 6 configuration, registry v2
+admission and sanctions, fair quote comparison, native stock reservations,
+and checkout/refund recovery. See [release notes](docs/RELEASE_1.23.0.md) for
+validation, upgrades, and the remaining production gates.
+
 ```text
 woocommerce-shopbridge/   WordPress/WooCommerce merchant plugin
 gateway/                  AgentCart registry, verifier-facing gateway, buyer API, demos
@@ -42,6 +47,12 @@ For buyer-agent setup, including the packaged direct skill, see
 `docs/BUYER_SETUP.md`.
 For checked OpenClaw, Codex-style skill, and generic MCP buyer examples, see
 `docs/BUYER_AGENT_ADAPTERS.md`.
+The repository's Codex buyer defaults to GPT-6 Astra with medium reasoning and
+discovers the existing Direct Skill through a project-local symlink. See
+[Codex with GPT-6 Astra](docs/BUYER_SETUP.md#codex-with-gpt-6-astra).
+For the latest code review, launch blockers, and proposed registry/auction
+mechanics, see [the production review](docs/PRODUCTION_REVIEW_2026-09-06.md).
+See [hardening and rollout](docs/PRODUCTION_HARDENING.md) for the refund ledger, v2 admission/bonds, fair comparison rules, and remaining launch gates.
 For release artifacts, checksums, semantic-release publishing, upgrade, and
 rollback, see `docs/RELEASES.md`.
 For sanitized Kubernetes deployments that keep credentials and cluster

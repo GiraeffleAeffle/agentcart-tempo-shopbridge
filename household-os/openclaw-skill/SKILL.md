@@ -2,6 +2,7 @@
 name: household-os-vikunja
 description: Manage household Vikunja tasks and safe Home Assistant actions through the private Household OS bridge.
 metadata:
+  version: "1.23.0"
   openclaw:
     requires:
       bins:

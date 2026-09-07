@@ -41,7 +41,12 @@ store:
     chainId: ""
     registryAddress: ""
     recordId: ""
+    # Operator-reviewed wordpress_deployment from v2 identity preparation.
+    # Empty keeps the existing Moderato v1 pilot verifier.
+    v2Deployment: {}
   checkoutMode: trusted_token_or_verifier
+  stockHoldMode: hard
+  stockHoldMinutes: 15
   signedRequestMode: "off"
   productExposureMode: manual
   returnsPath: /returns

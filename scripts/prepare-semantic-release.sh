@@ -8,8 +8,11 @@ SOURCE_COMMIT="${2:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
 cd "$ROOT_DIR"
 
 python3 scripts/stamp-release-version.py "$VERSION"
+scripts/sync-helm-chart-files.sh
+python3 scripts/stamp-release-version.py "$VERSION" --verify
 scripts/package-woocommerce-plugin.sh
 scripts/package-shopbridge-direct-skill.sh
+python3 scripts/package-service-skills.py
 
 if [ -n "${AGENTCART_RELEASE_SIGNING_KEY:-}" ]; then
   AGENTCART_RELEASE_SOURCE_COMMIT="$SOURCE_COMMIT" \

@@ -54,7 +54,7 @@ spec:
       annotations:
         checksum/bootstrap: {{ printf "%s%s%s" (.Files.Get "files/bootstrap/prepare-wordpress.sh") (.Files.Get "files/bootstrap/seed-before-start.sh") (.Files.Get "files/bootstrap/seed-products.sh") | sha256sum }}
         checksum/nginx: {{ .Files.Get "files/nginx.conf" | sha256sum }}
-        checksum/plugin: {{ printf "%s%s%s%s%s%s%s%s%s%s" (.Files.Get "files/plugin/agentcart-shopbridge.php") (.Files.Get "files/plugin/readme.txt") (.Files.Get "files/plugin/uninstall.php") (.Files.Get "files/plugin/includes/class-agentcart-shopbridge-discovery-facets.php") (.Files.Get "files/plugin/includes/class-agentcart-shopbridge-onchain-identity.php") (.Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-archive.php") (.Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-events.php") (.Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-rpc.php") (.Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-readiness.php") (.Files.Get "files/plugin/includes/trait-agentcart-shopbridge-verifier-client.php") | sha256sum }}
+        checksum/plugin: {{ (.Files.Glob "files/plugin/**").AsConfig | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -128,7 +128,13 @@ spec:
             - {name: AGENTCART_REGISTRY_ONCHAIN_CHAIN_ID, value: {{ .Values.store.registryOnchain.chainId | quote }}}
             - {name: AGENTCART_REGISTRY_ONCHAIN_ADDRESS, value: {{ .Values.store.registryOnchain.registryAddress | quote }}}
             - {name: AGENTCART_REGISTRY_ONCHAIN_RECORD_ID, value: {{ .Values.store.registryOnchain.recordId | quote }}}
+            {{- if .Values.store.registryOnchain.v2Deployment }}
+            - {name: AGENTCART_REGISTRY_V2_DEPLOYMENT, value: {{ .Values.store.registryOnchain.v2Deployment | toJson | quote }}}
+            {{- end }}
             - {name: AGENTCART_CHECKOUT_MODE, value: {{ .Values.store.checkoutMode | quote }}}
+            - {name: AGENTCART_PLUGIN_VERSION, value: {{ .Chart.AppVersion | quote }}}
+            - {name: AGENTCART_STOCK_HOLD_MODE, value: {{ .Values.store.stockHoldMode | quote }}}
+            - {name: AGENTCART_STOCK_HOLD_MINUTES, value: {{ .Values.store.stockHoldMinutes | quote }}}
             - {name: AGENTCART_SIGNED_REQUEST_MODE, value: {{ .Values.store.signedRequestMode | quote }}}
             - {name: AGENTCART_PAYMENT_VERIFIER_URL, value: {{ ternary (printf "http://%s:%v/agentcart/verify" (include "agentcart-shopbridge.verifierFullname" .) .Values.verifier.port) "" .Values.verifier.enabled | quote }}}
             - {name: AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL, value: {{ ternary "true" "false" .Values.verifier.enabled | quote }}}

@@ -36,6 +36,11 @@ jobs:
         with:
           version: v3.17.3
 
+      - name: Set up Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.4.4
+
       - name: Install release Node dependencies
         run: npm ci
 
@@ -56,6 +61,7 @@ jobs:
 
       - name: Run verification pipeline
         env:
+          AGENTCART_REQUIRE_SOLIDITY_TESTS: "1"
           AGENTCART_WORDPRESS_OFFICIAL_TOOLS_REQUIRED: "1"
           AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND: scripts/run-wordpress-plugin-check.sh
         run: bash scripts/verify.sh

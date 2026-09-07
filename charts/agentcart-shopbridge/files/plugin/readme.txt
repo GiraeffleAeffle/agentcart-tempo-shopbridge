@@ -5,7 +5,7 @@ Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.1
 Requires Plugins: woocommerce
-Stable tag: 0.2.0
+Stable tag: 1.23.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,7 @@ fulfillment, refunds, and support. The plugin exposes:
 * `/wp-json/agentcart/v1/orders/{id}/refunds`
 * `/wp-json/agentcart/v1/orders/{id}/cancellations`
 * `/wp-json/agentcart/v1/support-diagnostics` for WooCommerce managers
+* `/wp-json/agentcart/v1/checkout-recovery` for WooCommerce managers
 
 Agents can discover opt-in products, request final WooCommerce-backed quotes,
 bind approval/payment to the quote hash, create paid WooCommerce orders after
@@ -48,8 +49,10 @@ actions.
 * Blocked categories, product-level checkout exclusion, max quantity limits,
   and product-specific shipping country overrides.
 * WooCommerce cart, tax, shipping, stock, and order creation integration.
-* Soft quote stock holds plus optional fail-closed hard reservation adapter
-  hooks for merchant inventory systems.
+* Native WooCommerce stock reservations for final quotes, shared with ordinary
+  checkout, plus adapter hooks for external inventory systems.
+* Durable checkout recovery with encrypted payment requests, bounded retries,
+  and manager-approved compensation after verified settlement.
 * Quote hash binding, payment contract hash binding, and single-use quote
   consumption.
 * Baseline REST and `.well-known` endpoint rate limits with retry metadata,
@@ -249,6 +252,17 @@ refunds, cancellation history, payment verification metadata, and product-level
 AgentCart metadata so merchants retain their commerce audit trail.
 
 == Changelog ==
+
+= 1.23.0 =
+
+* Add native final-quote stock reservations and durable checkout recovery.
+* Recover interrupted settlement, roll back failed local order promotion, and
+  reconcile manager-approved refunds to the original payer.
+* Support deferred item deletion in WooCommerce 11 and both order datastores.
+* Preserve refund capacity across concurrent requests and provider timeouts.
+* Default new installs to hard holds and require them for production readiness.
+* Keep extension, buyer skills, packages, Helm charts and bootstrap version
+  checks aligned in the release workflow.
 
 = 0.2.0 =
 

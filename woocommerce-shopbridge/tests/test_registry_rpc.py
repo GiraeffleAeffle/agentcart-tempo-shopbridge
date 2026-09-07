@@ -82,13 +82,18 @@ class RegistryRpcBehaviorTests(unittest.TestCase):
             ): self.record_id,
         }
 
-    def run_php(self, responses: dict) -> dict:
+    def run_php(self, responses: dict, *, witness=None, configured=False, readiness_time=None, readiness_descriptor=None) -> dict:
         script = f"""<?php
 define('ABSPATH', '/');
+function wp_parse_url($url) {{ return parse_url($url); }}
+function wp_json_encode($value, $flags = 0) {{ return json_encode($value, $flags); }}
+{'define("AGENTCART_REGISTRY_V2_DEPLOYMENT", ' + json.dumps(json.dumps(self.descriptor)) + ');' if configured else ''}
 require {json.dumps(str(IDENTITY_MODULE))};
 require {json.dumps(str(RPC_MODULE))};
 $responses = json_decode({json.dumps(json.dumps(responses))}, true);
-$rpc = static function ($method, $params) use ($responses) {{
+$witness = json_decode({json.dumps(json.dumps(witness))}, true);
+$rpc = static function ($method, $params, $url) use ($responses, $witness) {{
+    if ($witness !== null && $url === 'https://witness.example') {{ $responses = $witness; }}
     $key = $method;
     $block_key = static function ($block) {{
         if (!is_array($block)) {{
@@ -113,7 +118,7 @@ $rpc = static function ($method, $params) use ($responses) {{
     }}
     return $responses[$key];
 }};
-echo json_encode(AgentCart_ShopBridge_Registry_Rpc::verify(
+$verified = AgentCart_ShopBridge_Registry_Rpc::verify(
     json_decode({json.dumps(json.dumps(self.identity))}, true),
     {json.dumps(self.record_hash)},
     [
@@ -124,8 +129,16 @@ echo json_encode(AgentCart_ShopBridge_Registry_Rpc::verify(
     ],
     {self.now},
     $rpc,
-    json_decode({json.dumps(json.dumps(self.descriptor))}, true)
-));
+    {'null' if configured else 'json_decode(' + json.dumps(json.dumps(self.descriptor)) + ', true)'}
+);
+if ({'true' if readiness_time is not None else 'false'}) {{
+    require {json.dumps(str(PLUGIN_INCLUDES / 'class-agentcart-shopbridge-registry-readiness.php'))};
+    $verified['readiness'] = AgentCart_ShopBridge_Registry_Readiness::evaluate(true,
+        json_decode({json.dumps(json.dumps(self.identity))}, true), {json.dumps(self.record_hash)},
+        ['record_hash' => {json.dumps(self.record_hash)}, 'checked_at' => gmdate('Y-m-d\\TH:i:s\\Z', {self.now}), 'health' => $verified],
+        {readiness_time or self.now}, json_decode({json.dumps(json.dumps(readiness_descriptor or self.descriptor))}, true));
+}}
+echo json_encode($verified);
 """
         completed = subprocess.run(["php"], input=script, text=True, capture_output=True, check=False)
         self.assertEqual(completed.returncode, 0, completed.stderr)
@@ -135,9 +148,11 @@ echo json_encode(AgentCart_ShopBridge_Registry_Rpc::verify(
         script = f"""<?php
 define('ABSPATH', '/');
 $responses = json_decode({json.dumps(json.dumps(responses))}, true);
+function wp_parse_url($url) {{ return parse_url($url); }}
 $batch_count = 0;
 $rpc_urls = [];
 $rpc_timeouts = [];
+$unsafe_url_guards = [];
 function wp_json_encode($value, $flags = 0) {{
     return json_encode($value, $flags);
 }}
@@ -151,10 +166,11 @@ function wp_remote_retrieve_body($response) {{
     return $response['body'];
 }}
 function wp_remote_post($url, $args) {{
-    global $responses, $batch_count, $rpc_urls, $rpc_timeouts;
+    global $responses, $batch_count, $rpc_urls, $rpc_timeouts, $unsafe_url_guards;
     $batch_count += 1;
     $rpc_urls[] = $url;
     $rpc_timeouts[] = $args['timeout'] ?? null;
+    $unsafe_url_guards[] = $args['reject_unsafe_urls'] ?? null;
     $payload = json_decode($args['body'], true);
     $items = [];
     foreach ($payload as $request) {{
@@ -211,6 +227,7 @@ echo json_encode([
     'batch_count' => $batch_count,
     'rpc_urls' => $rpc_urls,
     'rpc_timeouts' => $rpc_timeouts,
+    'unsafe_url_guards' => $unsafe_url_guards,
 ]);
 """
         completed = subprocess.run(["php"], input=script, text=True, capture_output=True, check=False)

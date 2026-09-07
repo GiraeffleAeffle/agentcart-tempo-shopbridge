@@ -57,3 +57,7 @@ data:
 {{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-registry-readiness.php" | indent 4 }}
   trait-agentcart-shopbridge-verifier-client.php: |
 {{ .Files.Get "files/plugin/includes/trait-agentcart-shopbridge-verifier-client.php" | indent 4 }}
+  class-agentcart-shopbridge-checkout-store.php: |
+{{ .Files.Get "files/plugin/includes/class-agentcart-shopbridge-checkout-store.php" | indent 4 }}
+  trait-agentcart-shopbridge-checkout-recovery.php: |
+{{ .Files.Get "files/plugin/includes/trait-agentcart-shopbridge-checkout-recovery.php" | indent 4 }}

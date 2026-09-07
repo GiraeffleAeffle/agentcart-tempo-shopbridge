@@ -4,7 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
-import { createPublicClient, createWalletClient, http as viemHttp, parseUnits } from "viem";
+import { createPublicClient, createWalletClient, http as viemHttp, parseUnits, encodeFunctionData, keccak256 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { tempo as tempoMainnet, tempoModerato } from "viem/tempo/chains";
 import Stripe from "stripe";
@@ -15,6 +15,8 @@ import {
   sqliteReplayStoreDiagnostics,
   sqliteReplayStoreWriteProbe,
 } from "./verifier-sqlite-replay-store.mjs";
+
+import { refundStore, refundResult, advanceStripeRefund, advanceTempoRefund, hasRefundTransfer } from "./verifier-refund-operations.mjs";
 
 const host = process.env.STRIPE_MPP_VERIFIER_BIND || "127.0.0.1";
 const port = Number(process.env.STRIPE_MPP_VERIFIER_PORT || "4260");
@@ -667,6 +669,7 @@ function readiness() {
       throttle_seconds: verifierAlertThrottleSeconds,
     },
     tempo_settlement: tempoSettlementReadiness(),
+    refund_ledger: refundLedgerReadiness(),
     tempo_refunds: tempoRefundReadiness(),
     missing,
   };
@@ -1392,12 +1395,19 @@ function tempoRefundWalletAddress() {
   }
 }
 
+function refundLedgerReadiness() {
+  if (replayStoreDriver !== "sqlite" || !replayStorePath) return { configured: false, required_driver: "sqlite" };
+  try { return { configured: true, ...refundStore(replayStorePath).diagnostics() }; }
+  catch { return { configured: false, error: "refund_ledger_unavailable" }; }
+}
+
 function tempoRefundReadiness() {
   const mode = ["disabled", "live"].includes(tempoRefundMode) ? tempoRefundMode : "invalid";
   const walletAddress = tempoRefundWalletAddress();
   const tokenAddress = normalizeEvmAddress(tempoRefundTokenAddress);
   const configured =
     mode === "live" &&
+    replayStoreDriver === "sqlite" && Boolean(replayStorePath) &&
     Boolean(walletAddress) &&
     Number.isSafeInteger(tempoRefundDecimals) &&
     tempoRefundDecimals >= 0 &&
@@ -2026,151 +2036,64 @@ async function verifyTempoRefund(payload, refund, expected, amountCents, currenc
     );
   }
 
-  const amount = parseUnits(centsToDecimal(amountCents), tempoRefundDecimals);
-  const publicClient = createPublicClient({ chain: config.chain, transport: viemHttp(config.rpcUrl) });
-  let balance;
   try {
-    balance = await publicClient.readContract({
-      address: config.tokenAddress,
-      abi: erc20TransferAbi,
-      functionName: "balanceOf",
-      args: [config.account.address],
+    const store = durableRefundStore();
+    const binding = {
+      provider: "tempo", rail: "tempo-mpp", amount_cents: amountCents, currency,
+      quote_hash: refundExpected.quoteHash,
+      original_transaction_reference: refundExpected.originalReference,
+      network: config.network, original_recipient: config.account.address.toLowerCase(),
+      refund_recipient: refundExpected.refundRecipient, asset: config.asset,
+      token_address: config.tokenAddress.toLowerCase(),
+      amount_base_units: parseUnits(centsToDecimal(amountCents), tempoRefundDecimals).toString(),
+    };
+    let op = store.reserve(requestedReference, binding, {
+      rail: binding.rail, currency, quote_hash: binding.quote_hash,
+      network: config.network, recipient: binding.original_recipient,
+      payer_address: binding.refund_recipient, asset: config.asset,
+      token_address: binding.token_address, real_settlement_verified: true,
     });
+    const publicClient = createPublicClient({ chain: config.chain, transport: viemHttp(config.rpcUrl) });
+    const wallet = createWalletClient({ account: config.account, chain: config.chain, transport: viemHttp(config.rpcUrl) });
+    op = await advanceTempoRefund(store, op, {
+      prepare: async (nonceKey) => {
+        const request = await wallet.prepareTransactionRequest({
+          to: config.tokenAddress,
+          data: encodeFunctionData({ abi: erc20TransferAbi, functionName: "transfer",
+            args: [binding.refund_recipient, parseUnits(centsToDecimal(amountCents), tempoRefundDecimals)] }),
+          nonceKey, nonce: 0,
+        });
+        const raw = await wallet.signTransaction(request);
+        return { raw, hash: keccak256(raw) };
+      },
+      broadcast: (raw) => publicClient.sendRawTransaction({ serializedTransaction: raw }),
+      receipt: async (hash) => {
+        const receipt = await publicClient.getTransactionReceipt({ hash });
+        const confirmations = await publicClient.getTransactionConfirmations({ transactionReceipt: receipt });
+        if (confirmations < BigInt(tempoRefundConfirmations)) return null;
+        if (receipt.status === "success" && !hasRefundTransfer(receipt, {
+          token: binding.token_address, from: binding.original_recipient,
+          to: binding.refund_recipient, amount: BigInt(binding.amount_base_units),
+        })) return { ...receipt, status: "review_required" };
+        return receipt;
+      },
+    });
+    return jsonResponse(refundResult(op), ["succeeded", "failed"].includes(op.state) ? 200 : 202);
   } catch (error) {
-    return jsonResponse(
-      {
-        ok: false,
-        error: "Tempo refund wallet balance check failed.",
-        provider: "tempo",
-        provider_error_class: error?.name || "tempo_refund_balance_check_failed",
-        provider_message: error?.shortMessage || error?.message || null,
-        retryable: true,
-      },
-      502,
-    );
+    return refundOperationError(error);
   }
-  if (balance < amount) {
-    return jsonResponse(
-      {
-        ok: false,
-        error: "Tempo refund wallet balance is insufficient.",
-        provider: "tempo",
-        retryable: true,
-      },
-      402,
-    );
-  }
+}
 
-  const requestClaim = await claimReplayReference("refund_requests", requestedReference, {
-    provider: "tempo",
-    rail: "tempo-mpp",
-    amount_cents: amountCents,
-    currency,
-    quote_hash: refundExpected.quoteHash,
-    original_transaction_reference: refundExpected.originalReference,
-    refund_recipient: refundExpected.refundRecipient,
-    asset: config.asset,
-    token_address: config.tokenAddress,
-    network: config.network,
-  });
-  if (!requestClaim.ok) return requestClaim.response;
-  if (requestClaim.idempotentReplay) {
-    return jsonResponse(
-      {
-        ok: false,
-        error: "Tempo refund request was already reserved; use the order refund idempotency endpoint result or operator review.",
-        provider: "tempo",
-        replay_reference: requestedReference,
-        replay_request_hash: requestClaim.requestHash,
-      },
-      409,
-    );
+function durableRefundStore() {
+  if (replayStoreDriver !== "sqlite" || !replayStorePath) {
+    throw Object.assign(new Error("Real refunds require the durable SQLite replay and refund ledger."), { status: 503 });
   }
+  return refundStore(replayStorePath);
+}
 
-  let transactionHash;
-  let receipt;
-  try {
-    const walletClient = createWalletClient({
-      account: config.account,
-      chain: config.chain,
-      transport: viemHttp(config.rpcUrl),
-    });
-    transactionHash = await walletClient.writeContract({
-      address: config.tokenAddress,
-      abi: erc20TransferAbi,
-      functionName: "transfer",
-      args: [refundExpected.refundRecipient, amount],
-    });
-    receipt = await publicClient.waitForTransactionReceipt({
-      hash: transactionHash,
-      confirmations: tempoRefundConfirmations,
-    });
-  } catch (error) {
-    return jsonResponse(
-      {
-        ok: false,
-        error: "Tempo refund transfer failed after idempotency reservation.",
-        provider: "tempo",
-        provider_error_class: error?.name || "tempo_refund_transfer_failed",
-        provider_message: error?.shortMessage || error?.message || null,
-        retryable: false,
-        replay_reference: requestedReference,
-        replay_request_hash: requestClaim.requestHash,
-      },
-      502,
-    );
-  }
-  if (receipt.status !== "success") {
-    return jsonResponse(
-      {
-        ok: false,
-        error: "Tempo refund transaction did not succeed.",
-        provider: "tempo",
-        refund_reference: transactionHash,
-        refund_status: receipt.status,
-        replay_reference: requestedReference,
-        replay_request_hash: requestClaim.requestHash,
-      },
-      502,
-    );
-  }
-
-  const refundClaim = await claimReplayReference("refunds", transactionHash, {
-    provider: "tempo",
-    rail: "tempo-mpp",
-    amount_cents: amountCents,
-    currency,
-    quote_hash: refundExpected.quoteHash,
-    original_transaction_reference: refundExpected.originalReference,
-    requested_reference: requestedReference,
-    refund_recipient: refundExpected.refundRecipient,
-    asset: config.asset,
-    token_address: config.tokenAddress,
-    network: config.network,
-  });
-  if (!refundClaim.ok) return refundClaim.response;
-  return jsonResponse({
-    ok: true,
-    idempotent_replay: refundClaim.idempotentReplay || undefined,
-    provider: "tempo",
-    rail: "tempo-mpp",
-    amount_cents: amountCents,
-    currency,
-    quote_hash: refundExpected.quoteHash,
-    original_transaction_reference: refundExpected.originalReference,
-    network: config.network,
-    original_recipient: refundExpected.originalRecipient || config.account.address.toLowerCase(),
-    refund_recipient: refundExpected.refundRecipient,
-    asset: config.asset,
-    token_address: config.tokenAddress,
-    refund_reference: transactionHash,
-    replay_reference: transactionHash,
-    replay_request_hash: refundClaim.requestHash,
-    refund_status: "succeeded",
-    block_hash: receipt.blockHash,
-    block_number: receipt.blockNumber?.toString(),
-    real_refund_verified: true,
-  });
+function refundOperationError(error) {
+  return jsonResponse({ ok: false, error: error.message, real_refund_verified: false,
+    retry_with_same_reference: true }, error.status || 502);
 }
 
 async function verifyRefund(payload) {
@@ -2215,60 +2138,17 @@ async function verifyRefund(payload) {
   if (!requestedReference) {
     return jsonResponse({ ok: false, error: "refund.requested_reference is required." }, 400);
   }
-  let refundResult;
   try {
-    refundResult = await stripeClient.refunds.create(
-      {
-        amount: amountCents,
-        metadata: {
-          agentcart_quote_hash: quoteHash,
-          agentcart_refund_reason: String(refund.reason || "AgentCart refund"),
-        },
-        payment_intent: originalReference,
-        reason: "requested_by_customer",
-      },
-      {
-        idempotencyKey: requestedReference,
-      },
-    );
+    const store = durableRefundStore();
+    let op = store.reserve(requestedReference, {
+      provider: "stripe", rail, amount_cents: amountCents, currency,
+      quote_hash: quoteHash, original_transaction_reference: originalReference,
+    }, { rail, currency, quote_hash: quoteHash, stripe_profile_id: stripeProfileId });
+    op = await advanceStripeRefund(store, op, stripeClient);
+    return jsonResponse(refundResult(op), ["succeeded", "failed", "canceled"].includes(op.state) ? 200 : 202);
   } catch (error) {
-    return providerErrorResponse("Stripe/card refund", error);
+    return refundOperationError(error);
   }
-  const requestClaim = await claimReplayReference("refund_requests", requestedReference, {
-    provider: "stripe",
-    rail,
-    amount_cents: amountCents,
-    currency,
-    quote_hash: quoteHash,
-    original_transaction_reference: originalReference,
-    refund_reference: refundResult.id,
-  });
-  if (!requestClaim.ok) return requestClaim.response;
-  const refundClaim = await claimReplayReference("refunds", refundResult.id, {
-    provider: "stripe",
-    rail: "stripe-card-mpp",
-    amount_cents: amountCents,
-    currency,
-    quote_hash: quoteHash,
-    original_transaction_reference: originalReference,
-    requested_reference: requestedReference,
-  });
-  if (!refundClaim.ok) return refundClaim.response;
-  return jsonResponse({
-    ok: true,
-    idempotent_replay: requestClaim.idempotentReplay || refundClaim.idempotentReplay || undefined,
-    provider: "stripe",
-    rail: "stripe-card-mpp",
-    amount_cents: amountCents,
-    currency,
-    quote_hash: quoteHash,
-    original_transaction_reference: originalReference,
-    refund_reference: refundResult.id,
-    replay_reference: refundResult.id,
-    replay_request_hash: refundClaim.requestHash,
-    refund_status: refundResult.status,
-    real_refund_verified: true,
-  });
 }
 
 async function paid(request, payload) {

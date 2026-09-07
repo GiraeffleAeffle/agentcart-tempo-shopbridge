@@ -1,0 +1,20 @@
+{
+  "schema": "agentcart.onchain_registry_deployment.v1",
+  "registry_version": 2,
+  "id": "replace-with-reviewed-deployment-id",
+  "network_class": "mainnet",
+  "chain_id": 0,
+  "caip2": "eip155:0",
+  "registry_address": "",
+  "deployment_block": 0,
+  "deployment_block_hash": "",
+  "runtime_code_hash": "",
+  "rpc_url": "",
+  "witness_rpc_url": "",
+  "finality": {
+    "block_tag": "finalized",
+    "max_age_seconds": 600,
+    "max_future_skew_seconds": 120
+  },
+  "mutation_policy": "disabled"
+}

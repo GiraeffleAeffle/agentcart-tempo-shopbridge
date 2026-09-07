@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import pathlib
+import json
 import re
 import unittest
 
 
 PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "agentcart-shopbridge" / "agentcart-shopbridge.php"
 PLUGIN_DIR = PLUGIN.parent
+RELEASE_VERSION = json.loads((PLUGIN.parents[2] / 'gateway/package.json').read_text())['version']
 PLUGIN_SOURCE = PLUGIN.read_text()
 VERIFIER_CLIENT = PLUGIN_DIR / "includes" / "trait-agentcart-shopbridge-verifier-client.php"
 VERIFIER_CLIENT_SOURCE = VERIFIER_CLIENT.read_text() if VERIFIER_CLIENT.exists() else ""
@@ -44,7 +46,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         readme = README_TXT.read_text()
         for field in [
             "Plugin Name: AgentCart ShopBridge",
-            "Version: 0.2.0",
+            "Version: " + RELEASE_VERSION,
             "Requires at least: 6.4",
             "Requires PHP: 8.1",
             "Requires Plugins: woocommerce",
@@ -58,7 +60,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
             "Requires at least:",
             "Requires PHP:",
             "Requires Plugins: woocommerce",
-            "Stable tag: 0.2.0",
+            "Stable tag: " + RELEASE_VERSION,
             "License:",
             "Tags: woocommerce, agents, checkout, machine-payments, mpp",
             "== External Services ==",
@@ -187,7 +189,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("agentcart_quote_already_consumed", order_body)
         self.assertLess(order_body.index("acquire_quote_lock"), order_body.index("get_transient"))
         self.assertLess(order_body.index("acquire_quote_lock"), order_body.index("verify_payment_receipt"))
-        self.assertLess(order_body.index("acquire_quote_lock"), order_body.index("wc_create_order"))
+        self.assertLess(order_body.index("acquire_quote_lock"), order_body.index("$order->set_created_via('agentcart-shopbridge')"))
         self.assertLess(order_body.index("delete_transient"), order_body.index("release_quote_lock"))
 
     def test_merchant_quote_id_is_stored_from_normalized_request_value(self) -> None:
@@ -995,7 +997,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("AgentCart_ShopBridge_Registry_Rpc::verify", check_body)
         self.assertIn("'events' =>", check_body)
         self.assertIn("finalized_current", render_body)
-        self.assertIn("Pinned Tempo RPC finalized inclusion", render_body)
+        self.assertIn("Pinned registry finalized inclusion", render_body)
 
     def test_manifest_protocol_profiles_are_configured_only_and_registry_bound(self) -> None:
         capability_body = function_body("capability_document")
@@ -1574,7 +1576,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'refund_executed'", messages_body)
         self.assertIn("'money_returned'", messages_body)
         self.assertIn("real_refund_verified", messages_body)
-        self.assertIn("Refund executed and verified", messages_body)
+        self.assertIn("Provider confirmed refund success", messages_body)
         self.assertIn("Refund recorded by the merchant system", messages_body)
         self.assertIn("'state' => $aftercare_state['cancellation_state']", policy_body)
         self.assertIn("serialize_fulfillment", aftercare_body)
@@ -1734,7 +1736,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         capability_body = function_body("capability_document")
 
         self.assertIn("'hard'", settings_body)
-        self.assertIn("Hard reservation adapter", mode_rows_body)
+        self.assertIn("WooCommerce stock reservations", mode_rows_body)
         self.assertIn("agentcart_shopbridge_reserve_stock", mode_rows_body + hard_reserve_body)
         self.assertIn("agentcart_shopbridge_confirm_stock_reservation", mode_rows_body + confirm_body)
         self.assertIn("agentcart_shopbridge_release_stock_reservation", mode_rows_body + hard_release_body)
@@ -1745,12 +1747,12 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'state' => 'hard_reserved'", hard_reserve_body)
         self.assertIn("'requires_confirmation_before_order' => true", hard_reserve_body)
         self.assertIn("confirm_stock_reservation_for_order", order_body)
-        self.assertLess(order_body.index("confirm_stock_reservation_for_order"), order_body.index("wc_create_order"))
+        self.assertLess(order_body.index("confirm_stock_reservation_for_order"), order_body.index("$order->set_created_via('agentcart-shopbridge')"))
         self.assertIn("agentcart_stock_reservation_confirm_adapter_missing", confirm_body)
         self.assertIn("agentcart_stock_reservation_confirm_failed", confirm_body)
         self.assertIn("_agentcart_stock_reservation_confirmation", order_body)
         self.assertIn("release_stock_hold($merchant_quote_id, 'confirmed')", order_body)
-        self.assertIn("release_stock_hold($merchant_quote_id, 'order_creation_failed')", order_body)
+        self.assertIn("AgentCart_ShopBridge_Checkout_Store::failure", order_body)
         self.assertIn("$reason !== 'confirmed'", release_body)
         self.assertIn("release_hard_stock_reservation", release_body)
         self.assertIn("apply_filters", hard_reserve_body + confirm_body + hard_release_body)
@@ -1835,7 +1837,7 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertNotIn("min(20", order_body)
         self.assertLess(
             order_body.index("agentcart_quantity_limit_exceeded"),
-            order_body.index("wc_create_order"),
+            order_body.index("$order->set_created_via('agentcart-shopbridge')"),
         )
 
     def test_catalog_and_readiness_filter_blocked_products(self) -> None:

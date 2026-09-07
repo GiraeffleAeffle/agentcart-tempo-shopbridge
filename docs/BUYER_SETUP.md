@@ -31,6 +31,53 @@ python3 scripts/check-buyer-agent-adapter-examples.py
 python3 scripts/check-shopbridge-endpoint-contract.py
 ```
 
+## Codex with GPT-6 Astra
+
+For Codex buyers, this repository sets `model = "gpt-6-astra"` and
+`model_reasoning_effort = "medium"` in `.codex/config.toml`. `medium` is an
+explicit starting setting for evaluation; no earlier model was pinned in this
+repository. The `.agents/skills/shopbridge-direct` symlink points to the
+existing `gateway/shopbridge-direct-skill` folder, so a source checkout exposes
+`$shopbridge-direct` without a second copy of the skill.
+
+Start a fresh Codex session from this trusted repository. Project config loads
+only for trusted projects, and explicit CLI or session model selections can
+override the default. In the desktop model picker, select **GPT-6 Astra** and
+**Medium** if the task already has another selection. A model change here does
+not rewrite existing tasks. See the official
+[Codex configuration rules](https://learn.chatgpt.com/docs/config-file/config-basic)
+and [skill discovery rules](https://learn.chatgpt.com/docs/build-skills#where-to-save-skills).
+
+An explicit CLI launch is:
+
+```sh
+codex --model gpt-6-astra -c 'model_reasoning_effort="medium"'
+```
+
+Then invoke `$shopbridge-direct` and ask it to run `doctor` for discovery
+readiness. When using the release ZIP in another workspace, install the skill
+as described below and set the model in that workspace's Codex configuration
+or pass the same CLI flags. The release ZIP does not carry this repository's
+Codex model configuration. `agents/openai.yaml` supplies skill presentation
+metadata; it does not select the model.
+
+This migration changes the buyer harness configuration. ShopBridge contains no
+OpenAI API client, and its merchant, registry, and verifier services need no
+model dependency or OpenAI API key. Codex still needs its normal authenticated
+account and access to Astra. A future custom API buyer must use the Responses
+API for Astra tool calls and follow the
+[Astra migration guidance](https://developers.openai.com/api/docs/guides/latest-model#gpt-6-astra-update-api-and-model-parameters).
+
+Before treating Astra as production validated, run the checked Codex buyer
+sequence in `gateway/examples/buyer-agents/codex-shopbridge-direct.example.json`
+in a fresh session. Capture the actual model/effort, skill version, latency,
+usage, tool calls, and existing buyer evidence artifacts. Include revoked or
+unreachable shops, merchant prompt injection, a comparison quote with no full
+address, stale quotes, absent approval, ambiguous payment results, and aftercare
+failures. Contract tests validate the helper's rules; model evaluation must also
+prove that the agent follows them. Buyer approval remains bound to the exact
+Final Quote before payment or checkout.
+
 ## Skill-Only Setup
 
 Install globally for the agent tools detected on your machine:

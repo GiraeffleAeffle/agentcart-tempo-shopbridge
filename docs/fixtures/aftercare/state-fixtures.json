@@ -392,6 +392,7 @@
             "rail": "tempo_mpp",
             "provider": "tempo_mpp",
             "real_refund_verified": true,
+            "refund_status": "succeeded",
             "refund_reference": "tempo-refund-fixture-1"
           }
         ]
@@ -403,9 +404,9 @@
         "cancellation_state": "terminal",
         "remaining_refundable_cents": 0,
         "refund_executed": true,
-        "money_returned": true,
+        "money_returned": false,
         "latest_refund_reference": "tempo-refund-fixture-1",
-        "message_contains": "Refund executed and verified",
+        "message_contains": "Provider confirmed refund success",
         "next_actions": [
           "check_status_later"
         ]

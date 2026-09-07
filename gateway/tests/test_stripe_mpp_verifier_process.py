@@ -279,6 +279,21 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
         self.assertEqual(body["provider_error_class"], "tempo_refund_adapter_missing")
         self.assertIn("Tempo refund adapter is not configured", body["error"])
 
+    def test_real_refund_requires_sqlite_and_locally_verified_payment(self) -> None:
+        payload = {"operation": "refund", "refund": {"rail": "stripe-card-mpp", "requested_reference": "refund-one"},
+                   "expected": {"amount_cents": 100, "currency": "USD", "quote_hash": "quote", "original_transaction_reference": "pi_unknown"}}
+        status, body = self.post_verify(payload)
+        self.assertEqual(status, 503, body)
+        self.assertIn("SQLite", body["error"])
+        self.restart_process({"AGENTCART_VERIFIER_REPLAY_STORE_DRIVER": "sqlite",
+            "AGENTCART_VERIFIER_REPLAY_STORE_PATH": str(pathlib.Path(self.temp_dir.name) / "replay.sqlite")})
+        health = self.wait_for_health_response()
+        self.assertTrue(health["refund_ledger"]["configured"])
+        self.assertEqual(health["refund_ledger"]["counts"], {})
+        status, body = self.post_verify(payload)
+        self.assertEqual(status, 409, body)
+        self.assertIn("Original verified payment is missing", body["error"])
+
     def test_tempo_settlement_verify_mode_rejects_non_transaction_hash(self) -> None:
         self.restart_process({"AGENTCART_TEMPO_SETTLEMENT_MODE": "verify"})
         payload = {

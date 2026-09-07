@@ -9,6 +9,8 @@ on:
       - gateway/package-lock.json
       - gateway/scripts/stripe-mpp-verifier.mjs
       - gateway/scripts/verifier-sqlite-replay-store.mjs
+      - gateway/scripts/verifier-refund-operations.mjs
+      - gateway/tests/verifier-refund-operations.test.mjs
   push:
     branches:
       - main
@@ -19,6 +21,8 @@ on:
       - gateway/package-lock.json
       - gateway/scripts/stripe-mpp-verifier.mjs
       - gateway/scripts/verifier-sqlite-replay-store.mjs
+      - gateway/scripts/verifier-refund-operations.mjs
+      - gateway/tests/verifier-refund-operations.test.mjs
   workflow_dispatch:
 
 permissions:
@@ -45,6 +49,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Install gateway dependencies
+        working-directory: gateway
+        run: npm ci
 
       - name: Check verifier source
         working-directory: gateway

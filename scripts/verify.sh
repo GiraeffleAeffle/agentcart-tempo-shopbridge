@@ -25,6 +25,9 @@ if command -v forge >/dev/null 2>&1; then
     cd "$ROOT_DIR"
     ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY:-dummy}" forge test --quiet
   )
+elif [ "${AGENTCART_REQUIRE_SOLIDITY_TESTS:-0}" = 1 ]; then
+  printf 'forge is required for this verification run\n' >&2
+  exit 1
 else
   printf 'forge not installed; skipping Solidity compile\n'
 fi
@@ -36,6 +39,7 @@ py311_files=(
   gateway/scripts/registry_record.py
   gateway/openclaw-skill/scripts/agentcart-command.py
   gateway/shopbridge-direct-skill/scripts/shopbridge-command.py
+  gateway/shopbridge-direct-skill/scripts/shopbridge_market.py
   gateway/shopbridge-direct-skill/scripts/shopbridge_discovery_facets.py
   gateway/shopbridge-direct-skill/scripts/shopbridge_safe_http.py
   gateway/shopbridge-direct-skill/scripts/shopbridge_registry_trust.py
@@ -299,6 +303,7 @@ python3 "$ROOT_DIR/scripts/check-wordpress-plugin-package.py" --zip "$ROOT_DIR/d
 section "Package ShopBridge direct skill"
 bash -n "$ROOT_DIR/scripts/package-shopbridge-direct-skill.sh"
 "$ROOT_DIR/scripts/package-shopbridge-direct-skill.sh"
+python3 "$ROOT_DIR/scripts/package-service-skills.py"
 skill_zip_listing="$(unzip -l "$ROOT_DIR/dist/shopbridge-direct-skill.zip")"
 grep -q "shopbridge-direct-skill/SKILL.md" <<<"$skill_zip_listing"
 grep -q "shopbridge-direct-skill/scripts/shopbridge-command.py" <<<"$skill_zip_listing"

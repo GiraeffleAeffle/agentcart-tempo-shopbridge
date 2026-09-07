@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 const BUCKETS = new Set(["payments", "refund_requests", "refunds"]);
 
-function sqlString(value) {
+export function sqlString(value) {
   return `'${String(value ?? "").replaceAll("'", "''")}'`;
 }
 
@@ -20,7 +20,7 @@ function requireBucket(bucket) {
   return normalized;
 }
 
-function runSqlite(dbPath, sql, { json = false } = {}) {
+export function runSqlite(dbPath, sql, { json = false } = {}) {
   if (!dbPath) throw Object.assign(new Error("sqlite replay store path is required"), { status: 500 });
   if (!fs.existsSync(path.dirname(dbPath))) {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });

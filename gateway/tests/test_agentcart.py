@@ -4512,9 +4512,9 @@ class AgentCartTests(unittest.TestCase):
             self.assertEqual(refund_result["refund"]["replay_request_hash"], "refund-replay-hash")
             self.assertEqual(refund_result["order"]["refund_state"], "rail_refund_verified")
             messages = refund_result["order"]["aftercare_state"]["buyer_aftercare_messages"]
-            self.assertIn("Refund executed and verified", messages["refund"])
+            self.assertIn("Provider confirmed refund success", messages["refund"])
             self.assertTrue(messages["allowed_claims"]["refund_executed"])
-            self.assertTrue(messages["allowed_claims"]["money_returned"])
+            self.assertFalse(messages["allowed_claims"]["money_returned"])
             self.assertEqual(messages["allowed_claims"]["latest_refund_reference"], "tempo-refund-abc")
             self.assertTrue(any(urllib.parse.parse_qs(urllib.parse.urlparse(call["url"]).query).get("rest_route") == ["/agentcart/v1/orders/9001/refunds"] for call in calls))
 
