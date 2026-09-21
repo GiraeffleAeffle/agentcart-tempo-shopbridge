@@ -205,6 +205,11 @@ final class AgentCart_ShopBridge_Checkout_Store {
         return $order && $order->get_meta('_agentcart_checkout_request_hash', true) !== '';
     }
 
+    public static function encryption_available() {
+        return function_exists('openssl_encrypt') && function_exists('openssl_decrypt')
+            && in_array('aes-256-gcm', openssl_get_cipher_methods(), true);
+    }
+
     public static function begin($quote, $body, WP_REST_Request $request, $request_hash, $key) {
         $order = self::find($quote['id']);
         if (!$order) {
@@ -225,7 +230,7 @@ final class AgentCart_ShopBridge_Checkout_Store {
             foreach (['idempotency-key', 'payment-signature', 'x-payment', 'payment-response'] as $name) {
                 $payload['headers'][$name] = (string) $request->get_header($name);
             }
-            if (!function_exists('openssl_encrypt')) {
+            if (!self::encryption_available()) {
                 return new WP_Error('agentcart_recovery_storage_unavailable', 'Encrypted checkout recovery storage requires OpenSSL.', ['status' => 503]);
             }
             $nonce = random_bytes(12);
@@ -294,8 +299,15 @@ final class AgentCart_ShopBridge_Checkout_Store {
 
     public static function schedule($order_id, $delay) {
         $args = [intval($order_id)];
-        if (!wp_next_scheduled('agentcart_shopbridge_recover_checkout', $args)) {
-            wp_schedule_single_event(time() + intval($delay), 'agentcart_shopbridge_recover_checkout', $args);
+        $next = wp_next_scheduled('agentcart_shopbridge_recover_checkout', $args);
+        if (!$next) {
+            $next = time() + intval($delay);
+            wp_schedule_single_event($next, 'agentcart_shopbridge_recover_checkout', $args);
+        }
+        $order = wc_get_order($order_id);
+        if ($order) {
+            $order->update_meta_data('_agentcart_recovery_next_attempt_at', $next);
+            $order->save();
         }
     }
 
@@ -312,6 +324,7 @@ final class AgentCart_ShopBridge_Checkout_Store {
             foreach ($orders as $order) {
                 $cases[] = [
                     'order_id' => $order->get_id(), 'state' => $state,
+                    'created_at' => $order->get_date_created() ? $order->get_date_created()->getTimestamp() : time(),
                     'total' => $order->get_total(), 'currency' => $order->get_currency(),
                     'attempts' => intval($order->get_meta('_agentcart_recovery_attempts', true)),
                     'error' => (string) $order->get_meta('_agentcart_checkout_error', true),

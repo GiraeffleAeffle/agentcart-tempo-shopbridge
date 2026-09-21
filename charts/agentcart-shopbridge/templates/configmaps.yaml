@@ -5,6 +5,8 @@ metadata:
   labels:
     {{- include "agentcart-shopbridge.labels" . | nindent 4 }}
 data:
+  run-scheduler.sh: |
+{{ .Files.Get "files/bootstrap/run-scheduler.sh" | indent 4 }}
   prepare-wordpress.sh: |
 {{ .Files.Get "files/bootstrap/prepare-wordpress.sh" | indent 4 }}
   seed-before-start.sh: |

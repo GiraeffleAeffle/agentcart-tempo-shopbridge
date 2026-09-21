@@ -65,3 +65,6 @@ jobs:
           AGENTCART_WORDPRESS_OFFICIAL_TOOLS_REQUIRED: "1"
           AGENTCART_WORDPRESS_PLUGIN_CHECK_COMMAND: scripts/run-wordpress-plugin-check.sh
         run: bash scripts/verify.sh
+
+      - name: Exercise recovery on legacy and HPOS order storage
+        run: bash scripts/run-woocommerce-recovery-integration.sh

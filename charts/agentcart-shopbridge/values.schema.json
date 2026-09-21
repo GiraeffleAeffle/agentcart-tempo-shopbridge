@@ -54,12 +54,15 @@
         "returnsPath": {"type": "string", "pattern": "^/"}
       }
     },
+    "scheduler": {"type": "object", "required": ["enabled", "resources"], "properties": {"enabled": {"type": "boolean"}, "resources": {"type": "object"}}},
     "verifier": {
       "type": "object",
       "required": ["enabled", "enabledRails", "alerts", "replay", "persistence", "tempo"],
       "properties": {
         "enabled": {"type": "boolean"},
         "port": {"type": "integer", "minimum": 1024, "maximum": 65535},
+        "reconciliationEnabled": {"type": "boolean"},
+        "allowedTempoNetworks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["testnet", "mainnet"]}},
         "enabledRails": {
           "type": "array",
           "minItems": 1,

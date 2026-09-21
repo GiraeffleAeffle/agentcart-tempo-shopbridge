@@ -99,8 +99,14 @@ trait AgentCart_ShopBridge_Checkout_Recovery {
                 if (($verification['real_settlement_verified'] ?? false) !== true) {
                     return new WP_Error('agentcart_compensation_payment_unverified', 'Compensation requires verified real settlement.', ['status' => 409]);
                 }
+                if ($state !== 'compensating') {
+                    $order->update_meta_data('_agentcart_recovery_attempts', 0);
+                }
                 $order->update_meta_data(AgentCart_ShopBridge_Checkout_Store::STATE_META, 'compensating');
                 $order->save();
+                if ($state !== 'compensating') {
+                    AgentCart_ShopBridge_Checkout_Store::schedule($order_id, 90);
+                }
                 $refund = new WP_REST_Request('POST', '/' . self::API_NAMESPACE . '/orders/' . $order_id . '/refunds');
                 $refund->set_param('id', $order_id);
                 $refund->set_header('content-type', 'application/json');
@@ -160,7 +166,10 @@ trait AgentCart_ShopBridge_Checkout_Recovery {
 
     private static function run_checkout_recovery_job($order_id) {
         $order = wc_get_order(intval($order_id));
-        if (!$order || !in_array($order->get_meta(AgentCart_ShopBridge_Checkout_Store::STATE_META, true), ['verifying', 'verification_pending', 'payment_verified'], true)) {
+        if (!$order || !in_array($order->get_meta(AgentCart_ShopBridge_Checkout_Store::STATE_META, true), ['verifying', 'verification_pending', 'payment_verified', 'compensating'], true)) {
+            return;
+        }
+        if (intval($order->get_meta('_agentcart_recovery_next_attempt_at', true)) > time()) {
             return;
         }
         $attempts = intval($order->get_meta('_agentcart_recovery_attempts', true));
@@ -170,7 +179,8 @@ trait AgentCart_ShopBridge_Checkout_Recovery {
         $order->update_meta_data('_agentcart_recovery_attempts', $attempts + 1);
         $order->save();
         try {
-            self::run_checkout_recovery(intval($order_id), 'retry');
+            $action = $order->get_meta(AgentCart_ShopBridge_Checkout_Store::STATE_META, true) === 'compensating' ? 'compensate' : 'retry';
+            self::run_checkout_recovery(intval($order_id), $action);
         } catch (Throwable $error) {
             // No provider body or request secrets in operational metadata.
             $order->update_meta_data('_agentcart_checkout_error', 'recovery_interrupted');
@@ -180,6 +190,92 @@ trait AgentCart_ShopBridge_Checkout_Recovery {
                 AgentCart_ShopBridge_Checkout_Store::schedule($order_id, 300 * ($attempts + 1));
             }
         }
+    }
+
+    public static function operations_cron_schedules($schedules) {
+        $schedules['agentcart_minute'] = ['interval' => 60, 'display' => 'ShopBridge recovery check'];
+        return $schedules;
+    }
+
+    public static function ensure_operations_schedule() {
+        if (!wp_next_scheduled('agentcart_shopbridge_operations_tick')) {
+            wp_schedule_event(time() + 60, 'agentcart_minute', 'agentcart_shopbridge_operations_tick');
+        }
+    }
+
+    public static function operations_tick() {
+        $lock = self::connection_lock_name('operations', 'scheduler');
+        if (is_wp_error(self::acquire_connection_lock($lock))) {
+            return;
+        }
+        try {
+            // Select eligible attempts directly: exhausted cases cannot starve newer work.
+            // phpcs:disable WordPress.DB.SlowDBQuery -- Bounded operational scan across legacy and HPOS order stores.
+            $query = [
+                'type' => 'shop_order', 'limit' => 10, 'orderby' => 'ID', 'order' => 'ASC',
+                'meta_query' => [
+                    [
+                        'key' => AgentCart_ShopBridge_Checkout_Store::STATE_META,
+                        'value' => ['verifying', 'verification_pending', 'payment_verified', 'compensating'], 'compare' => 'IN',
+                    ],
+                    [
+                        'relation' => 'OR', ['key' => '_agentcart_recovery_attempts', 'compare' => 'NOT EXISTS'],
+                        ['key' => '_agentcart_recovery_attempts', 'value' => 3, 'compare' => '<', 'type' => 'NUMERIC'],
+                    ],
+                    [
+                        'relation' => 'OR', ['key' => '_agentcart_recovery_next_attempt_at', 'compare' => 'NOT EXISTS'],
+                        ['key' => '_agentcart_recovery_next_attempt_at', 'value' => time(), 'compare' => '<=', 'type' => 'NUMERIC'],
+                    ],
+                ],
+            ];
+            if (\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+                $orders = wc_get_orders($query);
+            } else {
+                // Legacy WC_Order_Query does not support meta_query; use its authoritative posts store.
+                $ids = get_posts([
+                    'post_type' => 'shop_order', 'post_status' => 'any', 'fields' => 'ids',
+                    'numberposts' => 10, 'orderby' => 'ID', 'order' => 'ASC',
+                    'meta_query' => $query['meta_query'],
+                ]);
+                $orders = array_filter(array_map('wc_get_order', $ids));
+            }
+            // phpcs:enable WordPress.DB.SlowDBQuery
+            foreach ($orders as $order) {
+                self::recover_checkout_job($order->get_id());
+            }
+            update_option('agentcart_shopbridge_scheduler_heartbeat', time(), false);
+        } finally {
+            self::release_connection_lock($lock);
+        }
+    }
+
+    private static function operations_diagnostics() {
+        $cases = AgentCart_ShopBridge_Checkout_Store::queue()['cases'];
+        $counts = [];
+        $oldest = 0;
+        $exhausted = 0;
+        foreach ($cases as $case) {
+            $counts[$case['state']] = ($counts[$case['state']] ?? 0) + 1;
+            $oldest = max($oldest, time() - $case['created_at']);
+            if ($case['attempts'] >= 3) {
+                ++$exhausted;
+            }
+        }
+        $heartbeat = intval(get_option('agentcart_shopbridge_scheduler_heartbeat', 0));
+        return [
+            'external_scheduler_configured' => defined('AGENTCART_EXTERNAL_SCHEDULER') && AGENTCART_EXTERNAL_SCHEDULER === true,
+            'heartbeat_at' => $heartbeat,
+            'heartbeat_fresh' => $heartbeat > 0 && $heartbeat <= time() && time() - $heartbeat <= 180,
+            'next_tick_at' => wp_next_scheduled('agentcart_shopbridge_operations_tick') ?: null,
+            'transactional_storage' => !is_wp_error(AgentCart_ShopBridge_Checkout_Store::require_transactional_storage()),
+            'encrypted_recovery_available' => AgentCart_ShopBridge_Checkout_Store::encryption_available(),
+            'sampled_unresolved_count' => count($cases),
+            'counts' => $counts,
+            'sample_limit_per_state' => 20,
+            'exhausted_in_sample' => $exhausted,
+            'oldest_age_seconds_in_sample' => max(0, $oldest),
+            'attention_required' => count($cases) > 0,
+        ];
     }
 
     public static function handle_checkout_recovery_action() {

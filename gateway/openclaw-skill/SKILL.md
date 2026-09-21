@@ -2,7 +2,7 @@
 name: agentcart
 description: Buy demo household products through AgentCart with merchant discovery, quote tournaments, portable human approval, HTTP 402 payment-auth checkout, orders, and audit logs.
 metadata:
-  version: "1.23.0"
+  version: "1.24.0"
   openclaw:
     requires:
       bins:

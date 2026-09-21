@@ -77,6 +77,8 @@ spec:
           env:
             - {name: STRIPE_MPP_VERIFIER_BIND, value: "0.0.0.0"}
             - {name: STRIPE_MPP_VERIFIER_PORT, value: {{ .Values.verifier.port | quote }}}
+            - {name: AGENTCART_REFUND_RECONCILIATION_ENABLED, value: {{ .Values.verifier.reconciliationEnabled | quote }}}
+            - {name: AGENTCART_VERIFIER_ALLOWED_TEMPO_NETWORKS, value: {{ join "," .Values.verifier.allowedTempoNetworks | quote }}}
             - {name: AGENTCART_VERIFIER_ENABLED_RAILS, value: {{ join "," .Values.verifier.enabledRails | quote }}}
             - {name: AGENTCART_VERIFIER_REPLAY_STORE_DRIVER, value: {{ .Values.verifier.replay.driver | quote }}}
             - {name: AGENTCART_VERIFIER_REPLAY_STORE_PATH, value: "/data/replay-store.sqlite"}

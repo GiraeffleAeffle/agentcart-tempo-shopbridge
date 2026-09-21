@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AgentCart ShopBridge
  * Description: Exposes opt-in WooCommerce catalog, quote, and paid-order endpoints for AgentCart household agents.
- * Version: 1.23.0
+ * Version: 1.24.0
  * Requires at least: 6.4
  * Requires PHP: 8.1
  * Requires Plugins: woocommerce
@@ -132,6 +132,10 @@ final class AgentCart_ShopBridge {
 
     public static function init() {
         AgentCart_ShopBridge_Checkout_Store::init();
+        // phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- Recovery trait defines a bounded one-minute schedule.
+        add_filter('cron_schedules', [__CLASS__, 'operations_cron_schedules']);
+        add_action('init', [__CLASS__, 'ensure_operations_schedule']);
+        add_action('agentcart_shopbridge_operations_tick', [__CLASS__, 'operations_tick']);
         add_action('agentcart_shopbridge_recover_checkout', [__CLASS__, 'recover_checkout_job']);
         add_action('admin_post_agentcart_checkout_recovery', [__CLASS__, 'handle_checkout_recovery_action']);
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -4877,6 +4881,7 @@ final class AgentCart_ShopBridge {
                 'returns_url_configured' => self::returns_url() !== '',
             ],
             'readiness' => $readiness,
+            'operations' => self::operations_diagnostics(),
             'setup_guide' => self::support_diagnostics_setup_summary(self::setup_guide($readiness)),
             'endpoints' => [
                 'manifest' => home_url('/.well-known/agentcart.json'),
@@ -4941,6 +4946,7 @@ final class AgentCart_ShopBridge {
                 'public_check' => self::support_diagnostics_sanitize(self::registry_public_check_result()),
                 'connection_status' => self::support_diagnostics_sanitize(self::registry_connection_status()),
                 'health_check' => self::support_diagnostics_sanitize(self::registry_health_check_result()),
+                'onchain_readiness' => self::registry_onchain_readiness(),
             ],
             'catalog' => [
                 'product_exposure_mode' => self::product_exposure_mode(),
