@@ -130,6 +130,30 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
             finally:
                 error.close()
 
+    def test_reconciliation_health_reports_fresh_bounded_worker(self) -> None:
+        self.restart_process({
+            "AGENTCART_REFUND_RECONCILIATION_ENABLED": "true",
+            "AGENTCART_VERIFIER_REPLAY_STORE_DRIVER": "sqlite",
+            "AGENTCART_VERIFIER_REPLAY_STORE_PATH": str(pathlib.Path(self.temp_dir.name) / "worker.sqlite"),
+            "AGENTCART_VERIFIER_ALLOWED_TEMPO_NETWORKS": "testnet",
+        })
+        health = self.wait_for_health_response()
+        self.assertEqual(health["version"], json.loads((ROOT / "package.json").read_text())["version"])
+        self.assertIn("generated_at", health)
+        self.assertEqual(health["stripe_credential_mode"], "test")
+        self.assertEqual(health["allowed_tempo_networks"], ["testnet"])
+        self.assertTrue(health["refund_reconciliation"]["enabled"])
+        self.assertIsNotNone(health["refund_reconciliation"]["last_completed_at"])
+        self.assertEqual(health["refund_reconciliation"]["attempted"], 0)
+
+    def test_reconciliation_rejects_nondurable_store_and_unknown_network(self) -> None:
+        for config in ({"AGENTCART_REFUND_RECONCILIATION_ENABLED": "true"},
+                       {"AGENTCART_VERIFIER_ALLOWED_TEMPO_NETWORKS": "anything"}):
+            self.restart_process(config, require_ready=False)
+            health = self.wait_for_health_response()
+            self.assertFalse(health["ok"])
+            self.assertTrue(health["configuration_errors"])
+
     def test_tempo_payment_response_retains_payer_address(self) -> None:
         reference = f"process-payer-test-{time.time_ns()}"
         payload = {
@@ -171,6 +195,13 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertEqual(body["payer_address"], "0x2222222222222222222222222222222222222222")
         self.assertEqual(body["payer_source"], "did:pkh:eip155:42431:0x2222222222222222222222222222222222222222")
+        self.restart_process({"AGENTCART_VERIFIER_ALLOWED_TEMPO_NETWORKS": "testnet"})
+        payload["payment_receipt"]["external_value_proof"]["network"] = "mainnet"
+        payload["expected"]["tempo_network"] = "mainnet"
+        status, body = self.post_verify(payload)
+        self.assertEqual(status, 400)
+        self.assertIn("not allowed", body["error"])
+
 
     def test_weak_or_reused_verifier_credentials_fail_readiness(self) -> None:
         self.restart_process(

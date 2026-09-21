@@ -137,6 +137,20 @@ if grep -Fq 'AGENTCART_REGISTRY_V2_DEPLOYMENT, value:' "$rendered"; then
   exit 1
 fi
 
+grep -Fq 'name: scheduler' "$rendered"
+grep -Fq 'AGENTCART_EXTERNAL_SCHEDULER, value: "true"' "$rendered"
+grep -Fq 'AGENTCART_REFUND_RECONCILIATION_ENABLED, value: "true"' "$rendered_verifier"
+grep -Fq 'AGENTCART_VERIFIER_ALLOWED_TEMPO_NETWORKS, value: "testnet"' "$rendered_verifier"
+if "$helm_bin" template scheduler-disabled "$chart" --set scheduler.enabled=false | grep -Fq 'name: scheduler'; then
+  printf 'disabled scheduler unexpectedly rendered a container\n' >&2
+  exit 1
+fi
+if "$helm_bin" lint "$chart" --set 'verifier.allowedTempoNetworks[0]=unknown' >/dev/null 2>&1; then
+  printf 'invalid verifier network unexpectedly passed validation\n' >&2
+  exit 1
+fi
+bash -n "$chart/files/bootstrap/run-scheduler.sh"
+
 rendered_bytes="$(wc -c <"$rendered" | tr -d ' ')"
 (( rendered_bytes < 900000 )) || {
   printf 'rendered chart is unexpectedly large: %s bytes\n' "$rendered_bytes" >&2

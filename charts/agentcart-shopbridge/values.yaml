@@ -51,8 +51,16 @@ store:
   productExposureMode: manual
   returnsPath: /returns
 
+scheduler:
+  enabled: true
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 384Mi}
+
 verifier:
   enabled: false
+  reconciliationEnabled: true
+  allowedTempoNetworks: [testnet]
   port: 4260
   enabledRails:
     - tempo-mpp

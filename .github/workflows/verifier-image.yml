@@ -10,6 +10,8 @@ on:
       - gateway/scripts/stripe-mpp-verifier.mjs
       - gateway/scripts/verifier-sqlite-replay-store.mjs
       - gateway/scripts/verifier-refund-operations.mjs
+      - gateway/scripts/verifier-refund-reconciler.mjs
+      - gateway/tests/verifier-refund-reconciler.test.mjs
       - gateway/tests/verifier-refund-operations.test.mjs
   push:
     branches:
@@ -22,6 +24,8 @@ on:
       - gateway/scripts/stripe-mpp-verifier.mjs
       - gateway/scripts/verifier-sqlite-replay-store.mjs
       - gateway/scripts/verifier-refund-operations.mjs
+      - gateway/scripts/verifier-refund-reconciler.mjs
+      - gateway/tests/verifier-refund-reconciler.test.mjs
       - gateway/tests/verifier-refund-operations.test.mjs
   workflow_dispatch:
 

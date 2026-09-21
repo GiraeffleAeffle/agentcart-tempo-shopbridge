@@ -1,6 +1,6 @@
 {
   "name": "agentcart",
-  "version": "1.23.0",
+  "version": "1.24.0",
   "private": true,
   "type": "module",
   "description": "Household-safe commerce bridge demo with optional Tempo MPP smoke tooling.",
@@ -11,7 +11,7 @@
     "mpp:account:view": "mppx account view --network testnet --account agentcart-test",
     "mpp:pay": "mppx http://127.0.0.1:4250/paid --network testnet --account agentcart-test --include",
     "stripe:mpp:verifier": "node scripts/stripe-mpp-verifier.mjs",
-    "stripe:mpp:check": "node --check scripts/stripe-mpp-verifier.mjs && node --check scripts/verifier-sqlite-replay-store.mjs && node --test tests/verifier-refund-operations.test.mjs",
+    "stripe:mpp:check": "node --check scripts/stripe-mpp-verifier.mjs && node --check scripts/verifier-sqlite-replay-store.mjs && node --check scripts/verifier-refund-reconciler.mjs && node --test tests/verifier-refund-operations.test.mjs tests/verifier-refund-reconciler.test.mjs",
     "onchain:indexer:check": "node --check scripts/onchain-registry-indexer.mjs && node --check scripts/onchain-registry-indexer-loop.mjs && node --check scripts/merchant-registry-enrollment.mjs && node --check scripts/merchant-discovery-facets.mjs && node --check scripts/onchain-registry-operator.mjs && node --check scripts/onchain-discovery-facets-operator.mjs && node --check scripts/registry-v2-operator.mjs && node --test tests/onchain-registry-indexer.test.mjs tests/merchant-registry-enrollment.test.mjs tests/merchant-discovery-facets.test.mjs tests/registry-v2-plans.test.mjs",
     "stripe:link:smoke": "bash scripts/stripe-link-mpp-smoke.sh"
   },

@@ -18,6 +18,10 @@ import {
 
 import { refundStore, refundResult, advanceStripeRefund, advanceTempoRefund, hasRefundTransfer } from "./verifier-refund-operations.mjs";
 
+import { reconciliationQueue, reconcileRefunds } from "./verifier-refund-reconciler.mjs";
+
+const serviceVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+
 const host = process.env.STRIPE_MPP_VERIFIER_BIND || "127.0.0.1";
 const port = Number(process.env.STRIPE_MPP_VERIFIER_PORT || "4260");
 const stripeSecretKey = (
@@ -42,6 +46,10 @@ const enabledVerifierRails = new Set(
   configuredVerifierRails.filter((value) => supportedVerifierRails.has(value)),
 );
 const minimumCredentialCharacters = 32;
+const allowedTempoNetworks = (process.env.AGENTCART_VERIFIER_ALLOWED_TEMPO_NETWORKS || "testnet,mainnet").split(",").map(x => x.trim()).filter(Boolean);
+const reconciliationEnabled = process.env.AGENTCART_REFUND_RECONCILIATION_ENABLED === "true";
+const reconciliationStatus = { enabled: reconciliationEnabled, running: false, last_completed_at: null, errors: 0 };
+
 const replayStorePath = (
   process.env.AGENTCART_VERIFIER_REPLAY_STORE_PATH ||
   process.env.STRIPE_MPP_REPLAY_STORE_PATH ||
@@ -117,7 +125,7 @@ const erc20TransferAbi = [
 const erc20TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 const stripeClient = stripeSecretKey
-  ? new Stripe(stripeSecretKey, { apiVersion: "2026-02-25.preview" })
+  ? new Stripe(stripeSecretKey, { apiVersion: "2026-02-25.preview", timeout: 10000, maxNetworkRetries: 1 })
   : null;
 const memoryReplayStore = blankReplayStore();
 const verifierStartedAt = new Date().toISOString();
@@ -597,6 +605,8 @@ function missingConfig() {
 
 function credentialConfigurationErrors() {
   const errors = [];
+  if (!allowedTempoNetworks.length || allowedTempoNetworks.some(x => !["testnet", "mainnet"].includes(x))) errors.push("allowed Tempo networks must contain only testnet or mainnet");
+  if (reconciliationEnabled && (replayStoreDriver !== "sqlite" || !replayStorePath)) errors.push("refund reconciliation requires SQLite");
   if (unsupportedVerifierRails.length > 0) {
     errors.push(
       `AGENTCART_VERIFIER_ENABLED_RAILS contains unsupported rails: ${unsupportedVerifierRails.join(", ")}.`,
@@ -633,8 +643,13 @@ function readiness() {
   const ok = missing.length === 0 && configurationErrors.length === 0 && !replay.error && !journal.error;
   return {
     ok,
+    version: serviceVersion,
+    generated_at: new Date().toISOString(),
     service: "agentcart-stripe-mpp-verifier",
     mode: "sandbox",
+    stripe_credential_mode: !stripeSecretKey ? "not_configured" : /^(sk|rk)_test_/.test(stripeSecretKey) ? "test" : /^(sk|rk)_live_/.test(stripeSecretKey) ? "live" : "unknown",
+    allowed_tempo_networks: [...allowedTempoNetworks],
+    refund_reconciliation: { ...reconciliationStatus },
     enabled_rails: [...enabledVerifierRails].sort(),
     endpoints: {
       health: `http://${host}:${port}/health`,
@@ -1355,6 +1370,7 @@ function tempoNetworkName(value) {
 
 function tempoChainForNetwork(value) {
   const network = tempoNetworkName(value);
+  if (!allowedTempoNetworks.includes(network)) throw Object.assign(new Error("Tempo network is not allowed by this verifier deployment."), { status: 400 });
   if (network === "mainnet") return tempoMainnet;
   if (network === "testnet") return tempoModerato;
   throw Object.assign(new Error(`Unsupported Tempo network: ${value || "missing"}`), { status: 400 });
@@ -1837,6 +1853,9 @@ async function verifyTempoFxPayment(receipt, expected) {
     );
   }
   const network = tempoNetworkName(proof.network || body.network || proofReceipt.network || expected.tempoNetwork || "");
+  if (!allowedTempoNetworks.includes(network)) {
+    return jsonResponse({ ok: false, error: "Tempo network is not allowed by this verifier deployment." }, 400);
+  }
   if (expected.tempoNetwork && network && network !== tempoNetworkName(expected.tempoNetwork)) {
     return jsonResponse({ ok: false, error: "Tempo proof network does not match merchant configuration." }, 400);
   }
@@ -2053,35 +2072,78 @@ async function verifyTempoRefund(payload, refund, expected, amountCents, currenc
       payer_address: binding.refund_recipient, asset: config.asset,
       token_address: binding.token_address, real_settlement_verified: true,
     });
-    const publicClient = createPublicClient({ chain: config.chain, transport: viemHttp(config.rpcUrl) });
-    const wallet = createWalletClient({ account: config.account, chain: config.chain, transport: viemHttp(config.rpcUrl) });
-    op = await advanceTempoRefund(store, op, {
-      prepare: async (nonceKey) => {
-        const request = await wallet.prepareTransactionRequest({
-          to: config.tokenAddress,
-          data: encodeFunctionData({ abi: erc20TransferAbi, functionName: "transfer",
-            args: [binding.refund_recipient, parseUnits(centsToDecimal(amountCents), tempoRefundDecimals)] }),
-          nonceKey, nonce: 0,
-        });
-        const raw = await wallet.signTransaction(request);
-        return { raw, hash: keccak256(raw) };
-      },
-      broadcast: (raw) => publicClient.sendRawTransaction({ serializedTransaction: raw }),
-      receipt: async (hash) => {
-        const receipt = await publicClient.getTransactionReceipt({ hash });
-        const confirmations = await publicClient.getTransactionConfirmations({ transactionReceipt: receipt });
-        if (confirmations < BigInt(tempoRefundConfirmations)) return null;
-        if (receipt.status === "success" && !hasRefundTransfer(receipt, {
-          token: binding.token_address, from: binding.original_recipient,
-          to: binding.refund_recipient, amount: BigInt(binding.amount_base_units),
-        })) return { ...receipt, status: "review_required" };
-        return receipt;
-      },
-    });
+    op = await advanceStoredTempoRefund(store, op);
     return jsonResponse(refundResult(op), ["succeeded", "failed"].includes(op.state) ? 200 : 202);
   } catch (error) {
     return refundOperationError(error);
   }
+}
+
+async function advanceStoredTempoRefund(store, op) {
+  const binding = op.binding;
+  const config = requireTempoRefundLiveConfig(binding.network);
+  if (!enabledVerifierRails.has("tempo-mpp") || binding.rail !== "tempo-mpp" || binding.provider !== "tempo"
+    || config.account.address.toLowerCase() !== binding.original_recipient
+    || config.tokenAddress.toLowerCase() !== binding.token_address || config.asset !== binding.asset
+    || parseUnits(centsToDecimal(op.amount_cents), tempoRefundDecimals).toString() !== binding.amount_base_units) {
+    throw new Error("Stored refund no longer matches deployment configuration.");
+  }
+  const publicClient = createPublicClient({ chain: config.chain, transport: viemHttp(config.rpcUrl, { timeout: 10000, retryCount: 1 }) });
+  if (await publicClient.getChainId() !== config.chain.id) throw new Error("Refund RPC chain mismatch.");
+  const wallet = createWalletClient({ account: config.account, chain: config.chain, transport: viemHttp(config.rpcUrl, { timeout: 10000, retryCount: 1 }) });
+  return await advanceTempoRefund(store, op, {
+    prepare: async (nonceKey) => {
+      const request = await wallet.prepareTransactionRequest({
+        to: config.tokenAddress,
+        data: encodeFunctionData({ abi: erc20TransferAbi, functionName: "transfer",
+          args: [binding.refund_recipient, parseUnits(centsToDecimal(op.amount_cents), tempoRefundDecimals)] }),
+        nonceKey, nonce: 0,
+      });
+      const raw = await wallet.signTransaction(request);
+      return { raw, hash: keccak256(raw) };
+    },
+    broadcast: (raw) => publicClient.sendRawTransaction({ serializedTransaction: raw }),
+    receipt: async (hash) => {
+      const receipt = await publicClient.getTransactionReceipt({ hash });
+      const confirmations = await publicClient.getTransactionConfirmations({ transactionReceipt: receipt });
+      if (confirmations < BigInt(tempoRefundConfirmations)) return null;
+      if (receipt.status === "success" && !hasRefundTransfer(receipt, {
+        token: binding.token_address, from: binding.original_recipient,
+        to: binding.refund_recipient, amount: BigInt(binding.amount_base_units),
+      })) return { ...receipt, status: "review_required" };
+      return receipt;
+    },
+  });
+}
+
+async function runRefundReconciliation() {
+  if (!reconciliationEnabled || reconciliationStatus.running) return;
+  reconciliationStatus.running = true;
+  try {
+    if (!readiness().ok) throw new Error("Verifier configuration unavailable.");
+    const store = durableRefundStore();
+    const queue = reconciliationQueue(replayStorePath);
+    const result = await reconcileRefunds({ store, queue, advance: async op => {
+      if (op.binding.provider === "tempo") return advanceStoredTempoRefund(store, op);
+      if (op.binding.provider !== "stripe" || op.binding.rail !== "stripe-card-mpp" || !stripeClient
+        || !enabledVerifierRails.has("stripe-card-mpp")) throw new Error("Refund provider unavailable.");
+      const payment = store.verifiedPayment(op);
+      if (payment.stripe_profile_id !== stripeProfileId) throw new Error("Refund profile changed.");
+      return advanceStripeRefund(store, op, stripeClient);
+    } });
+    Object.assign(reconciliationStatus, result, queue.diagnostics(), { last_completed_at: new Date().toISOString() });
+    const ledger = store.diagnostics();
+    if (result.errors || reconciliationStatus.exhausted || ledger.oldest_unresolved_age_seconds >= 900) {
+      structuredLog({ event: "refund_reconciliation_attention", ...result, ...queue.diagnostics(), oldest_unresolved_age_seconds: ledger.oldest_unresolved_age_seconds });
+      await deliverVerifierAlert(verifierAlertForEvent({ operation: "refund_reconciliation", rail: "",
+        outcome: "rejected", status: 409, rejection_reason: "refund_reconciliation_attention" }));
+    }
+  } catch {
+    reconciliationStatus.errors++;
+    structuredLog({ event: "refund_reconciliation_unavailable" });
+    await deliverVerifierAlert(verifierAlertForEvent({ operation: "refund_reconciliation", rail: "",
+      outcome: "error", status: 503, rejection_reason: "refund_reconciliation_unavailable" }));
+  } finally { reconciliationStatus.running = false; }
 }
 
 function durableRefundStore() {
@@ -2278,6 +2340,12 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(port, host, () => {
   const status = readiness();
+  if (reconciliationEnabled) {
+    void runRefundReconciliation();
+    const timer = setInterval(() => { void runRefundReconciliation(); }, 60000);
+    timer.unref();
+    server.on("close", () => clearInterval(timer));
+  }
   console.log(`AgentCart Stripe MPP verifier listening on http://${host}:${port}`);
   console.log(JSON.stringify({ ...status, token_required: Boolean(verifierToken) }, null, 2));
 });

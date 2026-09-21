@@ -1,10 +1,25 @@
-# Tester readiness after 1.23.0
+# Tester readiness after 1.24.0
 
 The release is suitable for supervised staging/testnet evaluation with synthetic
 customer data. A published release is not a production approval. Registry v2
 still needs a reviewed deployment and real validator operators; until that
 exists, describe the existing v1 pilot as a curated test registry, not a
 verified open marketplace. Keep paid public checkout out of this test scope.
+
+## Implemented in 1.24.0
+
+[Staging onboarding and preflight](TESTER_ONBOARDING.md) now cover fresh exported
+diagnostics, release artifacts, test-only payment configuration, scheduler
+heartbeats and recovery prerequisites. The Helm scheduler runs without shop
+traffic. The verifier resumes existing authorized refunds with durable leases,
+backoff and bounded attempts; existing webhook alerts cover stuck refunds.
+Legacy and HPOS database fixtures cover scheduled checkout and compensation.
+A SQLite backup test covers a lost Stripe acknowledgement with a fake provider.
+
+These cover part of the first three rows below. Still missing are an end-to-end
+live endpoint probe, automatic checkout incident alerts, and full coordinated
+Woo/verifier restore drills against provider history. See the
+[recruitment draft](TESTER_RECRUITMENT.md) for a focused first-tester invitation.
 
 ## Next work we can implement ourselves
 
@@ -32,5 +47,5 @@ paid launch. We can implement a dispute/case ledger and exposure limits once
 the settlement and funding policy is selected. A registry bond does not insure
 unlimited shop turnover, and low pricing is not evidence for slashing.
 
-See [release scope and upgrade precautions](RELEASE_1.23.0.md) and
+See [release scope and upgrade precautions](RELEASE_1.24.0.md) and
 [v2 operator instructions](REGISTRY_V2_OPERATIONS.md).

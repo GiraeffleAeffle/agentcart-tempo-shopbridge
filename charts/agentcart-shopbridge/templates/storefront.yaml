@@ -52,7 +52,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/bootstrap: {{ printf "%s%s%s" (.Files.Get "files/bootstrap/prepare-wordpress.sh") (.Files.Get "files/bootstrap/seed-before-start.sh") (.Files.Get "files/bootstrap/seed-products.sh") | sha256sum }}
+        checksum/bootstrap: {{ (.Files.Glob "files/bootstrap/*").AsConfig | sha256sum }}
         checksum/nginx: {{ .Files.Get "files/nginx.conf" | sha256sum }}
         checksum/plugin: {{ (.Files.Glob "files/plugin/**").AsConfig | sha256sum }}
         {{- with .Values.podAnnotations }}
@@ -117,6 +117,7 @@ spec:
             - {name: WOO_PUBLIC_URL, value: {{ include "agentcart-shopbridge.publicUrl" . | quote }}}
             - {name: AGENTCART_REQUIRE_DEPLOYMENT_SECRETS, value: "1"}
             - {name: AGENTCART_SUPPRESS_DEMO_CREDENTIAL_ECHO, value: "1"}
+            - {name: AGENTCART_EXTERNAL_SCHEDULER, value: {{ .Values.scheduler.enabled | quote }}}
             - {name: WP_ENVIRONMENT_TYPE, value: {{ .Values.store.environmentType | quote }}}
             - {name: AGENTCART_WOO_MARKET_PROFILE, value: {{ .Values.store.marketProfile | quote }}}
             - {name: AGENTCART_WOO_VARIANCE_PROFILE, value: {{ .Values.store.varianceProfile | quote }}}
@@ -185,6 +186,30 @@ spec:
             - {name: uploads, mountPath: /uploads}
             - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
             - {name: tmp, mountPath: /tmp}
+        {{- if .Values.scheduler.enabled }}
+        - name: scheduler
+          image: {{ include "agentcart-shopbridge.image" .Values.images.wordpress }}
+          imagePullPolicy: {{ .Values.images.wordpress.pullPolicy }}
+          command: [/bin/sh, /bootstrap/run-scheduler.sh]
+          readinessProbe:
+            exec:
+              command: [php, -r, "exit(is_file('/tmp/agentcart-scheduler-heartbeat') && time() - filemtime('/tmp/agentcart-scheduler-heartbeat') < 240 ? 0 : 1);"]
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+          securityContext:
+            runAsUser: 33
+            runAsGroup: 33
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: site, mountPath: /var/www/html}
+            - {name: uploads, mountPath: /uploads}
+            - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
+            - {name: scheduler-tmp, mountPath: /tmp}
+        {{- end }}
         - name: nginx
           image: {{ include "agentcart-shopbridge.image" .Values.images.nginx }}
           imagePullPolicy: {{ .Values.images.nginx.pullPolicy }}
@@ -235,6 +260,9 @@ spec:
         - name: nginx-config
           configMap:
             name: {{ include "agentcart-shopbridge.fullname" . }}-nginx
+        - name: scheduler-tmp
+          emptyDir:
+            sizeLimit: 64Mi
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi

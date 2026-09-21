@@ -92,3 +92,6 @@ foreach ($agentcart_shopbridge_option_prefixes as $agentcart_shopbridge_prefix) 
         )
     );
 }
+
+wp_clear_scheduled_hook('agentcart_shopbridge_operations_tick');
+delete_option('agentcart_shopbridge_scheduler_heartbeat');

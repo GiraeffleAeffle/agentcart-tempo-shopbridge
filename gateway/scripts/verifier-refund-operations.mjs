@@ -27,6 +27,11 @@ export function refundStore(db) {
   const get = (key) => operation(rows(db, `SELECT * FROM refund_operations WHERE request_key=${q(key)};`)[0]);
   return {
     get,
+    verifiedPayment(op) {
+      const row = rows(db, `SELECT metadata_json FROM replay_claims WHERE bucket='payments' AND reference_hash=${q(op.payment_key)};`)[0];
+      if (!row) fail("Original verified payment missing; operator reconciliation required.");
+      return JSON.parse(row.metadata_json);
+    },
     diagnostics() {
       const counts = rows(db, "SELECT state,COUNT(*) AS count FROM refund_operations GROUP BY state;");
       const unresolved = rows(db, "SELECT MIN(created_at) AS oldest FROM refund_operations WHERE state NOT IN ('succeeded','failed','canceled');")[0];
@@ -114,7 +119,7 @@ export function hasRefundTransfer(receipt, { token, from, to, amount }) {
 }
 
 export async function advanceStripeRefund(store, op, stripe, { now = Date.now() } = {}) {
-  if (["failed", "canceled"].includes(op.state)) return op;
+  if (["succeeded", "failed", "canceled"].includes(op.state)) return op;
   let result;
   if (op.provider_reference) {
     result = await stripe.refunds.retrieve(op.provider_reference);

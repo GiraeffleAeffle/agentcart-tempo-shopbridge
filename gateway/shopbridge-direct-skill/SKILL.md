@@ -2,7 +2,7 @@
 name: shopbridge-direct
 description: Discover shops that support AgentCart ShopBridge, compare their verified WooCommerce catalogs and quotes, and prepare approval-safe direct checkout without running the AgentCart buyer service. Use when a buyer asks an agent to find, compare, or buy from ShopBridge merchants.
 metadata:
-  version: "1.23.0"
+  version: "1.24.0"
 ---
 
 # ShopBridge Direct Skill

@@ -3,8 +3,11 @@
 if (getenv('AGENTCART_CHECKOUT_INTEGRATION') !== '1') {
     throw new RuntimeException('This harness requires an explicitly isolated test shop.');
 }
-define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/verify');
-define('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL', true);
+if (!defined('AGENTCART_PAYMENT_VERIFIER_URL')) { define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/verify'); }
+if (!defined('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL')) { define('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL', true); }
+if (AGENTCART_PAYMENT_VERIFIER_URL !== 'https://verifier.example.com/verify' || AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL !== true) {
+    throw new RuntimeException('The isolated fixture must use the intercepted verifier URL.');
+}
 add_filter('pre_wp_mail', '__return_true');
 function ac_assert($ok, $message) {
     if (!$ok) { throw new RuntimeException($message); }
@@ -173,8 +176,13 @@ $draft = AgentCart_ShopBridge_Checkout_Store::find($quote['id']);
 ac_assert(count($draft->get_refunds()) === 0, 'pending compensation creates no completed WooCommerce refund');
 ac_assert(is_wp_error(ac_recover($draft->get_id())), 'compensating checkout cannot resume fulfillment');
 $refund_status = 'succeeded';
-$compensated = ac_ok(ac_recover($draft->get_id(), 'compensate'));
-ac_assert($compensated['state'] === 'compensated', 'successful rail refund completes compensation');
+$draft->update_meta_data('_agentcart_recovery_next_attempt_at', time() - 1);
+$draft->save();
+wp_set_current_user(0);
+AgentCart_ShopBridge::operations_tick();
+wp_set_current_user(1);
+$draft = wc_get_order($draft->get_id());
+ac_assert($draft->get_meta(AgentCart_ShopBridge_Checkout_Store::STATE_META, true) === 'compensated', 'background worker completes only previously manager-approved compensation');
 $draft = AgentCart_ShopBridge_Checkout_Store::find($quote['id']);
 ac_assert(count($draft->get_refunds()) === 1, 'compensation creates exactly one WooCommerce refund');
 $before = $refund_calls;
@@ -195,4 +203,41 @@ AgentCart_ShopBridge::recover_checkout_job($draft->get_id());
 ac_assert($payment_calls === $before, 'background recovery cannot settle a rejected request');
 $queue = AgentCart_ShopBridge_Checkout_Store::queue();
 ac_assert(strpos(wp_json_encode($queue), 'buyer@example.test') === false && strpos(wp_json_encode($queue), 'payment_receipt') === false, 'manager queue excludes address and payment request contents');
+// Exhausted older cases must not consume the entire bounded scheduler batch.
+$exhausted = [];
+for ($i = 0; $i < 11; $i++) {
+    $old = wc_create_order(['status' => 'pending']);
+    $old->update_meta_data(AgentCart_ShopBridge_Checkout_Store::STATE_META, 'verification_pending');
+    $old->update_meta_data('_agentcart_recovery_attempts', 3);
+    $old->save();
+    $exhausted[] = $old;
+}
+$p = ac_product(1);
+$quote = ac_quote($p);
+$lose_payment_response = true;
+ac_assert(is_wp_error(AgentCart_ShopBridge::create_order(ac_checkout($quote))), 'scheduler fixture loses acknowledgement');
+$draft = AgentCart_ShopBridge_Checkout_Store::find($quote['id']);
+$before = $payment_calls;
+AgentCart_ShopBridge::operations_tick();
+ac_assert($before === $payment_calls, 'scheduled backoff is respected');
+$draft->update_meta_data('_agentcart_recovery_next_attempt_at', time() - 1);
+$draft->save();
+$lose_payment_response = true;
+AgentCart_ShopBridge::operations_tick();
+$draft = wc_get_order($draft->get_id());
+ac_assert((int) $draft->get_meta('_agentcart_recovery_next_attempt_at', true) >= time() + 295, 'periodic scan preserves backoff even when an older single event remains scheduled');
+$before = $payment_calls;
+AgentCart_ShopBridge::operations_tick();
+ac_assert($payment_calls === $before, 'repeat scan does not spend another retry during backoff');
+$draft->update_meta_data('_agentcart_recovery_next_attempt_at', time() - 1);
+$draft->save();
+AgentCart_ShopBridge::operations_tick();
+$draft = wc_get_order($draft->get_id());
+ac_assert($draft->get_meta(AgentCart_ShopBridge_Checkout_Store::STATE_META, true) === 'completed', 'new eligible work is not starved by exhausted older cases');
+$before = $payment_calls;
+AgentCart_ShopBridge::operations_tick();
+ac_assert($before === $payment_calls, 'repeated scheduler tick cannot repeat completed checkout');
+$ops = ac_private('operations_diagnostics');
+ac_assert($ops['heartbeat_fresh'] && $ops['transactional_storage'] && $ops['encrypted_recovery_available'], 'manager diagnostics expose scheduler and recovery prerequisites');
+foreach ($exhausted as $old) { $old->delete(true); }
 echo "CHECKOUT RECOVERY INTEGRATION PASSED\n";

@@ -69,6 +69,7 @@ py311_files=(
   scripts/check-quote-reliability-matrix.py
   scripts/check-repo-positioning.py
   scripts/stamp-release-version.py
+  scripts/tester-preflight.py
   scripts/verify-release.py
   scripts/verify-verifier-fixtures.py
   scripts/woocommerce-shopbridge-smoke.py
