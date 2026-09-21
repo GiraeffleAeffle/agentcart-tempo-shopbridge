@@ -300,8 +300,12 @@ final class AgentCart_ShopBridge_Checkout_Store {
     public static function schedule($order_id, $delay) {
         $args = [intval($order_id)];
         $next = wp_next_scheduled('agentcart_shopbridge_recover_checkout', $args);
-        if (!$next) {
-            $next = time() + intval($delay);
+        $minimum = time() + intval($delay);
+        if (!$next || $next < $minimum) {
+            if ($next) {
+                wp_unschedule_event($next, 'agentcart_shopbridge_recover_checkout', $args);
+            }
+            $next = $minimum;
             wp_schedule_single_event($next, 'agentcart_shopbridge_recover_checkout', $args);
         }
         $order = wc_get_order($order_id);

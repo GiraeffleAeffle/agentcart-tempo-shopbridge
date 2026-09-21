@@ -195,6 +195,13 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertEqual(body["payer_address"], "0x2222222222222222222222222222222222222222")
         self.assertEqual(body["payer_source"], "did:pkh:eip155:42431:0x2222222222222222222222222222222222222222")
+        self.restart_process({"AGENTCART_VERIFIER_ALLOWED_TEMPO_NETWORKS": "testnet"})
+        payload["payment_receipt"]["external_value_proof"]["network"] = "mainnet"
+        payload["expected"]["tempo_network"] = "mainnet"
+        status, body = self.post_verify(payload)
+        self.assertEqual(status, 400)
+        self.assertIn("not allowed", body["error"])
+
 
     def test_weak_or_reused_verifier_credentials_fail_readiness(self) -> None:
         self.restart_process(

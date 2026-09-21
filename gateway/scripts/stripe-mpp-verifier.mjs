@@ -1853,6 +1853,9 @@ async function verifyTempoFxPayment(receipt, expected) {
     );
   }
   const network = tempoNetworkName(proof.network || body.network || proofReceipt.network || expected.tempoNetwork || "");
+  if (!allowedTempoNetworks.includes(network)) {
+    return jsonResponse({ ok: false, error: "Tempo network is not allowed by this verifier deployment." }, 400);
+  }
   if (expected.tempoNetwork && network && network !== tempoNetworkName(expected.tempoNetwork)) {
     return jsonResponse({ ok: false, error: "Tempo proof network does not match merchant configuration." }, 400);
   }
