@@ -152,9 +152,13 @@ are not supplied by the repository and must be reviewed by the operator.
 
 The separate public endpoint check fetches this shop's own manifest, proof,
 revocation, and bundle URLs. The plugin never contacts an x402 facilitator.
-Configured x402 profiles are unavailable with
-`verifier_x402_support_unconfirmed`, excluded from quote rails/contracts and
-production readiness. No remote capability call occurs on manifest/quote paths.
+x402 v2 exact Base Sepolia USDC is offered for USD quotes only after the merchant
+uses the nonce-protected "Check verifier capabilities" action. That authenticated
+call sends only the operation and bearer token; its local snapshot has no TTL and
+is invalidated when the verifier URL or x402 destination changes. Without confirmation
+the rail reports `verifier_x402_support_unconfirmed`. No capability calls occur on
+manifest/quote paths. Only the verifier contacts its operator-configured facilitator
+and Base RPC; the plugin does not. x402 refunds remain unsupported_manual_only.
 Checkout and refund entrypoints also reject caller-selected unavailable rails
 before verifier calls or local acceptance; checkout binds all contract-hash
 claims to the intact stored quote advertisement. Admin sandbox dry checkout

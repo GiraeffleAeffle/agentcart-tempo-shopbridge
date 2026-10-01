@@ -39,6 +39,15 @@ REQUIRED_CASES = {
     "merchant-quote-single-use",
 }
 
+REQUIRED_RUNTIME_CHECKS = {
+    "complete-address-before-payment",
+    "tax-total-consistency-before-approval",
+    "quote-lock-before-order",
+    "stock-holds-and-expiry-recovery",
+    "price-shipping-tax-drift-recovery",
+    "buyer-payment-receipt-amount-binding",
+}
+
 REQUIRED_RECOVERY_REASONS = {
     "quote_expired",
     "delivery_address_incomplete",
@@ -104,15 +113,19 @@ def validate_matrix(data: dict[str, Any]) -> list[str]:
 
     runtime_checks = data.get("runtime_checks")
     require(isinstance(runtime_checks, list) and len(runtime_checks) >= 3, "runtime_checks must contain at least three entries", errors)
+    seen_runtime_check_ids: set[str] = set()
     if isinstance(runtime_checks, list):
         for index, check in enumerate(runtime_checks):
             if not isinstance(check, dict):
                 errors.append(f"runtime_checks[{index}] must be an object")
                 continue
             check_id = str(check.get("id") or "")
+            seen_runtime_check_ids.add(check_id)
             require(check_id != "", f"runtime_checks[{index}].id is required", errors)
             require(str(check.get("target") or "") != "", f"{check_id}: target is required", errors)
             require(str(check.get("test") or "") != "", f"{check_id}: test is required", errors)
+    missing_runtime_checks = REQUIRED_RUNTIME_CHECKS - seen_runtime_check_ids
+    require(not missing_runtime_checks, f"missing required runtime checks: {', '.join(sorted(missing_runtime_checks))}", errors)
     return errors
 
 

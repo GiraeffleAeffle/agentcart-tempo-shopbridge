@@ -15,7 +15,8 @@ bash "$root/scripts/sync-helm-chart-files.sh" --check
 
 rendered="$(mktemp "${TMPDIR:-/tmp}/agentcart-helm.XXXXXX")"
 rendered_verifier="$(mktemp "${TMPDIR:-/tmp}/agentcart-helm-verifier.XXXXXX")"
-cleanup() { rm -f -- "$rendered" "$rendered_verifier"; }
+rendered_x402="$(mktemp "${TMPDIR:-/tmp}/agentcart-helm-x402.XXXXXX")"
+cleanup() { rm -f -- "$rendered" "$rendered_verifier" "$rendered_x402"; }
 trap cleanup EXIT INT TERM
 "$helm_bin" template public-check "$chart" --namespace public-check >"$rendered"
 "$helm_bin" template verifier-check "$chart" --namespace verifier-check \
@@ -83,6 +84,34 @@ if "$helm_bin" lint "$chart" \
   printf 'invalid verifier alert severity unexpectedly passed chart validation\n' >&2
   exit 1
 fi
+
+x402_flags=(
+  --set store.marketProfile=usd
+  --set store.checkoutMode=external_verifier_only
+  --set store.signedRequestMode=require_mutations
+  --set verifier.enabled=true
+  --set verifier.x402.mode=settle
+  --set images.verifier.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111
+)
+"$helm_bin" lint "$chart" "${x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=x402-compatible' >/dev/null
+"$helm_bin" template x402-check "$chart" "${x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=x402-compatible' >"$rendered_x402"
+grep -Fq 'x402-compatible' "$rendered_x402"
+grep -Fq 'AGENTCART_X402_MODE, value: "settle"' "$rendered_x402"
+for invalid_setting in \
+  'verifier.enabledRails[0]=x402' \
+  'verifier.x402.mode=disabled' \
+  'verifier.x402.facilitatorTimeoutMs=99' \
+  'verifier.x402.facilitatorTimeoutMs=7001'; do
+  for operation in lint template; do
+    if "$helm_bin" "$operation" "$chart" "${x402_flags[@]}" \
+      --set 'verifier.enabledRails[0]=x402-compatible' --set "$invalid_setting" >/dev/null 2>&1; then
+      printf 'invalid x402 setting unexpectedly passed %s: %s\n' "$operation" "$invalid_setting" >&2
+      exit 1
+    fi
+  done
+done
 
 for forbidden in \
   '/Users/' \

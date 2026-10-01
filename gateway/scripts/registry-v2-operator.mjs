@@ -7,6 +7,7 @@ try {
   const [command, ...rest] = process.argv.slice(2);
   if (!command || ["--help", "help", "-h"].includes(command)) {
     process.stdout.write(`Usage: node scripts/registry-v2-operator.mjs prepare --deployment-file deployment.json --request-file request.json [--output plan.json]\n\nRead-only: validates deployment evidence and simulates one typed operation at a finalized block.\nReview the decoded operation, token amounts, beneficiary and wallet request before signing externally.\nPrepare again after expiry or any prerequisite transaction. This tool never signs or broadcasts.\n\nRequest: {"operation":"...","actor":"0x...","parameters":{...}}\nuint fields use positive decimal strings; hashes and addresses are 0x-prefixed.\nOperations and required parameters:\n${JSON.stringify(registryV2Operations(), null, 2)}\n`);
+    process.stdout.write("V2 status includes stored URI, indexed-record count (eligible or pending prune), and record_specific_eligible (excluding global pause/quorum). prune targets the pinned discovery_facets V2 contract and removes stale sets or record-specific ineligibility only; pruneIneligible uses the same record-specific predicate, while refreshIndexedRecord requires full eligibility. These permissionless maintenance operations never change lifecycle status or admission.\n");
   } else {
     if (command !== "prepare" || rest.length % 2) throw new Error("only prepare with named flag/value pairs is supported");
     const flags = {};

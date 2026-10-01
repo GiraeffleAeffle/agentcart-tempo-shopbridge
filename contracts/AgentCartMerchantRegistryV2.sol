@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IAgentCartMerchantRegistry} from "./interfaces/IAgentCartMerchantRegistry.sol";
+import {IAgentCartMerchantRegistryV2} from "./interfaces/IAgentCartMerchantRegistryV2.sol";
 
 interface IRegistryBondToken {
     function balanceOf(address account) external view returns (uint256);
@@ -10,12 +10,14 @@ interface IRegistryBondToken {
 }
 
 /// @notice New deployment only. Admissions attest offchain checks; they do not prove delivery.
-contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
+contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistryV2 {
     error InvalidAdmission();
     error ValidatorSetBound();
     error BondUnavailable();
     error InvalidSanction();
     error ReentrantCall();
+    error RecordStillEligible();
+    error RecordIneligible();
 
     uint16 public constant MAX_VALIDATORS = 16;
     uint64 public constant BOND_EXIT_DELAY = 30 days;
@@ -129,22 +131,37 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         Record storage stored = _records[recordId];
         _requireStatus(stored, Status.Active);
         _bindAdmission(recordId, stored.domainHash, msg.sender, stored.recordHash);
+        _addIndexedRecord(recordId);
         emit AdmissionRenewed(recordId, _recordAdmission[recordId]);
     }
 
     function eligibility(bytes32 recordId)
-        external
+        public
         view
         returns (bool eligible, bytes32 entity, uint64 expiresAt, uint256 bond)
     {
         bytes32 approval = _recordAdmission[recordId];
-        Admission memory admitted = _admissions[approval];
         entity = entityId[recordId];
-        expiresAt = admitted.expiresAt;
+        expiresAt = _admissions[approval].expiresAt;
         bond = bondBalance[recordId];
-        eligible = !writesPaused && _records[recordId].status == Status.Active && entity != 0
-            && !blockedEntities[entity] && expiresAt > block.timestamp && bond >= minimumBond
+        eligible = !writesPaused && _hasRecordEligibility(recordId, entity, expiresAt, bond)
             && _hasAdmissionQuorum(approval);
+    }
+
+    /// @notice Record-specific eligibility, excluding global pause and admission quorum.
+    function hasRecordEligibility(bytes32 recordId) public view returns (bool) {
+        return _hasRecordEligibility(
+            recordId, entityId[recordId], _admissions[_recordAdmission[recordId]].expiresAt, bondBalance[recordId]
+        );
+    }
+
+    function _hasRecordEligibility(bytes32 recordId, bytes32 entity, uint64 expiresAt, uint256 bond)
+        private
+        view
+        returns (bool)
+    {
+        return _records[recordId].status == Status.Active && entity != 0 && !blockedEntities[entity]
+            && expiresAt > block.timestamp && bond >= minimumBond;
     }
 
     function _collectBond(bytes32 recordId, address payer) private {
@@ -311,6 +328,9 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
     uint16 public attestationThreshold = 2;
 
     mapping(bytes32 => Record) private _records;
+    mapping(bytes32 => string) private _recordURIs;
+    bytes32[] private _indexedRecordIds;
+    mapping(bytes32 => uint256) private _indexedRecordIndexPlusOne;
     mapping(bytes32 => mapping(address => Attestation)) private _attestations;
     mapping(bytes32 => Supersession) private _supersessions;
     mapping(bytes32 => bytes32) public recordIdForDomain;
@@ -349,7 +369,7 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         emit OwnershipTransferred(address(0), owner);
     }
 
-    function register(bytes32 domainHash, bytes32 recordHash, string calldata recordURI)
+    function register(bytes32 domainHash, bytes32 recordHash, string calldata uri)
         external
         whenWritesOpen
         nonReentrant
@@ -357,7 +377,7 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
     {
         _requireNonZero(domainHash);
         _requireActiveRecordHash(recordHash);
-        _requireNonEmptyUri(recordURI);
+        _requireNonEmptyUri(uri);
 
         bytes32 existingRecordId = recordIdForDomain[domainHash];
         if (existingRecordId != bytes32(0)) {
@@ -380,17 +400,19 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
             status: Status.Active
         });
         recordIdForDomain[domainHash] = recordId;
+        _recordURIs[recordId] = uri;
+        _addIndexedRecord(recordId);
 
-        emit MerchantRegistered(recordId, msg.sender, domainHash, recordHash, recordURI);
+        emit MerchantRegistered(recordId, msg.sender, domainHash, recordHash, uri);
     }
 
-    function update(bytes32 recordId, bytes32 recordHash, string calldata recordURI)
+    function update(bytes32 recordId, bytes32 recordHash, string calldata uri)
         external
         whenWritesOpen
         onlyController(recordId)
     {
         _requireActiveRecordHash(recordHash);
-        _requireNonEmptyUri(recordURI);
+        _requireNonEmptyUri(uri);
 
         Record storage stored = _records[recordId];
         _requireStatus(stored, Status.Active);
@@ -401,18 +423,20 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         stored.attestationExpiresAt = 0;
         stored.attestationGeneration += 1;
         stored.attestationCount = 0;
+        _recordURIs[recordId] = uri;
+        _addIndexedRecord(recordId);
 
-        emit MerchantUpdated(recordId, recordHash, recordURI);
+        emit MerchantUpdated(recordId, recordHash, uri);
     }
 
-    function setController(bytes32 recordId, address newController, bytes32 newRecordHash, string calldata recordURI)
+    function setController(bytes32 recordId, address newController, bytes32 newRecordHash, string calldata uri)
         external
         whenWritesOpen
         onlyController(recordId)
     {
         if (newController == address(0)) revert ZeroAddress();
         _requireActiveRecordHash(newRecordHash);
-        _requireNonEmptyUri(recordURI);
+        _requireNonEmptyUri(uri);
 
         Record storage stored = _records[recordId];
         _requireStatus(stored, Status.Active);
@@ -424,8 +448,10 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         stored.attestationExpiresAt = 0;
         stored.attestationGeneration += 1;
         stored.attestationCount = 0;
+        _recordURIs[recordId] = uri;
+        _addIndexedRecord(recordId);
 
-        emit ControllerChanged(recordId, newController, newRecordHash, recordURI);
+        emit ControllerChanged(recordId, newController, newRecordHash, uri);
     }
 
     function revoke(bytes32 recordId, bytes32 reasonHash) external whenWritesOpen onlyController(recordId) {
@@ -442,13 +468,13 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         bytes32 domainHash,
         bytes32 recordHash,
         bytes32 reasonHash,
-        string calldata recordURI,
+        string calldata uri,
         string calldata evidenceURI
     ) external whenWritesOpen returns (bytes32 pendingRecordId, uint64 availableAt) {
         _requireNonZero(domainHash);
         _requireActiveRecordHash(recordHash);
         _requireNonZero(reasonHash);
-        _requireNonEmptyUri(recordURI);
+        _requireNonEmptyUri(uri);
         _requireNonEmptyUri(evidenceURI);
 
         bytes32 previousRecordId = recordIdForDomain[domainHash];
@@ -484,7 +510,7 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
             recordHash,
             reasonHash,
             availableAt,
-            recordURI,
+            uri,
             evidenceURI
         );
     }
@@ -534,12 +560,12 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         emit SupersessionCanceled(pendingRecordId, msg.sender, reasonHash);
     }
 
-    function activateSupersession(bytes32 pendingRecordId, string calldata recordURI)
+    function activateSupersession(bytes32 pendingRecordId, string calldata uri)
         external
         whenWritesOpen
         nonReentrant
     {
-        _requireNonEmptyUri(recordURI);
+        _requireNonEmptyUri(uri);
 
         Supersession memory pending = _supersessions[pendingRecordId];
         if (pending.controller == address(0)) revert UnknownSupersession();
@@ -576,6 +602,8 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
             status: Status.Active
         });
         recordIdForDomain[pending.domainHash] = pendingRecordId;
+        _recordURIs[pendingRecordId] = uri;
+        _addIndexedRecord(pendingRecordId);
         delete _supersessions[pendingRecordId];
 
         emit SupersessionActivated(
@@ -584,9 +612,9 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
             pendingRecordId,
             pending.controller,
             pending.recordHash,
-            recordURI
+            uri
         );
-        emit MerchantRegistered(pendingRecordId, pending.controller, pending.domainHash, pending.recordHash, recordURI);
+        emit MerchantRegistered(pendingRecordId, pending.controller, pending.domainHash, pending.recordHash, uri);
     }
 
     function attest(
@@ -631,6 +659,7 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
             return;
         }
         stored.status = Status.Suspended;
+        _removeIndexedRecord(recordId);
         stored.updatedAt = _now64();
         stored.attestedAt = 0;
         stored.attestationExpiresAt = 0;
@@ -648,6 +677,7 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         if (!_delayedVote(keccak256(abi.encode("unsuspend", recordId, stored.attestationGeneration)))) return;
         stored.attestationGeneration += 1;
         stored.status = Status.Active;
+        if (hasRecordEligibility(recordId)) _addIndexedRecord(recordId);
         stored.updatedAt = _now64();
 
         emit MerchantUnsuspended(recordId);
@@ -665,6 +695,34 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         nextFlagAvailableAt[recordId][msg.sender] = _now64() + FLAG_COOLDOWN_SECONDS;
 
         emit MerchantFlagged(recordId, msg.sender, challengeType, evidenceURI);
+    }
+
+    function indexedRecordCount() external view returns (uint256) {
+        return _indexedRecordIds.length;
+    }
+
+    function indexedRecordIdAt(uint256 index) external view returns (bytes32) {
+        return _indexedRecordIds[index];
+    }
+
+    function pruneIneligible(bytes32 recordId) external {
+        _existingRecord(recordId);
+        // Global pause/quorum changes must not permit mass eviction of otherwise sound records.
+        if (hasRecordEligibility(recordId)) revert RecordStillEligible();
+        if (_indexedRecordIndexPlusOne[recordId] == 0) return;
+        _removeIndexedRecord(recordId);
+        emit IndexedRecordPruned(recordId);
+    }
+
+    function refreshIndexedRecord(bytes32 recordId) external {
+        _existingRecord(recordId);
+        (bool eligible,,,) = eligibility(recordId);
+        if (!eligible) revert RecordIneligible();
+        _addIndexedRecord(recordId);
+    }
+
+    function recordURI(bytes32 recordId) external view returns (string memory) {
+        return _recordURIs[recordId];
     }
 
     function record(bytes32 recordId) external view returns (Record memory) {
@@ -847,6 +905,7 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         revokedRecordHashes[stored.recordHash] = true;
         delete recordIdForDomain[stored.domainHash];
         stored.status = Status.Revoked;
+        _removeIndexedRecord(recordId);
         stored.updatedAt = _now64();
         stored.attestedAt = 0;
         stored.attestationExpiresAt = 0;
@@ -854,6 +913,26 @@ contract AgentCartMerchantRegistryV2 is IAgentCartMerchantRegistry {
         stored.attestationCount = 0;
 
         emit MerchantRevoked(recordId, reasonHash);
+    }
+
+    function _addIndexedRecord(bytes32 recordId) private {
+        if (_indexedRecordIndexPlusOne[recordId] != 0) return;
+        _indexedRecordIds.push(recordId);
+        _indexedRecordIndexPlusOne[recordId] = _indexedRecordIds.length;
+    }
+
+    function _removeIndexedRecord(bytes32 recordId) private {
+        uint256 indexPlusOne = _indexedRecordIndexPlusOne[recordId];
+        if (indexPlusOne == 0) return;
+        uint256 index = indexPlusOne - 1;
+        uint256 lastIndex = _indexedRecordIds.length - 1;
+        if (index != lastIndex) {
+            bytes32 moved = _indexedRecordIds[lastIndex];
+            _indexedRecordIds[index] = moved;
+            _indexedRecordIndexPlusOne[moved] = indexPlusOne;
+        }
+        _indexedRecordIds.pop();
+        delete _indexedRecordIndexPlusOne[recordId];
     }
 
     function _consumeGovernanceAction(bytes32 actionHash) private {

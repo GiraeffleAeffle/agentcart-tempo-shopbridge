@@ -52,6 +52,20 @@ class CanonicalJsonTests(unittest.TestCase):
     def test_skill_onchain_projection_vectors(self) -> None:
         self.assert_vectors(skill.onchain_projection.canonical_json, skill.onchain_projection.canonical_json_hash)
 
+    def test_keccak_padding_at_rate_boundaries(self) -> None:
+        vectors = {
+            0: "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+            134: "e5de5653994e2fa6729d329b65b5f332dee942a7ea54515e173824c232a4ff91",
+            135: "34367dc248bbd832f4e3e69dfaac2f92638bd0bbd18f2912ba4ef454919cf446",
+            136: "a6c4d403279fe3e0af03729caada8374b5ca54d8065329a3ebcaeb4b60aa386e",
+            137: "d869f639c7046b4929fc92a4d988a8b22c55fbadb802c0c66ebcd484f1915f39",
+            271: "132f47effd6c8b1b299efa53fe68aece77ec8ae4eb2e294f668eec94f76001e1",
+            272: "cf7fcd4f705ee749930d19ca84561a9bf62516bd90a471545fa2f49fdc7e63c8",
+        }
+        for length, expected in vectors.items():
+            with self.subTest(length=length):
+                self.assertEqual(skill.registry_trust.keccak256(b"a" * length).hex(), expected)
+
     def test_non_ascii_skill_packet_import_route_and_persisted_replay(self) -> None:
         contract = json.loads((ROOT / "docs/fixtures/approval-audit/golden-fixtures.json").read_text(encoding="utf-8"))
         quote = contract["final_quote"]

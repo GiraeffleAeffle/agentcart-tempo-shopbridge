@@ -1305,22 +1305,6 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'included_in_price' => true", vat_body)
         self.assertNotIn("'included_in_price' => wc_prices_include_tax()", vat_body)
 
-    def test_comparison_quote_requires_fresh_full_address_before_checkout(self) -> None:
-        quote_body = function_body("quote")
-        order_body = function_body("create_order")
-        required_fields_body = function_body("required_checkout_address_fields")
-        validation_body = function_body("validate_checkout_address")
-
-        self.assertIn("'required_address_fields'", quote_body)
-        self.assertIn("'full_address_required_before_checkout' => true", quote_body)
-        self.assertIn("validate_checkout_address($quote_ship_to)", order_body)
-        self.assertLess(
-            order_body.index("validate_checkout_address($quote_ship_to)"),
-            order_body.index("verify_payment_receipt($quote, $receipt, $body, $request)"),
-        )
-        self.assertIn("get_address_fields", required_fields_body)
-        self.assertIn("agentcart_ship_to_incomplete", validation_body)
-        self.assertIn("missing_fields", validation_body)
 
     def test_catalog_quote_order_and_refunds_expose_commerce_policy_metadata(self) -> None:
         product_body = function_body("serialize_product")
@@ -1583,38 +1567,6 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'stock_reservation'", quote_hash_body)
         self.assertIn("'soft_quote_stock_holds'", capability_body)
 
-    def test_checkout_revalidates_quote_money_fields_before_payment_verification(self) -> None:
-        order_body = function_body("create_order")
-        drift_check_body = function_body("validate_live_quote_totals_for_checkout")
-        drift_error_body = function_body("quote_drift_error")
-        drift_reason_body = function_body("quote_drift_reason")
-
-        self.assertIn("validate_live_quote_totals_for_checkout($quote, $merchant_quote_id, $validated_items)", order_body)
-        self.assertIn("verify_payment_receipt($quote, $receipt, $body, $request)", order_body)
-        self.assertLess(
-            order_body.index("validate_live_quote_totals_for_checkout"),
-            order_body.index("verify_payment_receipt"),
-        )
-        self.assertIn("prepare_quote_cart", drift_check_body)
-        self.assertIn("select_shipping_rates_for_cart", drift_check_body)
-        self.assertIn("quote_from_cart", drift_check_body)
-        for reason in [
-            "price_changed",
-            "shipping_changed",
-            "tax_changed",
-            "currency_changed",
-            "total_changed",
-        ]:
-            self.assertIn(reason, drift_error_body + drift_reason_body)
-        for code in [
-            "agentcart_quote_price_changed",
-            "agentcart_quote_shipping_changed",
-            "agentcart_quote_tax_changed",
-            "agentcart_quote_currency_changed",
-            "agentcart_quote_total_changed",
-        ]:
-            self.assertIn(code, drift_error_body)
-        self.assertIn("'recovery' => self::quote_recovery($reason", drift_error_body)
 
     def test_hard_stock_reservation_adapter_contract_fails_closed(self) -> None:
         settings_body = function_body("sanitize_stock_hold_mode_setting")
@@ -1654,28 +1606,6 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'hard_stock_reservation_adapter_available'", capability_body)
         self.assertIn("'hard_reserved'", quote_body)
 
-    def test_payment_verification_contract_is_amount_and_destination_bound(self) -> None:
-        requirements_body = function_body("payment_requirements")
-        contract_body = function_body("payment_verification_contract")
-        verifier_body = function_body("call_payment_verifier")
-        payment_body = function_body("verify_payment_receipt")
-        receipt_body = function_body("payment_receipt_from_checkout_request")
-
-        self.assertIn("payment_verification_contracts($quote)", requirements_body)
-        self.assertIn("'verification_contract'", requirements_body)
-        self.assertIn("'verification_contracts'", requirements_body)
-        self.assertIn("'payment_contract_hash'", requirements_body)
-        self.assertIn("'quote_total'", requirements_body)
-        for field in ["'amount_cents'", "'currency'", "'shipping_cents'", "'includes' => ['items', 'shipping', 'tax']"]:
-            self.assertIn(field, contract_body + requirements_body)
-        for destination in ["'tempo_recipient'", "'stripe_profile_id'", "'x402_pay_to'"]:
-            self.assertIn(destination, verifier_body + contract_body)
-        self.assertIn("'payment_contract' => $payment_contract", verifier_body)
-        self.assertIn("'payment_contract_hash' => $payment_contract_hash", verifier_body)
-        self.assertIn("agentcart_payment_contract_mismatch", verifier_body + payment_body)
-        self.assertIn("agentcart_payment_contract_required", verifier_body + payment_body)
-        self.assertIn("'payment_contract_hash' => $payment_contract_hash", payment_body + verifier_body)
-        self.assertIn("'payment_contract_hash' => self::payment_contract_hash", receipt_body)
 
     def test_external_verifier_client_is_a_dedicated_module(self) -> None:
         self.assertTrue(VERIFIER_CLIENT.exists(), "External verifier client should live in a dedicated module")

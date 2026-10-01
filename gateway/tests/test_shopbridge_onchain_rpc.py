@@ -961,13 +961,15 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
         self.assertTrue(self.project_direct(backfilled, rpc.record_hash)["verification"]["chain_valid"])
 
     def test_v2_admission_requires_pins_and_filters_before_document_fetch(self) -> None:
-        rpc = FakeRpc()
+        rpc = EnumerableV2Rpc()
         selector = "0x" + onchain_rpc.keccak256(b"eligibility(bytes32)").hex()[:8]
         checked_blocks = []
         eligible = True
 
         def request(url, **kwargs):
             payload = kwargs["payload"]
+            if isinstance(payload, list):
+                return [request(url, **{**kwargs, "payload": item}) for item in payload]
             if payload["method"] == "eth_call" and payload["params"][0]["data"].startswith(selector):
                 checked_blocks.append(payload["params"][1])
                 raw = word(int(eligible)) + bytes32("0x" + "e" * 64) + word(rpc.finalized_timestamp + 1000) + word(100)
@@ -980,7 +982,6 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
                       runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex())
         document = onchain_rpc.collect_finalized_events(onchain_rpc.RegistryDeployment(**fields),
             record_loader=lambda *_: rpc.record(), request_json=request)
-        self.assertEqual(checked_blocks, [hex(120), hex(120)])
         self.assertEqual(document["admission_verification"]["policy"], "two_rpc_agreement")
         self.assertTrue(document["admissions"][rpc.record_id]["eligible"])
         eligible = False
@@ -993,14 +994,16 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
                     record_loader=lambda *_: self.fail("untrusted deployment was fetched"), request_json=request)
 
     def test_v2_rejects_witness_disagreement_before_loading_shops(self) -> None:
-        rpc = FakeRpc()
+        rpc = EnumerableV2Rpc()
         selector = "0x" + onchain_rpc.keccak256(b"eligibility(bytes32)").hex()[:8]
         fields = dict(rpc_url="https://rpc.example", from_block=100, registry_version=2,
                       admission_witness_rpc_url="https://witness.example", deployment_block_hash=rpc.block_hash,
                       runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex())
-        for disagreement in ("admission", "logs", "boundary", "code"):
+        for disagreement in ("admission", "boundary", "code"):
             def request(url, **kwargs):
                 payload = kwargs["payload"]
+                if isinstance(payload, list):
+                    return [request(url, **{**kwargs, "payload": item}) for item in payload]
                 witness = "witness.example" in url
                 method, params = payload["method"], payload["params"]
                 if method == "eth_call" and params[0]["data"].startswith(selector):
@@ -1008,11 +1011,9 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
                     raw = word(int(admitted)) + bytes32("0x" + "e" * 64) + word(rpc.finalized_timestamp + 1000) + word(100)
                     return {"jsonrpc": "2.0", "id": payload["id"], "result": "0x" + raw.hex()}
                 result = rpc.request(url, **kwargs)
-                if witness and disagreement == "logs" and method == "eth_getLogs":
-                    result = {**result, "result": []}
-                elif witness and disagreement == "boundary" and method == "eth_getBlockByNumber" and params[0] == hex(120):
+                if witness and disagreement == "boundary" and method == "eth_getBlockByNumber" and params[0] == "finalized":
                     result = {**result, "result": {**result["result"], "hash": "0x" + "e" * 64}}
-                elif witness and disagreement == "code" and method == "eth_getCode" and params[1] == hex(120):
+                elif witness and disagreement == "code" and method == "eth_getCode" and isinstance(params[1], dict):
                     result = {**result, "result": "0x6000"}
                 return result
             with self.subTest(disagreement=disagreement), self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "witness_.*mismatch"):
@@ -1967,29 +1968,6 @@ class VerifiedCheckpointTests(unittest.TestCase):
             self.assertEqual(int(self.rpc.log_calls[-1]["fromBlock"], 16), 100)
         self.assertEqual(list(Path(self.cache_dir.name).iterdir()), [])
 
-    def test_v2_bypasses_persistence_and_requires_full_witness_scan_every_run(self):
-        self.deployment = onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100,
-            registry_version=2, admission_witness_rpc_url="https://witness.example",
-            deployment_block_hash=self.rpc.block_hash,
-            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(self.rpc.registry_code[2:])).hex())
-        selector = "0x" + onchain_rpc.keccak256(b"eligibility(bytes32)").hex()[:8]
-        def request(url, **kwargs):
-            payload = kwargs["payload"]
-            if payload["method"] == "eth_call" and payload["params"][0]["data"].startswith(selector):
-                raw = word(1) + bytes32("0x" + "e" * 64) + word(self.rpc.finalized_timestamp + 1000) + word(100)
-                return {"jsonrpc": "2.0", "id": payload["id"], "result": "0x" + raw.hex()}
-            return self.rpc.request(url, **kwargs)
-        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
-        forged = '{"witness_agreement":true,"logs":[]}'
-        path.write_text(forged)
-        for _ in range(2):
-            self.rpc.log_calls.clear()
-            document = self.collect(request_json=request)
-            self.assertEqual(document["rpc"]["checkpoint"]["status"], "disabled")
-            self.assertEqual(document["rpc"]["checkpoint"]["reason"], "v2_full_two_rpc_scan")
-            self.assertEqual(document["resolved_record_count"], 1)
-            self.assertEqual([int(row["fromBlock"], 16) for row in self.rpc.log_calls], [100, 100])
-            self.assertEqual(path.read_text(), forged)
 
 
 class FinalizedHistoryPagingTests(unittest.TestCase):
@@ -2156,49 +2134,6 @@ class FinalizedHistoryPagingTests(unittest.TestCase):
         self.assertEqual(resumed_index["records"], full_index["records"])
         self.assertEqual(resumed_index["revocations"], full_index["revocations"])
 
-    def test_v2_deadline_never_persists_partial_history(self):
-        self.deployment = onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100,
-            log_chunk_size=10, registry_version=2, admission_witness_rpc_url="https://witness.example",
-            deployment_block_hash=self.rpc.block_hash,
-            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(self.rpc.registry_code[2:])).hex())
-        self.rpc.logs.append(self.rpc.updated_log(record_id=self.rpc.record_id,
-            record_hash=self.rpc.record_hash, record_uri=self.rpc.record_uri, block_number=115))
-        selector = "0x" + onchain_rpc.keccak256(b"eligibility(bytes32)").hex()[:8]
-        budget = onchain_rpc.safe_http.DiscoveryBudget()
-        interrupt = True
-        disagree = False
-        def request(url, **kwargs):
-            payload = kwargs["payload"]
-            method, params = payload["method"], payload["params"]
-            if method == "eth_call" and params[0]["data"].startswith(selector):
-                raw = word(1) + bytes32("0x" + "e" * 64) + word(self.rpc.finalized_timestamp + 1000) + word(100)
-                return {"jsonrpc": "2.0", "id": payload["id"], "result": "0x" + raw.hex()}
-            if method == "eth_getLogs" and int(params[0]["fromBlock"], 16) >= 110:
-                if interrupt:
-                    budget.deadline = 0
-                    raise onchain_rpc.safe_http.SafeHttpError("discovery_budget_exhausted")
-                if disagree and "witness.example" in url:
-                    return {"jsonrpc": "2.0", "id": payload["id"], "result": []}
-            return self.rpc.request(url, **kwargs)
-        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_LOG_WORKERS": "1"}):
-            token = onchain_rpc.safe_http.discovery_budget.set(budget)
-            try:
-                with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "history_sync_incomplete"):
-                    self.collect(request)
-            finally:
-                onchain_rpc.safe_http.discovery_budget.reset(token)
-        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
-        self.assertFalse(path.exists())
-        interrupt = False
-        disagree = True
-        with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "registry_v2_witness_logs_mismatch"):
-            self.collect(request)
-        self.assertFalse(path.exists())
-        disagree = False
-        resumed = self.collect(request)
-        self.assertEqual(resumed["rpc"]["checkpoint"]["status"], "disabled")
-        self.assertEqual([event["event"] for event in resumed["events"]], ["MerchantRegistered", "MerchantUpdated"])
-        self.assertEqual(resumed["resolved_record_count"], 1)
 
     def test_astronomical_height_is_rejected_before_range_materialization(self):
         client = onchain_rpc.JsonRpcClient(self.deployment.rpc_url, request_json=self.rpc.request)
@@ -2339,6 +2274,469 @@ class ExactOnchainResolutionBudgetTests(unittest.TestCase):
             self.assertEqual(budget.requests_remaining, 0)
         finally:
             transport.discovery_budget.reset(token)
+
+
+class EnumerableV2Rpc(FakeRpc):
+    def __init__(self):
+        super().__init__()
+        self.requests = []
+        self.disagree = ""
+        self.category = "0x" + "1" * 64
+        self.category_generation = 1
+        self.current = True
+        self.ineligible_ids = set()
+        self.pruned_ids = set()
+        self.category = next(iter(self.enable_facets(["tea"])))
+
+    def request(self, url, **kwargs):
+        payload = kwargs["payload"]
+        if isinstance(payload, list):
+            return [self.request(url, **{**kwargs, "payload": item}) for item in payload]
+        method, params = payload["method"], payload["params"]
+        self.requests.append((url, method, params))
+        if method == "eth_getLogs":
+            raise AssertionError("v2 must not scan history")
+        signatures = {name: "0x" + onchain_rpc.keccak256(name.encode()).hex()[:8] for name in (
+            "indexedRecordCount()", "indexedRecordIdAt(uint256)", "recordURI(bytes32)",
+            "eligibility(bytes32)", "categoryRecordCount(bytes32)", "categoryRecordAt(bytes32,uint256)",
+            "isCurrent(bytes32)")}
+        result = None
+        if method == "eth_call":
+            self.assert_hash_selector(params[-1])
+            data = params[0]["data"]
+            selector = data[:10]
+            indexed_ids = [record_id for record_id in self.states if record_id not in self.pruned_ids]
+            if selector in {signatures["indexedRecordCount()"], signatures["categoryRecordCount(bytes32)"]}:
+                result = "0x" + word(len(indexed_ids)).hex()
+            elif selector == signatures["indexedRecordIdAt(uint256)"]:
+                result = indexed_ids[int(data[10:], 16)]
+            elif selector == signatures["categoryRecordAt(bytes32,uint256)"]:
+                result = "0x" + (bytes32(indexed_ids[int(data[-64:], 16)]) + word(self.category_generation)).hex()
+            elif selector == signatures["isCurrent(bytes32)"]:
+                result = "0x" + word(int(self.current and "0x" + data[-64:] not in self.ineligible_ids)).hex()
+            elif selector == signatures["recordURI(bytes32)"]:
+                raw = self.record_uri.encode()
+                result = "0x" + (word(32) + word(len(raw)) + raw + bytes((-len(raw)) % 32)).hex()
+            elif selector == signatures["eligibility(bytes32)"]:
+                eligible = "0x" + data[-64:] not in self.ineligible_ids
+                expiry = self.finalized_timestamp + 3600 if eligible else self.finalized_timestamp - 1
+                result = "0x" + (word(int(eligible)) + bytes32("0x" + data[-64:]) + word(expiry) + word(10)).hex()
+            if "witness" in url and selector == self.disagree:
+                if result is None:
+                    result = super().request(url, **kwargs)["result"]
+                result = "0x" + f"{int(result[2:], 16) ^ 1:0{len(result) - 2}x}"
+        if result is not None:
+            return {"jsonrpc": "2.0", "id": payload["id"], "result": result}
+        if method == "eth_getCode" and isinstance(params[-1], dict):
+            self.assert_hash_selector(params[-1])
+            return {"jsonrpc": "2.0", "id": payload["id"],
+                "result": self.facets_code if params[0] == self.facets_address else self.registry_code}
+        if method == "eth_call":
+            self.assert_hash_selector(params[-1])
+        return super().request(url, **kwargs)
+
+    def assert_hash_selector(self, selector):
+        assert selector == {"blockHash": "0x" + "d" * 64, "requireCanonical": True}
+
+
+class EnumerableV2Tests(unittest.TestCase):
+    def collect(self, rpc, categories=False):
+        deployment = onchain_rpc.RegistryDeployment(rpc_url="https://primary.example",
+            admission_witness_rpc_url="https://witness.example", registry_version=2,
+            from_block=100, deployment_block_hash=rpc.block_hash,
+            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex(),
+            discovery_facets_address=rpc.facets_address if categories else "",
+            discovery_facets_from_block=105)
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_CACHE_DISABLED": "1"}):
+            return onchain_rpc.collect_finalized_events(deployment, record_loader=lambda uri, digest: rpc.record_with_facets(["tea"]),
+                request_json=rpc.request, record_candidate_limit=2, record_candidate_seed="buyer-seed",
+                category_hash_groups=[{rpc.category}] if categories else [])
+
+    def test_exact_finality_rejects_persistently_ahead_witness_before_documents(self):
+        rpc = EnumerableV2Rpc()
+        original = rpc.request
+        loaded = []
+        def request(url, **kwargs):
+            response = original(url, **kwargs)
+            payload = kwargs["payload"]
+            if isinstance(payload, dict) and payload["method"] == "eth_getBlockByNumber" and payload["params"][0] == "finalized" and "witness" in url:
+                response = {**response, "result": {**response["result"],
+                    "number": hex(rpc.finalized_number + 1),
+                    "timestamp": hex(rpc.finalized_timestamp + 1), "hash": "0x" + "e" * 64}}
+            return response
+        rpc.request = request
+        with mock.patch.object(rpc, "record_with_facets", side_effect=lambda *_: loaded.append(True)), \
+                mock.patch.object(onchain_rpc.time, "sleep"), \
+                self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "registry_v2_witness_finality_mismatch"):
+            self.collect(rpc)
+        self.assertEqual(loaded, [])
+
+    def test_exact_finality_converges_on_retry(self):
+        rpc = EnumerableV2Rpc()
+        original = rpc.request
+        witness_heads = []
+        def request(url, **kwargs):
+            response = original(url, **kwargs)
+            payload = kwargs["payload"]
+            if isinstance(payload, dict) and payload["method"] == "eth_getBlockByNumber" and payload["params"][0] == "finalized" and "witness" in url:
+                witness_heads.append(True)
+                if len(witness_heads) == 1:
+                    response = {**response, "result": {**response["result"],
+                        "number": hex(rpc.finalized_number + 1), "hash": "0x" + "e" * 64}}
+            return response
+        rpc.request = request
+        with mock.patch.object(onchain_rpc.time, "sleep") as backoff:
+            document = self.collect(rpc)
+        self.assertEqual(document["resolved_record_count"], 1)
+        self.assertEqual(len(witness_heads), 2)
+        self.assertGreaterEqual(backoff.call_args.args[0], .2)
+
+    def test_bounded_lag_uses_lower_boundary_and_labels_weaker_agreement(self):
+        rpc = EnumerableV2Rpc()
+        original = rpc.request
+        def request(url, **kwargs):
+            response = original(url, **kwargs)
+            payload = kwargs["payload"]
+            if isinstance(payload, dict) and payload["method"] == "eth_getBlockByNumber" and payload["params"][0] == "finalized" and "witness" in url:
+                response = {**response, "result": {**response["result"],
+                    "number": hex(rpc.finalized_number + 1),
+                    "timestamp": hex(rpc.finalized_timestamp + 6), "hash": "0x" + "e" * 64}}
+            return response
+        rpc.request = request
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_WITNESS_FINALITY_POLICY": "bounded_lag",
+                "SHOPBRIDGE_ONCHAIN_WITNESS_MAX_HEAD_SKEW_SECONDS": "12"}):
+            document = self.collect(rpc)
+        self.assertEqual(document["finality"]["block_number"], rpc.finalized_number)
+        self.assertEqual(document["admission_verification"]["finality_agreement"], "bounded_lag_noncanonical")
+
+    def test_bounded_lag_rejects_large_skew_before_documents(self):
+        rpc = EnumerableV2Rpc()
+        original = rpc.request
+        def request(url, **kwargs):
+            response = original(url, **kwargs)
+            payload = kwargs["payload"]
+            if isinstance(payload, dict) and payload["method"] == "eth_getBlockByNumber" and payload["params"][0] == "finalized" and "witness" in url:
+                response = {**response, "result": {**response["result"],
+                    "number": hex(rpc.finalized_number + 20),
+                    "timestamp": hex(rpc.finalized_timestamp + 240), "hash": "0x" + "e" * 64}}
+            return response
+        rpc.request = request
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_WITNESS_FINALITY_POLICY": "bounded_lag",
+                "SHOPBRIDGE_ONCHAIN_WITNESS_MAX_HEAD_SKEW_SECONDS": "12"}), \
+                mock.patch.object(rpc, "record_with_facets", side_effect=AssertionError("document loaded")), \
+                mock.patch.object(onchain_rpc.time, "sleep"), \
+                self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "registry_v2_witness_finality_mismatch"):
+            self.collect(rpc)
+
+    def test_nonconsensus_provider_header_fields_do_not_break_discovery(self):
+        rpc = EnumerableV2Rpc()
+        original = rpc.request
+        def request(url, **kwargs):
+            response = original(url, **kwargs)
+            payload = kwargs["payload"]
+            if isinstance(payload, dict) and payload["method"] == "eth_getBlockByNumber":
+                response = {**response, "result": {**response["result"],
+                    "totalDifficulty": "0x1" if "witness" in url else "0x2",
+                    "providerExtra": url}}
+            return response
+        rpc.request = request
+        self.assertEqual(self.collect(rpc)["resolved_record_count"], 1)
+
+    def test_cleared_facets_preserve_neutral_fallback_with_and_without_query(self):
+        for categories in (False, True):
+            with self.subTest(categories=categories):
+                rpc = EnumerableV2Rpc()
+                original = rpc.request
+                facet_selector = "0x" + onchain_rpc.keccak256(b"facetState(bytes32)").hex()[:8]
+                category_selector = "0x" + onchain_rpc.keccak256(b"categoryRecordCount(bytes32)").hex()[:8]
+                def request(url, **kwargs):
+                    payload = kwargs["payload"]
+                    if isinstance(payload, list):
+                        return [request(url, **{**kwargs, "payload": item}) for item in payload]
+                    if payload["method"] == "eth_call":
+                        selector = payload["params"][0]["data"][:10]
+                        if selector == facet_selector:
+                            return {"jsonrpc": "2.0", "id": payload["id"], "result":
+                                "0x" + (bytes32(rpc.record_hash) + word(0) + word(2) + word(0)).hex()}
+                        if selector == category_selector:
+                            return {"jsonrpc": "2.0", "id": payload["id"], "result": "0x" + word(0).hex()}
+                    return original(url, **kwargs)
+                rpc.request = request
+                document = self.collect(rpc, categories=True) if categories else self.collect_with_facets_without_query(rpc)
+                self.assertEqual(document["resolved_record_count"], 1)
+
+    def collect_with_facets_without_query(self, rpc):
+        deployment = onchain_rpc.RegistryDeployment(rpc_url="https://primary.example",
+            admission_witness_rpc_url="https://witness.example", registry_version=2,
+            from_block=100, deployment_block_hash=rpc.block_hash,
+            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex(),
+            discovery_facets_address=rpc.facets_address, discovery_facets_from_block=105)
+        return onchain_rpc.collect_finalized_events(deployment, record_loader=lambda *_: rpc.record_with_facets(["tea"]),
+            request_json=rpc.request, record_candidate_limit=2, record_candidate_seed="buyer-seed")
+
+    def test_storage_discovery_and_projection_without_history(self):
+        rpc = EnumerableV2Rpc()
+        document = self.collect(rpc)
+        self.assertEqual(document["resolved_record_count"], 1)
+        self.assertTrue(document["admissions"][rpc.record_id]["eligible"])
+        index = onchain_projection.index_contract_document(document,
+            record_hash=lambda record: rpc.record_hash[2:], require_finality=True,
+            expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION)
+        self.assertTrue(index["complete"], index["verification"])
+        self.assertEqual(index["records"][0]["merchant_id"], rpc.record()["merchant_id"])
+        self.assertFalse(any(method == "eth_getLogs" for _, method, _ in rpc.requests))
+
+    def test_expired_dominated_draws_need_pruning_and_recover_at_any_chain_age(self):
+        counts = []
+        for height in (120, 1000000000):
+            rpc = EnumerableV2Rpc()
+            rpc.finalized_number = height
+            for index in range(100):
+                record_id = "0x" + f"{index + 1:064x}"
+                rpc.states[record_id] = {**rpc.states[rpc.record_id],
+                    "domain_hash": onchain_rpc.domain_hash(f"expired-{index}.example")}
+                rpc.ineligible_ids.add(record_id)
+            # This replayable draw never reaches the sole valid index (zero).
+            draws = onchain_rpc._sample_storage_indices(101, 6, "buyer-seed\0active")
+            self.assertNotIn(0, draws)
+            with mock.patch.object(rpc, "record_with_facets",
+                    side_effect=AssertionError("expired draw fetched a merchant document")):
+                exhausted = self.collect(rpc)
+            self.assertEqual(exhausted["resolved_record_count"], 0)
+            self.assertEqual(exhausted["record_selection"]["selected_record_ids"], [])
+            self.assertTrue(all(not item["eligible"] for item in exhausted["admissions"].values()))
+            index = onchain_projection.index_contract_document(exhausted,
+                record_hash=lambda record: rpc.record_hash[2:], require_finality=True,
+                expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION)
+            self.assertTrue(index["complete"], index["verification"])
+            self.assertEqual(index["records"], [])
+            unpruned_requests = len(rpc.requests)
+            # Model permissionless keeper pruning: lifecycle records remain,
+            # but expired ids no longer occupy the enumerable set.
+            rpc.pruned_ids.update(rpc.ineligible_ids)
+            rpc.requests.clear()
+            restored = self.collect(rpc)
+            self.assertEqual(restored["record_selection"]["selected_record_ids"], [rpc.record_id])
+            self.assertEqual(restored["resolved_record_count"], 1)
+            self.assertEqual(restored["record_selection"]["active_candidate_count"], 1)
+            self.assertFalse(any(method == "eth_getLogs" for _, method, _ in rpc.requests))
+            counts.append((unpruned_requests, len(rpc.requests)))
+        self.assertEqual(counts[0], counts[1])
+
+    def test_ineligible_initial_draw_backfills_from_same_bounded_reserve(self):
+        rpc = EnumerableV2Rpc()
+        # Put the valid merchant after an expired initial draw in the seeded
+        # index order. A target of one still samples only three reserve indices.
+        expired_id = "0x" + "2" * 64
+        rpc.states[expired_id] = {**rpc.states[rpc.record_id],
+            "domain_hash": onchain_rpc.domain_hash("expired.example")}
+        rpc.ineligible_ids.add(expired_id)
+        seed = "buyer-seed"
+        self.assertEqual(onchain_rpc._sample_storage_indices(2, 3, seed + "\0active"), [1, 0])
+        deployment = onchain_rpc.RegistryDeployment(rpc_url="https://primary.example",
+            admission_witness_rpc_url="https://witness.example", registry_version=2,
+            from_block=100, deployment_block_hash=rpc.block_hash,
+            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex())
+        loaded = []
+        budget = onchain_rpc.safe_http.DiscoveryBudget()
+        def transport(url, **kwargs):
+            _, allocation = budget.reserve(30, 100000)
+            try:
+                return rpc.request(url, **kwargs)
+            finally:
+                budget.finish(allocation, 1000)
+        def loader(uri, digest):
+            _, allocation = budget.reserve(5, 10000)
+            budget.finish(allocation, 1000)
+            loaded.append(digest)
+            return rpc.record()
+        token = onchain_rpc.safe_http.discovery_budget.set(budget)
+        try:
+            document = onchain_rpc.collect_finalized_events(deployment, request_json=transport,
+                record_loader=loader, record_candidate_limit=1, record_candidate_seed=seed)
+        finally:
+            onchain_rpc.safe_http.discovery_budget.reset(token)
+        self.assertFalse(document["admissions"][expired_id]["eligible"])
+        self.assertEqual(document["record_selection"]["selected_record_ids"], [rpc.record_id])
+        self.assertEqual(document["resolved_record_count"], 1)
+        self.assertEqual(loaded, [rpc.record_hash])
+        self.assertLessEqual(budget.general_requests_used, 256)
+
+    def test_deterministic_unique_and_uniform_index_sample(self):
+        sample = onchain_rpc._sample_storage_indices
+        self.assertEqual(sample(1000000000000, 12, "buyer"), sample(1000000000000, 12, "buyer"))
+        self.assertEqual(len(set(sample(7, 20, "buyer"))), 7)
+        counts = [0] * 7
+        for seed in range(7000):
+            counts[sample(7, 1, str(seed))[0]] += 1
+        self.assertTrue(all(850 < count < 1150 for count in counts), counts)
+
+    def test_witness_disagreement_fails_before_document_loading(self):
+        for signature in ("indexedRecordCount()", "indexedRecordIdAt(uint256)", "record(bytes32)",
+                "recordURI(bytes32)", "eligibility(bytes32)", "categoryRecordCount(bytes32)",
+                "categoryRecordAt(bytes32,uint256)", "facetState(bytes32)", "isCurrent(bytes32)",
+                "recordIdForDomain(bytes32)", "revokedRecordHashes(bytes32)"):
+            rpc = EnumerableV2Rpc()
+            rpc.disagree = "0x" + onchain_rpc.keccak256(signature.encode()).hex()[:8]
+            with self.subTest(signature=signature), self.assertRaises(onchain_rpc.OnchainRpcError) as raised:
+                self.collect(rpc, categories=True)
+            self.assertEqual(raised.exception.code, "registry_v2_witness_storage_mismatch")
+
+
+    def test_batched_storage_rejects_duplicate_response_ids(self):
+        rpc = EnumerableV2Rpc()
+        def request(url, **kwargs):
+            result = rpc.request(url, **kwargs)
+            if isinstance(result, list) and len(result) > 1:
+                result[1] = {**result[1], "id": result[0]["id"]}
+            return result
+        deployment = onchain_rpc.RegistryDeployment(rpc_url="https://primary.example",
+            admission_witness_rpc_url="https://witness.example", registry_version=2,
+            from_block=100, deployment_block_hash=rpc.block_hash,
+            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex())
+        with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "rpc_batch_response_invalid"):
+            onchain_rpc.collect_finalized_events(deployment, request_json=request,
+                record_loader=lambda *_: self.fail("invalid batch reached document loading"))
+
+
+    def test_batch_413_splits_with_provider_limit_eight_and_counts_attempts(self):
+        attempts = []
+        budget = onchain_rpc.safe_http.DiscoveryBudget()
+        reject_next_eight = True
+
+        def request(_url, **kwargs):
+            nonlocal reject_next_eight
+            _, allocation = budget.reserve(30, 10000)
+            budget.finish(allocation, 100)
+            payload = kwargs["payload"]
+            size = len(payload) if isinstance(payload, list) else 1
+            attempts.append(size)
+            # The provider rejects every batch >8. Even a supported-size batch
+            # can exceed its byte limit, exercising the actual 413 split path.
+            if size > 8 or (size == 8 and reject_next_eight):
+                reject_next_eight = False
+                raise onchain_rpc.safe_http.SafeHttpError("upstream_http_error",
+                    status=413, detail="request too large")
+            rows = payload if isinstance(payload, list) else [payload]
+            responses = [{"jsonrpc": "2.0", "id": row["id"], "result": row["params"][0]} for row in rows]
+            return list(reversed(responses)) if isinstance(payload, list) else responses[0]
+
+        client = onchain_rpc.JsonRpcClient("https://primary.example", request_json=request)
+        calls = [("eth_call", [index]) for index in range(24)]
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_RPC_BATCH_SIZE": "8"}):
+            self.assertEqual(client.call_batch(calls), list(range(24)))
+        self.assertEqual(attempts, [8, 4, 4, 8, 8])
+        self.assertEqual(budget.general_requests_used, 5)
+        attempts.clear()
+        # Also prove the splitter rejects >8 rather than accepting 12/16.
+        self.assertEqual(client._call_batch_chunk(calls[:16]), list(range(16)))
+        self.assertEqual(attempts, [16, 8, 8])
+
+    def test_batch_429_honors_cooldown_and_splits_to_single_requests(self):
+        attempts = []
+        def request(_url, **kwargs):
+            payload = kwargs["payload"]
+            size = len(payload) if isinstance(payload, list) else 1
+            attempts.append(size)
+            if isinstance(payload, list):
+                raise onchain_rpc.safe_http.SafeHttpError("upstream_http_error",
+                    status=429, retry_after=7)
+            return {"jsonrpc": "2.0", "id": payload["id"], "result": payload["params"][0]}
+        client = onchain_rpc.JsonRpcClient("https://primary.example", request_json=request)
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_RPC_BATCH_SIZE": "4"}), \
+                mock.patch.object(onchain_rpc.time, "sleep") as sleep:
+            self.assertEqual(client.call_batch([("eth_call", [index]) for index in range(4)]), list(range(4)))
+        self.assertEqual(attempts, [4, 2, 1, 1, 2, 1, 1])
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [7, 7, 7])
+
+    def test_batch_size_can_only_be_configured_downward(self):
+        calls = []
+        def request(_url, **kwargs):
+            row = kwargs["payload"]
+            self.assertIsInstance(row, dict)
+            calls.append(row)
+            return {"jsonrpc": "2.0", "id": row["id"], "result": "0x1"}
+        client = onchain_rpc.JsonRpcClient("https://primary.example", request_json=request)
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_RPC_BATCH_SIZE": "1"}):
+            self.assertEqual(client.call_batch([("eth_call", []), ("eth_call", [])]), ["0x1", "0x1"])
+        self.assertEqual(len(calls), 2)
+        for invalid in ("0", "9", "bogus"):
+            with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_RPC_BATCH_SIZE": invalid}), \
+                    self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "rpc_batch_size_invalid"):
+                client.call_batch([("eth_call", [])])
+
+    def test_exact_domain_lookup_bypasses_random_index_sampling(self):
+        rpc = EnumerableV2Rpc()
+        deployment = onchain_rpc.RegistryDeployment(rpc_url="https://primary.example",
+            admission_witness_rpc_url="https://witness.example", registry_version=2,
+            from_block=100, deployment_block_hash=rpc.block_hash,
+            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex())
+        document = onchain_rpc.collect_finalized_events(deployment, request_json=rpc.request,
+            record_loader=lambda *_: rpc.record(), preferred_domain_hashes={rpc.registered_domain_hash},
+            record_candidate_limit=1)
+        self.assertEqual(document["record_selection"]["selected_record_ids"], [rpc.record_id])
+        self.assertEqual(document["resolved_record_count"], 1)
+        selector = "0x" + onchain_rpc.keccak256(b"indexedRecordIdAt(uint256)").hex()[:8]
+        self.assertFalse(any(method == "eth_call" and params[0]["data"].startswith(selector)
+            for _, method, params in rpc.requests))
+
+    def test_stale_category_generation_and_current_binding_use_neutral_fallback(self):
+        for generation, current in ((2, True), (1, False)):
+            rpc = EnumerableV2Rpc()
+            rpc.category_generation, rpc.current = generation, current
+            document = self.collect(rpc, categories=True)
+            self.assertEqual(document["record_selection"]["hinted_record_count"], 0)
+            self.assertEqual(document["resolved_record_count"], 1)
+
+    def test_request_count_is_independent_of_chain_age(self):
+        counts = []
+        for height in (120, 1000000000):
+            rpc = EnumerableV2Rpc()
+            rpc.finalized_number = height
+            self.collect(rpc)
+            counts.append(len(rpc.requests))
+        self.assertEqual(counts[0], counts[1])
+        self.assertLess(counts[0], 50)
+
+    def test_default_target_and_reserve_fit_shared_transport_budget(self):
+        rpc = EnumerableV2Rpc()
+        documents = {}
+        for index in range(1, 101):
+            record_id = "0x" + f"{index:064x}"
+            digest = "0x" + f"{index + 100:064x}"
+            record = rpc.record_with_facets(["tea"])
+            record["domain"] = f"shop-{index}.example"
+            record["onchain_identity"]["record_id"] = record_id
+            record["merchant_id"] = f"merchant-{index}"
+            documents[digest] = record
+            rpc.states[record_id] = {"controller": rpc.controller, "record_hash": digest,
+                "domain_hash": onchain_rpc.domain_hash(record["domain"]), "status": 1}
+            rpc.facet_states[record_id] = {**rpc.facet_states[rpc.record_id], "record_hash": digest}
+        del rpc.states[rpc.record_id]
+        budget = onchain_rpc.safe_http.DiscoveryBudget()
+        def transport(url, **kwargs):
+            timeout, allocation = budget.reserve(30, 100000)
+            try:
+                return rpc.request(url, **kwargs)
+            finally:
+                budget.finish(allocation, 1000)
+        def loader(uri, digest):
+            timeout, allocation = budget.reserve(5, 10000)
+            budget.finish(allocation, 1000)
+            return documents[digest]
+        deployment = onchain_rpc.RegistryDeployment(rpc_url="https://primary.example",
+            admission_witness_rpc_url="https://witness.example", registry_version=2,
+            from_block=100, deployment_block_hash=rpc.block_hash,
+            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(rpc.registry_code[2:])).hex(),
+            discovery_facets_address=rpc.facets_address, discovery_facets_from_block=105)
+        token = onchain_rpc.safe_http.discovery_budget.set(budget)
+        try:
+            document = onchain_rpc.collect_finalized_events(deployment, record_loader=loader,
+                request_json=transport, record_candidate_limit=12, record_candidate_seed="buyer",
+                category_hash_groups=[{rpc.category}])
+        finally:
+            onchain_rpc.safe_http.discovery_budget.reset(token)
+        self.assertEqual(document["resolved_record_count"], 12)
 
 
 if __name__ == "__main__":

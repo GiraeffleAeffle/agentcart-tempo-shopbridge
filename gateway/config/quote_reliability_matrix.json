@@ -94,7 +94,7 @@
     {
       "id": "complete-address-before-payment",
       "target": "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",
-      "test": "woocommerce-shopbridge/tests/test_plugin_contracts.py::ShopBridgePluginContractTests.test_comparison_quote_requires_fresh_full_address_before_checkout"
+      "test": "woocommerce-shopbridge/tests/test_payment_availability_runtime.py::PaymentAvailabilityRuntimeTests.test_checkout_rejects_incomplete_delivery_address_before_payment"
     },
     {
       "id": "tax-total-consistency-before-approval",
@@ -114,7 +114,7 @@
     {
       "id": "price-shipping-tax-drift-recovery",
       "target": "woocommerce-shopbridge/agentcart-shopbridge/agentcart-shopbridge.php",
-      "test": "woocommerce-shopbridge/tests/test_plugin_contracts.py::ShopBridgePluginContractTests.test_checkout_revalidates_quote_money_fields_before_payment_verification"
+      "test": "woocommerce-shopbridge/tests/test_payment_availability_runtime.py::PaymentAvailabilityRuntimeTests.test_checkout_rejects_live_money_drift_before_payment"
     },
     {
       "id": "buyer-payment-receipt-amount-binding",

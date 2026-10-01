@@ -373,7 +373,9 @@ def finalized_document_errors(
             selection_mode = selection.get("selection_mode")
             if (
                 selection.get("schema") != "agentcart.onchain_registry_candidate_selection.v1"
-                or selection.get("algorithm") != "sha256-query-seeded-record-id-sample"
+                or selection.get("algorithm") != ("sha256-rejection-sparse-fisher-yates"
+                    if document.get("projection_origin") == "finalized_storage"
+                    else "sha256-query-seeded-record-id-sample")
                 or selection_mode
                 not in {
                     "query_seeded_sample",
@@ -402,7 +404,7 @@ def finalized_document_errors(
                     or selected_count > scope_count
                     or scope_count > active_count
                     or selected_count > candidate_limit
-                    or active_count != len(active_record_ids)
+                    or (document.get("projection_origin") != "finalized_storage" and active_count != len(active_record_ids))
                     or not set(selected_record_ids).issubset(active_record_ids)
                 ):
                     errors.append({"error": "contract_events_record_selection_invalid"})

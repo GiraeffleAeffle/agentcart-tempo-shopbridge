@@ -64,9 +64,9 @@ actions.
   other rails.
 * Configured-only manifest protocol profiles for ShopBridge, MPP, Stripe/card
   MPP, registry mapping, and signed-request adapters.
-* Configured x402 profiles are marked unavailable with
-  `verifier_x402_support_unconfirmed`. Configuration is not proof of verifier
-  support; x402 is excluded from quote payment rails and production readiness.
+* x402 v2 exact Base Sepolia USDC payments for USD quotes, enabled only after
+  an administrator explicitly checks authenticated verifier capabilities.
+  x402 refunds are unsupported and require manual handling.
 * Optional signed-request mode with HMAC-SHA256 or RSA-SHA256 signatures that
   bind method, path, body digest, nonce, expiry, and signer for quote,
   checkout, status, refund, and cancellation calls.
@@ -160,6 +160,15 @@ public manifest, proof, revocation, and bundle URLs, sending ordinary HTTP
 request metadata but no buyer, order, or payment data. No x402 facilitator URL
 is contacted by the plugin.
 
+The "Check verifier capabilities" action sends only `operation: capabilities`
+and the configured bearer token to the merchant's verifier and stores its rail,
+network and asset support locally. The snapshot has no automatic expiry and is
+invalidated when the verifier URL or x402 destination changes. Manifest and quote
+paths never fetch capabilities. The verifier, not WordPress, contacts the x402
+facilitator (`https://x402.org/facilitator` by default) and Base Sepolia RPC
+(`https://sepolia.base.org` by default) to verify and settle signed USDC payments.
+Those service URLs are configured solely by the verifier operator.
+
 
 Payment verifier URLs must resolve to public IP addresses unless
 `AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL=1` is set for a local or staging
@@ -240,6 +249,25 @@ or external verifier confirms a quote-bound payment receipt. Production
 checkout should use external-verifier-only mode, and settlement/refunds must be
 performed or verified by the configured payment rail/verifier.
 
+= How do I enable x402 payments? =
+
+Configure the verifier URL and token, network `eip155:84532`, Base Sepolia USDC
+asset `0x036CbD53842c5426634e7929541eC2318f3dCF7e`, and a valid merchant payTo
+address. Save settings, then click "Check verifier capabilities". Only a verifier
+confirming v2 exact settlement for that network and asset enables USD quote
+requirements. No FX conversion is offered. Buyers submit PAYMENT-SIGNATURE;
+successful checkout returns PAYMENT-RESPONSE. x402 refunds are manual only and
+the API does not claim a refund moved money.
+
+Third-party buyers must commit the stored quote and payment contract into the
+EIP-3009 nonce: lowercase 0x-prefixed Keccak-256 of
+utf8("shopbridge-x402-nonce-v1") || bytes32(quote_hash) ||
+bytes32(payment_contract_hash) || keccak256(utf8(resource_url)).
+Decode both 64-hex SHA-256 hashes to raw bytes. resource_url is the exact
+PAYMENT-REQUIRED resource.url and quote checkout endpoint. Authorization windows
+are 30-300 seconds; use validAfter "0" and validBefore now + maxTimeoutSeconds.
+The plugin rejects mismatched nonces before contacting the verifier.
+
 = Does Submit registry bundle register the shop onchain? =
 
 No. It sends the public bundle to the configured hosted registry for cache,
@@ -285,8 +313,22 @@ AgentCart metadata so merchants retain their commerce audit trail.
 == Changelog ==
 
 = Unreleased =
-* Mark x402 unavailable until verifier support is confirmed; omit it from quote
-  payment rails and contracts.
+* Require strict configured settlement and confirmed facilitator support before
+  advertising x402; preserve capability snapshots on transport failure and
+  replace them on successful checks.
+* Limit authorization windows to 30-300 seconds; legacy longer values disable
+  x402 until saved again. Bind signed nonces to quote, contract and resource.
+* Label header-derived receipts authorized and handle x402 response objects in
+  the manager Retry checkout action without a fatal error.
+* Recover already-submitted payment drafts from their intact stored contract
+  after rail availability changes; new submissions still require an enabled rail.
+* Include delivery_address_incomplete recovery hints when checkout rejects an
+  incomplete delivery address before payment verification.
+* Enable x402 v2 exact Base Sepolia USDC for USD quotes after an explicit,
+  nonce-protected verifier capability check; bind registry claims to the destination.
+* Use PAYMENT-REQUIRED, PAYMENT-SIGNATURE and PAYMENT-RESPONSE v2 documents;
+  remove v1 X-PAYMENT and plugin-owned facilitator/asset denomination settings.
+* Keep x402 refunds unsupported_manual_only; changing destination invalidates support.
 * Reject caller-selected unavailable payment rails and conflicting contract
   hashes before settlement verification. Sandbox dry checkout prefers available
   Tempo, otherwise Stripe/card, and uses that rail's stored advertised contract
@@ -335,7 +377,7 @@ AgentCart metadata so merchants retain their commerce audit trail.
 == Upgrade Notice ==
 
 = Unreleased =
-Hosted registry is now opt-in; save a URL if you relied on the old default.
-x402 is unavailable. Real Tempo settlement requires USD quotes; use Stripe/card
-for EUR. Requote after payment-setting changes. Refunds must use the original
-available rail.
+Hosted registry is opt-in: save its URL. x402 requires a configured
+settlement verifier, confirmed facilitator support, USD quotes, quote-bound
+nonces and 30-300 s windows; save legacy timeouts again. Refunds remain manual.
+Tempo needs USD; use Stripe/card for EUR. Re-quote after payment changes.

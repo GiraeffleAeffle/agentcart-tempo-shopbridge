@@ -78,6 +78,13 @@ verifier:
     existingClaim: ""
     storageClass: ""
     size: 1Gi
+  x402:
+    mode: disabled
+    network: "eip155:84532"
+    facilitatorUrl: "https://x402.org/facilitator"
+    rpcUrl: "https://sepolia.base.org"
+    confirmations: 1
+    facilitatorTimeoutMs: 7000
   tempo:
     settlementMode: disabled
     settlementRpcUrl: ""

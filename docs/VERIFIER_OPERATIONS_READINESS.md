@@ -59,6 +59,61 @@ AGENTCART_VERIFIER_ALERT_MIN_SEVERITY=warning
 AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS=300
 ```
 
+### x402 Base Sepolia operations
+
+The shared verifier loads `gateway/scripts/verifier-x402.mjs` for x402 v2
+`exact` EIP-3009 USDC settlement on Base Sepolia only. Keep x402 disabled until
+the persistent SQLite volume is mounted and the authenticated verifier endpoint
+is configured. A settle deployment uses:
+
+```env
+AGENTCART_VERIFIER_ENABLED_RAILS=x402-compatible
+AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=sqlite
+AGENTCART_VERIFIER_REPLAY_STORE_PATH=/data/verifier/replay-store.sqlite
+AGENTCART_X402_MODE=settle
+AGENTCART_X402_NETWORK=eip155:84532
+AGENTCART_X402_FACILITATOR_URL=https://x402.org/facilitator
+AGENTCART_X402_RPC_URL=https://sepolia.base.org
+AGENTCART_X402_CONFIRMATIONS=1
+AGENTCART_X402_FACILITATOR_TIMEOUT_MS=7000
+```
+
+Mode defaults to `disabled`; only `disabled` and `settle` are supported. The
+network, URLs, confirmation count, and timeout above are defaults. The configured
+settle timeout is 100–7000 ms. Verify is capped at 2500 ms, settle defaults to
+7000 ms, and confirmation has a 1500 ms total ceiling. Every RPC call is capped
+at 1500 ms and all steps share a 12000 ms global budget, below the plugin's 15 s
+timeout. Ambiguous settlement always reconciles. HTTPS global-address
+destinations are required and redirects are rejected.
+`AGENTCART_X402_ALLOW_PRIVATE_URLS=true` is an isolated local-test override,
+not a staging or production deployment setting.
+
+Authenticated operations cache facilitator `/supported` capabilities for ten
+minutes. Health probes make no outbound calls; a green health response alone
+does not establish facilitator availability or a completed payment.
+
+Preserve SQLite authorization reservations in backups, including `start_block`,
+`scan_cursor`, `transaction_hash`, and `valid_before`. Reservations bind quote
+hash, contract hash, amount, asset, and payTo. Reconciliation scans from the fixed
+reservation block in resumable chunks of at most 500 blocks, not the latest 600.
+Legacy rows without a block reference scan from genesis. A used nonce with
+missing evidence stays `settling`; verify-invalid after a submission lease and
+RPC errors are retryable, never terminal payment failures. Expiry requires a
+confirmed block B (`latest - confirmations`) whose timestamp is at least
+`validBefore` and an unused nonce read pinned to B. Never decide terminal expiry
+from the local clock or a lagging latest-head read. A confirmed
+authorization-linked transfer mismatch can also fail the row. Stored
+successful retries return without network calls.
+
+If settlement times out, retain the original signed authorization and replay
+database and retry the same operation. Do not delete the reservation, switch
+to an empty database, or issue a fresh authorization to bypass ambiguity.
+
+Operational settlement evidence must include a successful receipt, matching
+USDC `Transfer` and `AuthorizationUsed` logs, and required confirmations.
+Facilitator success by itself is insufficient. x402 refunds are unsupported;
+never report a rail-verified refund or dispatch a live refund for this rail.
+
 Before enabling public checkout, capture:
 
 ```sh

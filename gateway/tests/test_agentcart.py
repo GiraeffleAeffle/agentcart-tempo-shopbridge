@@ -4853,5 +4853,191 @@ class AgentCartTests(unittest.TestCase):
             self.assertIn(f"/v1/audit/{quote['id']}/export", html)
 
 
+class X402GatewayTests(unittest.TestCase):
+    def setup_quote(self, tmp):
+        from tests.test_shopbridge_direct_skill import sample_x402_quote, sample_x402_record
+        service = make_service(tmp)
+        quote = service.create_quote({"items": [{"product_id": "woo_203", "quantity": 1}]})
+        source = sample_x402_quote()
+        quote.update(currency="USD", total_cents=source["total_cents"], subtotal_cents=source["subtotal_cents"],
+                     shipping=source["shipping"], payment_requirements=source["payment_requirements"],
+                     quote_hash=source["quote_hash"])
+        quote["quote_trust"] = {
+            "registry_record_hash": "record",
+            "merchant_origin": "https://merchant.example",
+            "registry_payment_bindings": agentcart.registry_trust.registry_payment_bindings(sample_x402_record()),
+        }
+        quote["quote_trust"]["trust_hash"] = agentcart.hash_without(quote["quote_trust"], "trust_hash")
+        return service, quote
+
+    def test_gateway_registry_x402_approval_challenge_checkout(self):
+        from tests.test_shopbridge_direct_skill import sample_x402_receipt
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service, quote = self.setup_quote(pathlib.Path(raw_tmp))
+            approval = service.create_approval({"quote_id": quote["id"]})
+            service.state["approvals"][approval["id"]]["state"] = "approved"
+            request = {"quote_id": quote["id"], "approval_id": approval["id"], "idempotency_key": "x402"}
+            status, headers, _ = service.checkout(request, {}, b"{}")
+            self.assertEqual(status, 402)
+            required = agentcart.registry_trust.decode_x402_header(headers["PAYMENT-REQUIRED"])
+            self.assertEqual(required["accepts"][0]["amount"], "14800000")
+            adapter = agentcart.ShopBridgeRegistryAdapter(
+                {"merchant_id": quote["merchant_id"], "manifest_url": "https://merchant.example/.well-known/agentcart.json"},
+                {"merchant": quote["merchant"]})
+            calls = []
+            def fake_merchant(url, *, method="GET", payload=None, **kwargs):
+                calls.append(payload)
+                return {"id": "woo-paid", "state": "created",
+                        "payment_verification": {"real_settlement_verified": True}}
+            adapter.request_json = fake_merchant
+            service.adapters[quote["merchant_id"]] = adapter
+            request["payment_receipt"] = sample_x402_receipt(quote)
+            status, _, body = service.checkout(request, {}, b"{}")
+            self.assertEqual(status, 201)
+            self.assertEqual(body["order"]["merchant_order_id"], "woo-paid")
+            self.assertEqual(calls[0]["payment_receipt"]["x402_payment_signature"],
+                             request["payment_receipt"]["x402_payment_signature"])
+            self.assertTrue(body["payment_receipt"]["real_settlement_verified"])
+
+    def test_gateway_payment_required_mismatch_blocks_approval_checkout(self):
+        from tests.test_shopbridge_direct_skill import encode_x402
+        for field, value in (("payTo", "0x2222222222222222222222222222222222222222"),
+                             ("amount", "14800001"), ("asset", "0x2222222222222222222222222222222222222222")):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as raw_tmp:
+                service, quote = self.setup_quote(pathlib.Path(raw_tmp))
+                approval = service.create_approval({"quote_id": quote["id"]})
+                service.state["approvals"][approval["id"]]["state"] = "approved"
+                required = quote["payment_requirements"]["x402"]["payment_required"]
+                required["accepts"][0][field] = value
+                quote["payment_requirements"]["x402"]["payment_required_header_value"] = encode_x402(required)
+                with self.assertRaisesRegex(agentcart.Forbidden, "x402_payment_required_mismatch"):
+                    service.create_approval({"quote_id": quote["id"]})
+                with self.assertRaisesRegex(agentcart.Forbidden, "x402_payment_required_mismatch"):
+                    service.checkout({"quote_id": quote["id"], "approval_id": approval["id"],
+                                      "idempotency_key": "bad-x402"}, {}, b"{}")
+                self.assertFalse(service.state["orders"])
+
+    def test_gateway_receipt_accepted_mismatch_blocks_merchant_call(self):
+        from tests.test_shopbridge_direct_skill import encode_x402, sample_x402_receipt
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service, quote = self.setup_quote(pathlib.Path(raw_tmp))
+            approval = service.create_approval({"quote_id": quote["id"]})
+            service.state["approvals"][approval["id"]]["state"] = "approved"
+            receipt = sample_x402_receipt(quote)
+            decoded = agentcart.registry_trust.decode_x402_header(receipt["x402_payment_signature"])
+            decoded["accepted"]["amount"] = "1"
+            receipt["x402_payment_signature"] = encode_x402(decoded)
+            with self.assertRaisesRegex(agentcart.Forbidden, "x402_payment_required_mismatch"):
+                service.checkout({"quote_id": quote["id"], "approval_id": approval["id"],
+                                  "idempotency_key": "bad-receipt", "payment_receipt": receipt}, {}, b"{}")
+            self.assertFalse(service.state["orders"])
+
+
+    def test_gateway_registry_x402_quote_discovery_and_binding_changes(self):
+        from tests.test_shopbridge_direct_skill import sample_x402_quote, sample_x402_record, encode_x402
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = pathlib.Path(raw_tmp)
+            manifest = signed_registry_manifest()
+            fields = sample_x402_record()
+            fields.pop("merchant_id")
+            record = signed_registry_record(manifest, **fields)
+            registry_path = tmp / "registry.json"
+            registry_path.write_text(json.dumps({"entries": [record]}))
+            policy_path = tmp / "policy.json"
+            policy_path.write_text(json.dumps({
+                "allowed_merchants": [], "allowed_categories": [], "allowed_ship_countries": ["DE"],
+                "require_human_approval": True,
+            }))
+            service = make_service(tmp, merchant_registry_path=registry_path,
+                                   merchant_registry_hmac_secret="registry-secret", policy_path=policy_path)
+            adapter = service.adapters["signed-tea-shop"]
+            product = {"product_id": "x402-tea", "title": "X402 Tea", "price_cents": 990,
+                       "stock": 10, "category": "household.supplies", "shipping_regions": ["DE"]}
+            normalized = adapter.normalize_product(product)
+            raw_quote = sample_x402_quote()
+            raw_quote["items"][0]["product_id"] = "x402-tea"
+            required = raw_quote["payment_requirements"]["x402"]["payment_required"]
+            required["resource"]["url"] = "https://signed.example/wp-json/agentcart/v1/orders"
+            raw_quote["payment_requirements"]["checkout_endpoint"] = required["resource"]["url"]
+            raw_quote["payment_requirements"]["x402"]["payment_required_header_value"] = encode_x402(required)
+            def fake_merchant(url, **kwargs):
+                return {"products": [product]} if "catalog" in url else raw_quote
+            adapter.request_json = fake_merchant
+            request = {"items": [{"product_id": normalized["id"], "quantity": 1}],
+                       "ship_to": raw_quote["ship_to"]}
+            quote = service.create_quote(request)
+            self.assertTrue(service.quote_payment_destination(quote)["registry_verified"])
+            tournament = service.quote_tournament({"query": "x402 tea"})
+            self.assertIn("signed-tea-shop", {item["merchant_id"] for item in tournament["candidates"]})
+            required = raw_quote["payment_requirements"]["x402"]["payment_required"]
+            required["accepts"][0]["payTo"] = "0x2222222222222222222222222222222222222222"
+            raw_quote["payment_requirements"]["x402"]["payment_required_header_value"] = encode_x402(required)
+            tournament = service.quote_tournament({"query": "x402 tea"})
+            self.assertNotIn("signed-tea-shop", {item["merchant_id"] for item in tournament["candidates"]})
+            self.assertTrue(any(item.get("merchant_id") == "signed-tea-shop"
+                                and item["reason"] == "x402_payment_required_mismatch" for item in tournament["rejected"]))
+
+    @unittest.skipUnless(shutil.which("php"), "php is required")
+    def test_explicit_x402_rail_with_real_plugin_multi_rail_quote(self):
+        from tests.test_shopbridge_direct_skill import real_plugin_payment_requirements, sample_x402_quote
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service, original = self.setup_quote(pathlib.Path(raw_tmp))
+            raw_quote = sample_x402_quote()
+            raw_quote["items"][0]["category"] = original["items"][0]["category"]
+            raw_quote["payment_requirements"] = real_plugin_payment_requirements(raw_quote, x402=True)
+            bindings = original["quote_trust"]["registry_payment_bindings"]
+            bindings["x402-compatible"]["pay_to"] = "0x" + "2" * 40
+            adapter = agentcart.ShopBridgeRegistryAdapter(
+                {"merchant_id": original["merchant_id"], "manifest_url": "https://shop.example/.well-known/agentcart.json",
+                 "registry_record_hash": "record", "registry_payment_bindings": bindings},
+                {"merchant": original["merchant"]})
+            adapter.request_json = lambda *args, **kwargs: raw_quote
+            service.adapters[original["merchant_id"]] = adapter
+            with mock.patch.object(service, "adapter_for_product", return_value=adapter):
+                quote = service.create_quote({"items": [{"product_id": "woo_203", "quantity": 1}],
+                                              "ship_to": raw_quote["ship_to"], "payment_rail": "x402-compatible"})
+            self.assertEqual(quote["payment_rail"], "x402-compatible")
+            self.assertEqual(quote["payment_requirements"]["protocols"][0]["id"], "tempo-mpp")
+            self.assertTrue(quote["payment_requirements"]["protocols"][0]["available"])
+            approval = service.create_approval({"quote_id": quote["id"], "payment_rail": "x402-compatible"})
+            self.assertEqual(approval["approval_record"]["approval_material"]["payment_destination"]["rail"], "x402-compatible")
+            service.state["approvals"][approval["id"]]["state"] = "approved"
+            status, headers, _ = service.checkout({
+                "quote_id": quote["id"], "approval_id": approval["id"],
+                "idempotency_key": "explicit-x402", "payment_rail": "x402-compatible"}, {}, b"{}")
+            self.assertEqual(status, 402)
+            self.assertIn("PAYMENT-REQUIRED", headers)
+            with self.assertRaisesRegex(agentcart.Forbidden, "payment_rail"):
+                service.checkout({"quote_id": quote["id"], "approval_id": approval["id"],
+                                  "idempotency_key": "rail-change", "payment_rail": "tempo-mpp"}, {}, b"{}")
+
+    def test_transient_merchant_failure_retry_has_identical_body_and_key(self):
+        from tests.test_shopbridge_direct_skill import sample_x402_receipt
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            service, quote = self.setup_quote(pathlib.Path(raw_tmp))
+            approval = service.create_approval({"quote_id": quote["id"]})
+            service.state["approvals"][approval["id"]]["state"] = "approved"
+            adapter = agentcart.ShopBridgeRegistryAdapter(
+                {"merchant_id": quote["merchant_id"], "manifest_url": "https://merchant.example/.well-known/agentcart.json"},
+                {"merchant": quote["merchant"]})
+            calls = []
+            def merchant(url, *, payload=None, extra_headers=None, **kwargs):
+                calls.append((json.dumps(payload, sort_keys=True), extra_headers))
+                if len(calls) == 1:
+                    raise agentcart.UpstreamError("transient verifier failure")
+                return {"id": "woo-paid", "payment_verification": {"real_settlement_verified": True}}
+            adapter.request_json = merchant
+            service.adapters[quote["merchant_id"]] = adapter
+            request = {"quote_id": quote["id"], "approval_id": approval["id"],
+                       "idempotency_key": "retry-x402", "payment_receipt": sample_x402_receipt(quote)}
+            with self.assertRaisesRegex(agentcart.UpstreamError, "transient"):
+                service.checkout(request, {}, b"{}")
+            status, _, body = service.checkout(request, {}, b"{}")
+            self.assertEqual(status, 201)
+            self.assertEqual(calls[0], calls[1])
+            self.assertEqual(calls[0][1]["Idempotency-Key"], "retry-x402")
+            self.assertTrue(body["payment_receipt"]["real_settlement_verified"])
+
+
 if __name__ == "__main__":
     unittest.main()

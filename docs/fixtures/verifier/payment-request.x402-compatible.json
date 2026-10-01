@@ -1,0 +1,70 @@
+{
+  "operation": "payment",
+  "quote_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "agentcart_order_id": "fixture-x402-order",
+  "quote": {
+    "quote_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "total_cents": 1480,
+    "currency": "USD",
+    "merchant_id": "fixture-shop",
+    "payment_requirements": {
+      "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "verification": {
+        "external_verifier_configured": true,
+        "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "protocols": [
+        {
+          "id": "x402-compatible",
+          "network": "eip155:84532",
+          "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+          "pay_to": "0x2222222222222222222222222222222222222222",
+          "amount": "14800000",
+          "max_timeout_seconds": 300
+        }
+      ],
+      "checkout_endpoint": "https://shop.example/wp-json/agentcart/v1/orders"
+    }
+  },
+  "expected": {
+    "rail": "x402-compatible",
+    "amount_cents": 1480,
+    "currency": "USD",
+    "quote_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "merchant_id": "fixture-shop",
+    "x402_network": "eip155:84532",
+    "x402_asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "x402_pay_to": "0x2222222222222222222222222222222222222222",
+    "x402_amount": "14800000",
+    "x402_max_timeout_seconds": 300,
+    "x402_payment_requirements": {
+      "scheme": "exact",
+      "network": "eip155:84532",
+      "amount": "14800000",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payTo": "0x2222222222222222222222222222222222222222",
+      "maxTimeoutSeconds": 300,
+      "extra": {
+        "name": "USDC",
+        "version": "2"
+      }
+    }
+  },
+  "payment_receipt": {
+    "method": "x402-compatible",
+    "rail": "x402-compatible",
+    "status": "authorized",
+    "amount_cents": 1480,
+    "currency": "USD",
+    "quote_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "network": "eip155:84532",
+    "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "pay_to": "0x2222222222222222222222222222222222222222",
+    "amount": "14800000",
+    "x402_payment_signature": "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1Ojg0NTMyIiwiYW1vdW50IjoiMTQ4MDAwMDAiLCJhc3NldCI6IjB4MDM2Q2JENTM4NDJjNTQyNjYzNGU3OTI5NTQxZUMyMzE4ZjNkQ0Y3ZSIsInBheVRvIjoiMHgyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyIiwibWF4VGltZW91dFNlY29uZHMiOjMwMCwiZXh0cmEiOnsibmFtZSI6IlVTREMiLCJ2ZXJzaW9uIjoiMiJ9fSwicGF5bG9hZCI6eyJzaWduYXR1cmUiOiIweDExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJhdXRob3JpemF0aW9uIjp7ImZyb20iOiIweDExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJ0byI6IjB4MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMiIsInZhbHVlIjoiMTQ4MDAwMDAiLCJ2YWxpZEFmdGVyIjoiMCIsInZhbGlkQmVmb3JlIjoiMTc4MDI3MjMwMCIsIm5vbmNlIjoiMHg2OGQ4YjlmNmNlM2UyMDY5MTAyOGQyYzc4YjY5MDRlNjE1ZDM0MzQ2ODIwYzEwMWY0MTY4YzRmNWE0NGM3NGQyIn19LCJyZXNvdXJjZSI6eyJ1cmwiOiJodHRwczovL3Nob3AuZXhhbXBsZS93cC1qc29uL2FnZW50Y2FydC92MS9vcmRlcnMifX0=",
+    "x402_version": 2
+  }
+}

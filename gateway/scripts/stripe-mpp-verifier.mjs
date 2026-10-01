@@ -19,6 +19,9 @@ import {
 import { refundStore, refundResult, advanceStripeRefund, advanceTempoRefund, hasRefundTransfer } from "./verifier-refund-operations.mjs";
 
 import { reconciliationQueue, reconcileRefunds } from "./verifier-refund-reconciler.mjs";
+import { createX402Verifier, x402Config, x402MissingConfig, X402_GLOBAL_BUDGET_MS } from "./verifier-x402.mjs";
+const x402Configuration = x402Config();
+const x402Verifier = createX402Verifier(x402Configuration);
 
 const serviceVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
@@ -32,7 +35,7 @@ const stripeSecretKey = (
 const stripeProfileId = (process.env.STRIPE_PROFILE_ID || process.env.AGENTCART_STRIPE_PROFILE_ID || "").trim();
 const mppSecretKey = (process.env.MPP_SECRET_KEY || "").trim();
 const verifierToken = (process.env.AGENTCART_PAYMENT_VERIFIER_TOKEN || "").trim();
-const supportedVerifierRails = new Set(["stripe-card-mpp", "tempo-mpp"]);
+const supportedVerifierRails = new Set(["stripe-card-mpp", "tempo-mpp", "x402-compatible"]);
 const configuredVerifierRails = (
   process.env.AGENTCART_VERIFIER_ENABLED_RAILS || "stripe-card-mpp,tempo-mpp"
 )
@@ -590,6 +593,7 @@ async function recordVerifierResponse(request, url, payload, response, startedNs
 function missingConfig() {
   const missing = [];
   if (enabledVerifierRails.size === 0) missing.push("AGENTCART_VERIFIER_ENABLED_RAILS");
+  missing.push(...x402MissingConfig(x402Configuration, enabledVerifierRails.has("x402-compatible")));
   if (enabledVerifierRails.has("stripe-card-mpp")) {
     if (!stripeSecretKey) missing.push("STRIPE_SANDBOX_SECRET_KEY");
     if (!stripeProfileId) missing.push("STRIPE_PROFILE_ID");
@@ -653,6 +657,7 @@ function readiness() {
     allowed_tempo_networks: [...allowedTempoNetworks],
     refund_reconciliation: { ...reconciliationStatus },
     enabled_rails: [...enabledVerifierRails].sort(),
+    x402: x402Verifier.capability(enabledVerifierRails.has("x402-compatible")),
     endpoints: {
       health: `http://${host}:${port}/health`,
       metrics: `http://${host}:${port}/metrics`,
@@ -1212,11 +1217,27 @@ function expectedFromPayload(payload) {
   const tempoRecipient = normalizeEvmAddress(requestedTempoRecipient);
   const verification =
     requirements.verification && typeof requirements.verification === "object" ? requirements.verification : {};
+  // Per-rail contracts are authoritative. The top-level hash only describes the
+  // quote's default rail, so it is used solely for legacy single-contract quotes.
+  const railContracts = Array.isArray(requirements.verification_contracts)
+    ? requirements.verification_contracts.filter((entry) => entry && typeof entry === "object")
+    : [];
+  const selectedRailContracts = rail
+    ? railContracts.filter((entry) => normalizeRail(entry.rail) === rail)
+    : [];
+  if (railContracts.length && rail && selectedRailContracts.length !== 1) {
+    throw Object.assign(
+      new Error("quote must advertise exactly one verification contract for the selected rail."),
+      { status: 400 },
+    );
+  }
+  const quoteContractHashes = railContracts.length
+    ? selectedRailContracts.map((entry) => entry.payment_contract_hash)
+    : [requirements.payment_contract_hash, verification.payment_contract_hash];
   const suppliedContractHashes = [
     payload.payment_contract_hash,
     expected.payment_contract_hash,
-    requirements.payment_contract_hash,
-    verification.payment_contract_hash,
+    ...quoteContractHashes,
     receipt.payment_contract_hash,
     receipt.contract_hash,
   ]
@@ -1225,8 +1246,7 @@ function expectedFromPayload(payload) {
   const authoritativeContractHashes = [
     payload.payment_contract_hash,
     expected.payment_contract_hash,
-    requirements.payment_contract_hash,
-    verification.payment_contract_hash,
+    ...quoteContractHashes,
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
@@ -1243,7 +1263,7 @@ function expectedFromPayload(payload) {
   if (!merchantId) {
     throw Object.assign(new Error("expected.merchant_id is required."), { status: 400 });
   }
-  if (!["stripe-card-mpp", "tempo-mpp"].includes(rail)) {
+  if (!["stripe-card-mpp", "tempo-mpp", "x402-compatible"].includes(rail)) {
     throw Object.assign(new Error(`Unsupported rail for this verifier: ${rail}`), { status: 400 });
   }
   if (rail === "tempo-mpp") {
@@ -1803,6 +1823,7 @@ async function challenge(payload) {
 }
 
 async function verifyPayment(payload) {
+  const x402Deadline = Date.now() + X402_GLOBAL_BUDGET_MS;
   const ready = requireReady();
   if (ready) return ready;
   const expected = expectedFromPayload(payload);
@@ -1811,6 +1832,10 @@ async function verifyPayment(payload) {
   const receipt =
     payload.payment_receipt && typeof payload.payment_receipt === "object" ? payload.payment_receipt : {};
   assertReceiptMatchesExpected(receipt, expected);
+  if (expected.rail === "x402-compatible") {
+    if (x402Configuration.mode !== "settle") return jsonResponse({ ok: false, error: "x402_rail_disabled" }, 503);
+    return jsonResponse(await x402Verifier.payment(payload, expected, x402Deadline));
+  }
   if (expected.rail === "tempo-mpp") {
     return verifyTempoFxPayment(receipt, expected);
   }
@@ -2192,6 +2217,9 @@ function refundOperationError(error) {
 }
 
 async function verifyRefund(payload) {
+  if (normalizeRail(payload.refund?.rail || payload.expected?.rail || payload.rail) === "x402-compatible") {
+    return jsonResponse({ ok: false, error: "x402_refund_unsupported", real_refund_verified: false }, 400);
+  }
   const ready = requireReady();
   if (ready) return ready;
   const expected = payload.expected && typeof payload.expected === "object" ? payload.expected : {};
@@ -2207,6 +2235,7 @@ async function verifyRefund(payload) {
       "",
   );
   const rail = normalizeRail(refund.rail || payload.rail || "stripe-card-mpp");
+  if (rail === "x402-compatible") return jsonResponse({ ok: false, error: "x402_refund_unsupported", real_refund_verified: false }, 400);
   const enabled = requireEnabledRail(rail);
   if (enabled) return enabled;
   if (rail === "tempo-mpp") {
@@ -2300,6 +2329,9 @@ async function handler(request) {
           response = await verifyPayment(payload);
         } else if (operation === "refund") {
           response = await verifyRefund(payload);
+        } else if (operation === "capabilities") {
+          await x402Verifier.refresh();
+          response = jsonResponse({ ...readiness(), schema: "agentcart.verifier_capabilities.v1" });
         } else {
           response = jsonResponse({ ok: false, error: `Unsupported operation: ${operation}` }, 400);
         }
@@ -2317,6 +2349,7 @@ async function handler(request) {
       {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(error?.code ? { code: error.code, retryable: Boolean(error.retryable), real_settlement_verified: false } : {}),
       },
       Number.isInteger(error?.status) ? error.status : 500,
     );

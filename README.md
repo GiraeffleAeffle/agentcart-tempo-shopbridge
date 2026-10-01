@@ -100,10 +100,14 @@ catalog, quote, VAT, shipping, merchant of record, order, delivery, refund, and
 audit fields.
 Merchant manifests publish configured-only `protocol_profiles[]` so agents can
 choose the ShopBridge commerce adapter, MPP/Stripe/x402 payment adapter, or
-registry/signed-request mapping before making quote calls. Configured x402
-profiles are published with `status: unavailable` and emit no payment
-requirements until a verifier with confirmed x402 support exists. WooCommerce
-still marks an order paid only after the verifier confirms the receipt. Signed
+registry/signed-request mapping before making quote calls. x402 v2 `exact` on
+Base Sepolia (`eip155:84532`) with USDC is supported for USD quotes only and is
+disabled by default. The plugin advertises an `x402-compatible` profile only
+after an administrator runs an explicit verifier capability check that confirms
+the rail, network, and asset; otherwise the profile is `status: unavailable`
+and emits no payment requirements. x402 refunds are unsupported and manual
+only, and EUR stores use Stripe/card. WooCommerce still marks an order paid
+only after the verifier confirms the receipt. Signed
 request mode is optional and binds method, path, body digest, nonce, expiry,
 and signer for sensitive endpoint calls.
 

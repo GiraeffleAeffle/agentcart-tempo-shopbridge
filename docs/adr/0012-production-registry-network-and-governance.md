@@ -56,6 +56,23 @@ Buyer candidate resolution must backfill failed records within a declared total
 request/time budget. These changes receive a fresh security review and exact
 source verification before ownership transfer.
 
+The undeployed RegistryV2 now maintains an eligible-or-pending-prune index and
+stores current record URIs. A separate RegistryV2-bound Discovery Facets V2
+maintains bounded per-record category memberships with permissionless pruning.
+New V2 buyers sample those storage sets at one finalized block hash, requiring
+agreement on every read from two RPCs, rather than scanning chain-age-dependent
+history. The immutable V1 contracts and their checkpointed log path are unchanged.
+Permissionless record-specific pruning and idempotent eligible-record refresh
+keep routing available without unbounded restoration loops. Merchants or
+keepers maintain both index and facets; buyers still reject every ineligible
+draw, and global governance conditions cannot authorize mass pruning.
+The shared public `hasRecordEligibility(recordId)` predicate controls current
+facet pruning and unsuspension re-indexing. Empty cleared facets do not remove
+neutral fallback candidates. The canonical buyer finality policy requires exact
+concurrently acquired head agreement, retrying boundedly and failing closed if
+providers never converge; explicit bounded lag is labelled noncanonical and
+weakens revocation freshness, never an implicit availability fallback.
+
 Production administration uses one Safe per network with a minimum 2-of-3
 threshold and a minimum 48-hour timelock for owner, pause, validator, threshold,
 and migration actions. The three roles must be held by distinct people:

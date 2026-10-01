@@ -22,12 +22,15 @@ AgentCart-created orders intentionally clear WooCommerce's customer IP and user-
 The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_support_email` only. It does not fall back to the WordPress admin email.
 It also publishes configured-only `protocol_profiles[]` so buyer agents can
 select available ShopBridge, MPP, Stripe/card MPP, registry mapping, or
-signed-request profiles before requesting a quote. Configured x402 profiles are
-diagnostic only: `status: unavailable` with
-`verifier_x402_support_unconfirmed`. The plugin has no trusted verifier
-capability cache, and the shipped verifier supports only Tempo and Stripe.
-x402 settings do not enable quote requirements, payment contracts, or production
-readiness; manifest and quote paths never probe a verifier for capabilities.
+signed-request profiles before requesting a quote. x402 v2 exact payments support
+Base Sepolia USDC (`eip155:84532`) for USD quotes only, with no FX conversion.
+Save the verifier URL/token and x402 network/asset/payTo, then use **Check verifier
+capabilities**. Its nonce-protected authenticated call stores a snapshot with no TTL;
+changing the URL or destination invalidates it. Without confirmed settlement support,
+the rail reports `verifier_x402_support_unconfirmed`. Manifest and quote paths
+never call the verifier. The verifier alone owns facilitator and Base RPC URLs.
+Buyers receive v2 PAYMENT-REQUIRED, submit PAYMENT-SIGNATURE and receive
+PAYMENT-RESPONSE after verification. x402 refunds are `unsupported_manual_only`.
 
 ## Merchant Setup
 
@@ -112,12 +115,8 @@ define('AGENTCART_TEMPO_NETWORK', 'testnet');
 define('AGENTCART_TEMPO_RECIPIENT_ADDRESS', '0x...');
 define('AGENTCART_STRIPE_PROFILE_ID', 'profile_test_...');
 define('AGENTCART_X402_NETWORK', 'eip155:84532');
-define('AGENTCART_X402_ASSET', '0x...');
-define('AGENTCART_X402_ASSET_SYMBOL', 'USDC');
-define('AGENTCART_X402_ASSET_DECIMALS', 6);
-define('AGENTCART_X402_ASSET_CURRENCY', 'USD');
+define('AGENTCART_X402_ASSET', '0x036CbD53842c5426634e7929541eC2318f3dCF7e');
 define('AGENTCART_X402_PAY_TO', '0x...');
-define('AGENTCART_X402_FACILITATOR_URL', 'https://facilitator.example.com');
 define('AGENTCART_X402_MAX_TIMEOUT_SECONDS', 300);
 define('AGENTCART_PAYMENT_VERIFIER_URL', 'https://verifier.example.com/agentcart/tempo');
 define('AGENTCART_PAYMENT_VERIFIER_TOKEN', 'replace-with-verifier-token');
@@ -136,6 +135,22 @@ define('AGENTCART_CANCELLATION_WINDOW_MINUTES', 30);
 define('AGENTCART_PRODUCT_EXPOSURE_MODE', 'tag'); // manual, tag, category, or all
 define('AGENTCART_PRODUCT_EXPOSURE_TAG', 'agentcart-safe');
 ```
+
+Third-party x402 buyer clients must use the exact PAYMENT-REQUIRED `resource.url`
+(the quote's checkout endpoint). The EIP-3009 authorization nonce is the lowercase
+`0x`-prefixed Keccak-256 of the concatenation
+`utf8("shopbridge-x402-nonce-v1") || bytes32(quote_hash) || bytes32(payment_contract_hash) || keccak256(utf8(resource_url))`.
+Decode both SHA-256 hashes from their 64-hex strings to 32 bytes; do not concatenate
+the hex text. The authorization window is 30–300 seconds, never above 300.
+Use `validAfter = "0"` and `validBefore = now + maxTimeoutSeconds` (integer strings).
+Receipts describe the signed authorization with status `authorized`, not settlement.
+An existing capability snapshot survives transport failures; a successful check
+that reports unconfigured or unsupported x402 revokes availability.
+New checkout submissions require current rail availability. Already-submitted
+drafts instead recover using their intact stored verification contract and exact
+original checkout request, even after a capability check disables that rail.
+The external verifier still decides whether the original payment settled.
+
 
 For production-shaped testing, generate at least 32 random characters for each
 shared secret. The merchant token, payment-verifier bearer token, and
@@ -716,5 +731,5 @@ or carrier API integration that writes tracking data back to WooCommerce.
 ShopBridge is intentionally a merchant adapter, not a replacement for ACP/AP2/UCP/MPP. The practical layering is:
 
 - WooCommerce plugin exposes catalog, quote, order, fulfillment.
-- MPP (Tempo or Stripe/card) pays or proves payment; x402 is currently unavailable.
+- MPP (Tempo or Stripe/card) or capability-confirmed x402 Base Sepolia USDC pays or proves payment.
 - ACP/AP2/UCP-style clients can be supported by writing translators that map their cart/checkout concepts to the same quote and order endpoints.

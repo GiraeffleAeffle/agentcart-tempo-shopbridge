@@ -172,6 +172,41 @@ Secret-backed receiver. A rollout is not alert-ready until a deliberate
 warning is accepted by that receiver and the verifier records delivery state
 `sent`; log generation or `state=skipped` is not delivery evidence.
 
+### x402 Base Sepolia settlement
+
+The verifier image includes `gateway/scripts/verifier-x402.mjs`. To enable the
+testnet-only x402 v2 `exact` USDC rail, set `verifier.enabled=true`,
+`verifier.enabledRails: [x402-compatible]`, and `verifier.x402.mode=settle`. Keep checkout
+verifier-only and signed mutations required as above. The schema requires
+settlement mode for an enabled x402 rail; the chart mounts the SQLite replay
+store at `/data/replay-store.sqlite`. Do not replace it with an ephemeral store.
+
+```yaml
+verifier:
+  enabled: true
+  enabledRails: [x402-compatible]
+  x402:
+    mode: settle
+    network: "eip155:84532"
+    facilitatorUrl: "https://x402.org/facilitator"
+    rpcUrl: "https://sepolia.base.org"
+    confirmations: 1
+    facilitatorTimeoutMs: 7000
+```
+
+`verifier.x402.mode` defaults to `disabled`; the other values above are defaults.
+The facilitator settle timeout must be 100–7000 ms. Verify has a 2500 ms
+ceiling, settle defaults to 7000 ms, and confirmation has a 1500 ms total
+ceiling. RPC calls are capped at 1500 ms and the remaining 12000 ms global
+budget (below the plugin's 15 s timeout). Ambiguous submission always reconciles.
+URLs must use HTTPS and resolve exclusively to global addresses; redirects
+fail closed. The chart deliberately does not expose
+the local-test-only `AGENTCART_X402_ALLOW_PRIVATE_URLS=true` override.
+Authenticated operations cache facilitator `/supported` capabilities for ten
+minutes; health checks make no facilitator or RPC calls. x402 refunds are
+unsupported. See `docs/VERIFIER_CONTRACT.md` and
+`docs/VERIFIER_OPERATIONS_READINESS.md` for durable retry handling.
+
 For a slow private registry tunnel, use
 `scripts/push-oci-layout-resumable.py` against a loopback port-forward. It
 verifies the OCI manifest and every blob locally, uploads in bounded resumable

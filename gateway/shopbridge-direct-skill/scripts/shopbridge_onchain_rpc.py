@@ -1,10 +1,10 @@
 """Direct, dependency-free JSON-RPC discovery for ShopBridge registries.
 
 The smart contract is the authority for candidate membership and lifecycle
-commitments. This client reads the finalized lifecycle logs, selects a bounded
-active candidate set, fetches the selected current record documents, and checks
-the projected state against contract storage at the verified boundary. Full
-buyer eligibility is decided later by offchain trust verification.
+commitments. V1 reads finalized lifecycle logs and retains its verified local
+checkpoint path. V2 samples eligible-or-pending-prune indexed/category storage at one hash-pinned
+finalized boundary, comparing every read with an independent witness. Both
+paths load bounded committed documents; offchain trust decides full eligibility.
 """
 
 from __future__ import annotations
@@ -182,95 +182,7 @@ EVENT_SPECS = {
 }
 
 
-_MASK64 = (1 << 64) - 1
-_KECCAK_ROUND_CONSTANTS = (
-    0x0000000000000001,
-    0x0000000000008082,
-    0x800000000000808A,
-    0x8000000080008000,
-    0x000000000000808B,
-    0x0000000080000001,
-    0x8000000080008081,
-    0x8000000000008009,
-    0x000000000000008A,
-    0x0000000000000088,
-    0x0000000080008009,
-    0x000000008000000A,
-    0x000000008000808B,
-    0x800000000000008B,
-    0x8000000000008089,
-    0x8000000000008003,
-    0x8000000000008002,
-    0x8000000000000080,
-    0x000000000000800A,
-    0x800000008000000A,
-    0x8000000080008081,
-    0x8000000000008080,
-    0x0000000080000001,
-    0x8000000080008008,
-)
-_KECCAK_ROTATIONS = (
-    (0, 36, 3, 41, 18),
-    (1, 44, 10, 45, 2),
-    (62, 6, 43, 15, 61),
-    (28, 55, 25, 21, 56),
-    (27, 20, 39, 8, 14),
-)
-
-
-def _rotate_left(value: int, shift: int) -> int:
-    if not shift:
-        return value & _MASK64
-    return ((value << shift) | (value >> (64 - shift))) & _MASK64
-
-
-def _keccak_f1600(state: list[int]) -> None:
-    for round_constant in _KECCAK_ROUND_CONSTANTS:
-        columns = [
-            state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20]
-            for x in range(5)
-        ]
-        deltas = [columns[(x - 1) % 5] ^ _rotate_left(columns[(x + 1) % 5], 1) for x in range(5)]
-        for x in range(5):
-            for y in range(5):
-                state[x + 5 * y] ^= deltas[x]
-
-        moved = [0] * 25
-        for x in range(5):
-            for y in range(5):
-                moved[y + 5 * ((2 * x + 3 * y) % 5)] = _rotate_left(
-                    state[x + 5 * y], _KECCAK_ROTATIONS[x][y]
-                )
-        for x in range(5):
-            for y in range(5):
-                state[x + 5 * y] = (
-                    moved[x + 5 * y]
-                    ^ ((~moved[(x + 1) % 5 + 5 * y]) & moved[(x + 2) % 5 + 5 * y])
-                ) & _MASK64
-        state[0] ^= round_constant
-
-
-def keccak256(value: bytes) -> bytes:
-    rate = 136
-    padded = bytearray(value)
-    padded.append(0x01)
-    padded.extend(b"\x00" * ((rate - 1 - len(padded)) % rate))
-    padded.append(0x80)
-    state = [0] * 25
-    for offset in range(0, len(padded), rate):
-        block = padded[offset : offset + rate]
-        for lane in range(rate // 8):
-            start = lane * 8
-            state[lane] ^= int.from_bytes(block[start : start + 8], "little")
-        _keccak_f1600(state)
-    output = bytearray()
-    while len(output) < 32:
-        for lane in range(rate // 8):
-            output.extend(state[lane].to_bytes(8, "little"))
-            if len(output) >= 32:
-                return bytes(output[:32])
-        _keccak_f1600(state)
-    return bytes(output[:32])
+keccak256 = registry_trust.keccak256
 
 
 def domain_hash(domain: str) -> str:
@@ -404,6 +316,82 @@ class JsonRpcClient:
         if "result" not in response:
             raise OnchainRpcError("rpc_result_missing", method)
         return response["result"]
+
+    def call_batch(self, calls: list[tuple[str, list[Any]]]) -> list[Any]:
+        """Bound v2 batches to provider limits and validate independent ids."""
+        if not calls or len(calls) > 300:
+            raise OnchainRpcError("rpc_batch_size_invalid")
+        try:
+            size = int(os.environ.get("SHOPBRIDGE_ONCHAIN_RPC_BATCH_SIZE", "8"))
+        except ValueError as exc:
+            raise OnchainRpcError("rpc_batch_size_invalid") from exc
+        if not 1 <= size <= 8:
+            raise OnchainRpcError("rpc_batch_size_invalid")
+        results = []
+        for offset in range(0, len(calls), size):
+            results.extend(self._call_batch_chunk(calls[offset:offset + size]))
+        return results
+
+    def _call_batch_chunk(self, calls: list[tuple[str, list[Any]]], attempt: int = 0) -> list[Any]:
+        try:
+            if len(calls) == 1:
+                method, params = calls[0]
+                return [self.call(method, params)]
+            return self._request_batch(calls)
+        except OnchainRpcError as exc:
+            cause = exc.__cause__
+            limited = isinstance(cause, safe_http.SafeHttpError) and cause.status == 429
+            too_large = (isinstance(cause, safe_http.SafeHttpError)
+                and (cause.status == 413 or "request too large" in cause.detail.lower()))
+            too_large = too_large or "request too large" in str(exc).lower()
+            if not (limited or too_large):
+                raise
+            if len(calls) == 1 and (not limited or attempt + 1 >= HISTORY_REQUEST_ATTEMPTS):
+                raise
+            if limited:
+                # Match the history transport's bounded Retry-After cooldown.
+                delay = min(30.0, max(0.5 * (2 ** attempt) + secrets.randbelow(501) / 1000,
+                                     cause.retry_after))
+                budget = safe_http.discovery_budget.get()
+                if budget is not None:
+                    remaining = budget.deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OnchainRpcError("rpc_transport_failed", "discovery_budget_exhausted") from exc
+                    delay = min(delay, remaining)
+                time.sleep(delay)
+            if len(calls) == 1:
+                return self._call_batch_chunk(calls, attempt + 1)
+            middle = len(calls) // 2
+            return (self._call_batch_chunk(calls[:middle], attempt + 1)
+                    + self._call_batch_chunk(calls[middle:], attempt + 1))
+
+    def _request_batch(self, calls: list[tuple[str, list[Any]]]) -> list[Any]:
+        payload = []
+        for method, params in calls:
+            self.request_id += 1
+            payload.append({"jsonrpc": "2.0", "id": self.request_id, "method": method, "params": params})
+        try:
+            response = self.request_json(self.url, method="POST", payload=payload,
+                headers={"User-Agent": "AgentCart-ShopBridge-Direct/1"}, timeout_seconds=30,
+                allow_private=self.allow_private, max_response_bytes=4 * 1024 * 1024)
+        except safe_http.SafeHttpError as exc:
+            raise OnchainRpcError("rpc_transport_failed", exc.code) from exc
+        if not isinstance(response, list) or len(response) != len(payload):
+            if isinstance(response, dict) and isinstance(response.get("error"), dict):
+                raise OnchainRpcError("rpc_call_failed", str(response["error"]))
+            raise OnchainRpcError("rpc_batch_response_invalid")
+        expected = {item["id"] for item in payload}
+        results = {}
+        for item in response:
+            if (not isinstance(item, dict) or item.get("jsonrpc") != "2.0"
+                    or type(item.get("id")) is not int or item["id"] not in expected or item["id"] in results):
+                raise OnchainRpcError("rpc_batch_response_invalid")
+            if isinstance(item.get("error"), dict):
+                raise OnchainRpcError("rpc_call_failed", str(item["error"]))
+            if "result" not in item:
+                raise OnchainRpcError("rpc_result_missing")
+            results[item["id"]] = item["result"]
+        return [results[item["id"]] for item in payload]
 
 
 def _validate_deployment(deployment: RegistryDeployment) -> tuple[str, int, int, str, int]:
@@ -1235,9 +1223,27 @@ def _log_fingerprint(logs: list[dict[str, Any]]) -> str:
     return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
 
 
-def _v2_witness(deployment: RegistryDeployment, *, request_json: Callable[..., Any] | None,
-                registry_address: str, finalized_number: int, finalized_hash: str,
-                finalized_timestamp: int) -> tuple[JsonRpcClient, dict[str, Any]]:
+def _block_headers_agree(primary: dict[str, Any], witness: dict[str, Any]) -> bool:
+    # Client-specific fields (e.g. totalDifficulty) are not consensus evidence.
+    for field in ("number", "hash", "parentHash", "timestamp", "stateRoot"):
+        if field == "stateRoot" and (field not in primary or field not in witness):
+            continue
+        left, right = primary.get(field), witness.get(field)
+        if field in {"number", "timestamp"}:
+            left = _hex_int(left, field=f"primary.{field}")
+            right = _hex_int(right, field=f"witness.{field}")
+        elif left is not None or right is not None:
+            left = _fixed_hash(left, field=f"primary.{field}")
+            right = _fixed_hash(right, field=f"witness.{field}")
+        if left != right:
+            return False
+    return True
+
+
+def _v2_witness(deployment: RegistryDeployment, primary: JsonRpcClient, *,
+                request_json: Callable[..., Any] | None,
+                sleep: Callable[[float], None] | None = None
+                ) -> tuple[JsonRpcClient, dict[str, Any], dict[str, Any]]:
     witness_url = deployment.admission_witness_rpc_url
     if not witness_url:
         raise OnchainRpcError("registry_v2_admission_witness_required")
@@ -1248,19 +1254,57 @@ def _v2_witness(deployment: RegistryDeployment, *, request_json: Callable[..., A
     witness = JsonRpcClient(witness_url, allow_private=deployment.allow_private_rpc, request_json=request_json)
     if _hex_int(witness.call("eth_chainId", []), field="witness.chain_id") != deployment.chain_id:
         raise OnchainRpcError("registry_v2_witness_chain_mismatch")
-    head = _block_header(witness, "finalized", field="witness.finalized")
-    if _hex_int(head.get("number"), field="witness.finalized.number") < finalized_number:
-        raise OnchainRpcError("registry_v2_witness_not_finalized")
-    boundary = _block_header(witness, hex(finalized_number), field="witness.boundary", expected_number=finalized_number)
-    if (_fixed_hash(boundary.get("hash"), field="witness.boundary.hash") != finalized_hash
-            or _hex_int(boundary.get("timestamp"), field="witness.boundary.timestamp") != finalized_timestamp):
-        raise OnchainRpcError("registry_v2_witness_boundary_mismatch")
-    code = _hex_bytes(witness.call("eth_getCode", [registry_address, hex(finalized_number)]), field="witness.code")
-    if "0x" + keccak256(code).hex() != deployment.runtime_code_hash.lower():
-        raise OnchainRpcError("registry_v2_witness_code_mismatch")
-    _verify_deployment_boundary(witness, deployment=deployment, registry_address=registry_address, rpc_profile=RPC_PROFILE_STANDARD)
-    return witness, {"policy": "two_rpc_agreement", "witness_rpc": rpc_url_label(witness_url),
-                     "block_number": finalized_number, "block_hash": finalized_hash}
+    policy = os.environ.get("SHOPBRIDGE_ONCHAIN_WITNESS_FINALITY_POLICY", "exact")
+    if policy not in {"exact", "bounded_lag"}:
+        raise OnchainRpcError("registry_v2_witness_finality_policy_invalid")
+    skew = 0
+    if policy == "bounded_lag":
+        try:
+            skew = int(os.environ.get("SHOPBRIDGE_ONCHAIN_WITNESS_MAX_HEAD_SKEW_SECONDS", "12"))
+        except ValueError as exc:
+            raise OnchainRpcError("registry_v2_witness_head_skew_invalid") from exc
+        if not 1 <= skew <= 60:
+            raise OnchainRpcError("registry_v2_witness_head_skew_invalid")
+    observed = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for attempt in range(6):
+            futures = [pool.submit(contextvars.copy_context().run, _block_header, provider,
+                "finalized", field=f"{label}.finalized") for provider, label in
+                ((primary, "primary"), (witness, "witness"))]
+            heads = [future.result() for future in futures]
+            observed.append({label: {field: head[field] for field in ("number", "hash", "timestamp")}
+                for label, head in zip(("primary", "witness"), heads)})
+            boundary = None
+            if _block_headers_agree(*heads):
+                boundary = heads[0]
+            elif policy == "bounded_lag":
+                numbers = [_hex_int(head["number"], field="finalized.number") for head in heads]
+                timestamps = [_hex_int(head["timestamp"], field="finalized.timestamp") for head in heads]
+                if numbers[0] != numbers[1] and abs(timestamps[0] - timestamps[1]) <= skew:
+                    lower = min(numbers)
+                    confirmations = [pool.submit(contextvars.copy_context().run, _block_header, provider,
+                        hex(lower), field="finalized.boundary", expected_number=lower)
+                        for provider in (primary, witness)]
+                    confirmed = [future.result() for future in confirmations]
+                    if _block_headers_agree(*confirmed) and _block_headers_agree(
+                            confirmed[0], heads[numbers.index(lower)]):
+                        boundary = confirmed[0]
+            if boundary is not None:
+                return witness, boundary, {
+                    "policy": "two_rpc_agreement", "witness_rpc": rpc_url_label(witness_url),
+                    "finality_agreement": "exact" if policy == "exact" else "bounded_lag_noncanonical",
+                    "max_head_skew_seconds": skew, "observed_heads": observed,
+                    "block_number": _hex_int(boundary["number"], field="finalized.number"),
+                    "block_hash": _fixed_hash(boundary["hash"], field="finalized.hash"),
+                    "history_scope": "selected_finalized_storage_two_rpc_agreement",
+                }
+            budget = safe_http.discovery_budget.get()
+            if attempt == 5 or (budget is not None and budget.deadline - time.monotonic() <= .2):
+                break
+            (sleep or time.sleep)(.2)
+    error = OnchainRpcError("registry_v2_witness_finality_mismatch", "finalized heads did not agree")
+    error.diagnostics = {"finality_policy": policy, "observed_heads": observed}
+    raise error
 
 
 def _decode_address_call(value: Any, *, field: str) -> str:
@@ -1670,6 +1714,183 @@ def _record_resolution_error(record_id: str, record_hash: str, code: str) -> dic
     }
 
 
+def _sample_storage_indices(count: int, limit: int, seed: str) -> list[int]:
+    """Sparse Fisher-Yates with rejection sampling: uniform, O(k) space/time."""
+    swaps: dict[int, int] = {}
+    result = []
+    counter = 0
+    for remaining in range(count, max(0, count - limit), -1):
+        ceiling = (1 << 256) - ((1 << 256) % remaining)
+        while True:
+            value = int.from_bytes(hashlib.sha256(f"{seed}\0{counter}".encode()).digest(), "big")
+            counter += 1
+            if value < ceiling:
+                break
+        index = value % remaining
+        result.append(swaps.get(index, index))
+        swaps[index] = swaps.get(remaining - 1, remaining - 1)
+    return result
+
+
+class _WitnessedStorageClient:
+    """Compare every storage/deployment read before exposing it to the buyer."""
+    def __init__(self, primary: JsonRpcClient, witness: JsonRpcClient, block_hash: str,
+                 block_number: int) -> None:
+        self.primary, self.witness = primary, witness
+        self.block_hash, self.block_number = block_hash, block_number
+        self.cache: dict[str, Any] = {}
+
+    def _params(self, method: str, params: list[Any]) -> list[Any]:
+        if method == "eth_getLogs":
+            raise OnchainRpcError("registry_v2_history_scan_forbidden")
+        params = list(params)
+        if method in {"eth_call", "eth_getCode"} and params[-1] == hex(self.block_number):
+            params[-1] = {"blockHash": self.block_hash, "requireCanonical": True}
+        return params
+
+    def prefetch(self, calls: list[tuple[str, list[Any]]]) -> None:
+        pending = {}
+        for method, params in calls:
+            params = self._params(method, params)
+            key = json.dumps([method, params], sort_keys=True)
+            if key not in self.cache:
+                pending[key] = (method, params)
+        if not pending:
+            return
+        rows = list(pending.values())
+        primary = self.primary.call_batch(rows)
+        witness = self.witness.call_batch(rows)
+        if primary != witness:
+            raise OnchainRpcError("registry_v2_witness_storage_mismatch", "storage_batch")
+        self.cache.update(zip(pending, primary))
+
+    def call(self, method: str, params: list[Any]) -> Any:
+        params = self._params(method, params)
+        key = json.dumps([method, params], sort_keys=True)
+        if key in self.cache:
+            return self.cache[key]
+        value = self.primary.call(method, params)
+        witnessed = self.witness.call(method, params)
+        agrees = (_block_headers_agree(value, witnessed) if method == "eth_getBlockByNumber"
+                  and isinstance(value, dict) and isinstance(witnessed, dict) else value == witnessed)
+        if not agrees:
+            raise OnchainRpcError("registry_v2_witness_storage_mismatch", method)
+        self.cache[key] = value
+        return value
+
+
+def _v2_storage_candidates(client: Any, *, deployment: RegistryDeployment, registry_address: str,
+                           block_selector: str, finalized_number: int, finalized_hash: str,
+                           finalized_timestamp: int, seed: str, limit: int,
+                           preferred_ids: set[str], preferred_domains: set[str],
+                           category_groups: list[set[str]]) -> tuple[list[dict[str, Any]], set[str], dict[str, Any], int]:
+    def call(signature: str, arguments: str = "", address: str = registry_address) -> Any:
+        selector = "0x" + keccak256(signature.encode()).hex()[:8]
+        return client.call("eth_call", [{"to": address, "data": selector + arguments}, block_selector])
+
+    def count(signature: str, arguments: str = "", address: str = registry_address) -> int:
+        raw = _hex_bytes(call(signature, arguments, address), field=signature)
+        if len(raw) != 32:
+            raise OnchainRpcError("registry_enumeration_result_invalid", signature)
+        return int.from_bytes(raw, "big")
+
+    indexed_count = count("indexedRecordCount()")
+    reserve_limit = min(MAX_RECORD_CANDIDATES, limit * 3)
+    ids: list[str] = []
+    category_entries: dict[str, list[tuple[str, int]]] = {}
+    facets = deployment.discovery_facets_address.lower()
+    if preferred_ids or preferred_domains:
+        ids.extend(sorted({_fixed_hash(value, field="preferred_record_id") for value in preferred_ids}))
+        for domain in sorted(preferred_domains):
+            value = _fixed_hash(call("recordIdForDomain(bytes32)", domain[2:]), field="record_id_for_domain")
+            if value != ZERO_ADDRESS_TOPIC and value not in ids:
+                ids.append(value)
+        ids = ids[:reserve_limit]
+    else:
+        categories = sorted(set().union(*category_groups)) if category_groups else []
+        category_budget = max(1, (reserve_limit + min(8, len(categories)) - 1) // min(8, len(categories))) if categories else 0
+        # Query text cannot amplify requests: at most eight routing buckets.
+        for category in categories[:8] if facets else []:
+            category = _fixed_hash(category, field="category_hash")
+            size = count("categoryRecordCount(bytes32)", category[2:], facets)
+            indices = _sample_storage_indices(size, category_budget, seed + "\0category\0" + category)
+            client.prefetch([("eth_call", [{"to": facets, "data": "0x" + keccak256(
+                b"categoryRecordAt(bytes32,uint256)").hex()[:8] + category[2:] + index.to_bytes(32, "big").hex()},
+                block_selector]) for index in indices])
+            for index in indices:
+                raw = _hex_bytes(call("categoryRecordAt(bytes32,uint256)",
+                    category[2:] + index.to_bytes(32, "big").hex(), facets), field="category_record")
+                if len(raw) != 64 or int.from_bytes(raw[32:], "big") >= 2**64:
+                    raise OnchainRpcError("registry_enumeration_result_invalid", "category_record")
+                record_id = "0x" + raw[:32].hex()
+                category_entries.setdefault(record_id, []).append((category, int.from_bytes(raw[32:], "big")))
+                if record_id not in ids:
+                    ids.append(record_id)
+        neutral_indices = _sample_storage_indices(indexed_count, reserve_limit, seed + "\0active")
+        client.prefetch([("eth_call", [{"to": registry_address, "data": "0x" + keccak256(
+            b"indexedRecordIdAt(uint256)").hex()[:8] + index.to_bytes(32, "big").hex()},
+            block_selector]) for index in neutral_indices])
+        neutral = [_fixed_hash(call("indexedRecordIdAt(uint256)", index.to_bytes(32, "big").hex()),
+                    field="indexed_record_id") for index in neutral_indices]
+        # Preserve a neutral slot even when all category buckets are populated.
+        hint_budget = max(0, reserve_limit - max(1, reserve_limit // 3))
+        ids = ids[:hint_budget] + [value for value in neutral if value not in ids[:hint_budget]]
+        ids = ids[:reserve_limit]
+    reads = []
+    for record_id in ids:
+        for signature, target in [("record(bytes32)", registry_address), ("recordURI(bytes32)", registry_address),
+                ("eligibility(bytes32)", registry_address)] + (
+                [("facetState(bytes32)", facets), ("isCurrent(bytes32)", facets)] if facets else []):
+            reads.append(("eth_call", [{"to": target, "data": "0x" + keccak256(signature.encode()).hex()[:8]
+                + record_id[2:]}, block_selector]))
+    if reads:
+        client.prefetch(reads)
+    verification_reads = []
+    logs, hints, states = [], set(), {}
+    for record_id in ids:
+        stored = _decode_record_call(call("record(bytes32)", record_id[2:]))
+        if stored["status"] != 1:
+            continue
+        for signature, argument in [("recordIdForDomain(bytes32)", stored["domain_hash"]),
+                ("revokedRecordHashes(bytes32)", stored["record_hash"])]:
+            verification_reads.append(("eth_call", [{"to": registry_address,
+                "data": "0x" + keccak256(signature.encode()).hex()[:8] + argument[2:]}, block_selector]))
+        if facets:
+            state = _decode_facet_state_call(call("facetState(bytes32)", record_id[2:], facets))
+            current = count("isCurrent(bytes32)", record_id[2:], facets)
+            if current not in {0, 1}:
+                raise OnchainRpcError("discovery_facet_state_call_result_invalid")
+            if current and state["record_hash"] == stored["record_hash"]:
+                # Facets are routing hints, not mandatory fallback commitments.
+                entries = category_entries.get(record_id, [])
+                matched = {category for category, generation in entries if generation == state["generation"]}
+                if matched and all(matched & group for group in category_groups):
+                    hints.add(record_id)
+                    if state["category_set_hash"] != "0x" + "0" * 64 and state["category_count"] >= 1:
+                        states[record_id] = state
+        raw_uri = _hex_bytes(call("recordURI(bytes32)", record_id[2:]), field="record_uri")
+        if len(raw_uri) < 64 or int.from_bytes(raw_uri[:32], "big") != 32:
+            raise OnchainRpcError("registry_record_uri_invalid")
+        length = int.from_bytes(raw_uri[32:64], "big")
+        if length > MAX_RECORD_URI_BYTES or len(raw_uri) != 64 + ((length + 31) // 32) * 32:
+            raise OnchainRpcError("registry_record_uri_invalid")
+        try:
+            uri = raw_uri[64:64 + length].decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise OnchainRpcError("registry_record_uri_invalid") from exc
+        # Adapter rows represent current storage, not historical transactions.
+        logs.append({"address": registry_address, "blockNumber": hex(finalized_number),
+            "blockHash": finalized_hash, "transactionHash": ZERO_ADDRESS_TOPIC,
+            "logIndex": hex(len(logs)), "removed": False,
+            "topics": [next(topic for topic, spec in EVENT_SPECS.items() if spec.name == "MerchantRegistered"),
+                       record_id, "0x" + "0" * 24 + stored["controller"][2:], stored["domain_hash"]],
+            "data": "0x" + (bytes.fromhex(stored["record_hash"][2:]) + (64).to_bytes(32, "big")
+                + length.to_bytes(32, "big") + raw_uri[64:]).hex()})
+    if verification_reads:
+        client.prefetch(verification_reads)
+    return logs, hints, states, indexed_count
+
+
 @safe_http.budgeted_discovery
 def collect_finalized_events(
     deployment: RegistryDeployment,
@@ -1701,6 +1922,8 @@ def collect_finalized_events(
         raise OnchainRpcError("rpc_chain_id_mismatch", f"expected {deployment.chain_id}, got {chain_id}")
     rpc_profile, client_version = _detect_rpc_profile(client, requested_profile)
     profile_details: dict[str, Any] = {}
+    witness_client = None
+    admission_verification = {}
     if rpc_profile == RPC_PROFILE_MYOTIS:
         finalized, profile_details = _myotis_finalized_header(
             client,
@@ -1708,6 +1931,11 @@ def collect_finalized_events(
             sleep=sleep,
             timeout_seconds=myotis_ready_timeout_seconds,
         )
+    elif deployment.registry_version == 2 and rpc_profile == RPC_PROFILE_STANDARD:
+        witness_client, finalized, admission_verification = _v2_witness(
+            deployment, client, request_json=request_json, sleep=sleep)
+        profile_details = {"finality_source": "eth_getBlockByNumber(finalized)",
+            "finality_agreement": admission_verification["finality_agreement"]}
     else:
         finalized = _block_header(client, "finalized", field="finalized")
         profile_details = {"finality_source": "eth_getBlockByNumber(finalized)"}
@@ -1756,6 +1984,13 @@ def collect_finalized_events(
         actual_hash = observed_code_hashes["registry"]
         if actual_hash != deployment.runtime_code_hash.lower():
             raise OnchainRpcError("registry_runtime_code_hash_mismatch")
+        client = _WitnessedStorageClient(client, witness_client, finalized_hash, finalized_number)
+        # Recheck all current code through hash-pinned two-provider reads.
+        pinned_code = _hex_bytes(client.call("eth_getCode", [registry_address, state_selector]), field="registry_code")
+        if "0x" + keccak256(pinned_code).hex() != deployment.runtime_code_hash.lower():
+            raise OnchainRpcError("registry_runtime_code_hash_mismatch")
+        if deployment.discovery_facets_address:
+            client.call("eth_getCode", [deployment.discovery_facets_address.lower(), state_selector])
     checkpoint, cache_diagnostics = _read_checkpoint(client, deployment, finalized_number, rpc_profile, observed_code_hashes)
     deployment_verification = checkpoint["deployment_verification"] if checkpoint else _verify_deployment_boundary(
         client,
@@ -1765,11 +2000,31 @@ def collect_finalized_events(
     )
     scan_start = checkpoint["block_number"] + 1 if checkpoint else from_block
 
-    witness_client = None
-    admission_verification: dict[str, Any] = {}
     facets_verification = checkpoint.get("facets_deployment_verification") if checkpoint else None
     category_logs: list[dict[str, Any]] | None = None
-    if rpc_profile == RPC_PROFILE_MYOTIS:
+    v2_hints, v2_facets, v2_active_count = set(), {}, 0
+    if deployment.registry_version == 2:
+        seed = str(record_candidate_seed or secrets.token_hex(32))
+        record_candidate_seed = seed
+        limit = MAX_RECORD_CANDIDATES if record_candidate_limit is None else int(record_candidate_limit)
+        if not 1 <= limit <= MAX_RECORD_CANDIDATES:
+            raise OnchainRpcError("record_candidate_limit_invalid")
+        if deployment.discovery_facets_address:
+            _, _, descriptor = _onchain_category_hints(client, deployment=deployment,
+                registry_address=registry_address, block_selector=state_selector,
+                finalized_number=finalized_number, chunk_size=chunk_size, rpc_profile=rpc_profile,
+                lifecycle={}, category_hash_groups=[], category_logs=[])
+            facets_verification = descriptor["deployment_verification"]
+        logs, v2_hints, v2_facets, v2_active_count = _v2_storage_candidates(client,
+            deployment=deployment, registry_address=registry_address, block_selector=state_selector,
+            finalized_number=finalized_number, finalized_hash=finalized_hash,
+            finalized_timestamp=finalized_timestamp, seed=seed, limit=limit,
+            preferred_ids=preferred_record_ids or set(), preferred_domains=preferred_domain_hashes or set(),
+            category_groups=category_hash_groups or [])
+        blocks = {finalized_number: finalized}
+        category_logs = []
+        cache_diagnostics = {"status": "disabled", "reason": "v2_storage_enumeration", "scanned_ranges": []}
+    elif rpc_profile == RPC_PROFILE_MYOTIS:
         # Preserve the receipt-root-verified Myotis full-index path.
         logs = _collect_logs(client, registry_address=registry_address, from_block=scan_start,
                              to_block=finalized_number, chunk_size=chunk_size)
@@ -1777,12 +2032,7 @@ def collect_finalized_events(
         cache_diagnostics["scanned_ranges"].append({"contract": "registry", "from_block": scan_start,
                                                    "to_block": finalized_number})
     else:
-        if deployment.registry_version == 2:
-            # Establish the witness's finalized boundary/deployment first;
-            # the bounded scanner checks every historical range against it.
-            witness_client, admission_verification = _v2_witness(deployment, request_json=request_json,
-                registry_address=registry_address, finalized_number=finalized_number, finalized_hash=finalized_hash,
-                finalized_timestamp=finalized_timestamp)
+        # V1 keeps its finalized-history/checkpoint path unchanged.
         if deployment.discovery_facets_address:
             _, _, descriptor = _onchain_category_hints(client, deployment=deployment,
                 registry_address=registry_address, block_selector=state_selector,
@@ -1790,21 +2040,12 @@ def collect_finalized_events(
                 lifecycle={}, category_hash_groups=[], category_logs=[],
                 cached_deployment_verification=facets_verification)
             facets_verification = descriptor["deployment_verification"]
-            if witness_client is not None:
-                _onchain_category_hints(witness_client, deployment=deployment,
-                    registry_address=registry_address, block_selector=state_selector,
-                    finalized_number=finalized_number, chunk_size=chunk_size, rpc_profile=rpc_profile,
-                    lifecycle={}, category_hash_groups=[], category_logs=[],
-                    cached_deployment_verification=checkpoint.get("facets_deployment_verification") if checkpoint else None)
         logs, category_logs, blocks = _scan_finalized_history(client, deployment=deployment,
             from_block=scan_start, to_block=finalized_number, chunk_size=chunk_size,
             checkpoint=checkpoint, witness=witness_client, deployment_verification=deployment_verification,
             facets_verification=facets_verification, observed_code_hashes=observed_code_hashes, diagnostics=cache_diagnostics)
         if finalized_number in blocks and blocks[finalized_number]["hash"].lower() != finalized_hash:
             raise OnchainRpcError("rpc_finalized_block_hash_mismatch")
-        if witness_client is not None:
-            admission_verification["logs_sha256"] = _log_fingerprint(logs)
-            admission_verification["history_scope"] = "full_finalized_history_two_rpc_agreement"
     lifecycle: dict[str, dict[str, Any]] = {}
     events: list[dict[str, Any]] = []
     for log in logs:
@@ -1822,6 +2063,7 @@ def collect_finalized_events(
                 raise OnchainRpcError("rpc_log_block_hash_mismatch")
             block_verification = "rpc_canonical_block_header"
         event = {
+            **({"projection_origin": "finalized_storage"} if deployment.registry_version == 2 else {}),
             "event": spec.name,
             "block_number": block_number,
             "block_hash": log_block_hash,
@@ -1917,18 +2159,13 @@ def collect_finalized_events(
             category_logs=category_logs,
             cached_deployment_verification=facets_verification,
         )
-    )
-    if witness_client is not None:
-        witnessed_ids, witnessed_facets, _ = _onchain_category_hints(
-            witness_client, deployment=deployment, registry_address=registry_address,
-            block_selector=state_selector, finalized_number=finalized_number,
-            chunk_size=chunk_size, rpc_profile=RPC_PROFILE_STANDARD,
-            lifecycle=lifecycle, category_hash_groups=category_hash_groups or [],
-            category_logs=category_logs,
-            cached_deployment_verification=facets_verification,
-        )
-        if witnessed_ids != onchain_hinted_ids or witnessed_facets != onchain_facet_states:
-            raise OnchainRpcError("registry_v2_witness_facets_mismatch")
+    ) if deployment.registry_version == 1 else (v2_hints, v2_facets, {
+        "schema": "agentcart.onchain_category_routing.v1",
+        "query_group_count": len(category_hash_groups or []),
+        "enumeration_scope": "sampled_finalized_storage",
+        "configured": bool(deployment.discovery_facets_address), "used": bool(v2_hints),
+        "authority": "smart_contract_routing_hint", "fallback_required": True,
+        "matched_record_count": len(v2_hints), "deployment_verification": facets_verification})
     preferred_ids = {str(value).lower() for value in (preferred_record_ids or set())}
     preferred_domains = {
         str(value).lower() for value in (preferred_domain_hashes or set())
@@ -1944,9 +2181,7 @@ def collect_finalized_events(
         for record_id, _state in active_pool:
             admission_call = [{"to": registry_address, "data": _encode_call(selector, record_id)}, state_selector]
             raw = _hex_bytes(client.call("eth_call", admission_call), field="admission")
-            witnessed = _hex_bytes(witness_client.call("eth_call", admission_call), field="witness.admission")
-            if raw != witnessed:
-                raise OnchainRpcError("registry_v2_witness_admission_mismatch")
+            # The v2 client witnesses every read, including admission.
             if len(raw) != 128 or int.from_bytes(raw[:32], "big") not in {0, 1}:
                 raise OnchainRpcError("registry_admission_invalid")
             admitted = raw[:32] == bytes(31) + b"\x01"
@@ -1958,6 +2193,9 @@ def collect_finalized_events(
             admissions[record_id] = {"eligible": admitted, "entity_id": entity, "expires_at": expiry,
                 "bond_base_units": str(bond), "registry_version": 2, "block_number": state_block,
                 "registry_address": registry_address, "runtime_code_hash": deployment.runtime_code_hash}
+        # Indexed records may expire without a transaction. Exclude them before
+        # selection so eligible reserve draws backfill within the same budget;
+        # exhausted samples require keeper pruning, never an unbounded scan.
         scoped_pool = [item for item in active_pool if admissions[item[0]]["eligible"]]
     selection_mode = "query_seeded_sample"
     if preferred_ids or preferred_domains:
@@ -2077,7 +2315,7 @@ def collect_finalized_events(
                     finalized_block=finalized_number, scope=storage_scope, rpc_profile=rpc_profile,
                     lifecycle={record_id: state})
             except OnchainRpcError as exc:
-                if rpc_profile == RPC_PROFILE_MYOTIS:
+                if rpc_profile == RPC_PROFILE_MYOTIS or exc.code.startswith("registry_v2_witness_"):
                     raise
                 storage_mismatch = True
                 storage_verification["excluded_record_ids"].append(record_id)
@@ -2122,6 +2360,7 @@ def collect_finalized_events(
         cache_diagnostics["general_requests"] = budget.general_requests_used
         cache_diagnostics["history_transport_requests"] = budget.history_requests_used
     return {
+        **({"projection_origin": "finalized_storage"} if deployment.registry_version == 2 else {}),
         "schema": CONTRACT_EVENTS_SCHEMA,
         "implementation": DIRECT_RPC_IMPLEMENTATION,
         "completeness_authority": "rpc_asserted_complete",
@@ -2153,9 +2392,9 @@ def collect_finalized_events(
         "admission_verification": admission_verification,
         "record_selection": {
             "schema": "agentcart.onchain_registry_candidate_selection.v1",
-            "algorithm": "sha256-query-seeded-record-id-sample",
+            "algorithm": "sha256-rejection-sparse-fisher-yates" if deployment.registry_version == 2 else "sha256-query-seeded-record-id-sample",
             "seed_sha256": hashlib.sha256(seed.encode("utf-8")).hexdigest(),
-            "active_candidate_count": len(active_pool),
+            "active_candidate_count": v2_active_count if deployment.registry_version == 2 else len(active_pool),
             "selection_scope_count": len(scoped_pool),
             "selection_mode": selection_mode,
             "candidate_limit": attempt_limit,
@@ -2194,6 +2433,8 @@ def rpc_url_label(value: str) -> str:
 def error_document(error: OnchainRpcError) -> str:
     document: dict[str, Any] = {"error": error.code if error.code == "history_sync_incomplete" else "onchain_registry_rpc_failed",
                                 "code": error.code, "detail": error.detail}
+    if hasattr(error, "diagnostics"):
+        document["diagnostics"] = error.diagnostics
     if hasattr(error, "progress"):
         document["authority"] = "smart_contract"
         document["progress"] = error.progress
