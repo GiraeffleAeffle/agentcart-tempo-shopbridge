@@ -132,6 +132,7 @@ images:
     digest: sha256:REPLACE_WITH_64_HEX_DIGEST
 
 store:
+  marketProfile: usd
   checkoutMode: external_verifier_only
   signedRequestMode: require_mutations
 
@@ -156,6 +157,15 @@ prevents a healthy-looking deployment that can parse a proof but cannot verify
 the transfer onchain. Keep the replay driver, durable replay requirement, and
 append-only journal enabled; the retained PVC is the recovery boundary for
 payment-proof replay state.
+
+The default EUR market profile is sandbox/demo only: its disabled verifier
+does not claim real settlement. For real Tempo settlement, use `marketProfile:
+usd` as above. pathUSD and USDC.e are USD-denominated; EUR quotes are rejected
+with `tempo_settlement_currency_mismatch`. No quote-bound FX contract is
+implemented. An EUR store needs a configured Stripe/card rail instead.
+The chart schema rejects an enabled Tempo-only verifier with `marketProfile:
+eur`. EUR with both Tempo and Stripe/card enabled remains valid: Stripe handles
+EUR quotes while Tempo is unavailable for them at runtime.
 
 With alerts enabled, rejected and failed verifier operations are POSTed to the
 Secret-backed receiver. A rollout is not alert-ready until a deliberate

@@ -100,20 +100,20 @@ catalog, quote, VAT, shipping, merchant of record, order, delivery, refund, and
 audit fields.
 Merchant manifests publish configured-only `protocol_profiles[]` so agents can
 choose the ShopBridge commerce adapter, MPP/Stripe/x402 payment adapter, or
-registry/signed-request mapping before making quote calls. The x402 adapter
-emits quote-bound payment requirements when configured, but WooCommerce still
-marks an order paid only after the verifier confirms the receipt. Signed
+registry/signed-request mapping before making quote calls. Configured x402
+profiles are published with `status: unavailable` and emit no payment
+requirements until a verifier with confirmed x402 support exists. WooCommerce
+still marks an order paid only after the verifier confirms the receipt. Signed
 request mode is optional and binds method, path, body digest, nonce, expiry,
 and signer for sensitive endpoint calls.
 
 The bundled local demo can use EUR product quotes with a pathUSD Tempo testnet
 proof. That is not real EUR settlement. Production needs one of:
 
-- merchant acceptance of stablecoin settlement and accounting;
-- quote-bound FX through the verifier/payment provider contract hash plus
-  replay-safe transaction references;
-- Stripe/card MPP settlement;
-- a future EUR-compatible MPP rail.
+- USD-quoted Tempo settlement;
+- Stripe/card MPP settlement for other currencies such as EUR.
+
+Quote-bound FX and an EUR-native rail are future work, not current options.
 
 ## Merchant Install
 

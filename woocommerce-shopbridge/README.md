@@ -21,9 +21,13 @@ AgentCart-created orders intentionally clear WooCommerce's customer IP and user-
 
 The public manifest uses `AGENTCART_SUPPORT_EMAIL` / `agentcart_shopbridge_support_email` only. It does not fall back to the WordPress admin email.
 It also publishes configured-only `protocol_profiles[]` so buyer agents can
-select the ShopBridge commerce adapter, MPP payment adapter, Stripe/card MPP
-adapter, x402 exact-payment adapter, registry mapping, or signed-request auth
-profile before requesting a quote.
+select available ShopBridge, MPP, Stripe/card MPP, registry mapping, or
+signed-request profiles before requesting a quote. Configured x402 profiles are
+diagnostic only: `status: unavailable` with
+`verifier_x402_support_unconfirmed`. The plugin has no trusted verifier
+capability cache, and the shipped verifier supports only Tempo and Stripe.
+x402 settings do not enable quote requirements, payment contracts, or production
+readiness; manifest and quote paths never probe a verifier for capabilities.
 
 ## Merchant Setup
 
@@ -312,6 +316,31 @@ Future hardening can add richer merchant-side policy overrides and return
 automation, but the default product seam remains merchant-controlled and
 fail-closed.
 
+### Registry network opt-in
+
+New pilots use onchain enrollment and the administrator-initiated pinned Tempo
+RPC readiness check. The legacy hosted registry connection URL defaults to
+empty. Hosted bundle submission, revocation, and health/monitor/event fetching
+require an explicitly saved HTTPS URL (or `AGENTCART_REGISTRY_CONNECTION_URL`)
+and an administrator action. Existing saved URLs continue to work. Installs
+that relied on the old prefilled URL must save their desired endpoint explicitly.
+Clear a saved URL and remove its wp-config.php override to opt out.
+
+No outbound external service call occurs automatically on installation or public
+manifest/catalog/quote browsing. The default Tempo RPC
+`https://rpc.moderato.tempo.xyz` is contacted only by "Check registry health" with
+valid public onchain identity settings; operator-managed v2 deployments use their
+configured primary and witness RPCs instead. These calls send public chain,
+contract, controller, record/hash, hostname, and admission-state parameters, not
+keys, buyer/order data, or payment receipts. The separate public endpoint check
+fetches this shop's own discovery URLs. Configured payment verifiers can receive
+quote/order/refund/receipt data during checkout, refunds, and scheduled recovery.
+No facilitator URL is called by the plugin. See the packaged readme's External
+Services section for data disclosures and existing Tempo terms/privacy links;
+merchant-selected verifier, hosted registry, and witness providers require their
+own terms/privacy review.
+
+
 ## Quote Binding
 
 The quote endpoint computes final terms and stores them server-side for the
@@ -335,6 +364,26 @@ an AgentCart-scoped hold index until quote expiry or paid-order creation. This
 does not reduce WooCommerce stock, but it prevents concurrent AgentCart quotes
 from ignoring each other. Quote creation rejects unsupported shop or
 product-specific destination countries before payment.
+
+Before verifier calls, trusted-token acceptance, or admin dry-run acceptance,
+checkout requires the normalized selected rail to be currently available for
+the stored quote currency. The selected contract must exist in that quote's
+advertised `verification_contracts`, have an intact hash, and match current
+settlement settings; every receipt/body contract-hash claim must agree. Missing
+or changed advertisements fail closed. Obtain a fresh quote after changing
+payment settings. Quick Start dry checkout prefers an available Tempo contract,
+otherwise Stripe/card, and uses that rail's stored advertised contract without
+bypassing availability or integrity checks. Fresh default sandbox installs use
+Tempo. EUR verifier-only stores need a configured Stripe/card profile and
+verifier; if neither rail is available, the admin error asks for Stripe/card or
+a USD store with Tempo. Dry checkout never calls the verifier or proves real
+settlement.
+
+Refunds likewise reject unavailable rails before reserving a refund intent or
+calling a verifier, and the selected rail must match the original order payment.
+Cancellation does not accept a caller-selected rail or execute a payment refund;
+its separate refund endpoint applies the same checks.
+
 
 ## Endpoint Rate Limits
 
@@ -399,31 +448,53 @@ raw request bodies, signatures, or nonces.
 
 The verifier response must bind the payment to the exact quote and transaction.
 See `../docs/VERIFIER_CONTRACT.md` for the production verifier contract. Minimal
-success response:
+success response for a USD Tempo quote:
 
 ```json
 {
   "ok": true,
   "quote_hash": "sha256...",
+  "payment_contract_hash": "sha256...",
   "amount_cents": 1840,
-  "currency": "EUR",
+  "currency": "USD",
   "rail": "tempo-mpp",
   "network": "testnet",
   "recipient": "0x...",
   "transaction_reference": "0x...",
-  "real_settlement_verified": false
+  "real_settlement_verified": true
 }
 ```
 
 The plugin rejects mismatched quote hash, amount, currency, rail, Tempo network/recipient for Tempo payments, Stripe profile for Stripe/card payments, and reused transaction references.
 
-If using direct Tempo MPP/stablecoin settlement, the merchant needs a Tempo-compatible recipient account/address or a provider that holds/settles on its behalf. Tempo's documented defaults are USD-stablecoin assets: USDC.e on mainnet and pathUSD on testnet. WooCommerce may still quote in EUR; in that case the external verifier/payment provider must bind FX conversion and settlement terms to the quote before creating a paid order. If using a PSP/custodial setup, the merchant can avoid managing raw keys directly, but still needs onboarding/KYC/payout configuration with that provider.
+Real Tempo settlement requires USD quotes. In external-verifier-only mode, the
+plugin marks Tempo unavailable for non-USD quotes, and the verifier rejects such
+settlement with `tempo_settlement_currency_mismatch`. Use Stripe/card for EUR.
+Tempo's documented defaults are USD-stablecoin assets: USDC.e on mainnet and
+pathUSD on testnet. The merchant needs a Tempo-compatible recipient account or
+a provider that settles on its behalf; a custodial provider still requires its
+onboarding/KYC/payout configuration.
 
 Stripe/card MPP is represented as a separate rail in `payment_requirements.protocols[]`.
 It is only marked available when both `AGENTCART_STRIPE_PROFILE_ID` and
 `AGENTCART_PAYMENT_VERIFIER_URL` are configured. The verifier is responsible for
 validating Stripe Shared Payment Token credentials and returning a quote-bound
 payment reference before the plugin creates a paid WooCommerce order.
+
+### Payment rejection codes
+
+- `agentcart_payment_rail_unavailable_for_quote`: the selected rail is unavailable
+  for the stored quote or refund currency; choose an available quoted rail.
+- `agentcart_payment_contract_required`: the receipt (or sandbox quote) lacks
+  the required selected payment-contract hash.
+- `agentcart_payment_contract_mismatch`: a receipt/body claim, stored advertised
+  contract, or current settlement contract disagrees. Obtain a fresh quote after
+  payment-setting changes; do not substitute another contract.
+- `agentcart_refund_rail_mismatch`: the requested refund rail differs from the
+  original order payment rail.
+- `agentcart_sandbox_payment_rail_unavailable`: Quick Start has no available
+  Tempo or Stripe/card rail; configure Stripe/card or a USD store with Tempo.
+
 
 ## Refunds
 
@@ -449,6 +520,14 @@ Request:
 `Idempotency-Key` header is required. Exact replays return the existing refund.
 Conflicting replays are rejected. Refund amounts above the remaining refundable
 amount are rejected instead of silently clamped.
+For a new refund, the selected rail must be available for the order currency and
+equal the original order payment rail. An unavailable rail or a caller-selected
+different rail is rejected before refund-intent reservation or verifier calls.
+An exact completed-refund replay is returned before checking current rail
+availability, even if the merchant has since removed a payment profile or
+changed checkout/verifier settings. It reserves no capacity and never calls the
+verifier again; conflicting replay parameters still fail idempotency validation.
+
 
 In trusted-token demo mode, the endpoint creates a WooCommerce refund record and
 returns `real_refund_verified: false`. No card, EUR, Tempo, stablecoin, or Stripe
@@ -637,5 +716,5 @@ or carrier API integration that writes tracking data back to WooCommerce.
 ShopBridge is intentionally a merchant adapter, not a replacement for ACP/AP2/UCP/MPP. The practical layering is:
 
 - WooCommerce plugin exposes catalog, quote, order, fulfillment.
-- MPP/x402-style payment proof pays or proves payment.
+- MPP (Tempo or Stripe/card) pays or proves payment; x402 is currently unavailable.
 - ACP/AP2/UCP-style clients can be supported by writing translators that map their cart/checkout concepts to the same quote and order endpoints.

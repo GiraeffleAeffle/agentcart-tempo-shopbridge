@@ -29,14 +29,30 @@ approval request.
 After selecting one verified merchant, ask the buyer for the fields listed in
 `delivery_readiness.missing_delivery_fields`. Never invent a recipient name,
 street address, city, state, or contact detail. Request a fresh quote from only
-the selected merchant's verified origin:
+the selected merchant's verified origin. Pass `winner.quote_trust` unchanged
+(or `quote_trust` from a successful `resolve_merchant`) and keep the selected
+`payment_rail`:
 
 ```json
-{"command":"quote","args":{"base_url":"https://shop.example","product_id":"woo_10","quantity":1,"ship_to":{"first_name":"<buyer supplied>","last_name":"<buyer supplied>","address_1":"<buyer supplied>","city":"<buyer supplied>","state":"<buyer supplied when required>","postcode":"<buyer supplied>","country":"<buyer supplied>"}}}
+{"command":"quote","args":{"base_url":"https://shop.example","quote_trust":{...},"payment_rail":"stripe-card-mpp","product_id":"woo_10","quantity":1,"ship_to":{"first_name":"<buyer supplied>","last_name":"<buyer supplied>","address_1":"<buyer supplied>","city":"<buyer supplied>","state":"<buyer supplied when required>","postcode":"<buyer supplied>","country":"<buyer supplied>"}}}
 ```
 
 The refreshed quote has new quote, payment-contract, and approval hashes. Never
 reuse the Comparison Quote's approval packet.
+
+The carried `quote_trust` binds the origin and registry record hash to the
+record's Tempo network/recipient and Stripe profile. The refreshed quote must
+match the selected rail's commitment; `payment_destination_mismatch` blocks
+ranking, approval, payment handoff and checkout. Missing/empty commitments
+fail closed, including x402 (which has no binding in the current registry
+schema). Do not refresh with only `base_url`: that is unverified single-merchant
+mode, not a continuation of verified discovery.
+For Stripe, compare `stripe_profile_id`/`network_id`, not the protocol-profile
+label `profile_id`. Choose the binding by the selected protocol's `id`/`method`;
+a merchant-provided `rail` cannot redirect the binding check to another rail.
+
+The calling agent must preserve this trust metadata. It is hash-linked, not
+authenticated against a compromised agent; agent tampering is out of scope.
 
 ## Reconcile money before approval
 
@@ -77,6 +93,9 @@ Continue only when all of these are true:
 
 - `approval_packet.approval_ready:true`;
 - `checkout_preflight.ok:true`;
+- the selected normalized rail has exactly one protocol entry, with
+  `available` not false and `setup_required` not true (duplicate aliases cause
+  `duplicate_payment_rail` and require a corrected merchant quote);
 - an existing wallet/provider is confirmed for the approved destination; and
 - the human explicitly approves the exact `approval_hash`.
 

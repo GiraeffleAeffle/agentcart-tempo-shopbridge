@@ -38,18 +38,15 @@ ShopBridge sends:
   "payment_receipt": {},
   "agentcart_order_id": "order_...",
   "expected": {
+    "quote_hash": "sha256...",
     "amount_cents": 1480,
-    "currency": "EUR",
+    "currency": "USD",
     "merchant_id": "woocommerce-demo-shop",
     "rail": "tempo-mpp",
     "payment_contract_hash": "sha256...",
     "tempo_network": "testnet",
     "tempo_recipient": "0x...",
-    "stripe_profile_id": "acct_...",
-    "x402_network": "eip155:84532",
-    "x402_asset": "0x...",
-    "x402_pay_to": "0x...",
-    "x402_max_amount_required": "14800000"
+    "stripe_profile_id": "acct_..."
   }
 }
 ```
@@ -59,19 +56,42 @@ The canonical Stripe/card MPP fixture is checked in at
 The canonical Tempo MPP fixture is checked in at
 `docs/fixtures/verifier/payment-request.tempo-mpp.json`.
 
+For the bundled verifier, `amount_cents`, `currency`, `rail`, `quote_hash`, and
+`merchant_id` must come from the authenticated merchant's `expected` block or
+trusted `quote` object. Quote fallbacks are `total_cents`, `currency`, `rail`,
+`quote_hash`, and `merchant_id` (or `merchant.id`), respectively. The caller
+must obtain these values from its server-side quote/configuration, not copy
+them from buyer-supplied payment proof. `payment_receipt` fields are compared
+against those expectations and never supply missing values. A top-level
+`quote_hash` alone is not sufficient, and the deployment's default currency
+does not substitute for a missing payment expectation. Missing expectations
+are rejected with HTTP 400 before settlement lookup or replay claim.
+
+For Tempo, `expected.tempo_recipient` and `expected.tempo_network` must name the
+merchant-configured destination. If omitted, they may come only from the
+trusted quote's `payment_requirements.protocols` entry with `id=tempo-mpp`
+(`recipient` and `tempo_network` or `network`). Missing recipient/network is
+HTTP 400; the recipient must be a valid EVM address. Proof/receipt destination
+fields may be compared but never become the settlement target.
+
+The bundled verifier supports only `tempo-mpp` and `stripe-card-mpp`; it
+rejects x402 rails. Any x402 network/asset/payTo/atomic-amount expectations
+describe a future external-verifier extension, not available bundled support.
+
 The verifier must reject the payment unless it can prove:
 
 - the payment credential or receipt is valid for the selected rail;
 - the payment is bound to the exact `quote_hash`;
 - the `payment_contract_hash` matches every supplied copy in the quote,
   receipt, request, and verifier response;
-- amount and currency match the quote, or an explicit quote-bound FX conversion
-  record exists;
+- amount and currency match the trusted quote; no quote-bound FX conversion is
+  implemented by the bundled verifier;
 - selected rail matches the receipt and merchant setup;
 - Tempo recipient and network match the merchant configuration for Tempo rails;
 - Stripe profile matches the merchant configuration for Stripe/card rails;
-- x402 network, token asset, payTo address, and atomic amount match the
-  quote-bound `PAYMENT-REQUIRED` document for x402-compatible rails;
+- future x402 support would additionally need quote-bound network, token asset,
+  payTo address, and atomic-amount verification; the bundled verifier rejects
+  x402 rails today;
 - the transaction reference has not been used before;
 - the payment was not expired, revoked, or already refunded.
 
@@ -83,7 +103,7 @@ Expected success response:
   "quote_hash": "sha256...",
   "payment_contract_hash": "sha256...",
   "amount_cents": 1480,
-  "currency": "EUR",
+  "currency": "USD",
   "rail": "tempo-mpp",
   "network": "testnet",
   "recipient": "0x...",
@@ -151,6 +171,11 @@ The canonical Stripe/card MPP refund request fixture is checked in at
 The canonical Tempo MPP refund request fixture is checked in at
 `docs/fixtures/verifier/refund-request.tempo-mpp.json`.
 
+The requested refund rail must be available for the order currency and equal
+the original payment rail. ShopBridge rejects any other rail with
+`agentcart_refund_rail_mismatch`; selecting an available alternative rail does
+not authorize refunding a payment made on a different rail.
+
 The verifier must execute or verify the refund through the original rail and
 return:
 
@@ -178,8 +203,8 @@ Tempo refund fixtures are deliberately USD/pathUSD denominated. A Tempo refund
 success response must bind the refund transfer to the original transaction
 reference, merchant recipient, source/refund recipient, network, asset, quote
 hash, and replay reference before `real_refund_verified=true` is accepted. Do
-not claim EUR settlement or EUR refunds from a pathUSD proof unless a separate
-quote-bound FX verifier fixture is added.
+not claim EUR settlement or EUR refunds from a pathUSD proof: the bundled
+verifier has no quote-bound FX implementation.
 
 Negative contract fixtures are checked in at `docs/fixtures/verifier/negative/`.
 They cover amount mismatch, quote-hash mismatch, payment-contract mismatch,
@@ -216,7 +241,7 @@ x402/EVM surface work, but still does not expose a one-time Tempo refund API for
 completed WooCommerce orders. Session-channel `refundedToPayer` receipts cover
 unused session deposits, not refunding a completed one-time shop order. Real
 settlement and refund claims require the external verifier response to bind
-amount, currency or FX policy, merchant recipient/profile, quote hash, payment
+amount, currency, merchant recipient/profile, quote hash, payment
 contract hash, and a non-replayed transaction or refund reference.
 
 For Tempo charge-flow settlement, configure the verifier with
@@ -227,6 +252,14 @@ amount before returning `real_settlement_verified=true`. With settlement mode
 disabled, the verifier may accept a demo proof for staging, but it must return
 `real_settlement_verified=false` and must not make a refund eligible for live
 rail execution.
+
+The known pathUSD and USDC.e token addresses are USD-denominated. In verify
+mode, a non-USD quote (including EUR 15.80 paid with 15.80 pathUSD) is rejected
+with HTTP 400 and `provider_error_class=tempo_settlement_currency_mismatch`
+before any replay claim or RPC lookup. Unknown token denominations fail closed;
+an asset display-name override cannot change denomination. No quote-bound FX
+contract is implemented. Disabled mode retains explicit `demo_fixed_1_1`
+proofs for the local EUR demo with `real_settlement_verified=false`.
 
 For Tempo charge-flow refunds, configure the verifier with
 `AGENTCART_TEMPO_REFUND_MODE=live`,

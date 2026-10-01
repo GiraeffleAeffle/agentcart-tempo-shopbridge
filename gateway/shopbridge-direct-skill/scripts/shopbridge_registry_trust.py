@@ -87,6 +87,119 @@ def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
 def registry_record_hash(record: dict[str, Any]) -> str:
     return canonical_json_hash(registry_signature_payload(record))
 
+def normalized_payment_rail(value: Any) -> str:
+    rail = str(value or "").strip().lower().replace("_", "-")
+    if rail in {"tempo", "tempo-mpp", "mpp", "mpp-shaped-demo", "demo-payment-proof"}:
+        return "tempo-mpp"
+    if rail in {"stripe", "stripe-card", "stripe-card-mpp"}:
+        return "stripe-card-mpp"
+    if rail in {"x402", "x402-exact", "x402-compatible"}:
+        return "x402-compatible"
+    return rail
+
+
+def registry_payment_bindings(record: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Destinations committed by the record, never by a live quote."""
+    return {
+        "tempo-mpp": {
+            "network": str(record.get("payment_network") or "").strip(),
+            "recipient": str(record.get("payment_recipient") or "").strip().lower(),
+        },
+        "stripe-card-mpp": {
+            "stripe_profile_id": str(record.get("stripe_profile_id") or "").strip(),
+        },
+    }
+
+
+def payment_destination_matches_binding(destination: dict[str, Any], bindings: Any, *, rail: Any) -> bool:
+    # The caller derives this from its selected protocol id/method, not raw data's rail.
+    rail = normalized_payment_rail(rail)
+    if not isinstance(bindings, dict) or not isinstance(bindings.get(rail), dict):
+        return False
+    committed = bindings[rail]
+    if rail == "tempo-mpp":
+        network = str(destination.get("network") or "").strip()
+        recipient = str(destination.get("recipient") or destination.get("recipient_address") or destination.get("payment_recipient") or "").strip().lower()
+        expected_network = str(committed.get("network") or "").strip()
+        expected_recipient = str(committed.get("recipient") or "").strip().lower()
+        return bool(expected_network and expected_recipient) and network == expected_network and recipient == expected_recipient
+    if rail == "stripe-card-mpp":
+        expected = str(committed.get("stripe_profile_id") or "").strip()
+        supplied = [
+            str(destination[key] or "").strip()
+            for key in ("stripe_profile_id", "network_id")
+            if key in destination
+        ]
+        return bool(expected and supplied) and all(value == expected for value in supplied)
+    # The current record schema commits no x402 destination.
+    return False
+
+def payment_protocol_selection_issues(protocols: list[dict[str, Any]], rail: Any) -> list[str]:
+    selected_rail = normalized_payment_rail(rail)
+    matches = [
+        protocol for protocol in protocols
+        if isinstance(protocol, dict)
+        and normalized_payment_rail(protocol.get("id") or protocol.get("method")) == selected_rail
+    ]
+    if len(matches) > 1:
+        return ["duplicate_payment_rail"]
+    if not selected_rail or not matches:
+        return ["payment_rail_unavailable"]
+    issues = []
+    if matches[0].get("available", True) is False:
+        issues.append("payment_rail_unavailable")
+    if matches[0].get("setup_required") is True:
+        issues.append("payment_destination_setup_required")
+    return issues
+
+
+def quote_payment_contract_hash(quote: dict[str, Any], rail: str | None = None) -> str:
+    payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+    normalized_rail = normalized_payment_rail(rail)
+    contracts = payment.get("verification_contracts") if isinstance(payment.get("verification_contracts"), list) else []
+    for contract in contracts:
+        if not isinstance(contract, dict):
+            continue
+        if normalized_rail and normalized_payment_rail(contract.get("rail")) != normalized_rail:
+            continue
+        value = str(contract.get("payment_contract_hash") or "")
+        if value:
+            return value
+    contract = payment.get("verification_contract") if isinstance(payment.get("verification_contract"), dict) else {}
+    if contract and (not normalized_rail or normalized_payment_rail(contract.get("rail")) == normalized_rail):
+        value = str(contract.get("payment_contract_hash") or "")
+        if value:
+            return value
+    verification = payment.get("verification") if isinstance(payment.get("verification"), dict) else {}
+    return str(payment.get("payment_contract_hash") or verification.get("payment_contract_hash") or "")
+
+
+def registry_quote_payment_destination(quote: dict[str, Any], protocol: dict[str, Any]) -> dict[str, Any]:
+    """One approval representation for both registry-verified buyer runtimes."""
+    rail = normalized_payment_rail(protocol.get("id") or protocol.get("method"))
+    destination = {
+        "rail": rail,
+        "method": rail,
+        "protocol": str(protocol.get("protocol") or "mpp"),
+        "available": protocol.get("available", True) is not False,
+        "setup_required": protocol.get("setup_required") is True,
+        "source": "verified_registry_record",
+        "registry_verified": True,
+        "payment_contract_hash": quote_payment_contract_hash(quote, rail),
+    }
+    if rail == "stripe-card-mpp":
+        profile = str(protocol.get("stripe_profile_id") or protocol.get("network_id") or "")
+        destination.update({"stripe_profile_id": profile, "network_id": str(protocol.get("network_id") or profile)})
+    elif rail == "tempo-mpp":
+        destination.update({
+            "network": str(protocol.get("network") or ""),
+            "recipient": str(protocol.get("recipient") or protocol.get("recipient_address") or protocol.get("payment_recipient") or ""),
+            "settlement_asset": str(protocol.get("settlement_asset") or ""),
+        })
+    return destination
+
+
+
 
 def parse_time(value: Any) -> dt.datetime | None:
     if not isinstance(value, str) or not value:

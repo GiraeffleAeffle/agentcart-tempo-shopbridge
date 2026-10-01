@@ -41,7 +41,7 @@ local integrations.
 | --- | --- | --- |
 | 1 | Registry transparency and refresh UX | Alpha implemented: safe multi-merchant discovery now exposes refresh/check status and machine-readable registry reasons |
 | 2 | Manifest protocol profiles | Alpha implemented: manifests now publish configured-only `protocol_profiles[]` for ShopBridge commerce, MPP payment, Stripe/card MPP, and registry mapping |
-| 3 | x402 compatibility shim | Alpha implemented: quote payment requirements now expose x402 exact-payment headers and checkout can answer unpaid quote-bound requests with `PAYMENT-REQUIRED` |
+| 3 | x402 compatibility shim | Implemented in the plugin but disabled (status unavailable) pending verifier support: configured x402 profiles emit no payment requirements and checkout does not answer with `PAYMENT-REQUIRED` |
 | 4 | Signed HTTP request verification | Alpha implemented: ShopBridge can require HMAC or RSA signed requests with method/path/digest/nonce/expiry binding for sensitive endpoints, support multiple active HMAC signing keys, rotate active keys with a retirement window, retain sanitized signed-request audit records, and buyer skill/service paths can sign them |
 | 5 | MCP tool catalog | Alpha implemented: `/v1/mcp/tools` and `/mcp/tools.json` publish stable tool definitions for discovery, catalog, quote, approval, checkout, aftercare, refund, and audit flows |
 | 6 | AP2-style mandate mapping | Alpha implemented: approval records and payment handoffs now expose checked checkout/payment mandate-shaped fields without claiming signed AP2 VDC compliance |
@@ -319,8 +319,9 @@ Deliverables:
 - bind amount, currency, merchant id/profile, quote hash, idempotency key, and
   transaction reference;
 - execute refunds through the original rail;
-- keep Tempo stablecoin support as a separate rail with explicit FX/settlement
-  semantics.
+- keep Tempo stablecoin support as a separate rail; the current implementation
+  settles USD-quoted orders only (non-USD Tempo settlement is unsupported today;
+  Stripe/card is the EUR rail).
 
 Definition of done:
 

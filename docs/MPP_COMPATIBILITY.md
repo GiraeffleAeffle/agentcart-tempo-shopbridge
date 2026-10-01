@@ -77,10 +77,13 @@ fields we should treat as MPP-level are:
 
 ## x402 Compatibility Shim
 
-ShopBridge can now publish an x402-shaped exact-payment requirement for a
-quote when the merchant configures an x402 network, token asset, payTo address,
-asset decimals/currency, and external verifier. An unpaid quote-bound checkout
-can return `402` with a `PAYMENT-REQUIRED` header and body containing
+The x402 shim is implemented in the plugin but disabled (status unavailable)
+pending verifier support. Configured x402 profiles are published as
+unavailable and emit no payment requirements, so no `402` with a
+`PAYMENT-REQUIRED` header is returned today. When enabled, ShopBridge would
+publish an x402-shaped exact-payment requirement for a quote when the merchant
+configures an x402 network, token asset, payTo address, asset
+decimals/currency, and external verifier, with a body containing
 `x402Version`, `accepts[]`, `scheme`, `network`, `maxAmountRequired`,
 `resource`, `payTo`, `asset`, and timeout fields.
 
@@ -121,18 +124,21 @@ In the bundled local demo:
 For the first real Tempo staging shop, use a USD WooCommerce currency profile.
 That keeps the shop currency, Tempo/pathUSD proof, and refund fixture aligned
 without pretending that a USD stablecoin rail settled a EUR order. EUR storefront
-testing should wait for either a quote-bound FX verifier or an EUR-stablecoin
-rail.
+testing should use Stripe/card MPP; quote-bound FX and an EUR-stablecoin rail
+are future work.
 
 For production with a German/EU WooCommerce shop, one of these must be true:
 
-- the merchant accepts USD-stablecoin settlement and handles accounting/FX;
-- a payment provider/verifier converts the EUR quote into a quote-bound
-  USD-stablecoin amount before payment;
-- the merchant uses a non-stablecoin MPP method such as Stripe/card settlement;
-- an EUR stablecoin or custom MPP payment method is supported and configured.
+- the merchant quotes in USD and uses Tempo settlement (non-USD Tempo
+  settlement is unsupported);
+- the merchant uses a non-stablecoin MPP method such as Stripe/card
+  settlement, which is the EUR rail.
 
-For EUR stablecoins, x402/EVM is the more promising path than Tempo/pathUSD:
+Quote-bound FX and an EUR stablecoin or custom MPP payment method are future
+work. The x402/EVM notes below are exploratory only: x402 is implemented in the
+plugin but disabled (status unavailable) pending verifier support.
+
+For EUR stablecoins, x402/EVM would be more promising than Tempo/pathUSD:
 
 - x402 can model EVM token payments by CAIP-2 network id and token address.
 - EURC is the first EUR candidate when the selected facilitator supports it,
@@ -177,11 +183,14 @@ support through Shared Payment Tokens and also allow custom payment methods.
 
 Production options for an EU shop:
 
-- `tempo.charge` with merchant acceptance of USD-stablecoin accounting;
-- `tempo.charge` with quote-bound FX handled by a verifier or PSP;
 - `stripe.charge` for card settlement, refunds, reporting, disputes, and
-  multi-currency payouts through Stripe;
-- a custom or future EUR-stablecoin MPP method.
+  multi-currency payouts through Stripe. This is the EUR rail: non-USD Tempo
+  settlement is unsupported;
+- `tempo.charge` only for USD-quoted orders, with merchant acceptance of
+  USD-stablecoin accounting.
+
+Quote-bound FX and a custom or future EUR-stablecoin MPP method are future
+work, not current options.
 
 The plugin should create a WooCommerce order only after the selected method's
 verifier confirms the quote hash, amount, currency or settlement asset,

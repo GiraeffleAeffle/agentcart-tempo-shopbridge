@@ -10,6 +10,7 @@ opt-in for development fixtures.
 from __future__ import annotations
 
 import http.client
+import email.utils
 import contextvars
 import functools
 import ipaddress
@@ -30,11 +31,24 @@ Resolver = Callable[..., list[tuple[int, int, int, str, tuple[Any, ...]]]]
 
 
 class SafeHttpError(RuntimeError):
-    def __init__(self, code: str, *, status: int = 0, detail: str = "") -> None:
+    def __init__(self, code: str, *, status: int = 0, detail: str = "", retry_after: float = 0) -> None:
         super().__init__(code)
         self.code = code
         self.status = status
         self.detail = detail
+        self.retry_after = retry_after
+
+
+def _retry_after_seconds(value: str | None) -> float:
+    if not value:
+        return 0
+    try:
+        return max(0, float(int(value.strip())))
+    except (ValueError, OverflowError):
+        try:
+            return max(0, email.utils.parsedate_to_datetime(value).timestamp() - time.time())
+        except (ValueError, TypeError, OverflowError):
+            return 0
 
 
 class DiscoveryBudget:
@@ -42,14 +56,20 @@ class DiscoveryBudget:
         self.deadline = time.monotonic() + seconds
         self.requests_remaining = requests
         self.bytes_remaining = response_bytes
+        self.general_requests_used = 0
+        self.history_requests_used = 0
         self.lock = threading.Lock()
 
-    def reserve(self, timeout: float, size: int) -> tuple[float, int]:
+    def reserve(self, timeout: float, size: int, *, history: bool = False) -> tuple[float, int]:
         with self.lock:
             remaining = self.deadline - time.monotonic()
-            if remaining <= 0 or self.requests_remaining <= 0 or self.bytes_remaining <= 1:
+            if remaining <= 0 or (not history and self.requests_remaining <= 0) or self.bytes_remaining <= 1:
                 raise SafeHttpError("discovery_budget_exhausted")
-            self.requests_remaining -= 1
+            if history:
+                self.history_requests_used += 1
+            else:
+                self.requests_remaining -= 1
+                self.general_requests_used += 1
             size = min(size, self.bytes_remaining - 1)
             self.bytes_remaining -= size + 1
             return min(timeout, remaining), size
@@ -60,11 +80,14 @@ class DiscoveryBudget:
 
 
 discovery_budget: contextvars.ContextVar[DiscoveryBudget | None] = contextvars.ContextVar("discovery_budget", default=None)
+history_request: contextvars.ContextVar[bool] = contextvars.ContextVar("history_request", default=False)
 
 
 def budgeted_discovery(function):
     @functools.wraps(function)
     def wrapped(*args, **kwargs):
+        if discovery_budget.get() is not None:
+            return function(*args, **kwargs)
         token = discovery_budget.set(DiscoveryBudget())
         try:
             return function(*args, **kwargs)
@@ -208,7 +231,9 @@ def request_json(
         raise SafeHttpError("request_too_large")
     budget = discovery_budget.get()
     if budget is not None:
-        timeout_seconds, max_response_bytes = budget.reserve(timeout_seconds, max_response_bytes)
+        timeout_seconds, max_response_bytes = budget.reserve(
+            timeout_seconds, max_response_bytes, history=history_request.get()
+        )
     request_deadline = time.monotonic() + timeout_seconds
 
     request_headers = {"Accept": "application/json", "Connection": "close", **(headers or {})}
@@ -256,6 +281,7 @@ def request_json(
                     "upstream_http_error",
                     status=response.status,
                     detail=raw.decode("utf-8", errors="replace")[:4096],
+                    retry_after=_retry_after_seconds(response.getheader("Retry-After")),
                 )
             if not raw:
                 result_queue.put((True, None))

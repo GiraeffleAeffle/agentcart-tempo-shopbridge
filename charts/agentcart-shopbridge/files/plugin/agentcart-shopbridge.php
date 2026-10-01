@@ -98,7 +98,7 @@ final class AgentCart_ShopBridge {
     const REGISTRY_CONNECTION_URL_OPTION = 'agentcart_shopbridge_registry_connection_url';
     const REGISTRY_CONNECTION_TOKEN_OPTION = 'agentcart_shopbridge_registry_connection_token';
     const REGISTRY_CONNECTION_STATUS_OPTION = 'agentcart_shopbridge_registry_connection_status';
-    const DEFAULT_REGISTRY_CONNECTION_URL = 'https://registry.agentcart.eu/v1/registry/records';
+    const DEFAULT_REGISTRY_CONNECTION_URL = '';
     const REGISTRY_HEALTH_CHECK_OPTION = 'agentcart_shopbridge_registry_health_check';
     const REGISTRY_REVOKED_RECORDS_OPTION = 'agentcart_shopbridge_registry_revoked_records';
     const REGISTRY_RECORD_ARCHIVE_OPTION = 'agentcart_shopbridge_registry_record_archive';
@@ -657,7 +657,7 @@ final class AgentCart_ShopBridge {
                     <tr>
                         <th scope="row">x402 exact profile</th>
                         <td><code><?php echo esc_html(self::x402_profile_configured() ? $x402_network . ' / ' . $x402_asset_symbol : 'not configured'); ?></code></td>
-                        <td><?php self::render_admin_status_badge(self::x402_profile_configured(), 'Configured', 'Needs network + asset + payTo + verifier'); ?></td>
+                        <td><?php self::render_admin_status_badge(false, 'Available', 'Unavailable: verifier x402 support is unconfirmed'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row">Support email</th>
@@ -755,14 +755,14 @@ final class AgentCart_ShopBridge {
                     <?php self::render_tempo_network_setting_row(self::tempo_network()); ?>
                     <?php self::render_text_setting_row('Tempo merchant payment recipient', self::TEMPO_RECIPIENT_OPTION, $tempo_recipient, 'AGENTCART_TEMPO_RECIPIENT_ADDRESS', 'Public wallet or payment-provider address receiving quote-bound payments. This merchant payment recipient is different from the registry controller and buyer wallet.'); ?>
                     <?php self::render_text_setting_row('Stripe profile / network id', self::STRIPE_PROFILE_ID_OPTION, $stripe_profile_id, 'AGENTCART_STRIPE_PROFILE_ID', 'Optional Stripe Business Network or profile id. Only advertise this when the verifier can confirm Stripe machine-payment credentials and refunds for the shop.'); ?>
-                    <?php self::render_text_setting_row('x402 network', self::X402_NETWORK_OPTION, $x402_network, 'AGENTCART_X402_NETWORK', 'Optional x402 network identifier such as eip155:84532 or base-sepolia. Leave blank unless this shop is ready to advertise x402 payments.'); ?>
-                    <?php self::render_text_setting_row('x402 asset contract', self::X402_ASSET_OPTION, $x402_asset, 'AGENTCART_X402_ASSET', 'Optional x402 token contract or address. Required before x402-compatible quote requirements are advertised.'); ?>
+                    <?php self::render_text_setting_row('x402 network', self::X402_NETWORK_OPTION, $x402_network, 'AGENTCART_X402_NETWORK', 'Optional x402 network identifier such as eip155:84532. x402 is unavailable because verifier support is not confirmed; these settings do not enable checkout.'); ?>
+                    <?php self::render_text_setting_row('x402 asset contract', self::X402_ASSET_OPTION, $x402_asset, 'AGENTCART_X402_ASSET', 'Optional x402 token contract or address, retained as unavailable profile metadata.'); ?>
                     <?php self::render_text_setting_row('x402 asset symbol', self::X402_ASSET_SYMBOL_OPTION, $x402_asset_symbol, 'AGENTCART_X402_ASSET_SYMBOL', 'Short label for the configured x402 asset, for example USDC.'); ?>
                     <?php self::render_text_setting_row('x402 asset currency', self::X402_ASSET_CURRENCY_OPTION, $x402_asset_currency, 'AGENTCART_X402_ASSET_CURRENCY', 'Three-letter currency represented by the x402 asset. Defaults to the WooCommerce store currency when blank.'); ?>
                     <?php self::render_setting_row('number', 'x402 asset decimals', self::X402_ASSET_DECIMALS_OPTION, $x402_asset_decimals, 'AGENTCART_X402_ASSET_DECIMALS', 'Token decimals used to convert WooCommerce totals into x402 atomic units.'); ?>
-                    <?php self::render_text_setting_row('x402 payTo address', self::X402_PAY_TO_OPTION, $x402_pay_to, 'AGENTCART_X402_PAY_TO', 'Wallet or payment-provider address that receives x402 exact payments for this shop.'); ?>
-                    <?php self::render_text_setting_row('x402 facilitator URL', self::X402_FACILITATOR_URL_OPTION, $x402_facilitator_url, 'AGENTCART_X402_FACILITATOR_URL', 'Optional facilitator URL for x402-capable clients. ShopBridge still waits for the payment verifier before creating WooCommerce orders.'); ?>
-                    <?php self::render_setting_row('number', 'x402 timeout seconds', self::X402_MAX_TIMEOUT_SECONDS_OPTION, $x402_max_timeout_seconds, 'AGENTCART_X402_MAX_TIMEOUT_SECONDS', 'Maximum x402 authorization window advertised in quote-bound payment requirements.'); ?>
+                    <?php self::render_text_setting_row('x402 payTo address', self::X402_PAY_TO_OPTION, $x402_pay_to, 'AGENTCART_X402_PAY_TO', 'Public x402 payment destination retained as unavailable profile metadata; this does not enable x402 checkout.'); ?>
+                    <?php self::render_text_setting_row('x402 facilitator URL', self::X402_FACILITATOR_URL_OPTION, $x402_facilitator_url, 'AGENTCART_X402_FACILITATOR_URL', 'Optional metadata only. The plugin does not contact this facilitator, and x402 verifier support is unconfirmed.'); ?>
+                    <?php self::render_setting_row('number', 'x402 timeout seconds', self::X402_MAX_TIMEOUT_SECONDS_OPTION, $x402_max_timeout_seconds, 'AGENTCART_X402_MAX_TIMEOUT_SECONDS', 'Retained x402 authorization window setting; no x402 payment requirements are advertised while verifier support is unconfirmed.'); ?>
                     <?php self::render_text_setting_row('Payment verifier URL', self::PAYMENT_VERIFIER_URL_OPTION, $payment_verifier_url, 'AGENTCART_PAYMENT_VERIFIER_URL', 'Service that confirms the exact quote was paid before WooCommerce marks the order paid, and confirms rail-bound refunds before production refunds are recorded.'); ?>
                     <?php self::render_password_setting_row('Payment verifier token', self::PAYMENT_VERIFIER_TOKEN_OPTION, self::payment_verifier_token(), 'AGENTCART_PAYMENT_VERIFIER_TOKEN', 'Optional secret this plugin sends to the verifier so only this shop can ask it to approve payments and refunds.'); ?>
                     <?php self::render_checkout_mode_setting_row($checkout_mode); ?>
@@ -1044,7 +1044,19 @@ final class AgentCart_ShopBridge {
         $quote_id = (string) ($quote['id'] ?? '');
         $order_idempotency_key = 'agentcart-sandbox-checkout-' . substr(hash('sha256', $quote_id . '|' . wp_generate_uuid4()), 0, 24);
         $receipt = self::sandbox_checkout_payment_receipt($quote, $order_idempotency_key);
-        $approval = self::sandbox_checkout_approval_record($quote, $order_idempotency_key, $checked_at);
+        if (is_wp_error($receipt)) {
+            delete_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id);
+            self::release_stock_hold($quote_id, 'sandbox_checkout_cleanup');
+            return [
+                'state' => 'failed',
+                'checked_at' => $checked_at,
+                'quote_id' => $quote_id,
+                'error_code' => $receipt->get_error_code(),
+                'message' => $receipt->get_error_message(),
+                'cleanup' => 'quote transient deleted and stock hold released before sandbox checkout',
+            ];
+        }
+        $approval = self::sandbox_checkout_approval_record($quote, $order_idempotency_key, $checked_at, $receipt);
         $order_request = new WP_REST_Request('POST', '/' . self::API_NAMESPACE . '/orders');
         $order_request->set_header('Content-Type', 'application/json');
         $order_request->set_header('Idempotency-Key', $order_idempotency_key);
@@ -1064,7 +1076,7 @@ final class AgentCart_ShopBridge {
             'approval' => $approval,
             'approval_record' => $approval['approval_record'] ?? null,
             'approval_decision_record' => $approval['approval_decision_record'] ?? null,
-            'rail' => 'tempo-mpp',
+            'rail' => $receipt['rail'],
             'reason' => 'AgentCart sandbox checkout test from WooCommerce admin',
             'ship_to' => $ship_to,
             'payment_receipt' => $receipt,
@@ -1163,7 +1175,7 @@ final class AgentCart_ShopBridge {
         ];
     }
 
-    private static function sandbox_checkout_approval_record($quote, $order_idempotency_key, $checked_at) {
+    private static function sandbox_checkout_approval_record($quote, $order_idempotency_key, $checked_at, $receipt) {
         $quote = is_array($quote) ? $quote : [];
         $merchant = isset($quote['merchant']) && is_array($quote['merchant']) ? $quote['merchant'] : self::merchant();
         $quote_id = (string) ($quote['id'] ?? '');
@@ -1175,11 +1187,8 @@ final class AgentCart_ShopBridge {
             'quote_hash' => $quote_hash,
             'total_cents' => intval($quote['total_cents'] ?? 0),
             'currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
-            'payment_destination' => [
-                'rail' => 'tempo-mpp',
-                'network' => self::tempo_network(),
-                'recipient' => self::tempo_recipient(),
-            ],
+            'payment_destination' => $receipt['payment_destination'],
+            'payment_contract_hash' => $receipt['payment_contract_hash'],
         ];
         $approval_hash = hash('sha256', (string) wp_json_encode($approval_material));
         $approval_record = [
@@ -1220,36 +1229,41 @@ final class AgentCart_ShopBridge {
 
     private static function sandbox_checkout_payment_receipt($quote, $order_idempotency_key) {
         $quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
-        $contract = self::payment_verification_contract($quote, 'tempo-mpp');
-        $contract_hash = self::payment_contract_hash($contract);
+        $available_rails = self::available_payment_rails_for_quote($quote);
+        $rail = in_array('tempo-mpp', $available_rails, true) ? 'tempo-mpp' : (in_array('stripe-card-mpp', $available_rails, true) ? 'stripe-card-mpp' : '');
+        if ($rail === '') {
+            return new WP_Error(
+                'agentcart_sandbox_payment_rail_unavailable',
+                'No payment rail is available for this sandbox quote. Configure a Stripe/card profile and verifier, or use a USD store with Tempo.',
+                ['status' => 400]
+            );
+        }
+        $contract = null;
+        foreach ((array) ($quote['payment_requirements']['verification_contracts'] ?? []) as $candidate) {
+            if (is_array($candidate) && ($candidate['rail'] ?? '') === $rail) {
+                $contract = $candidate;
+                break;
+            }
+        }
+        $contract_hash = (string) ($contract['payment_contract_hash'] ?? '');
+        if ($contract_hash === '') {
+            return new WP_Error('agentcart_payment_contract_required', 'Sandbox checkout requires the selected rail contract from the stored quote. Run a new quote check.', ['status' => 400]);
+        }
         $amount_cents = intval($quote['total_cents'] ?? 0);
         $currency = (string) ($quote['currency'] ?? get_woocommerce_currency());
         $transaction_reference = 'agentcart_sandbox_' . substr(hash('sha256', $order_idempotency_key . '|' . $quote_hash), 0, 24);
         return [
             'id' => 'payrcpt_' . substr(hash('sha256', $transaction_reference), 0, 24),
-            'method' => 'tempo-mpp',
-            'rail' => 'tempo-mpp',
+            'method' => $rail,
+            'rail' => $rail,
             'provider' => 'agentcart_sandbox',
             'status' => 'succeeded',
             'amount_cents' => $amount_cents,
             'currency' => $currency,
             'quote_hash' => $quote_hash,
             'payment_contract_hash' => $contract_hash,
-            'external_value_proof' => [
-                'provider' => 'tempo_mpp',
-                'state' => 'succeeded',
-                'network' => self::tempo_network(),
-                'recipient' => self::tempo_recipient(),
-                'body' => [
-                    'amount' => number_format($amount_cents / 100, 2, '.', ''),
-                    'recipient' => self::tempo_recipient(),
-                    'transaction_reference' => $transaction_reference,
-                ],
-                'payment_receipt' => [
-                    'reference' => $transaction_reference,
-                    'network' => self::tempo_network(),
-                ],
-            ],
+            'payment_destination' => ['rail' => $rail] + (array) ($contract['settlement'] ?? []),
+            'transaction_reference' => $transaction_reference,
             'sandbox' => true,
         ];
     }
@@ -3926,9 +3940,6 @@ final class AgentCart_ShopBridge {
         if (self::stripe_profile_id() !== '' && self::payment_verifier_url() !== '') {
             $protocols[] = 'stripe-card-mpp';
         }
-        if (self::x402_profile_configured()) {
-            $protocols[] = 'x402-compatible';
-        }
         if (self::signed_request_profile_configured()) {
             $protocols[] = 'signed-http-ready';
         }
@@ -4044,7 +4055,9 @@ final class AgentCart_ShopBridge {
                 'id' => 'x402-compatible',
                 'type' => 'payment',
                 'standard' => 'x402',
-                'status' => 'available',
+                'status' => 'unavailable',
+                'available' => false,
+                'unavailable_reason' => self::x402_unavailable_reason(),
                 'x402_version' => 2,
                 'scheme' => 'exact',
                 'network' => self::x402_network(),
@@ -4102,9 +4115,12 @@ final class AgentCart_ShopBridge {
     }
 
     private static function protocol_profile_ids($readiness = null) {
+        $available_profiles = array_filter(self::protocol_profiles($readiness), static function ($profile) {
+            return ($profile['status'] ?? '') !== 'unavailable';
+        });
         return array_values(array_map(function ($profile) {
             return (string) ($profile['id'] ?? '');
-        }, self::protocol_profiles($readiness)));
+        }, $available_profiles));
     }
 
     private static function payment_protocol_profile_ids() {
@@ -4114,7 +4130,7 @@ final class AgentCart_ShopBridge {
     }
 
     private static function tempo_payment_profile_configured() {
-        return self::tempo_recipient() !== '' && self::payment_verifier_url() !== '';
+        return self::tempo_recipient() !== '' && self::payment_verifier_url() !== '' && (!self::external_verifier_required_for_checkout() || self::tempo_quote_currency_matches(get_woocommerce_currency()));
     }
 
     private static function stripe_payment_profile_configured() {
@@ -4181,10 +4197,18 @@ final class AgentCart_ShopBridge {
     }
 
     private static function canonical_json($value) {
-        return wp_json_encode(self::canonicalize_json_value($value), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return wp_json_encode(self::canonicalize_json_value($value), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_LINE_TERMINATORS);
     }
 
     private static function canonicalize_json_value($value) {
+        if ($value instanceof stdClass) {
+            $members = get_object_vars($value);
+            ksort($members, SORT_STRING);
+            foreach ($members as $key => $item) {
+                $members[$key] = self::canonicalize_json_value($item);
+            }
+            return (object) $members;
+        }
         if (!is_array($value)) {
             return $value;
         }
@@ -4297,10 +4321,9 @@ final class AgentCart_ShopBridge {
                 <tr>
                     <th scope="row">Guided checkout test</th>
                     <td>
-                        Runs quote, payment verification, WooCommerce paid-order creation, and
-                        immediate test-order cancellation. If a payment verifier URL is configured,
-                        the sandbox receipt is sent through that verifier; otherwise the trusted
-                        merchant-token demo path is used.
+                        Runs quote, approval-bound admin dry verification, WooCommerce test-order
+                        creation, and immediate cancellation. Uses an available Tempo or Stripe/card
+                        quote contract; it never calls the payment verifier or moves funds.
                     </td>
                     <td>
                         <form method="post">
@@ -4469,7 +4492,7 @@ final class AgentCart_ShopBridge {
                 'id' => 'payment_verifier',
                 'title' => 'Connect payment verification before real checkout',
                 'why' => 'WooCommerce should only mark an agent order paid after a verifier confirms the exact quote was paid.',
-                'merchant_action' => 'Paste the verifier URL and token, then configure the Tempo recipient, Stripe profile, or x402 pay-to details it should check.',
+                'merchant_action' => 'Paste the verifier URL and token, then configure the Tempo recipient or Stripe profile it should check. x402 is unavailable without confirmed verifier support.',
                 'skipping_means' => 'The shop can still test quotes, but public agents should not create paid orders from unverified receipts.',
                 'settings_anchor' => '#agentcart-settings',
                 'required_for' => ['production'],
@@ -4720,6 +4743,9 @@ final class AgentCart_ShopBridge {
         }
         if (self::tempo_recipient() === '' && self::stripe_profile_id() === '') {
             $missing_production[] = 'Tempo recipient or Stripe profile';
+        }
+        if (self::tempo_recipient() !== '' && self::stripe_profile_id() === '' && !self::tempo_quote_currency_matches(get_woocommerce_currency())) {
+            $missing_production[] = 'Tempo settlement currency mismatch: USD quote currency or Stripe profile required';
         }
         if (!self::support_email()) {
             $missing_production[] = 'support email';
@@ -5776,7 +5802,7 @@ final class AgentCart_ShopBridge {
                 'merchant_aftercare_policy_defaults' => true,
                 'merchant_substitution_policy' => true,
                 'merchant_cancellation_policy' => true,
-                'x402_exact_payment_required' => self::x402_profile_configured(),
+                'x402_exact_payment_required' => self::x402_unavailable_reason() === '',
                 'signed_http_requests' => self::signed_request_profile_configured(),
                 'signed_request_required_for_checkout' => self::signed_request_required_for_bucket('checkout'),
                 'signed_request_nonce_replay_protection' => self::signed_request_profile_configured(),
@@ -6475,7 +6501,7 @@ final class AgentCart_ShopBridge {
         }
         $amount_cents = isset($body['amount_cents']) ? intval($body['amount_cents']) : 0;
         $reason = sanitize_text_field((string) ($body['reason'] ?? 'AgentCart merchant-approved refund'));
-        $rail = sanitize_key((string) ($body['rail'] ?? self::payment_rail_from_order($order)));
+        $rail = self::normalize_payment_rail((string) ($body['rail'] ?? self::payment_rail_from_order($order)));
         $requested_reference = sanitize_text_field((string) ($body['requested_reference'] ?? ''));
 
         $existing_refund = self::find_existing_refund($order, $refund_idempotency_key);
@@ -6504,6 +6530,10 @@ final class AgentCart_ShopBridge {
                     return $replay_error;
                 }
                 return self::serialize_refund_response($order, $existing_refund, 'refund_idempotent_replay');
+            }
+            $rail_error = self::validate_refund_payment_rail($order, $rail);
+            if (is_wp_error($rail_error)) {
+                return $rail_error;
             }
 
             $pending = json_decode((string) $order->get_meta('_agentcart_pending_refunds', true), true);
@@ -7285,13 +7315,16 @@ final class AgentCart_ShopBridge {
     }
 
     private static function verify_payment_receipt($quote, $receipt, $body, WP_REST_Request $request) {
+        $rail = self::payment_rail_from_receipt($receipt, $body);
+        if (!in_array($rail, self::available_payment_rails_for_quote($quote), true)) {
+            return new WP_Error('agentcart_payment_rail_unavailable_for_quote', 'Payment rail is not available for the stored quote.', ['status' => 402]);
+        }
         $expected_amount = intval($quote['total_cents'] ?? 0);
         $expected_currency = (string) ($quote['currency'] ?? get_woocommerce_currency());
         $receipt_amount = intval($receipt['amount_cents'] ?? 0);
         $receipt_currency = (string) ($receipt['currency'] ?? '');
         $expected_quote_hash = (string) ($quote['quote_hash'] ?? self::quote_hash($quote));
         $receipt_quote_hash = sanitize_text_field((string) ($receipt['quote_hash'] ?? ''));
-        $rail = self::payment_rail_from_receipt($receipt, $body);
         $payment_contract = self::payment_verification_contract($quote, $rail);
         $payment_contract_hash = self::payment_contract_hash($payment_contract);
         $receipt_contract_hash = sanitize_text_field((string) ($receipt['payment_contract_hash'] ?? $receipt['contract_hash'] ?? ''));
@@ -7310,6 +7343,31 @@ final class AgentCart_ShopBridge {
         }
         if ($receipt_contract_hash === '') {
             return new WP_Error('agentcart_payment_contract_required', 'Payment receipt must include payment_contract_hash.', ['status' => 402]);
+        }
+        $advertised_contract = null;
+        foreach ((array) ($quote['payment_requirements']['verification_contracts'] ?? []) as $candidate) {
+            if (is_array($candidate) && ($candidate['rail'] ?? '') === $rail) {
+                $advertised_contract = $candidate;
+                break;
+            }
+        }
+        $advertised_hash = (string) ($advertised_contract['payment_contract_hash'] ?? '');
+        if ($advertised_contract !== null) {
+            unset($advertised_contract['payment_contract_hash']);
+        }
+        if (
+            $advertised_contract === null
+            || $advertised_hash === ''
+            || !hash_equals($advertised_hash, self::payment_contract_hash($advertised_contract))
+            || !hash_equals($advertised_hash, $payment_contract_hash)
+        ) {
+            return new WP_Error('agentcart_payment_contract_mismatch', 'Selected payment contract does not match the stored quote advertisement.', ['status' => 402]);
+        }
+        foreach ([$receipt['payment_contract_hash'] ?? '', $receipt['contract_hash'] ?? '', $body['payment_contract_hash'] ?? '', $body['contract_hash'] ?? ''] as $claimed_hash) {
+            $claimed_hash = sanitize_text_field((string) $claimed_hash);
+            if ($claimed_hash !== '' && !hash_equals($advertised_hash, $claimed_hash)) {
+                return new WP_Error('agentcart_payment_contract_mismatch', 'Payment contract claim does not match the stored quote advertisement.', ['status' => 402]);
+            }
         }
 
         if (self::$sandbox_checkout_active && !empty($receipt['sandbox']) && current_user_can('manage_woocommerce')) {
@@ -7367,7 +7425,23 @@ final class AgentCart_ShopBridge {
         ];
     }
 
+    private static function validate_refund_payment_rail(WC_Order $order, $rail) {
+        $rail = self::normalize_payment_rail($rail);
+        if (!in_array($rail, self::available_payment_rails_for_quote(['currency' => $order->get_currency()]), true)) {
+            return new WP_Error('agentcart_payment_rail_unavailable_for_quote', 'Refund payment rail is not available for the order currency.', ['status' => 402]);
+        }
+        if ($rail !== self::normalize_payment_rail(self::payment_rail_from_order($order))) {
+            return new WP_Error('agentcart_refund_rail_mismatch', 'Refund payment rail must match the original order payment.', ['status' => 402]);
+        }
+        return null;
+    }
+
     private static function verify_refund_request(WC_Order $order, $amount_cents, $reason, $rail, $body) {
+        $rail = self::normalize_payment_rail($rail);
+        $rail_error = self::validate_refund_payment_rail($order, $rail);
+        if (is_wp_error($rail_error)) {
+            return $rail_error;
+        }
         $currency = $order->get_currency();
         $quote_hash = (string) $order->get_meta('_agentcart_quote_hash', true);
         $payment_verification = self::stored_payment_verification($order);
@@ -8312,13 +8386,14 @@ final class AgentCart_ShopBridge {
                     'id' => 'tempo-mpp',
                     'profile_id' => self::tempo_payment_profile_configured() ? 'mpp-http-auth' : null,
                     'type' => 'stablecoin',
-                    'available' => self::tempo_recipient() !== '' || self::payment_verifier_url() !== '',
+                    'available' => (self::tempo_recipient() !== '' || self::payment_verifier_url() !== '') && (!self::external_verifier_required_for_checkout() || self::tempo_quote_currency_matches($quote['currency'] ?? get_woocommerce_currency())),
+                    'unavailable_reason' => self::external_verifier_required_for_checkout() && !self::tempo_quote_currency_matches($quote['currency'] ?? get_woocommerce_currency()) ? 'tempo_settlement_currency_mismatch' : null,
                     'network' => self::tempo_network(),
                     'recipient' => self::tempo_recipient(),
                     'amount_cents' => intval($quote['total_cents'] ?? 0),
                     'quote_currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
                     'settlement_asset' => self::tempo_settlement_asset(),
-                    'settlement_note' => 'WooCommerce quotes in the store currency. If the Tempo asset differs, the external verifier/payment provider must bind the FX conversion and settlement terms to the quote before creating a paid order.',
+                    'settlement_note' => 'Real Tempo settlement requires USD quotes for USD tokens; no quote-bound FX contract is implemented. Sandbox/demo numeric 1:1 proofs are not real settlement.',
                 ],
                 [
                     'id' => 'stripe-card-mpp',
@@ -8336,25 +8411,6 @@ final class AgentCart_ShopBridge {
                     'scheme' => 'Payment',
                     'quote_hash_required' => true,
                 ],
-                [
-                    'id' => 'x402-compatible',
-                    'profile_id' => $x402 !== null ? 'x402-compatible' : null,
-                    'type' => 'stablecoin',
-                    'available' => $x402 !== null,
-                    'x402_version' => 2,
-                    'scheme' => 'exact',
-                    'network' => self::x402_network(),
-                    'asset' => self::x402_asset(),
-                    'pay_to' => self::x402_pay_to(),
-                    'amount_cents' => intval($quote['total_cents'] ?? 0),
-                    'quote_currency' => (string) ($quote['currency'] ?? get_woocommerce_currency()),
-                    'max_amount_required' => $x402 !== null ? (string) ($x402['accepts'][0]['maxAmountRequired'] ?? '') : '',
-                    'payment_required_header' => 'PAYMENT-REQUIRED',
-                    'payment_signature_header' => 'PAYMENT-SIGNATURE',
-                    'payment_response_header' => 'PAYMENT-RESPONSE',
-                    'setup_required' => $x402 === null,
-                    'unavailable_reason' => $x402 === null ? self::x402_unavailable_reason($quote) : null,
-                ],
             ],
         ];
     }
@@ -8369,7 +8425,7 @@ final class AgentCart_ShopBridge {
 
     private static function available_payment_rails_for_quote($quote) {
         $rails = [];
-        if (self::tempo_recipient() !== '' || self::payment_verifier_url() !== '' || !self::external_verifier_required_for_checkout()) {
+        if ((self::tempo_recipient() !== '' || self::payment_verifier_url() !== '' || !self::external_verifier_required_for_checkout()) && (!self::external_verifier_required_for_checkout() || self::tempo_quote_currency_matches($quote['currency'] ?? get_woocommerce_currency()))) {
             $rails[] = 'tempo-mpp';
         }
         if (self::stripe_payment_profile_configured()) {
@@ -8415,7 +8471,7 @@ final class AgentCart_ShopBridge {
                 'network' => self::tempo_network(),
                 'recipient' => self::tempo_recipient(),
                 'asset' => self::tempo_settlement_asset(),
-                'fx_policy' => 'external_verifier_binds_quote_currency_to_settlement_asset',
+                'fx_policy' => self::external_verifier_required_for_checkout() ? 'same_currency_only_no_fx' : 'demo_fixed_1_1_not_real_settlement',
             ];
         } elseif ($rail === 'stripe-card-mpp') {
             $contract['settlement'] = [
@@ -8440,7 +8496,7 @@ final class AgentCart_ShopBridge {
 
     private static function x402_payment_required_document($quote) {
         $currency = strtoupper((string) ($quote['currency'] ?? get_woocommerce_currency()));
-        if (!self::x402_quote_configured_for_currency($currency)) {
+        if (!self::x402_quote_configured_for_currency($currency) || self::x402_unavailable_reason($quote) !== '') {
             return null;
         }
         $quote_id = (string) ($quote['id'] ?? '');
@@ -8491,7 +8547,9 @@ final class AgentCart_ShopBridge {
 
     private static function x402_unavailable_reason($quote = null) {
         $currency = strtoupper((string) (($quote['currency'] ?? null) ?: get_woocommerce_currency()));
-        $missing = [];
+        // The plugin has no trusted verifier capability cache. Configuration alone
+        // cannot prove x402 support, and manifest/quote paths must not probe remotely.
+        $missing = ['verifier_x402_support_unconfirmed'];
         if (self::payment_verifier_url() === '') {
             $missing[] = 'payment_verifier';
         }
@@ -9116,12 +9174,18 @@ final class AgentCart_ShopBridge {
         return self::sanitize_tempo_network_setting(get_option(self::TEMPO_NETWORK_OPTION, 'testnet'));
     }
 
+    private static function tempo_quote_currency_matches($currency) {
+        $asset = self::tempo_settlement_asset();
+        return strtoupper(trim((string) $currency)) === (string) ($asset['currency'] ?? '');
+    }
+
     private static function tempo_settlement_asset() {
         $network = self::tempo_network();
         if ($network === 'mainnet') {
             return [
                 'asset' => 'USDC.e',
                 'denomination' => 'USD stablecoin',
+                'currency' => 'USD',
                 'token_standard' => 'TIP-20',
                 'network' => 'mainnet',
             ];
@@ -9129,6 +9193,7 @@ final class AgentCart_ShopBridge {
         return [
             'asset' => 'pathUSD',
             'denomination' => 'USD stablecoin',
+            'currency' => 'USD',
             'token_standard' => 'TIP-20',
             'network' => $network ?: 'testnet',
             'token_address' => '0x20c0000000000000000000000000000000000000', // phpcs:ignore PHPCompatibility.Miscellaneous.ValidIntegers.HexNumericStringFound -- Token address is an opaque chain address string and PHP 8.1+ is required.

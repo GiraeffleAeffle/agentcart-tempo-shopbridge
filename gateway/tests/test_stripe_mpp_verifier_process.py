@@ -180,6 +180,7 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
                 },
             },
             "expected": {
+                "quote_hash": "a" * 64,
                 "amount_cents": 1490,
                 "currency": "USD",
                 "merchant_id": "agentcart-usd-staging-shop",
@@ -257,6 +258,7 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
                 "payment_contract_hash": "b" * 64,
                 "payment_receipt": {"method": "stripe-card-mpp"},
                 "expected": {
+                    "quote_hash": "a" * 64,
                     "amount_cents": 1490,
                     "currency": "USD",
                     "merchant_id": "agentcart-usd-staging-shop",
@@ -349,6 +351,7 @@ class StripeMppVerifierProcessTests(unittest.TestCase):
                 },
             },
             "expected": {
+                "quote_hash": "a" * 64,
                 "amount_cents": 1490,
                 "currency": "USD",
                 "merchant_id": "agentcart-usd-staging-shop",

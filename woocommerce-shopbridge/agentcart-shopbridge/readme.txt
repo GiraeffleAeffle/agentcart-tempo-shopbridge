@@ -53,17 +53,20 @@ actions.
   checkout, plus adapter hooks for external inventory systems.
 * Durable checkout recovery with encrypted payment requests, bounded retries,
   and manager-approved compensation after verified settlement.
-* Quote hash binding, payment contract hash binding, and single-use quote
-  consumption.
+* Quote hash binding, stored advertised payment-contract binding, and single-use
+  quote consumption. Checkout rejects unavailable rails before verifier calls
+  or trusted-token/admin dry-run acceptance. New refunds require an available
+  rail matching the original order payment; exact completed-refund replays
+  remain available after payment settings change.
 * Baseline REST and `.well-known` endpoint rate limits with retry metadata,
   plus idempotency/replay checks.
 * External payment verifier hook for quote-bound Tempo MPP, Stripe/card MPP, or
   other rails.
-* Configured-only manifest protocol profiles so agents can choose ShopBridge,
-  MPP, Stripe/card MPP, x402, or registry adapters before quote calls.
-* Optional x402 exact-payment shim that emits quote-bound `PAYMENT-REQUIRED`
-  metadata when network, asset, payTo, currency, decimals, and verifier are
-  configured.
+* Configured-only manifest protocol profiles for ShopBridge, MPP, Stripe/card
+  MPP, registry mapping, and signed-request adapters.
+* Configured x402 profiles are marked unavailable with
+  `verifier_x402_support_unconfirmed`. Configuration is not proof of verifier
+  support; x402 is excluded from quote payment rails and production readiness.
 * Optional signed-request mode with HMAC-SHA256 or RSA-SHA256 signatures that
   bind method, path, body digest, nonce, expiry, and signer for quote,
   checkout, status, refund, and cancellation calls.
@@ -105,8 +108,16 @@ actions.
 
 == External Services ==
 
+No external service is contacted automatically on installation or during public
+manifest, catalog, or quote browsing. The default hosted registry connection URL
+is empty. The only built-in external destination is the read-only Tempo RPC
+described below, contacted by an explicit administrator health check after valid
+public onchain identity settings have been saved.
+
 ShopBridge can call a merchant-configured payment verifier URL when creating a
-paid order or recording a verified refund. The verifier confirms that the buyer
+paid order, recording a verified refund, or retrying an interrupted checkout or
+manager-approved compensation through scheduled recovery. The verifier confirms
+that the buyer
 agent's payment or refund receipt matches the WooCommerce quote amount,
 currency, merchant id, quote hash, payment contract hash, and configured
 payment destination.
@@ -119,8 +130,9 @@ the merchant view registry-side health, manifest freshness, and monitor state
 without copy/paste. An accepted hosted request is not an onchain transaction or
 proof of finalized contract inclusion.
 
-For the supervised Tempo Moderato pilot, clicking "Check registry health" also
-sends read-only JSON-RPC requests to `https://rpc.moderato.tempo.xyz`. The
+For the supervised Tempo Moderato pilot, clicking "Check registry health" with
+valid configured public onchain identity sends read-only JSON-RPC requests to
+`https://rpc.moderato.tempo.xyz`. The
 plugin reads chain id, finalized/deployment block headers, registry bytecode,
 and the configured public merchant record, domain mapping, deterministic record
 id, and record-hash revocation state. It sends only the public registry contract
@@ -139,6 +151,15 @@ merchant configures a Registry connection URL or defines
 `AGENTCART_REGISTRY_CONNECTION_URL` and presses one of the registry connection
 or registry health action buttons. The pinned Tempo RPC is called only when an
 administrator presses the registry health button.
+An operator-managed `AGENTCART_REGISTRY_V2_DEPLOYMENT` can instead select primary
+and independent witness RPC URLs. The same explicit health action sends public
+chain/contract identity, hostname, record hash and admission-state reads to both;
+their service terms and privacy policies must be reviewed by the operator.
+The "Check public registry endpoints" button separately fetches this shop's own
+public manifest, proof, revocation, and bundle URLs, sending ordinary HTTP
+request metadata but no buyer, order, or payment data. No x402 facilitator URL
+is contacted by the plugin.
+
 
 Payment verifier URLs must resolve to public IP addresses unless
 `AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL=1` is set for a local or staging
@@ -147,15 +168,16 @@ environment. Do not enable that private-network override for production.
 The verifier request can include the stored quote, selected order/refund fields,
 payment receipt fields supplied by the buyer agent, merchant id, payment rail,
 payment destination, amount, currency, quote hash, payment contract hash,
-optional x402 `PAYMENT-SIGNATURE` payload, and idempotency/reference values.
+and idempotency/reference values.
 The exact destination, terms, and privacy policy depend on the verifier service
 configured by the merchant.
 
 The registry request can include the generated registry record, record hash,
 manifest URL, registry bundle URL, domain proof document, revocation document,
 public endpoint check result, merchant id, shop domain, and an idempotency key.
-The registry health check can fetch registry health and monitor JSON derived
-from that configured registry URL and can send the registry connection token as
+The registry health check can fetch health, monitor, and (for legacy health
+responses) onchain-event JSON derived from that configured registry URL and can
+send the registry connection token as
 a bearer token for private monitor status. That hosted response cannot confer
 canonical-chain readiness. The exact destination, terms, and privacy policy
 depend on the registry service configured by the merchant. The pinned RPC is
@@ -175,7 +197,7 @@ and [Tempo Privacy Policy](https://wallet.tempo.xyz/support/privacy-policy).
    then clean up the test quote, stock hold, and test order. The dry checkout
    does not call the live payment verifier, move funds, or prove settlement.
 5. Configure stable merchant id, support email, payment recipient or Stripe
-   profile, optional x402 exact-payment settings, Payment verifier URL,
+   profile, Payment verifier URL,
    checkout mode, optional signed-request mode, and product exposure mode.
    Use Credential Actions on the same page to generate or rotate local tokens
    when they are not managed through wp-config.php.
@@ -235,6 +257,15 @@ order path, creates and cancels a test order, and does not call the live payment
 verifier or move funds. Test the configured external verifier separately before
 making a settlement claim.
 
+= Can an EUR store use Tempo for real settlement? =
+
+No. pathUSD and USDC.e are USD-denominated, and no quote-bound FX contract is
+implemented. External-verifier-only checkout marks Tempo unavailable for
+non-USD quotes with `tempo_settlement_currency_mismatch`. A non-USD store with
+only a Tempo recipient cannot pass production readiness; configure Stripe/card
+or use USD quotes. Sandbox numeric 1:1 proofs remain explicitly demo-only and
+never verify real settlement.
+
 = Are refunds and cancellations public? =
 
 No. Refund and cancellation endpoints require the merchant token. Buyer-facing
@@ -252,6 +283,27 @@ refunds, cancellation history, payment verification metadata, and product-level
 AgentCart metadata so merchants retain their commerce audit trail.
 
 == Changelog ==
+
+= Unreleased =
+* Mark x402 unavailable until verifier support is confirmed; omit it from quote
+  payment rails and contracts.
+* Reject caller-selected unavailable payment rails and conflicting contract
+  hashes before settlement verification. Sandbox dry checkout prefers available
+  Tempo, otherwise Stripe/card, and uses that rail's stored advertised contract
+  without calling the verifier or bypassing availability/integrity checks.
+* Return exact completed-refund replays before checking current rail availability,
+  without reserving capacity or calling the verifier again.
+* Make the legacy hosted registry opt-in with an empty default. Explicitly saved
+  URLs remain active for administrator-initiated registry actions.
+  Installs relying on the former implicit hosted URL must explicitly save their
+  desired URL; existing saved URLs and configuration overrides remain active.
+* Disclose the built-in Tempo RPC, operator-configured witness RPCs, and scheduled
+  verifier recovery calls.
+* Mark Tempo unavailable in external-verifier-only checkout when the quote
+  currency is not USD; non-USD Tempo-only stores no longer pass production
+  readiness.
+* Keep U+2028/U+2029 unescaped and sort object members recursively in canonical
+  JSON hashes, matching the buyer skill, gateway and registry indexer.
 
 = 1.24.0 =
 * Add scheduled checkout recovery and manager heartbeat diagnostics for staging pilots.
@@ -279,3 +331,11 @@ AgentCart metadata so merchants retain their commerce audit trail.
 
 * Alpha ShopBridge plugin for WooCommerce-backed agent catalog, quote, order,
   status, refund, and cancellation flows.
+
+== Upgrade Notice ==
+
+= Unreleased =
+Hosted registry is now opt-in; save a URL if you relied on the old default.
+x402 is unavailable. Real Tempo settlement requires USD quotes; use Stripe/card
+for EUR. Requote after payment-setting changes. Refunds must use the original
+available rail.

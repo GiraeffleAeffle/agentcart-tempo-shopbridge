@@ -49,7 +49,7 @@ standards/adapters -> AgentCart commerce core -> WooCommerce + verifier rails
 
 | Standard or ecosystem | AgentCart fit | Current status | Target |
 | --- | --- | --- | --- |
-| x402 / HTTP 402 | Payment requirement, authorization retry, and payment response shape | MPP-shaped HTTP 402 flow exists, but not x402 V2 headers | Add x402-compatible challenge/proof adapter while keeping verifier contract rail-neutral |
+| x402 / HTTP 402 | Payment requirement, authorization retry, and payment response shape | MPP-shaped HTTP 402 flow exists; the x402 adapter is implemented in the plugin but disabled (status unavailable) pending verifier support | Enable the x402-compatible challenge/proof adapter once a verifier confirms x402 support, while keeping verifier contract rail-neutral |
 | MPP | Machine payment proof rail | Tempo demo proof and MPP-shaped flow exist | Keep as one payment protocol under `payment_requirements.protocols[]` |
 | Stripe machine payments / stablecoin acceptance | Production-friendly merchant settlement path for eligible merchants | Verifier fixtures and sandbox helper exist; US-region limitation documented | Treat as one rail behind the verifier seam, not as the whole checkout model |
 | ERC-8004 | Public identity, registration file, reputation, and validation for agents/service providers | Merchant record commitments and lifecycle are live in an AgentCart-specific Tempo testnet contract; full records remain offchain with controller-bound domain proof, and the Direct Skill queries the contract itself. This is ERC-8004-aligned metadata, not an ERC-8004 conformance claim | Evaluate an ERC-8004 adapter plus reputation/validation mapping after external pilots and the production-network decision |
@@ -165,7 +165,8 @@ Deliverables:
   `/.well-known/agentcart.json` and the capability document;
 - explicit entries for `agentcart-shopbridge`, `mpp-http-auth`,
   `stripe-card-mpp`, `erc8004-ready`, and `x402-compatible` only when actually
-  configured;
+  configured (a configured x402 profile is published with `status: unavailable`
+  and emits no payment requirements);
 - no `signed-http-ready` profile until that adapter is implemented;
 - registry records bind compact `protocol_profile_ids` while preserving legacy
   `supported_protocols`;
@@ -181,10 +182,12 @@ Definition of done:
 
 ### Slice 3: x402 Compatibility Shim
 
-Status: alpha implemented.
+Status: implemented in the plugin but disabled (status unavailable) pending
+verifier support.
 
 Goal: keep the current verifier flow, but expose payment requirements in a way
-that x402-capable agents can understand.
+that x402-capable agents can understand once a verifier with confirmed x402
+support exists.
 
 Deliverables:
 
@@ -202,8 +205,9 @@ Deliverables:
 Definition of done:
 
 - existing AgentCart clients keep working;
-- x402-capable clients can detect and satisfy payment requirements through a
-  standard-shaped flow.
+- once enabled, x402-capable clients can detect and satisfy payment
+  requirements through a standard-shaped flow. Until then x402 profiles are
+  unavailable and no x402 payment requirements are emitted.
 
 ### Slice 4: Signed HTTP Requests
 
@@ -283,7 +287,8 @@ Definition of done:
 
 1. Registry transparency and refresh UX. Alpha implemented.
 2. Manifest protocol profiles. Alpha implemented.
-3. x402 compatibility shim. Alpha implemented.
+3. x402 compatibility shim. Implemented in the plugin but disabled (status
+   unavailable) pending verifier support.
 4. Signed HTTP request verification and sanitized audit trail. Alpha
    implemented.
 5. MCP-style tool catalog. Alpha implemented.

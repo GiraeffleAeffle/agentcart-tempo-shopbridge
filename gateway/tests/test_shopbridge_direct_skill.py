@@ -84,10 +84,11 @@ def sample_quote(**overrides):
                     "id": "stripe-card-mpp",
                     "available": True,
                     "network_id": "acct_shop_123",
-                    "stripe_profile_id": "acct_shop_123",
+                    "profile_id": "stripe-card-mpp",
                 },
                 {
                     "id": "tempo-mpp",
+                    "profile_id": "mpp-http-auth",
                     "available": True,
                     "network": "testnet",
                     "recipient": "0x1111111111111111111111111111111111111111",
@@ -159,12 +160,33 @@ def sample_x402_quote():
     )
 
 
+def real_plugin_payment_requirements(quote, *, stripe_profile_id="acct_shop_123", recipient="0x1111111111111111111111111111111111111111"):
+    """Use the existing WP-stub harness to invoke the real plugin, not spliced methods."""
+    harness_path = SCRIPT_PATH.parents[3] / "woocommerce-shopbridge/tests/test_payment_availability_runtime.py"
+    spec = importlib.util.spec_from_file_location("shopbridge_payment_availability_runtime", harness_path)
+    assert spec and spec.loader
+    harness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harness)
+    body = f'''
+function has_filter($hook) {{ return false; }}
+function get_page_by_path($path) {{ return null; }}
+$GLOBALS['options']['woocommerce_currency'] = {json.dumps(quote["currency"])};
+$GLOBALS['options']['agentcart_shopbridge_checkout_mode'] = 'external_verifier_only';
+$GLOBALS['options']['agentcart_shopbridge_stripe_profile_id'] = {json.dumps(stripe_profile_id)};
+$GLOBALS['options']['agentcart_shopbridge_tempo_recipient'] = {json.dumps(recipient)};
+$quote = json_decode({json.dumps(json.dumps(quote))}, true);
+echo json_encode(invoke('payment_requirements', $quote));
+'''
+    return harness.PaymentAvailabilityRuntimeTests().run_plugin(body)
+
+
 def registry_manifest_and_record(
     *,
     merchant_id: str = "merchant-tea-shop",
     name: str = "Merchant Tea Shop",
     domain: str = "merchant.example",
     stripe_profile_id: str = "acct_shop_123",
+    payment_recipient: str = "",
     updated_at: str | None = None,
 ):
     updated_at = updated_at or registry_updated_at()
@@ -181,7 +203,7 @@ def registry_manifest_and_record(
         "supported_protocols": ["agentcart-shopbridge", "stripe-card-mpp"],
         "protocol_profile_ids": ["agentcart-shopbridge", "stripe-card-mpp"],
         "payment_network": "testnet",
-        "payment_recipient": "",
+        "payment_recipient": payment_recipient,
         "stripe_profile_id": stripe_profile_id,
         "ship_to_countries": ["DE"],
         "proof_url": f"https://{domain}/.well-known/agentcart-registry-proof.json",
@@ -229,6 +251,8 @@ def registry_manifest_and_record(
             "suggested_registry_record": record,
         },
     }
+    if payment_recipient:
+        manifest["protocols"].append({"id": "tempo-mpp", "network": "testnet", "recipient": payment_recipient})
     proof = {
         "merchant_id": record["merchant_id"],
         "domain": record["domain"],
@@ -680,6 +704,9 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             "checked_record_count": 1,
             "block_number": document["finality"]["block_number"],
             "finalized_block_number": document["finality"]["block_number"],
+            "finalized_block_hash": document["finality"]["block_hash"],
+            "matched_record_ids": ["0x" + "4" * 64],
+            "excluded_record_ids": [],
             "scope": "same_finalized_block",
             "rpc_profile": "standard",
         }
@@ -996,6 +1023,57 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         override = next(check for check in result["checks"] if check["id"] == "single_merchant_override")
         self.assertFalse(override["ok"])
         self.assertEqual(override["error"], "base_url_requires_https_public_origin")
+
+    def test_doctor_zero_records_keeps_resolution_codes_and_finalized_authority(self) -> None:
+        from tests.test_shopbridge_onchain_rpc import FakeRpc
+        rpc = FakeRpc()
+        args = {"onchain_rpc_url": "https://rpc.example", "onchain_from_block": 100,
+            "onchain_discovery_facets_address": rpc.facets_address,
+            "onchain_discovery_facets_from_block": 105}
+        with (
+            mock.patch.dict(shopbridge_direct.os.environ, {"SHOPBRIDGE_ONCHAIN_CACHE_DISABLED": "1"}),
+            mock.patch.object(shopbridge_direct.onchain_rpc.safe_http, "request_json", side_effect=rpc.request),
+            mock.patch.object(shopbridge_direct, "committed_registry_record",
+                side_effect=shopbridge_direct.onchain_rpc.OnchainRpcError("registry_record_http_503")),
+        ):
+            result = shopbridge_direct.command_doctor(dict(args))
+            self.assertFalse(result["ok"])
+            check = next(check for check in result["checks"] if check["id"] == "registry_source")
+            error = json.loads(check["error"])
+            self.assertEqual(error["error"], "no_eligible_merchants")
+            self.assertEqual(check["authority"], "smart_contract")
+            self.assertEqual(error["record_resolution_errors"][0]["code"], "registry_record_http_503")
+            self.assertEqual(check["record_selection"]["selected_record_ids"], [rpc.record_id])
+            self.assertEqual(check["finalized_block"], 120)
+            self.assertEqual(check["finalized_block_hash"], "0x" + "d" * 64)
+            for command, extra in (
+                (shopbridge_direct.command_discover_quotes, {"query": "tea"}),
+                (shopbridge_direct.command_discover_basket_quotes, {"basket": [{"query": "tea"}]}),
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    command({**args, **extra})
+                document = json.loads(str(raised.exception))
+                self.assertEqual(document["error"], "no_eligible_merchants")
+                self.assertEqual(document["authority"], "smart_contract")
+                self.assertEqual(document["record_resolution_errors"][0]["code"], "registry_record_http_503")
+                self.assertEqual(document["finalized_block"], 120)
+
+    def test_doctor_enforces_discovery_request_budget_and_keeps_contract_authority(self) -> None:
+        transport = shopbridge_direct.safe_http
+        exhausted = transport.DiscoveryBudget(requests=0)
+        def request(_url, **kwargs):
+            transport.discovery_budget.get().reserve(30, 1024)
+            self.fail("request proceeded after budget exhaustion")
+        with (
+            mock.patch.object(transport, "DiscoveryBudget", return_value=exhausted),
+            mock.patch.object(transport, "request_json", side_effect=request),
+        ):
+            result = shopbridge_direct.command_doctor({"onchain_rpc_url": "https://rpc.example"})
+        check = next(check for check in result["checks"] if check["id"] == "registry_source")
+        self.assertFalse(result["ok"])
+        self.assertEqual(check["authority"], "smart_contract")
+        self.assertEqual(json.loads(check["error"])["detail"], "discovery_budget_exhausted")
+        self.assertIsNone(transport.discovery_budget.get())
 
     def test_doctor_reports_registry_path_record_count_without_verifying_merchants(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
@@ -1613,8 +1691,13 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
                 {
                     "base_url": "https://merchant.example",
                     "items": [{"product_id": "woo_10", "quantity": 1}],
-                    "registry_record_hash": "registry-record-hash-123",
-                    "manifest_url": "https://merchant.example/.well-known/agentcart.json",
+                    "quote_trust": shopbridge_direct.quote_trust_metadata(shopbridge_direct.annotate_quote_trust(
+                        {}, merchant_origin="https://merchant.example",
+                        registry_record_hash="registry-record-hash-123",
+                        manifest_url="https://merchant.example/.well-known/agentcart.json",
+                        registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(
+                            registry_manifest_and_record()[1]),
+                    )),
                 }
             )
 
@@ -1894,6 +1977,316 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         self.assertEqual(result["merchant"]["name"], "Merchant Tea Shop")
         self.assertEqual(calls[0]["base_url"], "https://merchant.example")
         self.assertIn("search=tea", calls[0]["path"])
+
+    def test_discovery_rejects_quote_destination_injection_and_keeps_honest_merchant(self) -> None:
+        for rail in ("stripe-card-mpp", "tempo-mpp"):
+            for command in (shopbridge_direct.command_discover_quotes, shopbridge_direct.command_discover_basket_quotes):
+                with self.subTest(rail=rail, command=command.__name__):
+                    documents = [
+                        registry_manifest_and_record(
+                            merchant_id=name, domain=f"{name}.example",
+                            payment_recipient="0x1111111111111111111111111111111111111111",
+                        )
+                        for name in ("injected", "honest")
+                    ]
+
+                    def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+                        merchant_id = base_url.split("//")[1].split(".")[0]
+                        if "catalog" in path:
+                            return {"products": [{"id": "woo_10", "title": "Tea", "shipping_regions": ["DE"]}]}
+                        quote = sample_quote(
+                            id=f"quote-{merchant_id}", merchant={"id": merchant_id, "name": merchant_id},
+                            ship_to=payload["ship_to"],
+                        )
+                        if merchant_id == "injected":
+                            if rail == "stripe-card-mpp":
+                                quote["payment_requirements"]["protocols"][0]["stripe_profile_id"] = "acct_attacker"
+                                quote["payment_requirements"]["protocols"][0]["network_id"] = "acct_attacker"
+                            else:
+                                quote["payment_requirements"]["protocols"][1]["recipient"] = "0x2222222222222222222222222222222222222222"
+                        return quote
+
+                    with (
+                        mock.patch.object(shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch(*documents)),
+                        mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+                    ):
+                        result = command({
+                            "registry_records": [item[1] for item in documents],
+                            "query": "tea", "basket": [{"query": "tea", "quantity": 1}],
+                            "country": "DE", "postal_code": "10115", "payment_rail": rail,
+                        })
+                    self.assertEqual(result["winner"]["merchant_id"], "honest")
+                    self.assertEqual({item["merchant_id"] for item in result["candidates"]}, {"honest"})
+                    self.assertTrue(any(item["merchant_id"] == "injected" and item["reason"] == "payment_destination_mismatch" for item in result["rejected"]))
+                    self.assertTrue(result["winner"]["payment_destination"]["registry_verified"])
+
+    def test_duplicate_or_unusable_selected_payment_rail_blocks_all_payment_gates(self) -> None:
+        for rail, alias in (("stripe-card-mpp", "stripe"), ("tempo-mpp", "mpp")):
+            for case, expected in (
+                ("duplicate", "duplicate_payment_rail"),
+                ("unavailable", "payment_rail_unavailable"),
+                ("setup", "payment_destination_setup_required"),
+            ):
+                with self.subTest(rail=rail, case=case):
+                    quote = sample_quote()
+                    protocol = next(item for item in quote["payment_requirements"]["protocols"] if item["id"] == rail)
+                    duplicate = {**protocol, "id": alias}
+                    protocol["available"] = case == "setup"
+                    protocol["setup_required"] = case == "setup"
+                    if case == "duplicate":
+                        quote["payment_requirements"]["protocols"].append(duplicate)
+                    packet = shopbridge_direct.approval_packet(quote, payment_rail=rail)
+                    self.assertFalse(packet["approval_ready"])
+                    self.assertIn(expected, packet["approval_issues"])
+                    args = {
+                        "quote": quote, "payment_rail": rail, "approved": True,
+                        "approval_hash": packet["approval_hash"], "payment_receipt": sample_payment_receipt(),
+                        "base_url": "https://merchant.example", "items": [{"product_id": "woo_10", "quantity": 1}],
+                    }
+                    self.assertIn(expected, shopbridge_direct.command_checkout_preflight(args)["issues"])
+                    self.assertFalse(shopbridge_direct.command_payment_handoff(args)["ok"])
+                    with self.assertRaisesRegex(SystemExit, expected):
+                        shopbridge_direct.annotate_quote_trust(quote, merchant_origin=args["base_url"], payment_rail=rail)
+                    with mock.patch.object(shopbridge_direct, "request_json", return_value=quote):
+                        with self.assertRaisesRegex(SystemExit, expected):
+                            shopbridge_direct.command_quote(args)
+                    for command in (shopbridge_direct.checkout_payload, shopbridge_direct.command_checkout):
+                        with self.assertRaisesRegex(SystemExit, expected):
+                            command(args)
+                    other_rail = "tempo-mpp" if rail == "stripe-card-mpp" else "stripe-card-mpp"
+                    self.assertTrue(shopbridge_direct.approval_packet(quote, payment_rail=other_rail)["approval_ready"])
+                    if case == "duplicate":
+                        quote["payment_requirements"]["protocols"].reverse()
+                        self.assertIn(expected, shopbridge_direct.command_checkout_preflight(args)["issues"])
+
+    def test_discovery_rejects_duplicate_normalized_payment_rails_without_losing_honest_offer(self) -> None:
+        documents = [
+            registry_manifest_and_record(merchant_id=name, domain=f"{name}.example")
+            for name in ("duplicate", "honest")
+        ]
+        for command in (shopbridge_direct.command_discover_quotes, shopbridge_direct.command_discover_basket_quotes):
+            with self.subTest(command=command.__name__):
+                def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+                    merchant_id = base_url.split("//")[1].split(".")[0]
+                    if "catalog" in path:
+                        return {"products": [{"id": "woo_10", "title": "Tea", "shipping_regions": ["DE"]}]}
+                    quote = sample_quote(id=f"quote-{merchant_id}", merchant={"id": merchant_id, "name": merchant_id}, ship_to=payload["ship_to"])
+                    if merchant_id == "duplicate":
+                        protocol = quote["payment_requirements"]["protocols"][0]
+                        quote["payment_requirements"]["protocols"].append({**protocol, "id": "stripe"})
+                        protocol["available"] = False
+                    return quote
+
+                with (
+                    mock.patch.object(shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch(*documents)),
+                    mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+                ):
+                    result = command({
+                        "registry_records": [item[1] for item in documents], "query": "tea",
+                        "basket": [{"query": "tea", "quantity": 1}], "country": "DE",
+                        "postal_code": "10115", "payment_rail": "stripe-card-mpp",
+                    })
+                self.assertEqual(result["winner"]["merchant_id"], "honest")
+                self.assertEqual({item["merchant_id"] for item in result["candidates"]}, {"honest"})
+                self.assertTrue(any(item["merchant_id"] == "duplicate" and item["reason"] == "duplicate_payment_rail" for item in result["rejected"]))
+
+    @unittest.skipUnless(shutil.which("php"), "php is required")
+    def test_real_plugin_payment_requirements_complete_registry_purchase_flow(self) -> None:
+        for currency, rail in (("EUR", "stripe-card-mpp"), ("USD", "stripe-card-mpp"), ("USD", "tempo-mpp")):
+            with self.subTest(currency=currency, rail=rail):
+                documents = registry_manifest_and_record(payment_recipient="0x1111111111111111111111111111111111111111")
+                quote = sample_quote(currency=currency)
+                quote["payment_requirements"] = real_plugin_payment_requirements(quote)
+                stripe_protocol = next(item for item in quote["payment_requirements"]["protocols"] if item["id"] == "stripe-card-mpp")
+                self.assertEqual(stripe_protocol["profile_id"], "stripe-card-mpp")
+                self.assertEqual(stripe_protocol["network_id"], documents[1]["stripe_profile_id"])
+                self.assertNotIn("stripe_profile_id", stripe_protocol)
+                tempo_protocol = next(item for item in quote["payment_requirements"]["protocols"] if item["id"] == "tempo-mpp")
+                if currency == "USD":
+                    self.assertEqual(tempo_protocol["profile_id"], "mpp-http-auth")
+                else:
+                    self.assertFalse(tempo_protocol["available"])
+
+                def fake_request(path, *, method="GET", payload=None, headers=None, base_url=None):
+                    if "catalog" in path:
+                        return {"products": [{"id": "woo_10", "title": "Tea", "shipping_regions": ["DE"]}]}
+                    return json.loads(json.dumps(quote))
+
+                with (
+                    mock.patch.object(shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch(documents)),
+                    mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_request),
+                ):
+                    result = shopbridge_direct.command_discover_quotes({
+                        "registry_records": [documents[1]], "query": "tea", "ship_to": quote["ship_to"],
+                        "payment_rail": rail,
+                    })
+                final_quote = result["winner"]["quote"]
+                packet = result["winner"]["approval_packet"]
+                self.assertTrue(packet["approval_ready"], packet)
+                args = {"quote": final_quote, "payment_rail": rail, "approved": True, "approval_hash": packet["approval_hash"]}
+                self.assertTrue(shopbridge_direct.command_checkout_preflight(args)["ok"])
+                handoff = shopbridge_direct.command_payment_handoff(args)
+                self.assertTrue(handoff["ok"])
+                destination = handoff["payment_request"]["payment_destination"]
+                self.assertEqual(destination["rail"], rail)
+                args["payment_receipt"] = {
+                    "method": rail, "status": "succeeded", "amount_cents": final_quote["total_cents"],
+                    "currency": currency, "quote_hash": final_quote["quote_hash"],
+                    "payment_contract_hash": destination["payment_contract_hash"],
+                    "stripe_profile_id": destination.get("stripe_profile_id"),
+                    "network": destination.get("network"), "recipient": destination.get("recipient"),
+                    "transaction_reference": "real-plugin-fixture-transaction",
+                }
+                payload = shopbridge_direct.checkout_payload(args)
+                self.assertEqual(payload["payment_destination"], destination)
+                self.assertEqual(payload["rail"], rail)
+
+    def test_conflicting_merchant_rail_cannot_switch_registry_payment_binding(self) -> None:
+        record = registry_manifest_and_record(payment_recipient="0x1111111111111111111111111111111111111111")[1]
+        for rail, spoofed_rail in (("tempo-mpp", "stripe-card-mpp"), ("stripe-card-mpp", "tempo-mpp")):
+            with self.subTest(rail=rail):
+                quote = shopbridge_direct.annotate_quote_trust(
+                    sample_quote(), merchant_origin="https://merchant.example",
+                    registry_record_hash=shopbridge_direct.registry_record_hash(record),
+                    registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(record),
+                    payment_rail=rail,
+                )
+                selected = next(item for item in quote["payment_requirements"]["protocols"] if item["id"] == rail)
+                selected.update({
+                    "rail": spoofed_rail, "network": "testnet",
+                    "recipient": record["payment_recipient"], "stripe_profile_id": record["stripe_profile_id"],
+                    "network_id": record["stripe_profile_id"],
+                })
+                if rail == "tempo-mpp":
+                    selected["recipient"] = "0x2222222222222222222222222222222222222222"
+                else:
+                    selected["stripe_profile_id"] = selected["network_id"] = "acct_attacker"
+                packet = shopbridge_direct.approval_packet(quote, payment_rail=rail)
+                self.assertFalse(packet["approval_ready"])
+                self.assertIn("payment_destination_mismatch", packet["approval_issues"])
+                self.assertFalse(packet["approval_material"]["payment_destination"].get("registry_verified", False))
+                args = {"quote": quote, "payment_rail": rail, "approved": True, "approval_hash": packet["approval_hash"]}
+                self.assertIn("payment_destination_mismatch", shopbridge_direct.command_checkout_preflight(args)["issues"])
+                self.assertFalse(shopbridge_direct.command_payment_handoff(args)["ok"])
+                with self.assertRaisesRegex(SystemExit, "payment_destination_mismatch"):
+                    shopbridge_direct.checkout_payload(args)
+                with mock.patch.object(shopbridge_direct, "request_json", return_value=quote):
+                    with self.assertRaisesRegex(SystemExit, "payment_destination_mismatch"):
+                        shopbridge_direct.command_quote({
+                            "base_url": "https://merchant.example", "quote_trust": quote["agentcart_direct_skill"],
+                            "items": [{"product_id": "woo_10", "quantity": 1}], "payment_rail": rail,
+                        })
+
+    def test_protocol_profile_label_alone_cannot_commit_a_stripe_destination(self) -> None:
+        record = registry_manifest_and_record()[1]
+        quote = sample_quote()
+        protocol = quote["payment_requirements"]["protocols"][0]
+        protocol.pop("network_id")
+        protocol["profile_id"] = record["stripe_profile_id"]
+        quote = shopbridge_direct.annotate_quote_trust(
+            quote, merchant_origin="https://merchant.example",
+            registry_record_hash=shopbridge_direct.registry_record_hash(record),
+            registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(record),
+            payment_rail="stripe-card-mpp",
+        )
+        packet = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")
+        self.assertFalse(packet["approval_ready"])
+        self.assertIn("payment_destination_mismatch", packet["approval_issues"])
+        self.assertFalse(packet["approval_material"]["payment_destination"].get("registry_verified", False))
+
+    def test_present_empty_stripe_identity_cannot_disagree_with_network_id(self) -> None:
+        record = registry_manifest_and_record()[1]
+        for empty in ("", None):
+            with self.subTest(stripe_profile_id=empty):
+                quote = sample_quote()
+                quote["payment_requirements"]["protocols"][0]["stripe_profile_id"] = empty
+                quote = shopbridge_direct.annotate_quote_trust(
+                    quote, merchant_origin="https://merchant.example",
+                    registry_record_hash=shopbridge_direct.registry_record_hash(record),
+                    registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(record),
+                    payment_rail="stripe-card-mpp",
+                )
+                self.assertIn("payment_destination_mismatch", shopbridge_direct.approval_packet(
+                    quote, payment_rail="stripe-card-mpp")["approval_issues"])
+
+    def test_registry_bound_quote_blocks_every_payment_gate_after_destination_injection(self) -> None:
+        record = registry_manifest_and_record(
+            payment_recipient="0x1111111111111111111111111111111111111111",
+        )[1]
+        for rail, field, attacker in (
+            ("stripe-card-mpp", "stripe_profile_id", "acct_attacker"),
+            ("tempo-mpp", "recipient", "0x2222222222222222222222222222222222222222"),
+            ("tempo-mpp", "network", "mainnet"),
+        ):
+            with self.subTest(rail=rail, field=field):
+                quote = shopbridge_direct.annotate_quote_trust(
+                    sample_quote(), merchant_origin="https://merchant.example",
+                    registry_record_hash=shopbridge_direct.registry_record_hash(record),
+                    registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(record),
+                )
+                protocol = next(item for item in quote["payment_requirements"]["protocols"] if item["id"] == rail)
+                protocol[field] = attacker
+                packet = shopbridge_direct.approval_packet(quote, payment_rail=rail)
+                self.assertFalse(packet["approval_ready"])
+                self.assertIn("payment_destination_mismatch", packet["approval_issues"])
+                args = {"quote": quote, "payment_rail": rail, "approved": True,
+                        "approval_hash": packet["approval_hash"], "payment_receipt": sample_payment_receipt(),
+                        "base_url": "https://merchant.example"}
+                self.assertIn("payment_destination_mismatch", shopbridge_direct.command_checkout_preflight(args)["issues"])
+                self.assertTrue(shopbridge_direct.command_approval_summary(args)["approval_blocked"])
+                handoff = shopbridge_direct.command_payment_handoff(args)
+                self.assertFalse(handoff["ok"])
+                self.assertNotIn("payment_request", handoff)
+                with mock.patch.object(shopbridge_direct, "request_json", side_effect=AssertionError("must not checkout")):
+                    for command in (shopbridge_direct.checkout_payload, shopbridge_direct.command_checkout):
+                        with self.assertRaisesRegex(SystemExit, "payment_destination_mismatch"):
+                            command(args)
+
+    def test_refreshed_selected_merchant_quote_preserves_registry_binding(self) -> None:
+        documents = registry_manifest_and_record()
+        with mock.patch.object(shopbridge_direct, "fetch_json_url", side_effect=live_registry_fetch(documents)):
+            resolved = shopbridge_direct.command_resolve_merchant({"registry_record": documents[1]})
+        args = {"base_url": resolved["base_url"], "quote_trust": resolved["quote_trust"],
+                "payment_rail": "stripe-card-mpp", "items": [{"product_id": "woo_10", "quantity": 1}],
+                "ship_to": sample_quote()["ship_to"]}
+        with mock.patch.object(shopbridge_direct, "request_json", return_value=sample_quote()):
+            quote = shopbridge_direct.command_quote(args)
+        self.assertTrue(shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_ready"])
+        self.assertEqual(quote["agentcart_direct_skill"]["registry_payment_bindings"], resolved["quote_trust"]["registry_payment_bindings"])
+        malicious = sample_quote()
+        malicious["payment_requirements"]["protocols"][0]["stripe_profile_id"] = "acct_attacker"
+        with mock.patch.object(shopbridge_direct, "request_json", return_value=malicious):
+            with self.assertRaisesRegex(SystemExit, "payment_destination_mismatch"):
+                shopbridge_direct.command_quote(args)
+
+    def test_registry_payment_binding_fails_closed_and_normalizes_destinations(self) -> None:
+        record = registry_manifest_and_record(payment_recipient=" 0xAbCd111111111111111111111111111111111111 ")[1]
+        quote = sample_quote()
+        quote["payment_requirements"]["protocols"][1]["recipient"] = " 0xabcd111111111111111111111111111111111111 "
+        quote["payment_requirements"]["protocols"][1]["network"] = " testnet "
+        quote = shopbridge_direct.annotate_quote_trust(
+            quote, merchant_origin="https://merchant.example", registry_record_hash="record",
+            registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(record),
+        )
+        self.assertTrue(shopbridge_direct.approval_packet(quote, payment_rail="tempo-mpp")["approval_ready"])
+        quote["payment_requirements"]["protocols"][0]["stripe_profile_id"] = " acct_shop_123 "
+        self.assertTrue(shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")["approval_ready"])
+        for bindings in ({}, {"tempo-mpp": {"network": "testnet", "recipient": ""}},
+                         {"stripe-card-mpp": {"stripe_profile_id": ""}}):
+            for rail in ("tempo-mpp", "stripe-card-mpp"):
+                missing = shopbridge_direct.annotate_quote_trust(
+                    sample_quote(), merchant_origin="https://merchant.example", registry_record_hash="record",
+                    registry_payment_bindings=bindings,
+                )
+                self.assertIn("payment_destination_mismatch", shopbridge_direct.approval_packet(missing, payment_rail=rail)["approval_issues"])
+        x402 = shopbridge_direct.annotate_quote_trust(
+            sample_x402_quote(), merchant_origin="https://merchant.example", registry_record_hash="record",
+            registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(record),
+        )
+        self.assertFalse(shopbridge_direct.approval_packet(x402)["approval_ready"])
+        unverified = shopbridge_direct.payment_destination(sample_quote())
+        self.assertEqual(unverified["source"], "quote.payment_requirements.protocols")
+        self.assertFalse(unverified.get("registry_verified", False))
 
     def test_discover_quotes_ranks_verified_merchants_and_returns_winner_quote(self) -> None:
         manifest_a, record_a, proof_a = registry_manifest_and_record(

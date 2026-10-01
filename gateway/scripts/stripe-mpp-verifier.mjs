@@ -97,10 +97,12 @@ const tempoTokenDefaults = {
   mainnet: {
     asset: "USDC.e",
     tokenAddress: "0x20C000000000000000000000b9537d11c60E8b50",
+    denomination: "USD",
   },
   testnet: {
     asset: "pathUSD",
     tokenAddress: "0x20c0000000000000000000000000000000000000",
+    denomination: "USD",
   },
 };
 const erc20TransferAbi = [
@@ -1193,16 +1195,21 @@ function expectedFromPayload(payload) {
   const quote = payload.quote && typeof payload.quote === "object" ? payload.quote : {};
   const receipt =
     payload.payment_receipt && typeof payload.payment_receipt === "object" ? payload.payment_receipt : {};
-  const quoteHash = String(payload.quote_hash || expected.quote_hash || quote.quote_hash || receipt.quote_hash || "");
-  const amountCents = Number(expected.amount_cents ?? quote.total_cents ?? receipt.amount_cents);
-  const currency = String(expected.currency || quote.currency || receipt.currency || defaultCurrency).toLowerCase();
-  const merchantId = String(expected.merchant_id || quote.merchant_id || receipt.merchant_id || "");
-  const rail = normalizeRail(expected.rail || receipt.rail || receipt.method || receipt.provider || payload.rail);
+  const quoteHash = String(expected.quote_hash || quote.quote_hash || "").trim();
+  const amountCents = Number(expected.amount_cents ?? quote.total_cents);
+  const currency = String(expected.currency || quote.currency || "").trim().toLowerCase();
+  const merchantId = String(expected.merchant_id || quote.merchant_id || quote.merchant?.id || "").trim();
+  const requestedRail = String(expected.rail || quote.rail || "").trim();
+  const rail = requestedRail ? normalizeRail(requestedRail) : "";
   const profileId = String(expected.stripe_profile_id || stripeProfileId);
-  const tempoNetwork = String(expected.tempo_network || "").trim();
-  const tempoRecipient = String(expected.tempo_recipient || "").trim().toLowerCase();
   const requirements =
     quote.payment_requirements && typeof quote.payment_requirements === "object" ? quote.payment_requirements : {};
+  const tempoProtocol = Array.isArray(requirements.protocols)
+    ? requirements.protocols.find((protocol) => protocol?.id === "tempo-mpp") || {}
+    : {};
+  const tempoNetwork = tempoNetworkName(expected.tempo_network || tempoProtocol.tempo_network || tempoProtocol.network || "");
+  const requestedTempoRecipient = String(expected.tempo_recipient || tempoProtocol.recipient || "").trim();
+  const tempoRecipient = normalizeEvmAddress(requestedTempoRecipient);
   const verification =
     requirements.verification && typeof requirements.verification === "object" ? requirements.verification : {};
   const suppliedContractHashes = [
@@ -1233,8 +1240,22 @@ function expectedFromPayload(payload) {
   if (!quoteHash) {
     throw Object.assign(new Error("quote_hash is required."), { status: 400 });
   }
+  if (!merchantId) {
+    throw Object.assign(new Error("expected.merchant_id is required."), { status: 400 });
+  }
   if (!["stripe-card-mpp", "tempo-mpp"].includes(rail)) {
     throw Object.assign(new Error(`Unsupported rail for this verifier: ${rail}`), { status: 400 });
+  }
+  if (rail === "tempo-mpp") {
+    if (!requestedTempoRecipient) {
+      throw Object.assign(new Error("expected.tempo_recipient is required."), { status: 400 });
+    }
+    if (!tempoRecipient) {
+      throw Object.assign(new Error("expected.tempo_recipient must be a valid EVM address."), { status: 400 });
+    }
+    if (!tempoNetwork) {
+      throw Object.assign(new Error("expected.tempo_network is required."), { status: 400 });
+    }
   }
   if (rail === "stripe-card-mpp" && profileId !== stripeProfileId) {
     throw Object.assign(new Error("Stripe profile id does not match verifier configuration."), { status: 400 });
@@ -1492,6 +1513,9 @@ function requireTempoSettlementVerifyConfig(network, proofTokenAddress = "") {
   }
   return {
     asset: tempoSettlementAsset || defaults.asset,
+    denomination: Object.values(tempoTokenDefaults).find(
+      (token) => normalizeEvmAddress(token.tokenAddress) === tokenAddress,
+    )?.denomination || null,
     chain,
     confirmations: tempoSettlementConfirmations,
     decimals: tempoSettlementDecimals,
@@ -1518,6 +1542,7 @@ function tempoSettlementErrorResponse(error) {
 
 async function verifyTempoSettlementTransfer({
   amountCents,
+  currency,
   network,
   payerAddress,
   proofTokenAddress,
@@ -1536,6 +1561,13 @@ async function verifyTempoSettlementTransfer({
     };
   }
 
+  const config = requireTempoSettlementVerifyConfig(resolvedNetwork, proofTokenAddress);
+  if (!config.denomination || String(currency || "").toUpperCase() !== config.denomination) {
+    throw Object.assign(new Error("Tempo quote currency does not match the settlement token denomination; no quote-bound FX contract is supported."), {
+      status: 400,
+      code: "tempo_settlement_currency_mismatch",
+    });
+  }
   const hash = normalizeTransactionHash(transactionReference);
   if (!hash) {
     throw Object.assign(new Error("Tempo proof transaction reference must be an EVM transaction hash."), {
@@ -1556,7 +1588,6 @@ async function verifyTempoSettlementTransfer({
     });
   }
 
-  const config = requireTempoSettlementVerifyConfig(resolvedNetwork, proofTokenAddress);
   const expectedAmount = parseUnits(centsToDecimal(amountCents), config.decimals);
   const publicClient = createPublicClient({ chain: config.chain, transport: viemHttp(config.rpcUrl) });
   let receipt;
@@ -1845,22 +1876,23 @@ async function verifyTempoFxPayment(receipt, expected) {
     return jsonResponse(
       {
         ok: false,
-        error: "Tempo proof amount does not match the demo FX policy.",
+        error: "Tempo proof amount does not match the quote amount.",
         expected_settlement_amount: centsToDecimal(expected.amountCents),
         actual_settlement_amount: settlementAmount || null,
       },
       400,
     );
   }
-  const network = tempoNetworkName(proof.network || body.network || proofReceipt.network || expected.tempoNetwork || "");
+  const network = expected.tempoNetwork;
+  const proofNetwork = tempoNetworkName(proof.network || body.network || proofReceipt.network || receipt.tempo_network || receipt.network || "");
   if (!allowedTempoNetworks.includes(network)) {
     return jsonResponse({ ok: false, error: "Tempo network is not allowed by this verifier deployment." }, 400);
   }
-  if (expected.tempoNetwork && network && network !== tempoNetworkName(expected.tempoNetwork)) {
+  if (proofNetwork && proofNetwork !== network) {
     return jsonResponse({ ok: false, error: "Tempo proof network does not match merchant configuration." }, 400);
   }
   const recipient = normalizeEvmAddress(body.recipient || proof.recipient || proofReceipt.recipient || receipt.recipient);
-  if (expected.tempoRecipient && recipient && recipient !== expected.tempoRecipient) {
+  if (recipient && recipient !== expected.tempoRecipient) {
     return jsonResponse({ ok: false, error: "Tempo proof recipient does not match merchant configuration." }, 400);
   }
   const payer = tempoPayerFromProof(proof, body, proofReceipt);
@@ -1891,10 +1923,11 @@ async function verifyTempoFxPayment(receipt, expected) {
   try {
     settlement = await verifyTempoSettlementTransfer({
       amountCents: expected.amountCents,
-      network: expected.tempoNetwork || network,
+      currency: expected.currency,
+      network: expected.tempoNetwork,
       payerAddress: payer.payerAddress,
       proofTokenAddress,
-      recipient: expected.tempoRecipient || recipient,
+      recipient: expected.tempoRecipient,
       transactionReference,
     });
   } catch (error) {
@@ -1907,8 +1940,8 @@ async function verifyTempoFxPayment(receipt, expected) {
     currency: expected.currency.toUpperCase(),
     quote_hash: expected.quoteHash,
     payment_contract_hash: expected.paymentContractHash || undefined,
-    network: expected.tempoNetwork || network,
-    recipient: expected.tempoRecipient || recipient,
+    network: expected.tempoNetwork,
+    recipient: expected.tempoRecipient,
     payer_address: payer.payerAddress || undefined,
     asset: settlement.asset,
     token_address: settlement.tokenAddress || undefined,
@@ -1925,8 +1958,8 @@ async function verifyTempoFxPayment(receipt, expected) {
     currency: expected.currency.toUpperCase(),
     quote_hash: expected.quoteHash,
     payment_contract_hash: expected.paymentContractHash || undefined,
-    network: expected.tempoNetwork || network,
-    recipient: expected.tempoRecipient || recipient,
+    network: expected.tempoNetwork,
+    recipient: expected.tempoRecipient,
     payer_address: payer.payerAddress || undefined,
     payer_source: payer.payerSource || undefined,
     asset: settlement.asset,

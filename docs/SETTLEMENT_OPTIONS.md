@@ -18,10 +18,13 @@ Useful for machine-payment demonstrations and stablecoin-native merchants.
 - Quote currency for the first real staging shop: USD.
 - Tempo proof asset: network-specific stablecoin, for example pathUSD on
   testnet.
-- EUR caveat: a pathUSD proof is not EUR settlement. EUR storefronts require a
-  quote-bound FX verifier or a separate EUR rail before marking orders paid.
-- Production requirement: bind FX rate, spread, expiry, recipient, and quote
-  hash before marking a WooCommerce order paid.
+- Real verification accepts only USD quotes for the known pathUSD / USDC.e
+  token addresses. EUR quotes fail with `tempo_settlement_currency_mismatch`;
+  no quote-bound FX contract is implemented.
+- Production-mode ShopBridge marks Tempo unavailable for non-USD quotes. A
+  non-USD store whose only configured rail is Tempo cannot be production-ready.
+- Sandbox/demo may retain numeric 1:1 EUR/pathUSD proofs, explicitly labelled
+  `demo_fixed_1_1` and `real_settlement_verified=false`; these are not FX.
 - Merchant requirement: wallet/custodial recipient and operational handling for
   stablecoin settlement.
 - Refund requirement: prove a transfer back to the original payer or explicitly

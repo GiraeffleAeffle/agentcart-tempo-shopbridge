@@ -4,9 +4,15 @@ import copy
 import datetime as dt
 import importlib.util
 import json
+import os
+import tempfile
 import sys
+import stat
+from dataclasses import replace
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT_PATH = (
@@ -160,6 +166,8 @@ class FakeRpc:
         self.transaction_hash = "0x" + "c" * 64
         self.log_calls: list[dict] = []
         self.block_calls: list[str] = []
+        self.finalized_number = 120
+        self.call_calls: list[dict] = []
         self.logs = [self.registered_log()]
         self.facet_logs: list[dict] = []
         self.facet_states: dict[str, dict] = {}
@@ -385,10 +393,10 @@ class FakeRpc:
             }
         elif method == "eth_blockNumber":
             result = hex(125)
-        elif method == "eth_getBlockByNumber" and params[0] in {"finalized", hex(120)}:
+        elif method == "eth_getBlockByNumber" and params[0] in {"finalized", hex(120), hex(self.finalized_number)}:
             self.block_calls.append(params[0])
             result = {
-                "number": hex(120),
+                "number": hex(self.finalized_number) if params[0] == "finalized" else params[0],
                 "hash": "0x" + "d" * 64,
                 "timestamp": hex(self.finalized_timestamp),
             }
@@ -413,12 +421,12 @@ class FakeRpc:
             if query.get("topics", [None])[0] == onchain_rpc.OWNERSHIP_TRANSFERRED_TOPIC:
                 result = [self.ownership_transferred_log()] if start <= 100 <= end else []
             elif query.get("address") == self.facets_address:
-                requested = set(query.get("topics", [None, []])[1])
+                requested = set(query["topics"][1]) if len(query["topics"]) > 1 else None
                 result = [
                     log
                     for log in self.facet_logs
                     if start <= int(log["blockNumber"], 16) <= end
-                    and log["topics"][1] in requested
+                    and (requested is None or log["topics"][1] in requested)
                 ]
             else:
                 result = [
@@ -427,6 +435,7 @@ class FakeRpc:
                     if start <= int(log["blockNumber"], 16) <= end
                 ]
         elif method == "eth_call":
+            self.call_calls.append(params)
             data = params[0]["data"]
             target = params[0]["to"].lower()
             if target == self.facets_address and data == onchain_rpc.DISCOVERY_FACETS_REGISTRY_SELECTOR:
@@ -474,6 +483,11 @@ class FakeRpc:
 
 
 class ShopBridgeOnchainRpcTests(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_CACHE_DISABLED": "1"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def project_direct(self, document: dict, expected_hash: str) -> dict:
         return onchain_projection.index_contract_document(
             document,
@@ -1166,6 +1180,10 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
         self.assertTrue(index["verification"]["chain_valid"], index["verification"])
         self.assertEqual(len(index["records"]), 1)
         self.assertIn("merchant_id", index["records"][0])
+        storage = document["contract_storage_verification"]
+        self.assertEqual(storage["matched_record_ids"], document["record_selection"]["selected_record_ids"])
+        self.assertEqual(storage["finalized_block_hash"], document["finality"]["block_hash"])
+        self.assertEqual(storage["excluded_record_ids"], [])
 
         tampered_documents = []
         unknown = copy.deepcopy(document)
@@ -1177,6 +1195,17 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
         wrong_pool = copy.deepcopy(document)
         wrong_pool["record_selection"]["active_candidate_count"] = 2
         tampered_documents.append(wrong_pool)
+        missing_check = copy.deepcopy(document)
+        missing_check["contract_storage_verification"]["matched_record_ids"] = []
+        tampered_documents.append(missing_check)
+        wrong_hash = copy.deepcopy(document)
+        wrong_hash["contract_storage_verification"]["finalized_block_hash"] = "0x" + "a" * 64
+        tampered_documents.append(wrong_hash)
+        excluded_without_error = copy.deepcopy(document)
+        excluded_without_error["contract_storage_verification"].update(
+            status="excluded_mismatched_records", matched_record_ids=[],
+            excluded_record_ids=document["record_selection"]["selected_record_ids"])
+        tampered_documents.append(excluded_without_error)
         for tampered in tampered_documents:
             rejected = onchain_projection.index_contract_document(
                 tampered,
@@ -1374,7 +1403,11 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
         )
 
         self.assertEqual(loaded, [new_uri])
-        self.assertEqual(document["contract_storage_verification"]["checked_record_count"], 2)
+        self.assertEqual(document["contract_storage_verification"]["checked_record_count"], 1)
+        self.assertEqual(document["contract_storage_verification"]["matched_record_ids"],
+            document["record_selection"]["selected_record_ids"])
+        self.assertEqual(document["contract_storage_verification"]["finalized_block_hash"],
+            document["finality"]["block_hash"])
         index = self.project_direct(document, new_hash)
         self.assertTrue(index["verification"]["chain_valid"], index["verification"])
         self.assertEqual([record["merchant_id"] for record in index["records"]], ["merchant-superseding"])
@@ -1597,6 +1630,715 @@ class ShopBridgeOnchainRpcTests(unittest.TestCase):
             onchain_rpc.rpc_url_label("https://user:secret@rpc.example:8545/v3/api-key?token=secret"),
             "https://rpc.example:8545",
         )
+
+
+class VerifiedCheckpointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cache_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.cache_dir.cleanup)
+        patcher = mock.patch.dict(os.environ, {
+            "SHOPBRIDGE_ONCHAIN_CACHE_DIR": self.cache_dir.name,
+            "SHOPBRIDGE_ONCHAIN_CACHE_DISABLED": "0",
+        })
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.rpc = FakeRpc()
+        self.deployment = onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100,
+            discovery_facets_address=self.rpc.facets_address, discovery_facets_from_block=105)
+
+    def collect(self, **kwargs):
+        return onchain_rpc.collect_finalized_events(self.deployment,
+            record_loader=kwargs.pop("record_loader", lambda *_: self.rpc.record()),
+            request_json=kwargs.pop("request_json", self.rpc.request), **kwargs)
+
+    def test_cold_checkpoint_is_private_and_warm_revoke_uses_only_incremental_logs(self):
+        cold = self.collect()
+        self.assertEqual(cold["rpc"]["checkpoint"]["status"], "miss")
+        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.rpc.finalized_number = 130
+        self.rpc.logs.append(self.rpc.status_log(event_name="MerchantRevoked",
+            record_id=self.rpc.record_id, block_number=125))
+        self.rpc.states[self.rpc.record_id]["status"] = 2
+        self.rpc.log_calls.clear()
+        warm = self.collect(record_loader=lambda *_: self.fail("revoked record fetched"))
+        self.assertEqual(warm["rpc"]["checkpoint"]["status"], "hit")
+        self.assertEqual([(int(row["fromBlock"], 16), int(row["toBlock"], 16))
+            for row in self.rpc.log_calls], [(121, 130), (121, 130)])
+        self.assertEqual(warm["events"][-1]["event"], "MerchantRevoked")
+        self.assertEqual(warm["resolved_record_count"], 0)
+
+    def test_warm_update_loads_only_new_document_and_all_cached_category_topics(self):
+        self.rpc.enable_facets(["tea", "coffee"])
+        tea_hash = "0x" + onchain_rpc.keccak256(b"tea").hex()
+        coffee_hash = "0x" + onchain_rpc.keccak256(b"coffee").hex()
+        self.collect(record_loader=lambda *_: self.rpc.record_with_facets(["tea", "coffee"]),
+            category_hash_groups=[{tea_hash}])
+        self.rpc.finalized_number = 130
+        new_hash = "0x" + "a" * 64
+        new_uri = "https://merchant.example/new-record.json"
+        self.rpc.logs.append(self.rpc.updated_log(record_id=self.rpc.record_id, record_hash=new_hash,
+            record_uri=new_uri, block_number=125))
+        self.rpc.states[self.rpc.record_id]["record_hash"] = new_hash
+        self.rpc.facet_states[self.rpc.record_id]["record_hash"] = new_hash
+        loaded = []
+        self.rpc.log_calls.clear()
+        def loader(uri, record_hash):
+            loaded.append((uri, record_hash))
+            return self.rpc.record_with_facets(["tea", "coffee"])
+        warm = self.collect(record_loader=loader, category_hash_groups=[{coffee_hash}])
+        self.assertEqual(loaded, [(new_uri, new_hash)])
+        self.assertEqual(warm["rpc"]["checkpoint"]["status"], "hit")
+        self.assertTrue(all(int(row["fromBlock"], 16) == 121 for row in self.rpc.log_calls))
+        self.assertEqual(warm["onchain_discovery_facets"]["matched_record_count"], 1)
+
+    def test_invalid_checkpoint_falls_back_to_full_verified_scan(self):
+        for defect in ("hash", "chain", "registry", "corrupt", "log_tamper"):
+            with self.subTest(defect=defect):
+                self.collect()
+                path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+                envelope = json.loads(path.read_text())
+                payload = envelope["payload"]
+                if defect == "hash":
+                    payload["block_hash"] = "0x" + "a" * 64
+                elif defect == "chain":
+                    payload["key"]["chain_id"] = 1
+                elif defect == "registry":
+                    payload["key"]["registry_address"] = "0x" + "a" * 40
+                elif defect == "log_tamper":
+                    payload["logs"][0]["data"] = "0x"
+                envelope["sha256"] = onchain_rpc._cache_digest(payload)
+                path.write_text("{" if defect == "corrupt" else json.dumps(envelope))
+                self.rpc.log_calls.clear()
+                document = self.collect()
+                self.assertEqual(document["rpc"]["checkpoint"]["status"], "invalid")
+                self.assertEqual(int(self.rpc.log_calls[0]["fromBlock"], 16), 100)
+                self.assertEqual(document["resolved_record_count"], 1)
+
+    def test_unreadable_checkpoint_falls_back_to_full_scan(self):
+        self.collect()
+        self.rpc.log_calls.clear()
+        original_open = onchain_rpc.os.open
+        def restricted_open(path, flags, *args, **kwargs):
+            if str(path).endswith(".json"):
+                raise PermissionError("unreadable")
+            return original_open(path, flags, *args, **kwargs)
+        with mock.patch.object(onchain_rpc.os, "open", side_effect=restricted_open):
+            document = self.collect()
+        self.assertEqual(document["rpc"]["checkpoint"]["status"], "invalid")
+        self.assertEqual(int(self.rpc.log_calls[0]["fromBlock"], 16), 100)
+        self.assertEqual(document["resolved_record_count"], 1)
+
+    def test_read_only_cache_directory_is_nonfatal(self):
+        original_open = onchain_rpc.os.open
+        def read_only_open(path, flags, *args, **kwargs):
+            if flags & os.O_CREAT:
+                raise PermissionError("read-only directory")
+            return original_open(path, flags, *args, **kwargs)
+        with mock.patch.object(onchain_rpc.os, "open", side_effect=read_only_open):
+            document = self.collect()
+        self.assertEqual(document["rpc"]["checkpoint"]["status"], "write_failed")
+        self.assertEqual(document["resolved_record_count"], 1)
+        self.assertEqual(list(Path(self.cache_dir.name).iterdir()), [])
+
+    def test_unwritable_checkpoint_is_nonfatal(self):
+        with mock.patch.object(onchain_rpc.os, "replace", side_effect=PermissionError("read-only")):
+            document = self.collect()
+        self.assertEqual(document["rpc"]["checkpoint"]["status"], "write_failed")
+        self.assertEqual(document["resolved_record_count"], 1)
+        self.assertEqual(list(Path(self.cache_dir.name).iterdir()), [])
+
+    def test_projection_rejects_selected_document_without_matching_storage_check(self):
+        document = self.collect()
+        document["contract_storage_verification"]["matched_record_ids"] = []
+        index = onchain_projection.index_contract_document(document,
+            record_hash=lambda _: self.rpc.record_hash.removeprefix("0x"), require_finality=True,
+            expected_chain_id=document["chain_id"], expected_registry_address=document["registry_address"],
+            expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION)
+        self.assertFalse(index["verification"]["chain_valid"])
+        self.assertEqual(index["records"], [])
+        self.assertIn("contract_events_selected_storage_coverage_invalid",
+            {error["error"] for error in index["verification"]["errors"]})
+
+    def test_storage_checks_only_selected_and_backfill_and_excludes_mismatch(self):
+        records = {}
+        for index in range(6):
+            record_id = "0x" + f"{index + 1:064x}"
+            domain = f"shop-{index}.example"
+            hash_value = onchain_rpc.domain_hash(domain)
+            uri = f"https://{domain}/record.json"
+            record_hash = "0x" + f"{index + 100:064x}"
+            self.rpc.logs.append(registered_log_for(self.rpc, record_id=record_id,
+                controller=self.rpc.controller, domain_hash_value=hash_value,
+                record_hash=record_hash, record_uri=uri, log_index=index + 1))
+            self.rpc.states[record_id] = dict(self.rpc.states[self.rpc.record_id],
+                domain_hash=hash_value, record_hash=record_hash)
+            record = self.rpc.record()
+            record.update(domain=domain, merchant_id=f"shop-{index}")
+            record["onchain_identity"]["record_id"] = record_id
+            records[uri] = record
+        seed = "bounded-storage"
+        ordered = sorted(self.rpc.states, key=lambda record_id: __import__("hashlib").sha256(f"{seed}\0{record_id}".encode()).digest())
+        self.rpc.states[ordered[0]]["status"] = 2
+        loaded = []
+        def loader(uri, _hash):
+            loaded.append(uri)
+            return records.get(uri, self.rpc.record())
+        document = self.collect(record_candidate_limit=1, record_candidate_seed=seed, record_loader=loader)
+        checks = [params for params in self.rpc.call_calls if params[0]["data"].startswith(onchain_rpc.RECORD_SELECTOR)]
+        self.assertEqual(len(checks), 2)
+        self.assertEqual(document["contract_storage_verification"]["checked_record_count"], 2)
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(document["record_errors"][0]["code"], "contract_record_status_mismatch")
+        self.assertEqual(document["resolved_record_count"], 1)
+        self.assertTrue(all(params[1] == hex(120) for params in checks))
+        self.assertFalse(onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment)).exists())
+        index = onchain_projection.index_contract_document(document,
+            record_hash=lambda record: self.rpc.states[record["onchain_identity"]["record_id"]]["record_hash"].removeprefix("0x"),
+            require_finality=True, expected_chain_id=document["chain_id"],
+            expected_registry_address=document["registry_address"],
+            expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION)
+        self.assertTrue(index["verification"]["chain_valid"], index["verification"])
+        self.assertEqual(len(index["records"]), 1)
+        self.assertNotEqual(index["records"][0]["onchain_identity"]["record_id"], ordered[0])
+
+    def test_cache_provider_change_forces_full_rescan(self):
+        self.collect()
+        old_path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        self.deployment = replace(self.deployment, rpc_url="https://another-provider.example/v3/key")
+        new_path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        new_path.write_bytes(old_path.read_bytes())
+        new_path.chmod(0o600)
+        self.rpc.log_calls.clear()
+        document = self.collect()
+        self.assertEqual(document["rpc"]["checkpoint"]["status"], "invalid")
+        self.assertEqual(int(self.rpc.log_calls[0]["fromBlock"], 16), 100)
+        self.assertEqual(document["resolved_record_count"], 1)
+
+    def test_unpinned_observed_runtime_change_invalidates_checkpoint(self):
+        for contract in ("registry", "facets"):
+            with self.subTest(contract=contract):
+                self.collect()
+                if contract == "registry":
+                    self.rpc.registry_code += "00"
+                else:
+                    self.rpc.facets_code += "00"
+                self.rpc.log_calls.clear()
+                document = self.collect()
+                self.assertEqual(document["rpc"]["checkpoint"]["status"], "invalid")
+                self.assertEqual(int(self.rpc.log_calls[0]["fromBlock"], 16), 100)
+                self.assertEqual(document["resolved_record_count"], 1)
+
+    def test_semantic_owner_rewrite_is_trusted_local_state_not_authenticated(self):
+        self.collect()
+        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        envelope = json.loads(path.read_text())
+        envelope["payload"]["logs"] = []
+        envelope["sha256"] = onchain_rpc._cache_digest(envelope["payload"])
+        path.write_text(json.dumps(envelope))
+        # Same-euid, owner-only state is intentionally trusted: the digest
+        # detects corruption, NOT authenticated log completeness.
+        rewritten = self.collect()
+        self.assertEqual(rewritten["rpc"]["checkpoint"]["status"], "hit")
+        self.assertEqual(rewritten["resolved_record_count"], 0)
+        path.chmod(0o644)
+        self.rpc.log_calls.clear()
+        rejected = self.collect()
+        self.assertEqual(rejected["rpc"]["checkpoint"]["status"], "invalid")
+        self.assertEqual(rejected["resolved_record_count"], 1)
+        self.assertEqual(int(self.rpc.log_calls[0]["fromBlock"], 16), 100)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_symlinked_checkpoint_is_not_followed(self):
+        self.collect()
+        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        with tempfile.TemporaryDirectory() as outside:
+            target = Path(outside) / "external.json"
+            original = path.read_bytes()
+            path.rename(target)
+            path.symlink_to(target)
+            self.rpc.log_calls.clear()
+            document = self.collect()
+            self.assertEqual(document["rpc"]["checkpoint"]["status"], "invalid")
+            self.assertEqual(document["resolved_record_count"], 1)
+            self.assertEqual(target.read_bytes(), original)
+            self.assertFalse(path.is_symlink())
+
+    def test_symlinked_or_shared_cache_directory_is_disabled(self):
+        root = Path(self.cache_dir.name)
+        actual = root / "real"
+        actual.mkdir(mode=0o700)
+        link = root / "link"
+        link.symlink_to(actual, target_is_directory=True)
+        shared = root / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        for directory in (link, shared):
+            with self.subTest(directory=directory), mock.patch.dict(os.environ,
+                    {"SHOPBRIDGE_ONCHAIN_CACHE_DIR": str(directory)}):
+                document = self.collect()
+                self.assertEqual(document["rpc"]["checkpoint"]["status"], "disabled")
+                self.assertEqual(document["rpc"]["checkpoint"]["reason"], "cache_dir_insecure")
+                self.assertEqual(document["resolved_record_count"], 1)
+        self.assertEqual(list(actual.iterdir()), [])
+        self.assertEqual(list(shared.iterdir()), [])
+        self.assertEqual(shared.stat().st_mode & 0o777, 0o777)
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_CACHE_DIR": "", "XDG_CACHE_HOME": str(shared)}):
+            document = self.collect()
+            self.assertEqual(document["rpc"]["checkpoint"]["reason"], "cache_dir_insecure")
+            self.assertFalse((shared / "shopbridge-direct").exists())
+
+    def test_wrong_cache_owner_is_rejected(self):
+        original_lstat = Path.lstat
+        def foreign_directory(path):
+            result = original_lstat(path)
+            if path == Path(self.cache_dir.name):
+                fields = list(result)
+                fields[4] = os.geteuid() + 1
+                return os.stat_result(fields)
+            return result
+        with mock.patch.object(Path, "lstat", foreign_directory):
+            document = self.collect()
+        self.assertEqual(document["rpc"]["checkpoint"]["reason"], "cache_dir_insecure")
+        self.collect()
+        original_fstat = os.fstat
+        def foreign_file(descriptor):
+            result = original_fstat(descriptor)
+            if stat.S_ISREG(result.st_mode):
+                fields = list(result)
+                fields[4] = os.geteuid() + 1
+                return os.stat_result(fields)
+            return result
+        with mock.patch.object(onchain_rpc.os, "fstat", side_effect=foreign_file):
+            document = self.collect()
+        self.assertEqual(document["rpc"]["checkpoint"]["status"], "invalid")
+        self.assertEqual(document["resolved_record_count"], 1)
+
+    def test_deeply_nested_checkpoint_is_invalid_not_uncaught(self):
+        self.collect()
+        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        path.write_text("[" * 2000 + "0" + "]" * 2000)
+        self.rpc.log_calls.clear()
+        document = self.collect()
+        self.assertEqual(document["rpc"]["checkpoint"]["status"], "invalid")
+        self.assertEqual(int(self.rpc.log_calls[0]["fromBlock"], 16), 100)
+        self.assertEqual(document["resolved_record_count"], 1)
+
+    def test_unsupported_cache_platform_disables_persistence_without_weak_fallback(self):
+        unsupported = ("geteuid", "O_DIRECTORY", "O_NOFOLLOW", "open_dir_fd",
+                       "replace_dir_fd", "unlink_dir_fd", "stat_nofollow")
+        for missing in unsupported:
+            with self.subTest(missing=missing), mock.patch.dict(os.__dict__):
+                if missing.endswith("_dir_fd"):
+                    names = ("replace", "rename") if missing == "replace_dir_fd" else (missing.removesuffix("_dir_fd"),)
+                    os.supports_dir_fd = os.supports_dir_fd.difference(getattr(os, name) for name in names)
+                elif missing == "stat_nofollow":
+                    os.supports_follow_symlinks = os.supports_follow_symlinks.difference({os.stat})
+                else:
+                    delattr(os, missing)
+                name = "shopbridge_rpc_unsupported_" + missing
+                spec = importlib.util.spec_from_file_location(name, SCRIPT_PATH)
+                runtime = importlib.util.module_from_spec(spec)
+                sys.modules[name] = runtime
+                try:
+                    spec.loader.exec_module(runtime)
+                    self.rpc.log_calls.clear()
+                    document = runtime.collect_finalized_events(
+                        runtime.RegistryDeployment(rpc_url="https://rpc.example", from_block=100,
+                            discovery_facets_address=self.rpc.facets_address, discovery_facets_from_block=105),
+                        request_json=self.rpc.request, record_loader=lambda *_: self.rpc.record())
+                    self.assertEqual(document["rpc"]["checkpoint"]["status"], "disabled")
+                    self.assertEqual(document["rpc"]["checkpoint"]["reason"], "cache_unsupported_platform")
+                    self.assertEqual(document["resolved_record_count"], 1)
+                    self.assertEqual(document["contract_storage_verification"]["status"], "matched")
+                    self.assertEqual(int(self.rpc.log_calls[0]["fromBlock"], 16), 100)
+                    self.assertEqual(list(Path(self.cache_dir.name).iterdir()), [])
+                finally:
+                    sys.modules.pop(name, None)
+
+    def test_myotis_bypasses_checkpoint_and_scans_full_history_each_time(self):
+        self.rpc.client_version = "Myotis/verified-light-client"
+        self.deployment = onchain_rpc.RegistryDeployment(rpc_url="http://127.0.0.1:8546",
+            from_block=100, allow_private_rpc=True, deployment_block_hash=self.rpc.block_hash)
+        for _ in range(2):
+            self.rpc.log_calls.clear()
+            document = self.collect()
+            self.assertEqual(document["rpc"]["checkpoint"]["status"], "disabled")
+            self.assertEqual(int(self.rpc.log_calls[-1]["fromBlock"], 16), 100)
+        self.assertEqual(list(Path(self.cache_dir.name).iterdir()), [])
+
+    def test_v2_bypasses_persistence_and_requires_full_witness_scan_every_run(self):
+        self.deployment = onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100,
+            registry_version=2, admission_witness_rpc_url="https://witness.example",
+            deployment_block_hash=self.rpc.block_hash,
+            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(self.rpc.registry_code[2:])).hex())
+        selector = "0x" + onchain_rpc.keccak256(b"eligibility(bytes32)").hex()[:8]
+        def request(url, **kwargs):
+            payload = kwargs["payload"]
+            if payload["method"] == "eth_call" and payload["params"][0]["data"].startswith(selector):
+                raw = word(1) + bytes32("0x" + "e" * 64) + word(self.rpc.finalized_timestamp + 1000) + word(100)
+                return {"jsonrpc": "2.0", "id": payload["id"], "result": "0x" + raw.hex()}
+            return self.rpc.request(url, **kwargs)
+        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        forged = '{"witness_agreement":true,"logs":[]}'
+        path.write_text(forged)
+        for _ in range(2):
+            self.rpc.log_calls.clear()
+            document = self.collect(request_json=request)
+            self.assertEqual(document["rpc"]["checkpoint"]["status"], "disabled")
+            self.assertEqual(document["rpc"]["checkpoint"]["reason"], "v2_full_two_rpc_scan")
+            self.assertEqual(document["resolved_record_count"], 1)
+            self.assertEqual([int(row["fromBlock"], 16) for row in self.rpc.log_calls], [100, 100])
+            self.assertEqual(path.read_text(), forged)
+
+
+class FinalizedHistoryPagingTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        patcher = mock.patch.dict(os.environ, {
+            "SHOPBRIDGE_ONCHAIN_CACHE_DIR": self.directory.name,
+            "SHOPBRIDGE_ONCHAIN_CACHE_DISABLED": "0",
+            "SHOPBRIDGE_ONCHAIN_LOG_WORKERS": "4",
+        })
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.rpc = FakeRpc()
+        self.deployment = onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100,
+            log_chunk_size=10, discovery_facets_address=self.rpc.facets_address,
+            discovery_facets_from_block=105)
+
+    def collect(self, request=None):
+        return onchain_rpc.collect_finalized_events(self.deployment,
+            record_loader=lambda *_: self.rpc.record(), request_json=request or self.rpc.request,
+            record_candidate_seed="history-regression")
+
+    def test_out_of_order_pages_merge_deterministically(self):
+        gate = threading.Event()
+        completed = []
+        def request(url, **kwargs):
+            payload = kwargs["payload"]
+            if payload["method"] == "eth_getLogs" and payload["params"][0]["address"] == self.rpc.registry:
+                start = int(payload["params"][0]["fromBlock"], 16)
+                if start == 100:
+                    self.assertTrue(gate.wait(2))
+                else:
+                    completed.append(start)
+                    gate.set()
+            return self.rpc.request(url, **kwargs)
+        self.rpc.logs.extend([
+            self.rpc.status_log(event_name="MerchantSuspended", record_id=self.rpc.record_id, block_number=110),
+            self.rpc.status_log(event_name="MerchantUnsuspended", record_id=self.rpc.record_id, block_number=115),
+        ])
+        document = self.collect(request)
+        self.assertNotEqual(completed[0], 100)
+        self.assertEqual([event["event"] for event in document["events"]],
+            ["MerchantRegistered", "MerchantSuspended", "MerchantUnsuspended"])
+        self.assertEqual([event["block_number"] for event in document["events"]], [100, 110, 115])
+        with tempfile.TemporaryDirectory() as other, mock.patch.dict(os.environ,
+                {"SHOPBRIDGE_ONCHAIN_CACHE_DIR": other, "SHOPBRIDGE_ONCHAIN_LOG_WORKERS": "1"}):
+            sequential = self.collect()
+        self.assertEqual(document["events"], sequential["events"])
+        self.assertEqual(document["record_selection"], sequential["record_selection"])
+
+    def test_http_429_retries_then_succeeds(self):
+        attempts = 0
+        lock = threading.Lock()
+        def request(url, **kwargs):
+            nonlocal attempts
+            if kwargs["payload"]["method"] == "eth_getLogs":
+                with lock:
+                    attempts += 1
+                    fail = attempts == 1
+                if fail:
+                    raise onchain_rpc.safe_http.SafeHttpError("upstream_http_error", status=429, retry_after=2)
+            return self.rpc.request(url, **kwargs)
+        clock = FakeClock()
+        with mock.patch.object(onchain_rpc.time, "sleep", side_effect=clock.sleep), mock.patch.object(onchain_rpc.time, "monotonic", side_effect=clock):
+            document = self.collect(request)
+        self.assertEqual(document["resolved_record_count"], 1)
+        self.assertEqual(document["rpc"]["checkpoint"]["http_429_count"], 1)
+        self.assertEqual(document["rpc"]["checkpoint"]["retry_count"], 1)
+        self.assertEqual(attempts, 7)
+        self.assertGreaterEqual(sum(clock.sleeps), 2)
+
+    def test_persistent_transient_failure_is_bounded_and_surfaces_error(self):
+        attempts = []
+        def request(url, **kwargs):
+            payload = kwargs["payload"]
+            if payload["method"] == "eth_getLogs":
+                attempts.append(payload["params"][0]["fromBlock"])
+                raise onchain_rpc.safe_http.SafeHttpError("upstream_http_error", status=503)
+            return self.rpc.request(url, **kwargs)
+        clock = FakeClock()
+        with (
+            mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_LOG_WORKERS": "1"}),
+            mock.patch.object(onchain_rpc.time, "sleep", side_effect=clock.sleep),
+            mock.patch.object(onchain_rpc.time, "monotonic", side_effect=clock),
+        ):
+            with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "rpc_transport_failed"):
+                self.collect(request)
+        self.assertEqual(attempts, [hex(100)] * 4)
+        self.assertFalse(onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment)).exists())
+
+    def test_history_pages_preserve_general_allowance_but_event_headers_consume_it(self):
+        budget = onchain_rpc.safe_http.DiscoveryBudget(requests=256)
+        classifications = []
+        def request(url, **kwargs):
+            history = onchain_rpc.safe_http.history_request.get()
+            classifications.append((kwargs["payload"]["method"], kwargs["payload"]["params"], history))
+            _, allocation = budget.reserve(30, 1024, history=history)
+            try:
+                return self.rpc.request(url, **kwargs)
+            finally:
+                budget.finish(allocation, 0)
+        token = onchain_rpc.safe_http.discovery_budget.set(budget)
+        try:
+            document = self.collect(request)
+        finally:
+            onchain_rpc.safe_http.discovery_budget.reset(token)
+        self.assertEqual(document["rpc"]["checkpoint"]["history_log_pages"], 6)
+        self.assertTrue(all(history for method, _, history in classifications if method == "eth_getLogs"))
+        self.assertEqual(budget.history_requests_used, 9)
+        self.assertEqual(budget.requests_remaining, 256 - sum(not row[2] for row in classifications))
+        event_headers = [history for method, params, history in classifications
+                         if method == "eth_getBlockByNumber" and params[0] == hex(100)]
+        self.assertEqual(event_headers, [False, False])
+        exhausted = onchain_rpc.safe_http.DiscoveryBudget(requests=0)
+        exhausted.reserve(1, 10, history=True)
+        with self.assertRaisesRegex(onchain_rpc.safe_http.SafeHttpError, "discovery_budget_exhausted"):
+            exhausted.reserve(1, 10)
+
+    def test_history_page_limit_is_enforced_before_log_requests(self):
+        with mock.patch.object(onchain_rpc, "MAX_HISTORY_LOG_PAGES", 5):
+            with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "history_scan_exceeds_limit"):
+                self.collect()
+        self.assertEqual(self.rpc.log_calls, [])
+
+    def test_deadline_persists_only_verified_prefix_then_resumes_full_projection(self):
+        budget = onchain_rpc.safe_http.DiscoveryBudget()
+        def request(url, **kwargs):
+            payload = kwargs["payload"]
+            if payload["method"] == "eth_getLogs" and int(payload["params"][0]["fromBlock"], 16) >= 110:
+                budget.deadline = 0
+                raise onchain_rpc.safe_http.SafeHttpError("discovery_budget_exhausted")
+            return self.rpc.request(url, **kwargs)
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_LOG_WORKERS": "1"}):
+            token = onchain_rpc.safe_http.discovery_budget.set(budget)
+            try:
+                with self.assertRaises(onchain_rpc.OnchainRpcError) as raised:
+                    self.collect(request)
+            finally:
+                onchain_rpc.safe_http.discovery_budget.reset(token)
+        self.assertEqual(raised.exception.code, "history_sync_incomplete")
+        error = json.loads(onchain_rpc.error_document(raised.exception))
+        self.assertEqual(error["progress"]["blocks_done"], 10)
+        self.assertEqual(error["progress"]["blocks_total"], 21)
+        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        prefix = json.loads(path.read_text())["payload"]
+        self.assertEqual(prefix["block_number"], 109)
+        self.assertFalse(prefix["history_complete"])
+        self.assertTrue(all("registry_record" not in row for row in prefix["logs"]))
+        self.rpc.log_calls.clear()
+        resumed = self.collect()
+        self.assertEqual(resumed["rpc"]["checkpoint"]["status"], "hit")
+        self.assertTrue(all(int(query["fromBlock"], 16) >= 110 for query in self.rpc.log_calls))
+        with tempfile.TemporaryDirectory() as other, mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_CACHE_DIR": other}):
+            full = self.collect()
+        def project(document):
+            return onchain_projection.index_contract_document(document, record_hash=lambda _: self.rpc.record_hash[2:],
+                require_finality=True, expected_chain_id=document["chain_id"],
+                expected_registry_address=document["registry_address"],
+                expected_implementation=onchain_projection.DIRECT_RPC_IMPLEMENTATION)
+        self.assertEqual(resumed["events"], full["events"])
+        resumed_index, full_index = project(resumed), project(full)
+        self.assertTrue(resumed_index["verification"]["chain_valid"], resumed_index["verification"])
+        self.assertEqual(resumed_index["records"], full_index["records"])
+        self.assertEqual(resumed_index["revocations"], full_index["revocations"])
+
+    def test_v2_deadline_never_persists_partial_history(self):
+        self.deployment = onchain_rpc.RegistryDeployment(rpc_url="https://rpc.example", from_block=100,
+            log_chunk_size=10, registry_version=2, admission_witness_rpc_url="https://witness.example",
+            deployment_block_hash=self.rpc.block_hash,
+            runtime_code_hash="0x" + onchain_rpc.keccak256(bytes.fromhex(self.rpc.registry_code[2:])).hex())
+        self.rpc.logs.append(self.rpc.updated_log(record_id=self.rpc.record_id,
+            record_hash=self.rpc.record_hash, record_uri=self.rpc.record_uri, block_number=115))
+        selector = "0x" + onchain_rpc.keccak256(b"eligibility(bytes32)").hex()[:8]
+        budget = onchain_rpc.safe_http.DiscoveryBudget()
+        interrupt = True
+        disagree = False
+        def request(url, **kwargs):
+            payload = kwargs["payload"]
+            method, params = payload["method"], payload["params"]
+            if method == "eth_call" and params[0]["data"].startswith(selector):
+                raw = word(1) + bytes32("0x" + "e" * 64) + word(self.rpc.finalized_timestamp + 1000) + word(100)
+                return {"jsonrpc": "2.0", "id": payload["id"], "result": "0x" + raw.hex()}
+            if method == "eth_getLogs" and int(params[0]["fromBlock"], 16) >= 110:
+                if interrupt:
+                    budget.deadline = 0
+                    raise onchain_rpc.safe_http.SafeHttpError("discovery_budget_exhausted")
+                if disagree and "witness.example" in url:
+                    return {"jsonrpc": "2.0", "id": payload["id"], "result": []}
+            return self.rpc.request(url, **kwargs)
+        with mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_LOG_WORKERS": "1"}):
+            token = onchain_rpc.safe_http.discovery_budget.set(budget)
+            try:
+                with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "history_sync_incomplete"):
+                    self.collect(request)
+            finally:
+                onchain_rpc.safe_http.discovery_budget.reset(token)
+        path = onchain_rpc._cache_path(onchain_rpc._cache_key(self.deployment))
+        self.assertFalse(path.exists())
+        interrupt = False
+        disagree = True
+        with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "registry_v2_witness_logs_mismatch"):
+            self.collect(request)
+        self.assertFalse(path.exists())
+        disagree = False
+        resumed = self.collect(request)
+        self.assertEqual(resumed["rpc"]["checkpoint"]["status"], "disabled")
+        self.assertEqual([event["event"] for event in resumed["events"]], ["MerchantRegistered", "MerchantUpdated"])
+        self.assertEqual(resumed["resolved_record_count"], 1)
+
+    def test_astronomical_height_is_rejected_before_range_materialization(self):
+        client = onchain_rpc.JsonRpcClient(self.deployment.rpc_url, request_json=self.rpc.request)
+        with mock.patch.object(onchain_rpc, "range",
+                side_effect=AssertionError("range constructed before cap"), create=True):
+            with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "history_scan_exceeds_limit"):
+                onchain_rpc._scan_finalized_history(client, deployment=self.deployment,
+                    from_block=100, to_block=10 ** 10000, chunk_size=10, checkpoint=None,
+                    witness=None, deployment_verification={}, facets_verification=None,
+                    observed_code_hashes={}, diagnostics={"scanned_ranges": []})
+        self.assertEqual(self.rpc.log_calls, [])
+
+    def test_huge_retry_after_is_clamped_without_an_outer_budget(self):
+        clock = FakeClock()
+        attempts = 0
+        def request(url, **kwargs):
+            nonlocal attempts
+            budget = onchain_rpc.safe_http.discovery_budget.get()
+            _, allocation = budget.reserve(30, 1024, history=onchain_rpc.safe_http.history_request.get())
+            try:
+                if kwargs["payload"]["method"] == "eth_getLogs":
+                    attempts += 1
+                    if attempts == 1:
+                        raise onchain_rpc.safe_http.SafeHttpError("upstream_http_error", status=429, retry_after=3600)
+                return self.rpc.request(url, **kwargs)
+            finally:
+                budget.finish(allocation, 0)
+        with (
+            mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_LOG_WORKERS": "1"}),
+            mock.patch.object(onchain_rpc.time, "monotonic", side_effect=clock),
+            mock.patch.object(onchain_rpc.time, "sleep", side_effect=clock.sleep),
+        ):
+            document = self.collect(request)
+        self.assertEqual(document["resolved_record_count"], 1)
+        self.assertEqual(max(clock.sleeps), 30)
+        self.assertIsNone(onchain_rpc.safe_http.discovery_budget.get())
+
+
+    def test_workers_configuration_is_bounded(self):
+        for value in ("0", "9", "many"):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_LOG_WORKERS": value}):
+                with self.assertRaisesRegex(onchain_rpc.OnchainRpcError, "history_log_workers_invalid"):
+                    self.collect()
+
+
+class ExactOnchainResolutionBudgetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("onchain_resolution_security_command",
+            SCRIPT_PATH.with_name("shopbridge-command.py"))
+        cls.command = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = cls.command
+        spec.loader.exec_module(cls.command)
+
+    def setUp(self):
+        self.rpc = FakeRpc()
+        self.args = {"onchain_rpc_url": "https://rpc.example", "onchain_from_block": 100,
+            "onchain_discovery_facets_address": self.rpc.facets_address,
+            "onchain_discovery_facets_from_block": 105, "record_id": self.rpc.record_id}
+        patcher = mock.patch.dict(os.environ, {"SHOPBRIDGE_ONCHAIN_CACHE_DISABLED": "1",
+            "SHOPBRIDGE_ONCHAIN_LOG_WORKERS": "1"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_exact_resolution_honors_request_and_response_byte_limits(self):
+        transport = self.command.safe_http
+        for limit in ("requests", "bytes"):
+            with self.subTest(limit=limit):
+                budget = transport.DiscoveryBudget(requests=0 if limit == "requests" else 256,
+                    response_bytes=1 if limit == "bytes" else 64 * 1024 * 1024)
+                requests = []
+                def request(url, **kwargs):
+                    _, allocation = transport.discovery_budget.get().reserve(30, 1024,
+                        history=transport.history_request.get())
+                    requests.append(kwargs["payload"])
+                    transport.discovery_budget.get().finish(allocation, 0)
+                    return self.rpc.request(url, **kwargs)
+                with (
+                    mock.patch.object(transport, "DiscoveryBudget", return_value=budget),
+                    mock.patch.object(transport, "request_json", side_effect=request),
+                ):
+                    with self.assertRaises(SystemExit) as raised:
+                        self.command.command_resolve_merchant(dict(self.args))
+                error = json.loads(str(raised.exception))
+                self.assertEqual(error["detail"], "discovery_budget_exhausted")
+                self.assertEqual(requests, [])
+                self.assertIsNone(transport.discovery_budget.get())
+
+    def test_exact_domain_resolution_honors_deadline_and_retry_after_clamp(self):
+        transport = self.command.safe_http
+        original_budget = transport.DiscoveryBudget
+        clock = FakeClock()
+        completed_rpc = []
+        def request(url, **kwargs):
+            budget = transport.discovery_budget.get()
+            _, allocation = budget.reserve(30, 1024, history=transport.history_request.get())
+            try:
+                if kwargs["payload"]["method"] == "eth_getLogs":
+                    raise transport.SafeHttpError("upstream_http_error", status=429, retry_after=3600)
+                completed_rpc.append(kwargs["payload"]["method"])
+                return self.rpc.request(url, **kwargs)
+            finally:
+                budget.finish(allocation, 0)
+        args = {key: value for key, value in self.args.items() if key != "record_id"}
+        args["merchant_domain"] = self.rpc.domain
+        with (
+            mock.patch.object(transport.time, "monotonic", side_effect=clock),
+            mock.patch.object(transport.time, "sleep", side_effect=clock.sleep),
+            mock.patch.object(transport, "DiscoveryBudget", side_effect=lambda: original_budget(seconds=1)),
+            mock.patch.object(transport, "request_json", side_effect=request),
+        ):
+            with self.assertRaises(SystemExit) as raised:
+                self.command.command_resolve_merchant(args)
+        error = json.loads(str(raised.exception))
+        self.assertEqual(error["code"], "history_sync_incomplete")
+        self.assertEqual(error["progress"]["blocks_done"], 0)
+        self.assertEqual(sum(clock.sleeps), 1)
+        self.assertIn("eth_chainId", completed_rpc)
+        self.assertIsNone(transport.discovery_budget.get())
+
+    def test_nested_exact_resolution_keeps_outer_request_allowance(self):
+        transport = self.command.safe_http
+        budget = transport.DiscoveryBudget(requests=1)
+        requests = []
+        def request(url, **kwargs):
+            _, allocation = transport.discovery_budget.get().reserve(30, 1024)
+            requests.append(kwargs["payload"]["method"])
+            budget.finish(allocation, 0)
+            return self.rpc.request(url, **kwargs)
+        token = transport.discovery_budget.set(budget)
+        try:
+            with mock.patch.object(transport, "request_json", side_effect=request):
+                with self.assertRaises(SystemExit) as raised:
+                    self.command.command_resolve_merchant(dict(self.args))
+            self.assertEqual(json.loads(str(raised.exception))["detail"], "discovery_budget_exhausted")
+            self.assertIs(transport.discovery_budget.get(), budget)
+            self.assertEqual(requests, ["eth_chainId"])
+            self.assertEqual(budget.requests_remaining, 0)
+        finally:
+            transport.discovery_budget.reset(token)
 
 
 if __name__ == "__main__":

@@ -417,70 +417,6 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertNotIn("create_order", check_body)
         self.assertNotIn("set_agentcart_exposure_for_published_simple_products", check_body)
 
-    def test_admin_guided_checkout_test_creates_and_cancels_test_order(self) -> None:
-        render_body = function_body("render_settings_page")
-        action_body = function_body("maybe_handle_setup_action")
-        checkout_body = function_body("run_sandbox_checkout_test")
-        receipt_body = function_body("sandbox_checkout_payment_receipt")
-        approval_body = function_body("sandbox_checkout_approval_record")
-        metadata_body = function_body("checkout_approval_metadata")
-        order_body = function_body("create_order")
-        serialize_body = function_body("serialize_order_response")
-        verifier_body = function_body("call_payment_verifier")
-        panel_body = function_body("render_setup_wizard_panel")
-        result_body = function_body("sandbox_checkout_test_result")
-        uninstall = UNINSTALL.read_text()
-
-        self.assertIn("SANDBOX_CHECKOUT_TEST_OPTION", SOURCE)
-        self.assertIn("agentcart_shopbridge_sandbox_checkout_test", uninstall)
-        self.assertIn("maybe_handle_setup_action", render_body)
-        self.assertIn("run_sandbox_checkout_test", action_body + panel_body)
-        self.assertIn("update_option(self::SANDBOX_CHECKOUT_TEST_OPTION, $result, false)", action_body)
-        self.assertIn("get_option(self::SANDBOX_CHECKOUT_TEST_OPTION", result_body)
-        self.assertIn("Guided checkout test", panel_body)
-        self.assertIn("Run checkout test", panel_body)
-        self.assertIn("Last checkout test", panel_body)
-        self.assertIn("Approval hash", panel_body)
-        self.assertIn("Approval record hash", panel_body)
-        self.assertIn("Payment contract hash", panel_body)
-        self.assertIn("sandbox receipt is sent through that verifier", panel_body)
-        self.assertIn("new WP_REST_Request('POST', '/' . self::API_NAMESPACE . '/quote')", checkout_body)
-        self.assertIn("new WP_REST_Request('POST', '/' . self::API_NAMESPACE . '/orders')", checkout_body)
-        self.assertIn("self::sandbox_checkout_payment_receipt($quote, $order_idempotency_key)", checkout_body)
-        self.assertIn("self::sandbox_checkout_approval_record($quote, $order_idempotency_key, $checked_at)", checkout_body)
-        self.assertIn("'approval' => $approval", checkout_body)
-        self.assertIn("'approval_record_hash' => (string) ($approval['approval_record_hash'] ?? '')", checkout_body)
-        self.assertIn("'approval_decision_hash' => (string) ($approval['approval_decision_hash'] ?? '')", checkout_body)
-        self.assertIn("self::create_order($order_request)", checkout_body)
-        self.assertIn("set_header('X-AgentCart-Merchant-Token', self::merchant_token_value())", checkout_body)
-        self.assertIn("delete_transient(self::QUOTE_TRANSIENT_PREFIX . $quote_id)", checkout_body)
-        self.assertIn("self::release_stock_hold($quote_id, 'sandbox_checkout_cleanup')", checkout_body)
-        self.assertIn("update_meta_data('_agentcart_sandbox_checkout_test', 'yes')", checkout_body)
-        self.assertIn("update_meta_data('_agentcart_sandbox_approval_hash'", checkout_body)
-        self.assertIn("update_status('cancelled'", checkout_body)
-        self.assertIn("no external refund executed", checkout_body)
-        self.assertIn("'real_settlement_verified' => !empty($payment_verification['real_settlement_verified'])", checkout_body)
-        self.assertIn("'schema' => 'agentcart.approval_record.v1'", approval_body)
-        self.assertIn("'schema' => 'agentcart.approval_decision_record.v1'", approval_body)
-        self.assertIn("'approver' => 'woocommerce_admin_sandbox'", approval_body)
-        self.assertIn("'record_role' => 'sandbox_admin_approval_contract'", approval_body)
-        self.assertIn("hash('sha256', (string) wp_json_encode($approval_material))", approval_body)
-        self.assertIn("hash('sha256', (string) wp_json_encode($approval_record))", approval_body)
-        self.assertIn("hash('sha256', (string) wp_json_encode($decision_record))", approval_body)
-        self.assertIn("checkout_approval_metadata($body)", order_body + verifier_body)
-        self.assertIn("update_meta_data('_agentcart_approval_record_hash'", order_body)
-        self.assertIn("update_meta_data('_agentcart_approval_decision_hash'", order_body)
-        self.assertIn("'approval' => self::checkout_approval_metadata($body)", verifier_body)
-        self.assertIn("'approval_record_hash' => sanitize_text_field", metadata_body)
-        self.assertIn("'approval_record_hash' => (string) $order->get_meta('_agentcart_approval_record_hash', true)", serialize_body)
-        self.assertIn("self::payment_verification_contract($quote, 'tempo-mpp')", receipt_body)
-        self.assertIn("self::payment_contract_hash($contract)", receipt_body)
-        self.assertIn("'external_value_proof'", receipt_body)
-        self.assertIn("'provider' => 'tempo_mpp'", receipt_body)
-        self.assertIn("'transaction_reference' => $transaction_reference", receipt_body)
-        self.assertNotIn("wc_create_order", checkout_body)
-        self.assertNotIn("set_agentcart_exposure_for_published_simple_products", checkout_body)
-
     def test_rate_limiter_has_endpoint_policies_and_retry_metadata(self) -> None:
         policy_body = function_body("rate_limit_policy")
         limiter_body = function_body("enforce_rate_limit")
@@ -967,8 +903,6 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("'alert_delivery_email_configured'", monitor_summary_body)
         self.assertIn("'alert_delivery_sink_count'", monitor_summary_body)
         self.assertIn("fetch_registry_connection_json", review_guard)
-        self.assertIn("DEFAULT_REGISTRY_CONNECTION_URL", SOURCE)
-        self.assertIn("https://registry.agentcart.eu/v1/registry/records", SOURCE)
 
     def test_registry_setup_requires_exact_finalized_onchain_inclusion(self) -> None:
         guide_body = function_body("setup_guide")
@@ -1051,47 +985,6 @@ class ShopBridgePluginContractTests(unittest.TestCase):
         self.assertIn("$commerce_ready = self::commerce_ready($readiness)", capability_body)
         self.assertIn("'paid_order_creation' => $commerce_ready", capability_body)
         self.assertIn("'public_discovery_ready' => $public_discovery_ready", capability_body)
-
-    def test_x402_payment_required_shim_is_quote_bound_and_verifier_checked(self) -> None:
-        settings_body = function_body("register_settings")
-        render_body = function_body("render_settings_page")
-        create_order_body = function_body("create_order")
-        receipt_body = function_body("payment_receipt_from_checkout_request")
-        response_body = function_body("x402_payment_required_response")
-        requirements_body = function_body("payment_requirements")
-        document_body = function_body("x402_payment_required_document")
-        verifier_body = function_body("call_payment_verifier")
-        rail_body = function_body("normalize_payment_rail")
-
-        for symbol in [
-            "X402_NETWORK_OPTION",
-            "X402_ASSET_OPTION",
-            "X402_ASSET_DECIMALS_OPTION",
-            "X402_PAY_TO_OPTION",
-            "X402_MAX_TIMEOUT_SECONDS_OPTION",
-            "AGENTCART_X402_NETWORK",
-            "AGENTCART_X402_ASSET",
-            "AGENTCART_X402_PAY_TO",
-        ]:
-            self.assertIn(symbol, SOURCE)
-        self.assertIn("sanitize_x402_asset_decimals_setting", settings_body)
-        self.assertIn("sanitize_x402_timeout_setting", settings_body)
-        self.assertIn("x402 network", render_body)
-        self.assertIn("x402 payTo address", render_body)
-        self.assertIn("x402_payment_required_response", create_order_body)
-        self.assertLess(create_order_body.index("$receipt = isset($body['payment_receipt']"), create_order_body.index("find_existing_checkout_order"))
-        self.assertLess(create_order_body.index("get_transient"), create_order_body.index("payment_receipt_from_checkout_request"))
-        self.assertIn("PAYMENT-SIGNATURE", receipt_body + response_body + requirements_body)
-        self.assertIn("PAYMENT-REQUIRED", response_body + requirements_body)
-        self.assertIn("WP_REST_Response", response_body)
-        self.assertIn("'x402Version' => 2", document_body)
-        self.assertIn("'maxAmountRequired' => self::x402_atomic_amount", document_body)
-        self.assertIn("'quoteHash' => $quote_hash", document_body)
-        self.assertIn("'merchantQuoteId' => $quote_id", document_body)
-        self.assertIn("'x402-compatible'", rail_body + requirements_body)
-        self.assertIn("'x402_max_amount_required' => self::x402_atomic_amount", verifier_body)
-        self.assertIn("agentcart_payment_x402_amount_mismatch", verifier_body)
-        self.assertIn("agentcart_payment_x402_pay_to_mismatch", verifier_body)
 
     def test_signed_http_request_gate_is_configured_only_and_replay_protected(self) -> None:
         settings_body = function_body("register_settings")

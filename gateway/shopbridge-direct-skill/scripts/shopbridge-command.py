@@ -1715,6 +1715,8 @@ def registry_records_from_source(
     *,
     diagnostics: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    if diagnostics is None:
+        diagnostics = {}
     registry_path = configured_registry_path(args)
     registry_url = configured_registry_url(args)
     onchain_events_path = configured_onchain_registry_events_path(args)
@@ -1723,6 +1725,7 @@ def registry_records_from_source(
     records: list[dict[str, Any]] = []
     advertised_events_url = ""
     if onchain_rpc_url:
+        diagnostics.update(authority="smart_contract", transport="direct_json_rpc")
         try:
             deployment = configured_onchain_deployment(args)
             if (deployment.chain_id in {1, 100, 4217} or arg_bool(args, "require_admission", env_bool("SHOPBRIDGE_REQUIRE_ADMISSION", False))) and deployment.registry_version != 2:
@@ -1780,10 +1783,14 @@ def registry_records_from_source(
                     "record_resolution_errors": document.get("record_errors", []),
                     "record_selection": document.get("record_selection", {}),
                     "onchain_discovery_facets": document.get("onchain_discovery_facets", {}),
+                    "onchain_checkpoint": rpc_details.get("checkpoint", {}),
                     "hosted_discovery_index": facet_diagnostics,
                 }
             )
-        return [record for record in index["records"] if isinstance(record, dict)]
+        records = [record for record in index["records"] if isinstance(record, dict)]
+        if not records:
+            raise SystemExit(json.dumps({"error": "no_eligible_merchants", **diagnostics}, sort_keys=True))
+        return records
     if registry_path:
         records.extend(registry_records_from_document(load_json_path(registry_path)))
     elif registry_url:
@@ -1875,6 +1882,7 @@ def registry_records_from_args(
     return records
 
 
+@safe_http.budgeted_discovery
 def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
     record = registry_record_from_args(args)
     manifest_url = str(record.get("manifest_url") or "")
@@ -1909,6 +1917,13 @@ def command_resolve_merchant(args: dict[str, Any]) -> dict[str, Any]:
         },
         "manifest_url": manifest_url,
         "registry_record_hash": result["record_hash"],
+        "quote_trust": quote_trust_metadata(annotate_quote_trust(
+            {},
+            merchant_origin=origin_for_url(manifest_url) if manifest_url else "",
+            registry_record_hash=result["record_hash"],
+            manifest_url=manifest_url,
+            registry_payment_bindings=registry_trust.registry_payment_bindings(record),
+        )) if result["state"] == "verified" else None,
         "protocol_profile_ids": (
             record.get("protocol_profile_ids")
             if isinstance(record.get("protocol_profile_ids"), list)
@@ -2628,14 +2643,7 @@ def payment_protocols(quote: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def normalize_payment_rail(value: Any) -> str:
-    rail = str(value or "").strip().lower().replace("_", "-")
-    if rail in {"stripe", "stripe-card", "stripe-card-mpp"}:
-        return "stripe-card-mpp"
-    if rail in {"tempo", "tempo-mpp", "mpp", "mpp-shaped-demo", "demo-payment-proof"}:
-        return "tempo-mpp"
-    if rail in {"x402", "x402-exact", "x402-compatible"}:
-        return "x402-compatible"
-    return rail
+    return registry_trust.normalized_payment_rail(value)
 
 
 def selected_payment_protocol(quote: dict[str, Any], payment_rail: str | None = None) -> dict[str, Any]:
@@ -2643,7 +2651,7 @@ def selected_payment_protocol(quote: dict[str, Any], payment_rail: str | None = 
     requested = normalize_payment_rail(payment_rail)
     if requested:
         for protocol in protocols:
-            if normalize_payment_rail(protocol.get("id")) == requested:
+            if normalize_payment_rail(protocol.get("id") or protocol.get("method")) == requested:
                 return protocol
         return {"id": requested, "available": False}
     for protocol in protocols:
@@ -2651,26 +2659,19 @@ def selected_payment_protocol(quote: dict[str, Any], payment_rail: str | None = 
             return protocol
     return protocols[0] if protocols else {}
 
+def quote_payment_selection_issues(quote: dict[str, Any], payment_rail: str | None = None) -> list[str]:
+    selected = selected_payment_protocol(quote, payment_rail)
+    rail = payment_rail or selected.get("id") or selected.get("method")
+    return registry_trust.payment_protocol_selection_issues(payment_protocols(quote), rail)
+
+
+def quote_payment_issues(quote: dict[str, Any], payment_rail: str | None = None) -> list[str]:
+    return quote_payment_selection_issues(quote, payment_rail) + payment_destination_binding_issues(quote, payment_rail)
+
+
 
 def payment_contract_hash_for_quote(quote: dict[str, Any], rail: str | None = None) -> str:
-    payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
-    normalized_rail = normalize_payment_rail(rail)
-    contracts = payment.get("verification_contracts") if isinstance(payment.get("verification_contracts"), list) else []
-    for contract in contracts:
-        if not isinstance(contract, dict):
-            continue
-        if normalized_rail and normalize_payment_rail(contract.get("rail")) != normalized_rail:
-            continue
-        value = str(contract.get("payment_contract_hash") or "")
-        if value:
-            return value
-    contract = payment.get("verification_contract") if isinstance(payment.get("verification_contract"), dict) else {}
-    if contract and (not normalized_rail or normalize_payment_rail(contract.get("rail")) == normalized_rail):
-        value = str(contract.get("payment_contract_hash") or "")
-        if value:
-            return value
-    verification = payment.get("verification") if isinstance(payment.get("verification"), dict) else {}
-    return str(payment.get("payment_contract_hash") or verification.get("payment_contract_hash") or "")
+    return registry_trust.quote_payment_contract_hash(quote, rail)
 
 
 def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) -> dict[str, Any]:
@@ -2724,6 +2725,9 @@ def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) 
             destination["payment_required"] = x402["payment_required"]
         if x402.get("payment_required_header_value"):
             destination["payment_required_header_value"] = str(x402["payment_required_header_value"])
+    trust = quote_trust_metadata(quote)
+    if trust.get("registry_record_hash") and not payment_destination_binding_issues(quote, payment_rail, destination=protocol):
+        destination = registry_trust.registry_quote_payment_destination(quote, protocol)
     return destination
 
 
@@ -2754,7 +2758,7 @@ def normalized_origin(value: str) -> str:
 
 
 def quote_trust_metadata(quote: dict[str, Any]) -> dict[str, Any]:
-    metadata = quote.get(QUOTE_TRUST_KEY)
+    metadata = quote.get(QUOTE_TRUST_KEY) or quote.get("quote_trust")
     return metadata if isinstance(metadata, dict) else {}
 
 
@@ -2764,6 +2768,8 @@ def annotate_quote_trust(
     merchant_origin: str,
     registry_record_hash: str = "",
     manifest_url: str = "",
+    registry_payment_bindings: dict[str, Any] | None = None,
+    payment_rail: str | None = None,
 ) -> dict[str, Any]:
     copied = json.loads(json.dumps(quote, ensure_ascii=False))
     trust = {
@@ -2774,9 +2780,34 @@ def annotate_quote_trust(
         "source": "verified_registry_record" if registry_record_hash else "single_merchant_base_url",
         "created_at": iso_now(),
     }
+    if registry_record_hash:
+        trust["registry_payment_bindings"] = registry_payment_bindings or {}
     trust["trust_hash"] = hash_without(trust, "trust_hash")
     copied[QUOTE_TRUST_KEY] = trust
+    if "payment_requirements" in copied:
+        selection_issues = quote_payment_selection_issues(copied, payment_rail)
+        if selection_issues:
+            raise SystemExit(selection_issues[0])
     return copied
+
+
+def payment_destination_binding_issues(
+    quote: dict[str, Any],
+    payment_rail: str | None = None,
+    *,
+    destination: dict[str, Any] | None = None,
+) -> list[str]:
+    trust = quote_trust_metadata(quote)
+    if not (trust.get("registry_record_hash") or quote.get("registry_record_hash")):
+        return []
+    if trust.get("trust_hash") != hash_without(trust, "trust_hash"):
+        return ["payment_destination_mismatch"]
+    # Avoid recursion when payment_destination itself is labelling the result.
+    selected = destination if destination is not None else selected_payment_protocol(quote, payment_rail)
+    selected_rail = normalize_payment_rail(selected.get("id") or selected.get("method"))
+    if not registry_trust.payment_destination_matches_binding(selected, trust.get("registry_payment_bindings"), rail=selected_rail):
+        return ["payment_destination_mismatch"]
+    return []
 
 
 def checkout_base_url_for_quote(args: dict[str, Any], quote: dict[str, Any]) -> str:
@@ -2875,6 +2906,7 @@ def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -
     if not delivery_readiness["checkout_ready"]:
         approval_issues.append("incomplete_delivery_address")
     approval_issues.extend(financial_readiness["issues"])
+    approval_issues.extend(quote_payment_issues(quote, payment_rail))
     if approval_issues:
         summary = (
             f"Comparison quote for merchant-provided item {quoted_display_text(quote_title(quote))} "
@@ -2907,6 +2939,8 @@ def approval_packet(quote: dict[str, Any], *, payment_rail: str | None = None) -
             if not approval_issues
             else delivery_readiness["next_step"]
             if not delivery_readiness["checkout_ready"]
+            else "Reject this quote: its payment destination does not match the verified registry record."
+            if "payment_destination_mismatch" in approval_issues
             else financial_readiness["next_step"]
         ),
         "approval_in_skill_only_mode": "Human approval happens in the agent chat; this portable approval_record can be stored by the agent or exported into an AgentCart service audit trail.",
@@ -3313,6 +3347,7 @@ def doctor_next_commands(mode: str, base_url: str, has_registry: bool) -> list[d
     return commands
 
 
+@safe_http.budgeted_discovery
 def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
     base = configured_base_url(args)
     registry_configured = registry_source_configured(args)
@@ -3346,7 +3381,7 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
                 }
             )
         except SystemExit as exc:
-            checks.append({"id": "registry_source", "ok": False, "error": str(exc)})
+            checks.append({"id": "registry_source", "ok": False, "error": str(exc), **source_diagnostics})
 
         if records and arg_bool(args, "verify_merchants", arg_bool(args, "probe", False)):
             limit = bounded_int(args.get("verify_limit"), default=5, minimum=1, maximum=25)
@@ -3518,13 +3553,24 @@ def command_quote(args: dict[str, Any]) -> dict[str, Any]:
         "ship_to": quote_ship_to_from_args(args),
     }
     base_url = base_url_from_args(args)
+    carried_trust = args.get("quote_trust")
+    if carried_trust is not None:
+        if not isinstance(carried_trust, dict) or carried_trust.get("trust_hash") != hash_without(carried_trust, "trust_hash"):
+            raise SystemExit("payment_destination_mismatch")
+        if normalized_origin(str(carried_trust.get("merchant_origin") or "")) != normalized_origin(base_url):
+            raise SystemExit("payment_destination_mismatch")
     quote = request_json("/wp-json/agentcart/v1/quote", method="POST", payload=payload, base_url=base_url)
     annotated = annotate_quote_trust(
         quote,
         merchant_origin=base_url,
-        registry_record_hash=str(args.get("registry_record_hash") or ""),
-        manifest_url=str(args.get("manifest_url") or ""),
+        registry_record_hash=str((carried_trust or {}).get("registry_record_hash") or args.get("registry_record_hash") or ""),
+        manifest_url=str((carried_trust or {}).get("manifest_url") or args.get("manifest_url") or ""),
+        registry_payment_bindings=(carried_trust or {}).get("registry_payment_bindings"),
+        payment_rail=args.get("payment_rail"),
     )
+    payment_issues = quote_payment_issues(annotated, args.get("payment_rail"))
+    if payment_issues:
+        raise SystemExit(payment_issues[0])
     annotated["checkout_readiness"] = quote_delivery_readiness(annotated)
     return annotated
 
@@ -4181,8 +4227,9 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                         "base_url": base_url,
                         "items": [{"product_id": product_id, "quantity": quantity}],
                         "ship_to": ship_to,
+                        "quote_trust": resolved.get("quote_trust"),
                         "registry_record_hash": resolved.get("registry_record_hash"),
-                        "manifest_url": resolved.get("manifest_url"),
+                        "payment_rail": args.get("payment_rail"),
                     }
                 )
                 preflight = command_checkout_preflight(
@@ -4198,7 +4245,7 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
                         "merchant_id": merchant_id,
                         "product_id": product_id,
                         "title": product.get("title"),
-                        "reason": "quote request failed",
+                        "reason": str(exc) if str(exc) in {"payment_destination_mismatch", "duplicate_payment_rail", "payment_rail_unavailable", "payment_destination_setup_required"} else "quote request failed",
                         "detail": str(exc),
                     }
                 )
@@ -4289,6 +4336,7 @@ def command_discover_quotes(args: dict[str, Any]) -> dict[str, Any]:
         winner = {
             **public_candidates[0],
             "quote": raw_winner["_quote"],
+            "quote_trust": quote_trust_metadata(raw_winner["_quote"]),
             "approval_packet": approval_packet(raw_winner["_quote"], payment_rail=args.get("payment_rail")),
         }
     return {
@@ -4477,8 +4525,9 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
                     "base_url": base_url,
                     "items": quote_items,
                     "ship_to": ship_to,
+                    "quote_trust": resolved.get("quote_trust"),
                     "registry_record_hash": resolved.get("registry_record_hash"),
-                    "manifest_url": resolved.get("manifest_url"),
+                    "payment_rail": args.get("payment_rail"),
                 }
             )
             preflight = command_checkout_preflight(
@@ -4493,7 +4542,7 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
                 {
                     "merchant_id": merchant_id,
                     "merchant_name": resolved.get("merchant", {}).get("name"),
-                    "reason": "basket quote request failed",
+                    "reason": str(exc) if str(exc) in {"payment_destination_mismatch", "duplicate_payment_rail", "payment_rail_unavailable", "payment_destination_setup_required"} else "basket quote request failed",
                     "detail": str(exc),
                 }
             )
@@ -4589,6 +4638,7 @@ def command_discover_basket_quotes(args: dict[str, Any]) -> dict[str, Any]:
         winner = {
             **public_candidates[0],
             "quote": raw_winner["_quote"],
+            "quote_trust": quote_trust_metadata(raw_winner["_quote"]),
             "approval_packet": approval_packet(raw_winner["_quote"], payment_rail=args.get("payment_rail")),
         }
     return {
@@ -4639,24 +4689,19 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
     available_protocols = [
         protocol.get("id")
         for protocol in protocols
-        if isinstance(protocol, dict) and protocol.get("available", True) is not False
+        if protocol.get("available", True) is not False and protocol.get("setup_required") is not True
     ]
     issues = []
     if not delivery_readiness["checkout_ready"]:
         issues.append("incomplete_delivery_address")
     issues.extend(financial_readiness["issues"])
+    issues.extend(quote_payment_issues(quote, args.get("payment_rail")))
     if expires_at and expires_at <= now:
         issues.append("quote_expired")
     if not quote.get("quote_hash"):
         issues.append("missing_quote_hash")
     if not verification.get("external_verifier_configured"):
         issues.append("external_verifier_required_for_public_checkout")
-    payment_rail = normalize_payment_rail(args.get("payment_rail"))
-    available_rails = {normalize_payment_rail(value) for value in available_protocols}
-    if payment_rail and payment_rail not in available_rails:
-        issues.append("payment_rail_unavailable")
-    if destination.get("setup_required"):
-        issues.append("payment_destination_setup_required")
     if destination.get("rail") == "stripe-card-mpp" and not destination.get("stripe_profile_id"):
         issues.append("missing_stripe_profile_id")
     if destination.get("rail") == "tempo-mpp" and not destination.get("recipient"):
@@ -5046,6 +5091,9 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("approved"):
         raise SystemExit("approved=true is required before checkout")
     quote = args["quote"]
+    payment_issues = quote_payment_issues(quote, args.get("payment_rail"))
+    if payment_issues:
+        raise SystemExit(payment_issues[0])
     delivery_readiness = quote_delivery_readiness(quote)
     if not delivery_readiness["checkout_ready"]:
         raise SystemExit(

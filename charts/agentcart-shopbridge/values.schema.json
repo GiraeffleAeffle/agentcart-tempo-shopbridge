@@ -168,6 +168,34 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "required": ["verifier"],
+        "properties": {
+          "verifier": {
+            "required": ["enabled", "enabledRails"],
+            "properties": {
+              "enabled": {"const": true},
+              "enabledRails": {
+                "allOf": [
+                  {"contains": {"const": "tempo-mpp"}},
+                  {"not": {"contains": {"const": "stripe-card-mpp"}}}
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "store": {
+            "properties": {
+              "marketProfile": {"not": {"const": "eur"}}
+            }
+          }
+        }
+      }
     }
   ]
 }

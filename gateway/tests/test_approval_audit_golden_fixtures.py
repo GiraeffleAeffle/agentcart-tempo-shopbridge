@@ -98,6 +98,35 @@ class ApprovalAuditGoldenFixtureTests(unittest.TestCase):
         self.assertEqual(service_decision["decision_record_hash"], expected["service_approval_decision_hash"])
         self.assertEqual(skill_packet["approval_record_hash"], expected["skill_approval_record_hash"])
 
+    def test_registry_bound_quotes_have_matching_cross_runtime_approval_contracts(self) -> None:
+        for rail in ("stripe-card-mpp", "tempo-mpp"):
+            for metadata_key in ("quote_trust", shopbridge_direct.QUOTE_TRUST_KEY):
+                with self.subTest(rail=rail, metadata_key=metadata_key), tempfile.TemporaryDirectory() as raw_tmp:
+                    quote = copy.deepcopy(fixture_contract()["final_quote"])
+                    protocol = (
+                        {"id": rail, "stripe_profile_id": "acct_fixture_shop"}
+                        if rail == "stripe-card-mpp" else
+                        {"id": rail, "network": "testnet", "recipient": "0x1111111111111111111111111111111111111111"}
+                    )
+                    quote["payment_requirements"]["protocols"] = [protocol]
+                    trust = {
+                        "merchant_origin": "https://fixture-shop.example",
+                        "registry_record_hash": "verified-record-hash",
+                        "registry_payment_bindings": agentcart.registry_trust.registry_payment_bindings({
+                            "stripe_profile_id": "acct_fixture_shop",
+                            "payment_network": "testnet",
+                            "payment_recipient": "0x1111111111111111111111111111111111111111",
+                        }),
+                    }
+                    trust["trust_hash"] = agentcart.hash_without(trust, "trust_hash")
+                    quote[metadata_key] = trust
+                    service = service_for_tmp(pathlib.Path(raw_tmp))
+                    service_material = service.approval_material_for_quote(quote)
+                    skill_material = shopbridge_direct.approval_material(quote, payment_rail=rail)
+                    self.assertEqual(service_material, skill_material)
+                    self.assertEqual(agentcart.canonical_json_hash(service_material), shopbridge_direct.approval_packet(quote, payment_rail=rail)["approval_hash"])
+                    self.assertEqual(service_material["payment_destination"]["source"], "verified_registry_record")
+
     def test_skill_payment_handoff_and_audit_packet_match_golden_hashes(self) -> None:
         contract = fixture_contract()
         quote = copy.deepcopy(contract["final_quote"])

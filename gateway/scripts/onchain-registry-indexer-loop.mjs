@@ -6,6 +6,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import {
+  canonicalJson,
   collectFinalizedEvents,
   writeDocument,
 } from "./onchain-registry-indexer.mjs";
@@ -54,18 +55,7 @@ function optionalHttpsUrl(value, name) {
   return raw;
 }
 
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function sha256Canonical(value) {
+export function sha256Canonical(value) {
   return createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
 }
 

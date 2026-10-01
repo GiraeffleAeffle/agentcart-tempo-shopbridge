@@ -161,9 +161,78 @@ Discovery Facets deployment block hash: 0xc3742bb0f7b5db034ccb36f8fdd252be4b8aea
 Discovery Facets runtime code hash: 0x3a5d6e537b74546d91a80f3fa728acff2b9f217efea0cbf22a848ae43af27d12
 ```
 
+For standard-RPC V1 discovery, the direct skill checkpoints lifecycle logs,
+category declarations and event-block headers locally. Subsequent runs check
+chain id, checkpoint hash, normalized primary RPC identity and freshly observed
+registry/facets runtime code hashes before scanning newer finalized blocks,
+including when runtime hashes are unpinned. A changed provider or runtime causes
+a full rescan. Selected/backfill records still require storage checks at that
+same finalized snapshot. Myotis and V2 both bypass persistent checkpoints.
+V2 independently verifies the full finalized history with both RPCs on every
+run; no local witness-agreement flag is stored or trusted.
+
+Set `SHOPBRIDGE_ONCHAIN_CACHE_DIR` to choose the directory; otherwise it uses
+`$XDG_CACHE_HOME/shopbridge-direct` or `~/.cache/shopbridge-direct`.
+`SHOPBRIDGE_ONCHAIN_CACHE_DISABLED=1` forces a full scan. Files are versioned,
+bounded to 16 MiB and atomically written with mode `0600`. Corrupt, unreadable
+or mismatched files trigger full verification; an unwritable cache does not
+prevent discovery. Treat V1 checkpoints as trusted local availability/routing
+state, not authenticated log completeness or an externally supplied feed.
+SHA-256 detects corruption only: a same-user writer can rewrite valid history
+and recompute the digest. Integrity checks use POSIX effective-UID ownership
+and mode bits; extended ACLs are not inspected. Symlinked,
+non-owned or group/world-writable cache directories disable caching with
+`cache_dir_insecure`; files must be non-symlink regular files owned by the
+effective user with no group/other permission bits. Insecure existing directories
+are not chmodded. Diagnostics report cache status and scanned block ranges.
+Persistence is disabled with `cache_unsupported_platform` on platforms without
+the required POSIX owner, no-follow and directory-FD primitives (for example
+Windows). Discovery continues with a full verified scan, never a weaker cache
+implementation.
+
+Doctor, discovery and exact merchant resolution share a re-entrant 90-second
+deadline, 64-MiB response budget, and
+256 general requests. Standard-RPC history defaults to two fixed workers
+(`SHOPBRIDGE_ONCHAIN_LOG_WORKERS=1..8` is an explicit override) with at most four
+attempts and jittered exponential backoff for HTTP 429/502/503/504 or timeouts.
+Workers share one cooldown honoring `Retry-After` seconds or HTTP dates,
+independently capped to 30 seconds and the remaining deadline. The lowest
+on-chain entry establishes a budget if none exists; nested calls preserve it.
+Two-worker live cold doctor/tea-history sync took about 51 seconds; a tea 429
+was absorbed by retry. Four workers hit persistent rate limits, so higher
+concurrency is opt-in rather than the default. Buyer-computed
+100,000-block log pages and one end-block header per synchronized range are
+exempt from the general request cap but retain the time/byte budgets. At most
+2,000 log pages are allowed per run, including both RPCs in v2; larger scans
+fail with `history_scan_exceeds_limit`. Event-volume-dependent block headers
+are deduplicated/cached but still use the general cap because an open v1
+registry allows a spammer to influence their count.
+
+If V1 history reaches the deadline, the skill atomically saves only its contiguous
+finalized prefix and reports `history_sync_incomplete` with blocks done/total.
+Repeat doctor or discovery with the same protected local cache to resume.
+A prefix alone cannot make a merchant eligible; projection requires all
+history through the newly checked finalized boundary. Myotis retains its full
+verified-index scan. V2 never persists prefixes or resumes them: both RPCs must
+verify the entire history afresh, within the budget, on every invocation.
+
+A first V1 sync on an old chain may require several invocations. Harnesses must
+persist `SHOPBRIDGE_ONCHAIN_CACHE_DIR` between invocations; ephemeral cloud
+sandboxes without persistent storage are not supported for direct on-chain
+discovery. Checkpoints and bounded parallelism accelerate repeated discovery,
+but do not remove chain-age-dependent first-sync work. A contract-side
+active-set/category index in a future registry version is the durable fix.
+
+If no merchant record resolves, its failed registry-source check retains
+`authority:smart_contract`, per-record error codes, candidate selection and
+the finalized block/hash, with `no_eligible_merchants` rather than a misleading
+missing-configuration message. Quote discovery exposes the same structured
+error. A standard-RPC storage mismatch excludes that candidate and backfills
+at the same finalized boundary; Myotis storage mismatches still fail closed.
+
 It requests the RPC `finalized` head, reads the eligibility-changing contract
-logs and matching indexed category declarations from their deployment blocks,
-and reconstructs current lifecycle state. A category declaration is usable
+logs and indexed category declarations from the verified checkpoint (or the
+deployment blocks on a cold run), and reconstructs current lifecycle state. A category declaration is usable
 only when its generation and category-set commitment match both finalized
 contract state and the current hash-committed Registry Record. A deterministic
 neutral fallback remains for ambiguous queries and uncategorized merchants. It
@@ -429,8 +498,10 @@ Discovery sends only country/postcode to candidate merchants. Its winning
 quote is therefore a comparison quote and returns `approval_ready:false` until
 the full delivery address is present. After selecting a merchant, ask the buyer
 for the missing delivery fields and request a fresh quote from only that
-verified origin. Never invent a recipient name or street address, and never
-reuse the comparison quote's approval hash after refreshing it.
+verified origin, passing the unchanged `quote_trust` from the discovery winner
+(or from `resolve_merchant`) together with `payment_rail`. Never invent a
+recipient name or street address, and never reuse the comparison quote's
+approval hash after refreshing it.
 
 Checkout safety:
 
@@ -546,6 +617,10 @@ For OpenClaw-style deployments, the helper also reads:
 ```text
 /etc/openclaw/agentcart.env
 ```
+
+When a registry-verified merchant is quoted through the service, the AgentCart
+service rejects a quote whose payment destination differs from the committed
+binding (HTTP 403, `payment_destination_mismatch`).
 
 ## Local Merchant For Independent Testing
 

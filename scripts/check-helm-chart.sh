@@ -19,6 +19,7 @@ cleanup() { rm -f -- "$rendered" "$rendered_verifier"; }
 trap cleanup EXIT INT TERM
 "$helm_bin" template public-check "$chart" --namespace public-check >"$rendered"
 "$helm_bin" template verifier-check "$chart" --namespace verifier-check \
+  --set store.marketProfile=eur \
   --set store.checkoutMode=external_verifier_only \
   --set store.signedRequestMode=require_mutations \
   --set verifier.enabled=true \
@@ -37,12 +38,35 @@ trap cleanup EXIT INT TERM
   >"$rendered_verifier"
 
 if "$helm_bin" lint "$chart" \
+  --set store.marketProfile=usd \
   --set store.checkoutMode=external_verifier_only \
   --set store.signedRequestMode=require_mutations \
   --set verifier.enabled=true \
   --set images.verifier.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
   >/dev/null 2>&1; then
   printf 'Tempo verifier without settlement verification unexpectedly passed chart validation\n' >&2
+  exit 1
+fi
+
+"$helm_bin" lint "$chart" \
+  --set store.marketProfile=usd \
+  --set store.checkoutMode=external_verifier_only \
+  --set store.signedRequestMode=require_mutations \
+  --set verifier.enabled=true \
+  --set 'verifier.enabledRails[0]=tempo-mpp' \
+  --set verifier.tempo.settlementMode=verify \
+  --set images.verifier.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  >/dev/null
+
+if "$helm_bin" lint "$chart" \
+  --set store.marketProfile=eur \
+  --set store.checkoutMode=external_verifier_only \
+  --set store.signedRequestMode=require_mutations \
+  --set verifier.enabled=true \
+  --set verifier.tempo.settlementMode=verify \
+  --set images.verifier.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  >/dev/null 2>&1; then
+  printf 'EUR storefront with a real Tempo verifier unexpectedly passed chart validation\n' >&2
   exit 1
 fi
 
