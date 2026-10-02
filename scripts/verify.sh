@@ -24,6 +24,7 @@ if command -v forge >/dev/null 2>&1; then
   (
     cd "$ROOT_DIR"
     ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY:-dummy}" forge test --quiet
+    python3 "$ROOT_DIR/scripts/check-contract-sizes.py"
   )
 elif [ "${AGENTCART_REQUIRE_SOLIDITY_TESTS:-0}" = 1 ]; then
   printf 'forge is required for this verification run\n' >&2

@@ -569,14 +569,26 @@ Checkout safety:
   Only Base Sepolia (`eip155:84532`) USDC and USD quotes are supported, with no
   FX conversion. Registry quotes require committed `x402_network`,
   `x402_asset` and `x402_pay_to`; old records remain usable for committed MPP
-  rails but cannot authorize x402. The skill does not create wallets or sign.
+  rails but cannot authorize x402. The skill does not create wallets.
   The challenge resource must exactly equal the quote's checkout endpoint and
   have the registry-verified origin. The EIP-3009 nonce must equal
   `keccak256(utf8("shopbridge-x402-nonce-v1") || bytes32(quote_hash) ||
   bytes32(payment_contract_hash) || keccak256(utf8(resource.url)))`; decode each
   64-hex SHA-256 hash into 32 bytes and use lowercase `0x` hex. The handoff
   returns this as `authorization_nonce`, with `validAfter:"0"` and
-  `validBefore` = current Unix seconds plus `maxTimeoutSeconds` (30–300 seconds).
+  `validBefore` = pinned `approved_at` Unix seconds plus `maxTimeoutSeconds` (30–300 seconds).
+  Use `payment_handoff` → `x402_typed_data` → wallet `eth_signTypedData_v4`
+  → `x402_receipt` → checkout with returned `payment_receipt` and unchanged
+  `checkout_args`. Both signing commands take the full handoff, `payer`, original
+  `quote`, `payment_rail:"x402-compatible"`, `approved:true` and `approval_hash`;
+  receipt additionally takes `signature`. They rederive the handoff through the
+  same approval, registry-binding and preflight gates. Before signing, the wallet
+  or human must confirm `message.to` and `message.value` match the approval packet's
+  destination and atomic amount. Generic clients choosing their own
+  nonce are rejected fail closed. Expiry requires a new handoff, never new
+  timestamps substituted into a retry. Python does not verify signatures;
+  the facilitator does. Use an external wallet or human signer; there is no
+  built-in automated signer.
   Supply the client's padded-base64 v2 PaymentPayload in
   `payment_receipt.x402_payment_signature`, plus `method:"x402-compatible"`,
   `status:"authorized"`, `x402_version:2`, network, asset, pay_to, atomic
@@ -611,6 +623,22 @@ Checkout safety:
   to amount, currency, quote hash, merchant recipient/profile, and transaction
   reference or credential.
 - The Tempo demo proof is sandbox/testnet proof, not production EUR settlement.
+
+### Security boundary
+
+The x402 authorization is a bearer instrument. `x402_typed_data` output is for
+an external wallet or human signer, who must confirm `to` and `value` against
+the approval packet before signing. The skill's checks are consistency and
+registry gates, not proof of human approval. Signing rejects unverified registry
+destinations, future `approved_at`, and `validBefore` beyond local now plus the
+accepted timeout, with no buyer-side future-skew allowance.
+
+There is no built-in automated signer. Automated agent signing needs a separately
+designed signer with an operator-owned policy and authoritative registry revalidation.
+For manual testnet signing, save the bare `typed_data` object to `typed_data.json`
+and run `cast wallet sign --data --from-file typed_data.json --interactive`
+(Foundry), or use any wallet's `eth_signTypedData_v4`. Never expose or commit keys.
+
 
 Audit import into an AgentCart service:
 

@@ -161,7 +161,9 @@
             "/v1/checkout"
           ],
           "skill_commands": [
-            "payment_handoff"
+            "payment_handoff",
+            "x402_typed_data",
+            "x402_receipt"
           ]
         },
         {

@@ -113,6 +113,8 @@
         "approval_packet",
         "payment_readiness",
         "payment_handoff",
+        "x402_typed_data",
+        "x402_receipt",
         "checkout",
         "audit_import",
         "order_status",
