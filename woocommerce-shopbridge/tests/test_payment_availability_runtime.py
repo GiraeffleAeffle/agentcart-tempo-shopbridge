@@ -405,7 +405,7 @@ $quote = ['id' => 'quote-one', 'currency' => 'USD', 'total_cents' => 1234, 'quot
 $quote['payment_requirements'] = invoke('payment_requirements', $quote);
 $signature = base64_encode(json_encode(['payload' => ['authorization' => ['nonce' => '0x' . str_repeat('0', 64)]]]));
 $receipt = invoke('payment_receipt_from_checkout_request', [], new WP_REST_Request(['payment-signature' => $signature]), $quote);
-$error = invoke('call_payment_verifier', 'https://8.8.8.8/verify', $quote, $receipt, ['rail' => 'x402-compatible'], invoke('payment_verification_contract', $quote, 'x402-compatible'));
+$error = invoke('call_payment_verifier', 'https://8.8.8.8/verify', $quote, $receipt, ['rail' => 'x402-compatible'], invoke('payment_verification_contract', $quote, 'x402-compatible'), null);
 echo json_encode(['nonce' => invoke('x402_authorization_nonce', str_repeat('a', 64), str_repeat('b', 64), 'https://shop.example/wp-json/agentcart/v1/orders'),
  'error' => is_wp_error($error) ? $error->get_error_code() : null, 'http_calls' => $GLOBALS['http_calls']]);
 """)
@@ -738,7 +738,7 @@ echo json_encode([
         self.assertEqual(result["new_error"], "agentcart_payment_rail_unavailable_for_quote")
         self.assertEqual(result["http_calls"], 0)
 
-    def checkout_reliability(self, mutation):
+    def checkout_reliability(self, mutation, rail="tempo-mpp"):
         setup = r'''
 define('ARRAY_A', 'ARRAY_A');
 class WooCommerce {}
@@ -787,7 +787,7 @@ function wp_get_post_terms(...$args) { return []; }
 function wp_salt($scheme) { return 'local-checkout-reliability-salt'; }
 function get_transient($key) { return $GLOBALS['transients'][$key] ?? false; }
 function wp_next_scheduled(...$args) { return false; }
-function wp_schedule_single_event(...$args) { return true; }
+function wp_schedule_single_event($time, $hook, $args) { $GLOBALS['scheduled_events'][] = $hook; return true; }
 $wpdb = new class {
  public $posts = 'wp_posts', $postmeta = 'wp_postmeta', $comments = 'wp_comments', $commentmeta = 'wp_commentmeta', $prefix = 'wp_';
  public function prepare($sql, ...$args) { return isset($args[0]) && is_array($args[0]) ? $args[0] : $sql; }
@@ -805,7 +805,7 @@ $GLOBALS['wc_fixture'] = new class {
  public function shipping() { return null; }
 };
 '''
-        body = r'''
+        body = (self.capability_setup() if rail == "x402-compatible" else "") + "$rail = " + json.dumps(rail) + ";" + r'''
 $GLOBALS['options']['agentcart_shopbridge_product_exposure_mode'] = 'all';
 $GLOBALS['options']['agentcart_shopbridge_stock_hold_mode'] = 'off';
 $GLOBALS['options']['agentcart_shopbridge_checkout_mode'] = 'external_verifier_only';
@@ -823,14 +823,16 @@ $draft = new CheckoutDraft();
 $draft->meta[AgentCart_ShopBridge_Checkout_Store::STATE_META] = 'reserved';
 $draft->meta['_agentcart_quote_snapshot'] = json_encode($quote);
 $GLOBALS['order_lookup'] = fn($args) => isset($args['status']) && ($args['meta_key'] ?? '') === AgentCart_ShopBridge_Checkout_Store::QUOTE_META ? [$draft] : [];
-$contract = invoke('payment_verification_contract_with_hash', $quote, 'tempo-mpp');
+$contract = invoke('payment_verification_contract_with_hash', $quote, $rail);
 $request = new WP_REST_Request();
 $request->set_body(json_encode(['agentcart_order_id' => 'checkout-reliability', 'merchant_quote_id' => $quote['id'], 'quote_hash' => $quote['quote_hash'],
- 'payment_receipt' => ['id' => 'payment-checkout', 'rail' => 'tempo-mpp', 'amount_cents' => $quote['total_cents'],
-   'currency' => 'USD', 'quote_hash' => $quote['quote_hash'], 'payment_contract_hash' => $contract['payment_contract_hash']]]));
+ 'payment_receipt' => ['id' => 'payment-checkout', 'rail' => $rail, 'amount_cents' => $quote['total_cents'],
+   'currency' => 'USD', 'quote_hash' => $quote['quote_hash'], 'payment_contract_hash' => $contract['payment_contract_hash'],
+   'x402_payment_signature' => base64_encode(json_encode(['payload' => ['authorization' => ['nonce' => '0x' . str_repeat('0', 64)]]]))]]));
 $result = AgentCart_ShopBridge::create_order($request);
 echo json_encode(['error' => is_wp_error($result) ? $result->get_error_code() : null,
- 'data' => is_wp_error($result) ? $result->get_error_data() : null, 'http_calls' => $GLOBALS['http_calls'] ?? 0]);
+ 'data' => is_wp_error($result) ? $result->get_error_data() : null, 'http_calls' => $GLOBALS['http_calls'] ?? 0,
+ 'attempted' => AgentCart_ShopBridge_Checkout_Store::verification_attempted($draft), 'scheduled_events' => $GLOBALS['scheduled_events'] ?? []]);
 '''
         return self.run_plugin(body, setup)
 
@@ -847,6 +849,21 @@ echo json_encode(['error' => is_wp_error($result) ? $result->get_error_code() : 
                 self.assertEqual(result["error"], "agentcart_quote_" + reason)
                 self.assertEqual(result["data"]["recovery"]["reason"], reason)
                 self.assertEqual(result["http_calls"], 0)
+
+    def test_wrong_x402_nonce_never_marks_or_schedules_payment_attempt(self):
+        result = self.checkout_reliability("", rail="x402-compatible")
+        self.assertEqual(result["error"], "agentcart_x402_nonce_mismatch")
+        self.assertEqual(result["data"]["status"], 402)
+        self.assertEqual(result["http_calls"], 0)
+        self.assertFalse(result["attempted"])
+        self.assertNotIn("agentcart_shopbridge_recover_checkout", result["scheduled_events"])
+
+    def test_outbound_payment_transport_failure_keeps_recovery_eligibility(self):
+        result = self.checkout_reliability("")
+        self.assertEqual(result["error"], "agentcart_payment_verifier_failed")
+        self.assertEqual(result["http_calls"], 1)
+        self.assertTrue(result["attempted"])
+        self.assertIn("agentcart_shopbridge_recover_checkout", result["scheduled_events"])
 
 
 if __name__ == "__main__":

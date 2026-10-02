@@ -94,8 +94,12 @@ def run(case):
         status = skill('order_status', {'status_url': order['status_url'], 'status_token': order['status_token'],
                                        'allow_private_origin': True})
         assert status['payment_status'] == 'paid', status
-        return {'case': case, 'order_id': order['id'], 'payment_status': status['payment_status']}
+        original = json.loads(Path('/work/positive-result.json').read_text())
+        binding = {key: original[key] for key in ('quote_id', 'quote_hash', 'payment_contract_hash')}
+        return {'case': case, **binding, 'order_id': order['id'], 'payment_status': status['payment_status']}
     args, handoff = fresh()
+    binding = {'quote_id': args['quote']['id'], 'quote_hash': handoff['payment_request']['quote_hash'],
+               'payment_contract_hash': handoff['payment_request']['payment_contract_hash']}
     if case == 'positive':
         payer = http_json('http://signer:4293/payer')['payer']
         signing_args = {key: args[key] for key in ('quote', 'payment_rail', 'approved', 'approval_hash')}
@@ -110,7 +114,7 @@ def run(case):
         assert order['payment_verification']['real_settlement_verified'] is True, order
         assert order.get('payment_response') or order['payment_verification'].get('payment_response'), order
         STATE.write_text(json.dumps({'args': args, 'order': order}))
-        return {'case': case, 'order_id': order['id'], 'real_settlement_verified': True}
+        return {'case': case, **binding, 'order_id': order['id'], 'real_settlement_verified': True}
     args['payment_receipt'] = adversarial_receipt(args, handoff, case)
     if case == 'N2':
         # Simulated non-compliant client: skip only the skill's receipt gate, not payload construction.
@@ -129,7 +133,7 @@ def run(case):
     else:
         skill('checkout', args, error={'N1': 'x402_authorization_nonce_mismatch',
                                      'N3': 'x402_authorization_window_invalid'}[case])
-    return {'case': case, 'rejected': True}
+    return {'case': case, **binding, 'rejected': True}
 
 
 if __name__ == '__main__':

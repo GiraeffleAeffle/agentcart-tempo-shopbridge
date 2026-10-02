@@ -63,8 +63,12 @@ bash scripts/run-x402-e2e.sh
 This runs the Python 3.11 skill against WordPress and the verifier with fake
 facilitator/RPC services. The positive checkout signs the skill's typed data
 directly with a test-only viem bridge (Node 22) and a runtime-only ephemeral key;
-replay and four adversarial cases assert
-verifier payment-call counts. No live payment or chain transaction occurs, and
+replay and four adversarial cases assert per-quote verifier payment-call counts.
+WP-cron is disabled; the harness acts as the external scheduler and runs due cron events after N3.
+It waits for the scheduled recovery (bounded to 150 seconds), verifies the unpaid
+N3 draft is retried exactly once and rescheduled with backoff, and confirms completed orders
+are not re-settled and local nonce rejections are never attempted or recovered.
+No live payment or chain transaction occurs, and
 the fake facilitator does not validate signatures. Installation may download
 Docker/npm dependencies and the gitignored WooCommerce archive. Each run prints
 a compact JSON summary and removes its unique compose project, volumes, local

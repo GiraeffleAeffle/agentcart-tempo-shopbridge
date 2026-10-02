@@ -7419,10 +7419,7 @@ final class AgentCart_ShopBridge {
 
         $verifier_url = self::payment_verifier_url();
         if ($verifier_url !== '') {
-            if ($checkout_draft !== null && $recovering_draft === null) {
-                AgentCart_ShopBridge_Checkout_Store::mark_verifying($checkout_draft);
-            }
-            $verification = self::call_payment_verifier($verifier_url, $quote, $receipt, $body, $payment_contract);
+            $verification = self::call_payment_verifier($verifier_url, $quote, $receipt, $body, $payment_contract, $checkout_draft);
             if (is_wp_error($verification)) {
                 return $verification;
             }
@@ -8679,7 +8676,8 @@ final class AgentCart_ShopBridge {
             self::payment_verifier_url(),
             ['operation' => 'capabilities'],
             ['Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . self::payment_verifier_token()],
-            10
+            10,
+            null
         );
         if (is_wp_error($response)) {
             return 'Verifier capability check failed: ' . sanitize_key($response->get_error_code()) . '.';

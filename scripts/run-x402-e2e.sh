@@ -2,6 +2,7 @@
 # All traffic stays on an isolated Docker network (also works on colima without port forwarding).
 # The test-only signing bridge uses the verifier image's Node 22 + viem directly;
 # its runtime-generated ephemeral account stays in memory and is never logged.
+# WP-cron is disabled; the harness acts as the external scheduler and runs due cron events after N3.
 set -euo pipefail
 root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # Do not inherit merchant credentials or local compose .env files.
@@ -59,18 +60,26 @@ wp eval '$products = wc_get_products(["limit" => -1]); $found = false; foreach (
 run_case() { "${compose[@]}" run --rm -T --no-deps skill python /e2e/drive_x402.py "$1"; }
 assert_events() {
   "${compose[@]}" logs --no-color --no-log-prefix verifier > "$X402_E2E_TMP/work/verifier.log"
-  "${compose[@]}" run --rm -T --no-deps skill python /e2e/assert_events.py "$1" "$2" >&2
+  "${compose[@]}" run --rm -T --no-deps skill python /e2e/assert_events.py "$1" >&2
 }
 run_case available > "$X402_E2E_TMP/work/available.json"
-assert_events 0 0
+assert_events initial
 run_case positive > "$X402_E2E_TMP/work/positive-result.json"
-assert_events 1 0
+assert_events initial
 run_case replay > "$X402_E2E_TMP/work/replay.json"
-assert_events 1 0
+assert_events initial
 for case in N1 N2 N3; do
   run_case "$case" > "$X402_E2E_TMP/work/$case.json"
-  if [[ "$case" == N3 ]]; then assert_events 1 1; else assert_events 1 0; fi
+  assert_events initial
 done
+wp eval-file /e2e/recovery-state.php before > "$X402_E2E_TMP/work/recovery-before.json"
+wait_seconds="$("${compose[@]}" run --rm -T --no-deps skill python /e2e/recovery_wait.py)"
+printf 'Waiting %s seconds for the scheduled N3 recovery event.\n' "$wait_seconds" >&2
+sleep "$wait_seconds"
+wp eval-file /e2e/recovery-state.php due > "$X402_E2E_TMP/work/recovery-due.json"
+wp cron event run --due-now > "$X402_E2E_TMP/work/cron.log"
+wp eval-file /e2e/recovery-state.php after > "$X402_E2E_TMP/work/recovery-after.json"
+assert_events recovered
 wp eval 'if (get_option("agentcart_shopbridge_x402_max_timeout_seconds", false) !== false) { fwrite(STDERR, "Expected the isolated seed timeout option to be unset\n"); exit(1); }' >&2
 restore_timeout=1
 wp option update agentcart_shopbridge_x402_max_timeout_seconds 600 >&2
@@ -78,5 +87,5 @@ run_case N4 > "$X402_E2E_TMP/work/N4.json"
 wp option delete agentcart_shopbridge_x402_max_timeout_seconds >&2
 restore_timeout=0
 run_case available > "$X402_E2E_TMP/work/restored.json"
-assert_events 1 1
+assert_events recovered
 "${compose[@]}" run --rm -T --no-deps skill python /e2e/summary.py "$project" "$X402_E2E_IMAGE"

@@ -324,6 +324,8 @@ AgentCart metadata so merchants retain their commerce audit trail.
   after rail availability changes; new submissions still require an enabled rail.
 * Include delivery_address_incomplete recovery hints when checkout rejects an
   incomplete delivery address before payment verification.
+* Finish local payment checks before marking verification attempted or scheduling
+  recovery; rejected x402 nonces never create payment-recovery eligibility.
 * Enable x402 v2 exact Base Sepolia USDC for USD quotes after an explicit,
   nonce-protected verifier capability check; bind registry claims to the destination.
 * Use PAYMENT-REQUIRED, PAYMENT-SIGNATURE and PAYMENT-RESPONSE v2 documents;

@@ -1,5 +1,5 @@
 x-agentcart-config: &agentcart_config |
-  // Use scheduler-driven cron, not request-triggered recovery retries that alter payment-call counts.
+  // The harness runs due cron events explicitly after N3, like an external scheduler.
   define('DISABLE_WP_CRON', true);
   define('AGENTCART_SHOPBRIDGE_TOKEN', 'agentcart-woo-demo-token');
   define('AGENTCART_MERCHANT_ID', 'x402-e2e-shop');
@@ -30,6 +30,8 @@ services:
       AGENTCART_WOO_MARKET_PROFILE: usd
     volumes:
       - ${X402_E2E_TMP}/verifier-token:/run/secrets/verifier-token:ro
+      - ./x402-e2e:/e2e:ro
+      - ${X402_E2E_TMP}/work:/work:ro
   verifier:
     image: ${X402_E2E_IMAGE}
     command: [sh, -c, 'export AGENTCART_PAYMENT_VERIFIER_TOKEN="$$(cat /run/secrets/verifier-token)"; node tests/helpers/fake-x402.mjs & exec node scripts/stripe-mpp-verifier.mjs']
