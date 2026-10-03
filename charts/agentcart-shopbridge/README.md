@@ -230,7 +230,9 @@ manifest digest. This avoids relying on a single long-lived layer request.
 - persistent claims survive Helm uninstall and StatefulSet deletion;
 - storefront access logs record only time, method, path without query string,
   status, size and duration. They never record client addresses, user agents,
-  referrers or query strings, which can carry order status tokens.
+  referrers or query strings, which can carry order status tokens. nginx error
+  logging is limited to critical messages, because error lines include the client
+  address and the full request line.
 
 The default ingress namespace selector is portable. Some CNI/ingress setups
 SNAT traffic; add only their observed source CIDRs through private values.
