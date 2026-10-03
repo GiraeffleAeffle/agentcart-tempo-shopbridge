@@ -227,7 +227,10 @@ manifest digest. This avoids relying on a single long-lived layer request.
   egress only to DNS and public HTTPS RPC endpoints;
 - egress to private, loopback, link-local, and carrier-grade NAT ranges is
   denied for public HTTPS calls;
-- persistent claims survive Helm uninstall and StatefulSet deletion.
+- persistent claims survive Helm uninstall and StatefulSet deletion;
+- storefront access logs record only time, method, path without query string,
+  status, size and duration. They never record client addresses, user agents,
+  referrers or query strings, which can carry order status tokens.
 
 The default ingress namespace selector is portable. Some CNI/ingress setups
 SNAT traffic; add only their observed source CIDRs through private values.
