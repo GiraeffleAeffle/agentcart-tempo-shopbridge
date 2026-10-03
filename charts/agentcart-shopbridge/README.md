@@ -207,6 +207,24 @@ minutes; health checks make no facilitator or RPC calls. x402 refunds are
 unsupported. See `docs/VERIFIER_CONTRACT.md` and
 `docs/VERIFIER_OPERATIONS_READINESS.md` for durable retry handling.
 
+The storefront side is declarative too. `store.x402` becomes `wp-config` constants
+on every pod start, so a reseed or reset cannot silently drop payment
+configuration. Network, asset and payTo are all-or-nothing; the timeout must be
+30–300 seconds:
+
+```yaml
+store:
+  marketProfile: usd
+  x402:
+    network: "eip155:84532"
+    asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    payTo: "0x<merchant address>"
+    maxTimeoutSeconds: 300
+```
+
+The plugin still offers x402 only after an administrator's verifier capability
+check confirms settle mode and facilitator support for this network and asset.
+
 For a slow private registry tunnel, use
 `scripts/push-oci-layout-resumable.py` against a loopback port-forward. It
 verifies the OCI manifest and every blob locally, uploads in bounded resumable

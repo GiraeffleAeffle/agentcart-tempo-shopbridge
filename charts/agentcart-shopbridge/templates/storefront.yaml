@@ -132,6 +132,10 @@ spec:
             {{- if .Values.store.registryOnchain.v2Deployment }}
             - {name: AGENTCART_REGISTRY_V2_DEPLOYMENT, value: {{ .Values.store.registryOnchain.v2Deployment | toJson | quote }}}
             {{- end }}
+            - {name: AGENTCART_X402_NETWORK, value: {{ .Values.store.x402.network | quote }}}
+            - {name: AGENTCART_X402_ASSET, value: {{ .Values.store.x402.asset | quote }}}
+            - {name: AGENTCART_X402_PAY_TO, value: {{ .Values.store.x402.payTo | quote }}}
+            - {name: AGENTCART_X402_MAX_TIMEOUT_SECONDS, value: {{ .Values.store.x402.maxTimeoutSeconds | quote }}}
             - {name: AGENTCART_CHECKOUT_MODE, value: {{ .Values.store.checkoutMode | quote }}}
             - {name: AGENTCART_PLUGIN_VERSION, value: {{ .Chart.AppVersion | quote }}}
             - {name: AGENTCART_STOCK_HOLD_MODE, value: {{ .Values.store.stockHoldMode | quote }}}

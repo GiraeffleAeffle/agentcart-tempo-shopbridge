@@ -112,6 +112,45 @@ for invalid_setting in \
     fi
   done
 done
+store_x402_flags=(
+  --set store.x402.network=eip155:84532
+  --set store.x402.asset=0x036CbD53842c5426634e7929541eC2318f3dCF7e
+  --set store.x402.payTo=0x4444444444444444444444444444444444444444
+  --set store.x402.maxTimeoutSeconds=120
+)
+"$helm_bin" lint "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=x402-compatible' >/dev/null
+"$helm_bin" template x402-check "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=x402-compatible' >"$rendered_x402"
+grep -Fq 'AGENTCART_X402_NETWORK, value: "eip155:84532"' "$rendered_x402"
+grep -Fq 'AGENTCART_X402_PAY_TO, value: "0x4444444444444444444444444444444444444444"' "$rendered_x402"
+grep -Fq 'AGENTCART_X402_MAX_TIMEOUT_SECONDS, value: "120"' "$rendered_x402"
+for invalid_setting in \
+  'store.x402.payTo=' \
+  'store.x402.network=eip155:8453' \
+  'store.x402.asset=0x1111111111111111111111111111111111111111' \
+  'store.x402.maxTimeoutSeconds=301' \
+  'store.marketProfile=eur' \
+  'verifier.enabled=false'; do
+  for operation in lint template; do
+    if "$helm_bin" "$operation" "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+      --set 'verifier.enabledRails[0]=x402-compatible' --set "$invalid_setting" >/dev/null 2>&1; then
+      printf 'invalid store x402 setting unexpectedly passed %s: %s\n' "$operation" "$invalid_setting" >&2
+      exit 1
+    fi
+  done
+done
+# A storefront x402 destination without an x402 verifier rail must fail; Tempo verify keeps
+# the Tempo rule satisfied so only the x402 consistency rule can reject it.
+if "$helm_bin" lint "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=tempo-mpp' --set verifier.tempo.settlementMode=verify >/dev/null 2>&1; then
+  printf 'storefront x402 without an x402 verifier rail unexpectedly passed chart validation\n' >&2
+  exit 1
+fi
+# The live pilot shape: Tempo and x402 rails together with a storefront x402 destination.
+"$helm_bin" lint "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=tempo-mpp' --set 'verifier.enabledRails[1]=x402-compatible' \
+  --set verifier.tempo.settlementMode=verify >/dev/null
 
 for forbidden in \
   '/Users/' \
