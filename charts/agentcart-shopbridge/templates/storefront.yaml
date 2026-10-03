@@ -220,16 +220,21 @@ spec:
           command: [nginx, -g, daemon off;]
           ports:
             - {name: http, containerPort: 8080}
+          # These probes are answered by PHP; the capability document takes about one second
+          # to render, so the kubelet's 1 s default would mark healthy pods NotReady.
           startupProbe:
             httpGet: {path: /wp-json/agentcart/v1/capability, port: http}
             periodSeconds: 5
+            timeoutSeconds: 5
             failureThreshold: 120
           readinessProbe:
             httpGet: {path: /wp-json/agentcart/v1/capability, port: http}
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet: {path: /, port: http}
             periodSeconds: 20
+            timeoutSeconds: 5
             failureThreshold: 6
           resources:
             {{- toYaml .Values.resources.nginx | nindent 12 }}

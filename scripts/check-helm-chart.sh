@@ -243,6 +243,30 @@ if "$helm_bin" lint "$chart" --set 'verifier.allowedTempoNetworks[0]=unknown' >/
 fi
 bash -n "$chart/files/bootstrap/run-scheduler.sh"
 
+# Storefront HTTP probes are answered by PHP, and the capability document takes about one
+# second to render. With the kubelet's default 1 s timeout, healthy pods flapped NotReady
+# and the ingress answered 503.
+awk '
+  function finish() {
+    if (in_probe && php) {
+      probes++
+      if (timeout < 3) { printf "PHP-backed %s in %s has timeoutSeconds %d; need >= 3\n", name, FILENAME, timeout > "/dev/stderr"; bad = 1 }
+    }
+    in_probe = 0
+  }
+  FNR == 1 { finish() }
+  { match($0, /^ */); indent = RLENGTH }
+  in_probe && NF > 0 && indent <= probe_indent { finish() }
+  /^ *(startup|readiness|liveness)Probe:$/ { in_probe = 1; probe_indent = indent; name = $1; php = 0; timeout = 1; next }
+  in_probe && /httpGet: \{path: \/(wp-json\/|,)/ { php = 1 }
+  in_probe && /^ *timeoutSeconds: [0-9]+$/ { timeout = $2 + 0 }
+  END {
+    finish()
+    if (probes < 6) { printf "expected at least 6 PHP-backed storefront probes, found %d\n", probes > "/dev/stderr"; bad = 1 }
+    exit bad
+  }
+' "$rendered" "$rendered_verifier"
+
 rendered_bytes="$(wc -c <"$rendered" | tr -d ' ')"
 (( rendered_bytes < 900000 )) || {
   printf 'rendered chart is unexpectedly large: %s bytes\n' "$rendered_bytes" >&2
