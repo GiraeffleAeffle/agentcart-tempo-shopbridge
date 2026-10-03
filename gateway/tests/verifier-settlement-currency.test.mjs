@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawnVerifier } from './helpers/spawn-verifier.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,32 +49,29 @@ async function fixture(t, mode) {
     res.end(JSON.stringify(Array.isArray(body) ? body.map(respond) : respond(body)));
   });
   const rpcPort = await listen(rpc);
-  const portServer = http.createServer(); const port = await listen(portServer);
-  await new Promise(resolve => portServer.close(resolve));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'settlement-currency-'));
-  const child = spawn(process.execPath, ['scripts/stripe-mpp-verifier.mjs'], {
-    cwd: new URL('..', import.meta.url),
-    env: { ...process.env, STRIPE_MPP_VERIFIER_BIND: '127.0.0.1', STRIPE_MPP_VERIFIER_PORT: String(port),
-      AGENTCART_VERIFIER_ENABLED_RAILS: 'tempo-mpp', AGENTCART_PAYMENT_VERIFIER_TOKEN: 'v'.repeat(40),
-      AGENTCART_VERIFIER_REPLAY_STORE_DRIVER: 'file', AGENTCART_VERIFIER_REPLAY_STORE_PATH: path.join(dir, 'replay.json'),
-      AGENTCART_TEMPO_SETTLEMENT_MODE: mode, AGENTCART_TEMPO_SETTLEMENT_RPC_URL: `http://127.0.0.1:${rpcPort}`,
-      AGENTCART_TEMPO_SETTLEMENT_TOKEN_ADDRESS: token, AGENTCART_TEMPO_SETTLEMENT_ASSET: 'pathUSD',
-      AGENTCART_TEMPO_REFUND_MODE: 'disabled' }, stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let output = ''; child.stdout.on('data', data => output += data); child.stderr.on('data', data => output += data);
+  let verifier;
+  // Registered before spawning: a failed start must not leave the fake RPC server holding the test open.
   t.after(async () => {
-    if (child.exitCode === null) { const ended = new Promise(resolve => child.once('exit', resolve)); child.kill(); await ended; }
+    if (verifier) await verifier.close();
     await new Promise(resolve => rpc.close(resolve)); fs.rmSync(dir, { recursive: true, force: true });
   });
-  const base = `http://127.0.0.1:${port}`;
+  verifier = await spawnVerifier({
+    AGENTCART_VERIFIER_ENABLED_RAILS: 'tempo-mpp', AGENTCART_PAYMENT_VERIFIER_TOKEN: 'v'.repeat(40),
+    AGENTCART_VERIFIER_REPLAY_STORE_DRIVER: 'file', AGENTCART_VERIFIER_REPLAY_STORE_PATH: path.join(dir, 'replay.json'),
+    AGENTCART_TEMPO_SETTLEMENT_MODE: mode, AGENTCART_TEMPO_SETTLEMENT_RPC_URL: `http://127.0.0.1:${rpcPort}`,
+    AGENTCART_TEMPO_SETTLEMENT_TOKEN_ADDRESS: token, AGENTCART_TEMPO_SETTLEMENT_ASSET: 'pathUSD',
+    AGENTCART_TEMPO_REFUND_MODE: 'disabled',
+  });
+  const base = verifier.base;
   let ready = false;
   for (let attempt = 0; attempt < 100; attempt++) {
-    if (child.exitCode !== null) throw new Error(output);
+    if (verifier.child.exitCode !== null) throw new Error(verifier.output());
     try { ready = (await (await fetch(`${base}/health`)).json()).ok === true; } catch {}
     if (ready) break;
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  assert.ok(ready, output);
+  assert.ok(ready, verifier.output());
   return { rpcCalls: () => rpcCalls, verify: async input => {
     const response = await fetch(`${base}/agentcart/verify`, { method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${'v'.repeat(40)}` },

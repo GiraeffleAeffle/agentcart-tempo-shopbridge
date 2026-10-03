@@ -2412,6 +2412,6 @@ server.listen(port, host, () => {
     timer.unref();
     server.on("close", () => clearInterval(timer));
   }
-  console.log(`AgentCart Stripe MPP verifier listening on http://${host}:${port}`);
+  console.log(`AgentCart Stripe MPP verifier listening on http://${host}:${server.address().port}`);
   console.log(JSON.stringify({ ...status, token_required: Boolean(verifierToken) }, null, 2));
 });
