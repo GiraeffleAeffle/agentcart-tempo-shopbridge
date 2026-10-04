@@ -57,6 +57,9 @@ if [[ -z "$image" ]]; then
   rejected() {
     if "$helm_bin" template agentcart-site "$chart" "$@" >/dev/null 2>&1; then fail "invalid values were accepted: $*"; fi
   }
+  # The committed live values must render; only the deploy-time HAProxy sources are added here.
+  "$helm_bin" lint "$chart" --namespace agentcart-site --values "$root/deploy/agentcart-site/values.yaml" \
+    --set 'ingress.haproxySources[0]=192.0.2.10/32' >/dev/null || fail "deploy/agentcart-site/values.yaml does not render"
   rejected --namespace agentcart-site --set 'ingress.haproxySources[0]=192.0.2.10/32' "${preview[@]}"
   rejected --namespace agentcart-site --set image.digest=latest --set 'ingress.haproxySources[0]=192.0.2.10/32'
   rejected --namespace agentcart-site --set "image.digest=$digest" "${preview[@]}"
