@@ -15,6 +15,10 @@ export async function fakeX402({ facilitatorPort = 0, rpcPort = 0, uniqueTransac
   state.blockTimestamp = Math.floor(Date.now() / 1000);
   state.authorizationStateOverrides = {};
   const payer = () => derivePayer ? state.authorization?.from || PAYER : PAYER;
+  // mineDelayMs > 0: /settle answers before its transaction is visible on the fake chain.
+  state.mineDelayMs = 0;
+  state.settledAt = 0;
+  const mined = () => state.settled && (state.mineDelayMs <= 0 || Date.now() >= state.settledAt + state.mineDelayMs);
   function logs() {
     const a = state.authorization || {from:PAYER,to:PAY_TO,nonce:NONCE,value:'1000000'};
     const base = {address:X402_ASSET,blockNumber:`0x${state.settlementBlock.toString(16)}`,blockHash:`0x${'01'.repeat(32)}`,transactionHash:state.transaction,transactionIndex:'0x0',removed:false};
@@ -29,7 +33,7 @@ export async function fakeX402({ facilitatorPort = 0, rpcPort = 0, uniqueTransac
     res.setHeader('content-type','application/json');
     if(req.url==='/supported') res.end(JSON.stringify({kinds: state.unsupported ? [] : [{x402Version:2,scheme:'exact',network:X402_NETWORK}]}));
     else if(req.url==='/verify') res.end(JSON.stringify({isValid:!state.invalid,payer:payer()}));
-    else if(req.url==='/settle') {state.settled=!state.unresolved;if(state.ambiguous) {res.writeHead(503);res.end('{}');} else res.end(JSON.stringify({success:true,transaction:state.transaction,network:X402_NETWORK,payer:payer()}));}
+    else if(req.url==='/settle') {state.settled=!state.unresolved;state.settledAt=Date.now();if(state.ambiguous) {res.writeHead(503);res.end('{}');} else res.end(JSON.stringify({success:true,transaction:state.transaction,network:X402_NETWORK,payer:payer()}));}
     else {res.writeHead(404);res.end('{}');}
   });
   const rpc = http.createServer(async(req,res) => {
@@ -45,7 +49,7 @@ export async function fakeX402({ facilitatorPort = 0, rpcPort = 0, uniqueTransac
     else if(body.method==='eth_call') {
       const block = body.params[1];
       const used = state.authorizationStateOverrides[block]
-        ?? (state.settled && (block === 'latest' || BigInt(block) >= BigInt(state.settlementBlock)));
+        ?? (mined() && (block === 'latest' || BigInt(block) >= BigInt(state.settlementBlock)));
       result=pad(used?'0x1':'0x0');
     }
     else if(body.method==='eth_getBlockByNumber') {
@@ -58,9 +62,9 @@ export async function fakeX402({ facilitatorPort = 0, rpcPort = 0, uniqueTransac
     }
     else if(body.method==='eth_getLogs') {
       const filter = body.params[0];
-      result=state.settled ? logs().filter(l=>l.topics[0]===AUTHORIZATION_USED_TOPIC && BigInt(l.blockNumber)>=BigInt(filter.fromBlock) && BigInt(l.blockNumber)<=BigInt(filter.toBlock)) : [];
+      result=mined() ? logs().filter(l=>l.topics[0]===AUTHORIZATION_USED_TOPIC && BigInt(l.blockNumber)>=BigInt(filter.fromBlock) && BigInt(l.blockNumber)<=BigInt(filter.toBlock)) : [];
     }
-    else if(body.method==='eth_getTransactionReceipt') result=state.settled ? {transactionHash:state.transaction,transactionIndex:'0x0',blockHash:`0x${'01'.repeat(32)}`,blockNumber:`0x${state.settlementBlock.toString(16)}`,from:payer(),to:X402_ASSET,cumulativeGasUsed:'0x5208',gasUsed:'0x5208',effectiveGasPrice:'0x1',contractAddress:null,logs:logs(),logsBloom:`0x${'00'.repeat(256)}`,status:'0x1',type:'0x2'} : null;
+    else if(body.method==='eth_getTransactionReceipt') result=mined() ? {transactionHash:state.transaction,transactionIndex:'0x0',blockHash:`0x${'01'.repeat(32)}`,blockNumber:`0x${state.settlementBlock.toString(16)}`,from:payer(),to:X402_ASSET,cumulativeGasUsed:'0x5208',gasUsed:'0x5208',effectiveGasPrice:'0x1',contractAddress:null,logs:logs(),logsBloom:`0x${'00'.repeat(256)}`,status:'0x1',type:'0x2'} : null;
     else {res.end(JSON.stringify({jsonrpc:'2.0',id:body.id,error:{code:-32601,message:'unknown method'}}));return;}
     res.setHeader('content-type','application/json');res.end(JSON.stringify({jsonrpc:'2.0',id:body.id,result}));
   });

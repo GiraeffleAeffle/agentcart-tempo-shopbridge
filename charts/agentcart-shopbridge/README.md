@@ -196,9 +196,11 @@ verifier:
 
 `verifier.x402.mode` defaults to `disabled`; the other values above are defaults.
 The facilitator settle timeout must be 100–7000 ms. Verify has a 2500 ms
-ceiling, settle defaults to 7000 ms, and confirmation has a 1500 ms total
-ceiling. RPC calls are capped at 1500 ms and the remaining 12000 ms global
-budget (below the plugin's 15 s timeout). Ambiguous submission always reconciles.
+ceiling and settle defaults to 7000 ms. After a successful settle response,
+confirmation polls the receipt every 500 ms until the global budget runs out;
+recovery reads it once, within 1500 ms. RPC calls are capped at 1500 ms and the
+remaining 12000 ms global budget (below the plugin's 15 s timeout). Ambiguous
+submission always reconciles.
 URLs must use HTTPS and resolve exclusively to global addresses; redirects
 fail closed. The chart deliberately does not expose
 the local-test-only `AGENTCART_X402_ALLOW_PRIVATE_URLS=true` override.

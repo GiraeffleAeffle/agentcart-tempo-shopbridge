@@ -80,10 +80,12 @@ AGENTCART_X402_FACILITATOR_TIMEOUT_MS=7000
 
 Mode defaults to `disabled`; only `disabled` and `settle` are supported. The
 network, URLs, confirmation count, and timeout above are defaults. The configured
-settle timeout is 100–7000 ms. Verify is capped at 2500 ms, settle defaults to
-7000 ms, and confirmation has a 1500 ms total ceiling. Every RPC call is capped
-at 1500 ms and all steps share a 12000 ms global budget, below the plugin's 15 s
-timeout. Ambiguous settlement always reconciles. HTTPS global-address
+settle timeout is 100–7000 ms. Verify is capped at 2500 ms and settle defaults
+to 7000 ms. After a successful settle response, confirmation polls the receipt
+every 500 ms until the global budget runs out; recovery reads it once, within
+1500 ms. Every RPC call is capped at 1500 ms and all steps share a 12000 ms
+global budget, below the plugin's 15 s timeout. Ambiguous settlement always
+reconciles. HTTPS global-address
 destinations are required and redirects are rejected.
 `AGENTCART_X402_ALLOW_PRIVATE_URLS=true` is an isolated local-test override,
 not a staging or production deployment setting.

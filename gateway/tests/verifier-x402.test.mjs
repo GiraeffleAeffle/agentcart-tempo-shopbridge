@@ -393,6 +393,26 @@ test('settle has enough time for a delayed Base Sepolia facilitator', async t =>
   assert.equal((await s.run(input())).real_settlement_verified, true);
   assert.ok(!s.fake.state.rpcCalls.includes('eth_getLogs'));
 });
+test('first call verifies a settlement whose receipt appears after the facilitator answers', async t => {
+  const s = await setup(t);
+  // The facilitator can answer before its transaction is mined or visible on the RPC node
+  // (Base Sepolia mines every 2 s). Staging hit this: the first checkout reported unconfirmed.
+  s.fake.state.mineDelayMs = 2000;
+  assert.equal((await s.run(input())).real_settlement_verified, true);
+  assert.equal(s.fake.state.calls.filter(call => call === '/settle').length, 1);
+  assert.ok(!s.fake.state.rpcCalls.includes('eth_getLogs'));
+});
+test('receipt polling stops at the global deadline', async t => {
+  const s = await setup(t);
+  // /settle answers with a transaction that never becomes visible.
+  s.fake.state.unresolved = true;
+  const i = input();
+  const started = Date.now();
+  await assert.rejects(s.verifier.payment(i.payload, i.expected, started + 2000), retryable);
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 2800, `payment returned after ${elapsed} ms`);
+  assert.equal(s.fake.state.calls.filter(call => call === '/settle').length, 1);
+});
 
 test('capability fails readiness for missing replay database or unsupported facilitator', async t => {
   const s = await setup(t);

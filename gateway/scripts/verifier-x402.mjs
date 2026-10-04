@@ -4,7 +4,7 @@ import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import { isDeepStrictEqual } from 'node:util';
-import { createPublicClient, http as transport, keccak256 } from 'viem';
+import { createPublicClient, http as transport, keccak256, TransactionReceiptNotFoundError } from 'viem';
 import { baseSepolia } from 'viem/chains';
 import { ensureSQLiteReplayStore, runSqlite, sqlString as q, replayReferenceHash, normalizeReplayMetadata } from './verifier-sqlite-replay-store.mjs';
 
@@ -14,6 +14,7 @@ export const AUTHORIZATION_USED_TOPIC = '0x98de503528ee59b575ef0c0a2576a82497bfc
 export const X402_GLOBAL_BUDGET_MS = 12000;
 const VERIFY_BUDGET_MS = 2500;
 const CONFIRM_BUDGET_MS = 1500;
+const RECEIPT_POLL_MS = 500;
 const LOG_CHUNK_BLOCKS = 500n;
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const address = value => /^0x[\da-f]{40}$/i.test(String(value)) ? String(value).toLowerCase() : '';
@@ -336,13 +337,28 @@ export function createX402Verifier(config) {
         payment_response_header_value: Buffer.from(JSON.stringify(settle)).toString('base64'),
       });
     }
-    async function confirm(tx) {
+    // Returns the receipt once it has the configured confirmations. With `wait` (a fresh settle
+    // response) it polls until the global deadline, because the facilitator can answer before its
+    // transaction is mined or visible on this RPC node. Recovery reads once.
+    async function minedReceipt(tx, wait) {
+      for (;;) {
+        const receipt = await client.getTransactionReceipt({ hash: tx }).catch(error => {
+          if (wait && error instanceof TransactionReceiptNotFoundError) return null;
+          throw error;
+        });
+        if (receipt) {
+          const latest = await client.getBlockNumber({ cacheTime: 0 });
+          if (latest - receipt.blockNumber + 1n >= BigInt(config.confirmations)) return receipt;
+        }
+        if (!wait || deadline - Date.now() <= RECEIPT_POLL_MS) unconfirmed();
+        await new Promise(resolve => setTimeout(resolve, RECEIPT_POLL_MS));
+      }
+    }
+    async function confirm(tx, { wait = false } = {}) {
       if (!hash(tx)) unconfirmed();
-      phaseDeadline = Math.min(deadline, Date.now() + CONFIRM_BUDGET_MS);
+      phaseDeadline = wait ? deadline : Math.min(deadline, Date.now() + CONFIRM_BUDGET_MS);
       try {
-        const receipt = await client.getTransactionReceipt({ hash: tx });
-        const latest = await client.getBlockNumber({ cacheTime: 0 });
-        if (latest - receipt.blockNumber + 1n < BigInt(config.confirmations)) unconfirmed();
+        const receipt = await minedReceipt(tx, wait);
         const logs = receipt.logs || [];
         const auth = logs.some(log => address(log.address) === X402_ASSET.toLowerCase()
           && log.topics?.[0]?.toLowerCase() === AUTHORIZATION_USED_TOPIC
@@ -477,7 +493,7 @@ export function createX402Verifier(config) {
       if (settled?.success === true && settled.network === X402_NETWORK
           && (!settled.payer || address(settled.payer) === address(a.from)) && hash(settled.transaction)) {
         try {
-          return await confirm(settled.transaction);
+          return await confirm(settled.transaction, { wait: true });
         } catch (error) {
           if (typeof error.code === 'string' && error.code.startsWith('x402_') && error.retryable !== true) throw error;
         }
