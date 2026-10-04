@@ -1,0 +1,24 @@
+image:
+  repository: ghcr.io/giraeffleaeffle/agentcart-site
+  # Reviewed digest (sha256:...) of an image built by .github/workflows/site-image.yml.
+  digest: ""
+replicas: 2
+hosts:
+  # Public hosts, served under one certificate. Set them only after DNS points at the
+  # cluster, so cert-manager never runs HTTP-01 validation against the previous host.
+  site: []
+  # No-index preview hosts under an existing DNS record, with their own certificate.
+  preview: []
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 96Mi
+ingress:
+  className: haproxy
+  clusterIssuer: letsencrypt-prod
+  # Host-network HAProxy source CIDRs. The operator supplies them at deploy time; they are
+  # never committed to this public repository.
+  haproxySources: []

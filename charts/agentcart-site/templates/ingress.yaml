@@ -1,0 +1,41 @@
+{{- $routes := list
+  (dict "name" "agentcart-site" "hosts" .Values.hosts.site "secret" "agentcart-site-tls")
+  (dict "name" "agentcart-site-preview" "hosts" .Values.hosts.preview "secret" "agentcart-site-preview-tls") }}
+{{- range $route := $routes }}
+{{- if $route.hosts }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $route.name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "agentcart-site.labels" $ | nindent 4 }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ $.Values.ingress.clusterIssuer | quote }}
+    haproxy-ingress.github.io/ssl-redirect: "true"
+    haproxy-ingress.github.io/config-backend-early: |
+      http-request deny deny_status 405 unless { method GET HEAD }
+spec:
+  ingressClassName: {{ $.Values.ingress.className }}
+  tls:
+    - secretName: {{ $route.secret }}
+      hosts:
+        {{- range $route.hosts }}
+        - {{ . | quote }}
+        {{- end }}
+  rules:
+    {{- range $route.hosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agentcart-site
+                port:
+                  name: http
+    {{- end }}
+{{- end }}
+{{- end }}

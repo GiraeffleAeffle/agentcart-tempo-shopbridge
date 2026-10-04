@@ -1,0 +1,42 @@
+    <p class="eyebrow">Agent commerce for WooCommerce</p>
+    <h1>A commerce bridge between shops and buyer agents.</h1>
+    <p class="lead">AgentCart ShopBridge lets opt-in WooCommerce merchants expose products, calculate final quotes, and accept approval-bound orders from buyer agents. WooCommerce remains the shop’s system of record.</p>
+    <div class="actions">
+      <a class="button" href="/merchants/">Integrate your WooCommerce shop</a>
+      <a class="button" href="/agents/">Install the buyer agent skill</a>
+    </div>
+    <section aria-labelledby="parts-heading">
+      <h2 id="parts-heading">Three independent parts</h2>
+      <div class="cards">
+        <article class="card">
+          <h3>The WooCommerce plugin</h3>
+          <p>The merchant chooses which products to expose. ShopBridge provides machine-readable catalog, quote, order and status endpoints while WooCommerce handles stock, tax, shipping and fulfillment.</p>
+        </article>
+        <article class="card">
+          <h3>The buyer agent skill</h3>
+          <p>ShopBridge Direct discovers verified merchants and compares their quotes without an AgentCart service. The optional AgentCart service adds durable household policy, approval state and audit records.</p>
+        </article>
+        <article class="card">
+          <h3>Trust and payment</h3>
+          <p>The on-chain merchant registry on Tempo Moderato testnet binds merchant identity and discovery records. An external verifier confirms quote-bound payments before WooCommerce marks an order paid.</p>
+        </article>
+      </div>
+    </section>
+    <section class="prose" aria-labelledby="flow-heading">
+      <h2 id="flow-heading">From discovery to aftercare</h2>
+      <ol class="flow">
+        <li><span>Discover verified merchants from the on-chain registry.</span></li>
+        <li><span>Compare quotes using only country and postcode. Refresh the selected merchant’s quote with the complete delivery address.</span></li>
+        <li><span>A human approves the exact approval packet: merchant, items, total, delivery, payment destination and approval hash.</span></li>
+        <li><span>Hand the approved payment request to the buyer’s wallet or payment provider.</span></li>
+        <li><span>The merchant’s external verifier confirms settlement against the quote.</span></li>
+        <li><span>WooCommerce marks the order paid only after successful verification.</span></li>
+        <li><span>Read order status and tracking, and prepare aftercare requests for the merchant.</span></li>
+      </ol>
+    </section>
+    <aside class="status" aria-labelledby="status-heading">
+      <h2 id="status-heading">Current status</h2>
+      <p><strong>Production-candidate alpha.</strong> Testnet and sandbox only. No real money moves in the current public pilot; testnet tokens are not real-money settlement.</p>
+      <p>Current downloadable release: <a href="$release_url" data-release-version="$version">$version</a>. Paid production use still requires external onboarding evidence, production payment operations and the remaining review gates.</p>
+    </aside>
+    <p class="prose">Start with the <a href="/merchants/">WordPress and WooCommerce integration guide</a> or the <a href="/agents/">ShopBridge Direct skill guide</a>.</p>

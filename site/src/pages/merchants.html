@@ -1,0 +1,91 @@
+    <div class="prose">
+      <p class="eyebrow">WordPress + WooCommerce</p>
+      <h1>Integrate your shop with ShopBridge.</h1>
+      <p class="lead">Install the merchant plugin, expose an opt-in catalog, and prepare your staging shop for the supervised testnet pilot. This is not a self-service production payment launch.</p>
+      <h2>Requirements</h2>
+      <ul>
+        <li>WordPress 6.4 or later (plugin metadata: tested up to 7.1).</li>
+        <li>PHP 8.1 or later and an active WooCommerce installation.</li>
+        <li>A public HTTPS site with a staging product, shipping and tax configuration.</li>
+      </ul>
+      <section class="download" aria-labelledby="plugin-download">
+        <h2 id="plugin-download">Download the WooCommerce plugin</h2>
+        <p><a class="button" href="$plugin_url" data-release-asset="plugin">Download $plugin_name</a></p>
+        <dl>
+          <dt>Release version</dt><dd data-release-version="$version">$version</dd>
+          <dt>Size</dt><dd data-release-bytes="plugin">$plugin_bytes bytes</dd>
+          <dt>SHA-256</dt><dd><code class="checksum" data-release-sha256="plugin">$plugin_sha256</code></dd>
+        </dl>
+        <p>Verify the downloaded file and compare the result with the SHA-256 above:</p>
+        <pre><code>shasum -a 256 agentcart-shopbridge.zip</code></pre>
+        <p class="note">The ZIP contains <code>agentcart-shopbridge/</code>. Downloads are hosted by GitHub. <a href="$manifest_url">View this release’s checksum manifest</a>.</p>
+      </section>
+      <h2>Install and configure in WordPress</h2>
+      <ol>
+        <li>Open <strong>Plugins → Add New → Upload Plugin</strong>, select the ZIP, install it, and activate <strong>AgentCart ShopBridge</strong>.</li>
+        <li>Open <strong>WooCommerce → AgentCart</strong>. If credentials are not managed in <code>wp-config.php</code>, use the Quick Start panel to prepare sandbox access defaults. This does not expose products or configure a payment recipient.</li>
+        <li>Configure a stable merchant id, support email, payment recipient or Stripe profile, verifier URL and token, checkout mode, signed-request policy and product exposure mode. Use Credential Actions to generate or rotate locally managed tokens.</li>
+        <li>Add normal WooCommerce products. Expose only the intended products, preview product exposure, review the catalog diff and save a current catalog snapshot.</li>
+        <li>In Registry Proof, refresh metadata when identity, payment settings or exposed categories change. Run the public endpoint check.</li>
+        <li>Run the sandbox quote check and guided admin dry checkout. The dry run tests the WooCommerce quote/order path and cleans up its test records; it does not call the live verifier, move funds or prove settlement.</li>
+        <li>Complete supervised registry enrollment below. Have the observer verify finalized inclusion, then select <strong>Check registry health</strong>.</li>
+        <li>Run a separate buyer test with the configured external verifier before claiming testnet settlement. Use Support Diagnostics for a redacted setup report.</li>
+      </ol>
+      <h2>Configuration essentials for production readiness</h2>
+      <p>The setup checklist is a readiness gate, not a statement that the current pilot is production-ready.</p>
+      <ul>
+        <li>Set stable merchant identity, a public support contact, terms and returns URLs.</li>
+        <li>Configure WooCommerce tax, shipping zones and allowed destination countries. Review excluded and restricted products and quantity limits.</li>
+        <li>Configure the selected payment destination and an external verifier URL and token. Use <code>external_verifier_only</code> checkout mode.</li>
+        <li>Choose the signed-request policy for sensitive endpoints. Shared secrets must have at least 32 characters and be distinct for merchant, verifier and signed-request roles.</li>
+        <li>Publish and check the HTTPS manifest, registry proof, revocations and bundle; confirm the exact finalized registry record rather than relying on a hosted submission.</li>
+      </ul>
+      <h2>Payment verification is a separate service</h2>
+      <p>The external verifier image is <code>ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier</code>. An operator runs the verifier and configures its rail-specific credentials and payment profile, then sets its URL and token in the plugin. See the <a href="https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/blob/main/docs/VERIFIER_CONTRACT.md">verifier contract and integration requirements</a>.</p>
+      <p>With <code>external_verifier_only</code>, a trusted merchant token cannot bypass payment verification to mark a demo order paid. The verifier must bind the receipt to amount, currency, merchant destination, quote hash, payment contract hash and a replay-safe transaction reference.</p>
+    </div>
+    <div class="table-scroll" role="region" aria-label="Payment rails and maturity" tabindex="0">
+      <table>
+        <caption>Payment rails: current maturity, not production availability</caption>
+        <thead><tr><th scope="col">Rail</th><th scope="col">Current scope</th><th scope="col">Availability</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Tempo MPP</th><td>USD quotes; pathUSD on Tempo Moderato testnet. No EUR conversion.</td><td>Testnet verification. Included in release $version.</td></tr>
+          <tr><th scope="row">Stripe/card MPP</th><td>Sandbox verifier for quote-bound card credentials and merchant profiles.</td><td>Sandbox only in the current pilot. Included in release $version.</td></tr>
+          <tr><th scope="row">x402 v2 exact</th><td>USD quotes and Base Sepolia USDC; verified on staging. Disabled by default.</td><td>In the next release, not in the $version downloads. Requires an explicit verifier capability check. Refunds are manual only.</td></tr>
+          <tr><th scope="row">EUR stablecoins</th><td>EUR-native settlement and quote-bound FX.</td><td>Future work, not a current rail.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="prose">
+      <h2>What the plugin does not do</h2>
+      <p>The plugin moves no money. Settlement and rail refunds belong to the buyer’s wallet or provider and the merchant’s configured verifier. WooCommerce stays the system of record for products, stock, tax, shipping, fulfillment, refunds and support. The merchant stays merchant of record.</p>
+      <h3>External services</h3>
+      <p>Public catalog and quote browsing does not contact a verifier or hosted registry connection. Paid-order and verified-refund operations can send quote, receipt and order/refund data to the merchant-configured verifier. Registry submission, revocation and health actions can send public merchant records and endpoint metadata to the merchant-configured registry connection.</p>
+      <p>An administrator’s registry health action makes read-only calls to <code>https://rpc.moderato.tempo.xyz</code> using public on-chain identity and registry state, not wallet secrets or buyer/order data. The services’ terms and privacy policies must be reviewed by the operator. A hosted registry response is diagnostic; it is not proof of finalized on-chain inclusion.</p>
+      <h2>Get listed in the on-chain registry</h2>
+      <p>Enrollment is a <strong>supervised Tempo Moderato pilot</strong>. A pilot observer prepares and reviews the transaction; the merchant’s own external controller wallet signs it. WordPress stores only four public fields:</p>
+      <ol>
+        <li>Public controller address.</li>
+        <li>On-chain registry chain (CAIP-2 identifier).</li>
+        <li>On-chain registry contract address.</li>
+        <li>On-chain registry record id.</li>
+      </ol>
+      <p>After saving these fields, refresh the metadata and public endpoint check. Review the observer’s exact zero-value transaction plan in your own wallet. The observer verifies the exact transaction and active record at a finalized block; then run the plugin’s registry health check. Never enter a private key, seed phrase, wallet session or signature into WordPress.</p>
+      <p>The registry controller is a separate role from the merchant’s payment recipient. Read the <a href="https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/blob/main/docs/MERCHANT_ONCHAIN_ENROLLMENT.md">supervised enrollment procedure</a>.</p>
+      <h2>Public discovery and commerce endpoints</h2>
+      <p>These paths belong to your merchant’s HTTPS origin, not to agentcart.eu:</p>
+      <ul>
+        <li><code>/.well-known/agentcart.json</code> — merchant manifest.</li>
+        <li><code>/.well-known/agentcart-registry-proof.json</code> — domain proof.</li>
+        <li><code>/.well-known/agentcart-registry-revocations.json</code> — revocation document.</li>
+        <li><code>/.well-known/agentcart-registry-bundle.json</code> — onboarding bundle.</li>
+        <li><code>/.well-known/agentcart-registry-records/{sha256}.json</code> — content-addressed record.</li>
+        <li><code>/wp-json/agentcart/v1/catalog</code> — exposed catalog.</li>
+        <li><code>/wp-json/agentcart/v1/quote</code> — WooCommerce-backed quotes.</li>
+      </ul>
+      <p>Order creation uses <code>/wp-json/agentcart/v1/orders</code>; status uses <code>/wp-json/agentcart/v1/orders/{id}/status</code> with an order token. Refund and cancellation routes under the order require a merchant token or trusted gateway; they are not public buyer actions. Support diagnostics and checkout recovery require WooCommerce manager permissions. Signed-request policy can further restrict sensitive calls.</p>
+      <h2>Optional Kubernetes deployment</h2>
+      <p>For operators who already use Kubernetes, the repository provides an optional <a href="https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/charts/agentcart-shopbridge">single-store Helm chart</a>. A normal WordPress plugin installation does not require Helm.</p>
+      <h2>Join the supervised pilot</h2>
+      <p>Email <a href="mailto:contact@agentcart.eu">contact@agentcart.eu</a> with your staging shop and integration questions. The pilot is testnet and sandbox only; no real money moves.</p>
+    </div>
