@@ -1801,6 +1801,48 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
         self.assertEqual(str(raised.exception), "checkout_base_url does not match approved quote merchant_origin")
 
+    def test_checkout_without_base_url_goes_to_approved_quote_origin(self) -> None:
+        # A live x402 checkout without base_url fell back to the local demo default and failed
+        # before contacting the merchant whose quote the buyer had approved.
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=lambda path, **kwargs: sample_quote()):
+            quote = shopbridge_direct.command_quote(
+                {
+                    "base_url": "https://merchant.example",
+                    "items": [{"product_id": "woo_10", "quantity": 1}],
+                    "quote_trust": shopbridge_direct.quote_trust_metadata(shopbridge_direct.annotate_quote_trust(
+                        {}, merchant_origin="https://merchant.example",
+                        registry_record_hash="registry-record-hash-123",
+                        manifest_url="https://merchant.example/.well-known/agentcart.json",
+                        registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(
+                            registry_manifest_and_record()[1]),
+                    )),
+                }
+            )
+        packet = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")
+
+        for configured_default in (shopbridge_direct.DEFAULT_BASE_URL, "https://other.example"):
+            with self.subTest(configured_default=configured_default):
+                calls = []
+
+                def fake_checkout(path, *, method="GET", payload=None, headers=None, base_url=None):
+                    calls.append((path, method, base_url))
+                    return {"id": "1", "status": "processing"}
+
+                with mock.patch.object(shopbridge_direct, "BASE_URL", configured_default), \
+                        mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_checkout):
+                    shopbridge_direct.command_checkout(
+                        {
+                            "quote": quote,
+                            "payment_rail": "stripe-card-mpp",
+                            "approved": True,
+                            "approval_hash": packet["approval_hash"],
+                            "payment_receipt": sample_payment_receipt(),
+                            **handoff_checkout_args(quote, "stripe-card-mpp"),
+                        }
+                    )
+
+                self.assertEqual(calls, [("/wp-json/agentcart/v1/orders", "POST", "https://merchant.example")])
+
     def test_resolve_merchant_verifies_registry_record_and_returns_base_url(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
 

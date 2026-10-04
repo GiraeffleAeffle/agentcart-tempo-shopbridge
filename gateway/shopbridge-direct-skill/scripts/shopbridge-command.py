@@ -2734,9 +2734,13 @@ def payment_destination_binding_issues(
 
 
 def checkout_base_url_for_quote(args: dict[str, Any], quote: dict[str, Any]) -> str:
-    base_url = base_url_from_args(args)
     trust = quote_trust_metadata(quote)
     approved_origin = str(trust.get("merchant_origin") or "")
+    if approved_origin and not configured_base_url(args)["source"].startswith("args."):
+        # The approved quote names the merchant that produced it; a configured default origin
+        # (SHOPBRIDGE_BASE_URL or the local demo default) must not redirect its checkout.
+        return base_url_from_args({**args, "base_url": approved_origin})
+    base_url = base_url_from_args(args)
     if approved_origin and normalized_origin(base_url) != normalized_origin(approved_origin):
         raise SystemExit("checkout_base_url does not match approved quote merchant_origin")
     return base_url

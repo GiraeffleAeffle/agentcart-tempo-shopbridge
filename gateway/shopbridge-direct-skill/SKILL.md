@@ -714,6 +714,11 @@ Checkout with a supplied verifier/payment receipt:
 {"command":"checkout","args":{"base_url":"https://shop.example","quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"...","payment_receipt":{"method":"stripe-card-mpp","status":"succeeded","amount_cents":1480,"currency":"EUR","quote_hash":"...","payment_contract_hash":"...","stripe_profile_id":"acct_...","authorization":"opaque-provider-credential-or-reference"}}}
 ```
 
+Checkout sends the order to the approved quote's `merchant_origin` (from its
+`quote_trust`), so `base_url` is optional. A supplied `base_url` must equal that
+origin; neither `SHOPBRIDGE_BASE_URL` nor the local demo default can redirect a
+checkout to another merchant.
+
 For supplied production receipts, the skill requires the explicit fields named
 by `payment_handoff.receipt_requirements`. It does not fill in missing amount,
 currency, quote hash, payment contract hash, merchant profile, recipient, or
