@@ -60,6 +60,20 @@ Do not add `hosts.site` before step 2. HTTP-01 validation has to reach this clus
 - To undo the cutover, restore the previous DNS records.
 - Leave issued certificates in place: re-issuing counts against Let's Encrypt rate limits.
 
+## Legal and privacy operations
+
+The legal notice and privacy page (`site/src/pages/legal.html`, `privacy.html`) rely on these facts. Re-check them whenever hosting, logging or mail changes.
+
+- **Hosting:** Hetzner Online GmbH, on the Talos cluster in Helsinki (`hel1`).
+- **Request logs:** nginx keeps no access logs, and the cluster's HAProxy ingress values configure no syslog endpoint, so no request logs are kept. Revisit the privacy page if either changes.
+- **Mail:** `contact@agentcart.eu` runs on an iCloud+ custom email domain since 2026-10-05. Its MX, SPF, DKIM (`sig1._domainkey`) and `apple-domain` verification records are in the `agentcart.eu` zone, and inbound mail was confirmed working.
+- **Downloads:** served from GitHub releases. The site links to them and embeds nothing.
+
+Open items:
+
+- **Hetzner data processing agreement (AVV):** conclude it in the Hetzner account at <https://accounts.hetzner.com/account/dpa>, so the privacy page's statement that Hetzner acts as a processor holds.
+- **Mail provider:** iCloud+ is a consumer service, and no Art. 28 data processing agreement is known to be available for it, although the privacy page describes the mail provider as a processor. Before using the address for business correspondence such as pilot merchants, move to a mail provider that offers a data processing agreement, or confirm one exists. Then update the privacy page if the provider's role changes.
+
 ## Checks
 
 `scripts/check-agentcart-site.sh` runs in `scripts/verify.sh`:
