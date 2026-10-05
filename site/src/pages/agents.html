@@ -31,7 +31,7 @@
 unzip shopbridge-direct-skill.zip -d ~/.claude/skills</code></pre>
       <p>A harness without native skill-folder support can load <code>SKILL.md</code> as instructions and expose the Python helper as a local tool.</p>
       <h3>Alternative: track main, including unreleased changes</h3>
-      <p>This command installs from <strong>main</strong>, not the pinned $version release. It may include changes described here as “in the next release”. It uses npm tooling and contacts GitHub/npm.</p>
+      <p>This command installs from <strong>main</strong>, not the pinned $version release, and may include unreleased changes. It uses npm tooling and contacts GitHub/npm.</p>
       <pre class="wrap"><code>npx -y skills@latest add https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/gateway/shopbridge-direct-skill -g -y</code></pre>
       <h2>First run: doctor</h2>
       <p>Send this JSON to the installed skill’s <code>scripts/shopbridge-command.py</code>:</p>
@@ -61,9 +61,9 @@ not pay or checkout until I explicitly approve the final approval hash.</code></
         <li><span>Use <code>order_status</code> and <code>aftercare_summary</code> for follow-up. Direct skill aftercare is read-only and drafts requests; it does not execute refunds or cancellations.</span></li>
       </ol>
       <p>There is <strong>no built-in automated signer</strong>. A plain <code>approved:true</code> flag is not enough: preserve the exact approval hash and approval record. Calling-agent assertions are not independent proof of human approval.</p>
-      <h3>In the next release: stronger destination binding and x402</h3>
-      <p>Checkout goes to the approved quote’s merchant origin, rejecting a different <code>base_url</code>. Carry <code>quote_trust</code> unchanged from verified discovery when refreshing the selected merchant. These stricter checkout and registry payment-destination bindings are <strong>in the next release</strong>, not the $version downloads; with the release skill, the agent must pass the verified merchant origin explicitly.</p>
-      <p>The x402 v2 exact flow for USD quotes on Base Sepolia USDC is verified on staging and ships in the next release. It has no built-in automated signer. An x402 authorization is a <strong>bearer instrument</strong>: anyone holding it can submit the authorized transfer. The human or external wallet must confirm <code>to</code> and <code>value</code> against the approval packet before signing. Authorization alone is not settlement evidence; x402 refunds are unsupported and need merchant support.</p>
+      <h3>Destination binding and x402</h3>
+      <p>Checkout goes to the approved quote’s merchant origin, so <code>base_url</code> is optional; a different <code>base_url</code> is rejected. Carry <code>quote_trust</code> unchanged from verified discovery when refreshing the selected merchant, so the payment destination stays bound to the registry record.</p>
+      <p>The x402 v2 exact flow for USD quotes on Base Sepolia USDC is included in release $version and was verified with real testnet payments on staging. It has no built-in automated signer. An x402 authorization is a <strong>bearer instrument</strong>: anyone holding it can submit the authorized transfer. The human or external wallet must confirm <code>to</code> and <code>value</code> against the approval packet before signing. Authorization alone is not settlement evidence; x402 refunds are unsupported and need merchant support.</p>
     </div>
     <div class="table-scroll" role="region" aria-label="Skill commands and release availability" tabindex="0">
       <table>
@@ -75,10 +75,10 @@ not pay or checkout until I explicitly approve the final approval hash.</code></
           <tr><td><code>catalog</code>, <code>product</code>, <code>quote</code></td><td>Browse products and request comparison or final quotes.</td><td>Release $version</td></tr>
           <tr><td><code>discover_quotes</code>, <code>discover_basket_quotes</code></td><td>Compare verified merchants or whole baskets.</td><td>Release $version</td></tr>
           <tr><td><code>approval_summary</code>, <code>approval_packet</code>, <code>checkout_preflight</code></td><td>Review and check the exact approval material.</td><td>Release $version</td></tr>
-          <tr><td><code>payment_handoff</code>, <code>checkout_payload</code>, <code>checkout</code></td><td>Prepare payment and submit a verified receipt.</td><td>Release $version; stricter destination binding in the next release</td></tr>
+          <tr><td><code>payment_handoff</code>, <code>checkout_payload</code>, <code>checkout</code></td><td>Prepare payment and submit a verified receipt.</td><td>Release $version</td></tr>
           <tr><td><code>checkout_with_tempo_demo_proof</code></td><td>Explicit sandbox Tempo proof flow, not production settlement.</td><td>Release $version</td></tr>
           <tr><td><code>order_status</code>, <code>aftercare_summary</code>, <code>audit_import</code></td><td>Read order state, draft aftercare, or import a packet into an optional service.</td><td>Release $version</td></tr>
-          <tr><td><code>x402_typed_data</code>, <code>x402_receipt</code></td><td>External-wallet signing handoff and receipt construction.</td><td>In the next release; not in $version</td></tr>
+          <tr><td><code>x402_typed_data</code>, <code>x402_receipt</code></td><td>External-wallet signing handoff and receipt construction.</td><td>Release $version</td></tr>
         </tbody>
       </table>
     </div>
