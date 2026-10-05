@@ -5,7 +5,7 @@ Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.1
 Requires Plugins: woocommerce
-Stable tag: 1.24.0
+Stable tag: 1.25.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -312,7 +312,7 @@ AgentCart metadata so merchants retain their commerce audit trail.
 
 == Changelog ==
 
-= Unreleased =
+= 1.25.0 =
 * Require strict configured settlement and confirmed facilitator support before
   advertising x402; preserve capability snapshots on transport failure and
   replace them on successful checks.
@@ -378,7 +378,7 @@ AgentCart metadata so merchants retain their commerce audit trail.
 
 == Upgrade Notice ==
 
-= Unreleased =
+= 1.25.0 =
 Hosted registry is opt-in: save its URL. x402 requires a configured
 settlement verifier, confirmed facilitator support, USD quotes, quote-bound
 nonces and 30-300 s windows; save legacy timeouts again. Refunds remain manual.

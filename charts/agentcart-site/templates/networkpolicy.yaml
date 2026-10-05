@@ -1,0 +1,42 @@
+{{- if not .Values.ingress.haproxySources }}
+{{- fail "ingress.haproxySources must list the reviewed host-network HAProxy source CIDRs" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentcart-site.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+{{- range $rule := list (dict "name" "agentcart-site-web" "port" 8080 "solver" false) (dict "name" "cert-manager-http01" "port" 8089 "solver" true) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $rule.name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "agentcart-site.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- if $rule.solver }}
+      acme.cert-manager.io/http01-solver: "true"
+      {{- else }}
+      {{- include "agentcart-site.selector" $ | nindent 6 }}
+      {{- end }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # Host-network HAProxy source addresses only; no namespace-wide access.
+        {{- range $.Values.ingress.haproxySources }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - port: {{ $rule.port }}
+          protocol: TCP
+{{- end }}

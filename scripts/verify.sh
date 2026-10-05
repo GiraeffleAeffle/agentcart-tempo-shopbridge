@@ -61,6 +61,8 @@ py311_files=(
   scripts/check-beta-release-readiness.py
   scripts/build-beta-release-decision.py
   scripts/collect-pilot-evidence.py
+  site/build.py
+  site/check.py
   scripts/check-ucp-a2a-profiles.py
   scripts/check-pilot-readiness.py
   scripts/check-production-payment-profile.py
@@ -179,6 +181,10 @@ check_nginx_access_log_privacy() {
   fi
 }
 check_nginx_access_log_privacy "$ROOT_DIR/charts/agentcart-shopbridge/files/nginx.conf"
+
+section "AgentCart website"
+bash -n "$ROOT_DIR/scripts/check-agentcart-site.sh"
+bash "$ROOT_DIR/scripts/check-agentcart-site.sh"
 
 section "WooCommerce ShopBridge live smoke"
 if [ -n "${AGENTCART_WOO_SMOKE_BASE_URL:-}" ]; then

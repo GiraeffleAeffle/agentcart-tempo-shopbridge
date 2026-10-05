@@ -1,0 +1,5 @@
+apiVersion: v2
+name: agentcart-site
+description: Static agentcart.eu website served by unprivileged nginx behind the HAProxy ingress.
+type: application
+version: 0.1.0
