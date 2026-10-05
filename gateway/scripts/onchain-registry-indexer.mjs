@@ -413,11 +413,24 @@ function fetchPinnedDocument(url, resolved, { allowPrivate = false, timeoutMs = 
   });
 }
 
-function canonicalJson(value) {
+function compareUnicodeKeys(left, right) {
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (leftIndex < left.length && rightIndex < right.length) {
+    const leftPoint = left.codePointAt(leftIndex);
+    const rightPoint = right.codePointAt(rightIndex);
+    if (leftPoint !== rightPoint) return leftPoint - rightPoint;
+    leftIndex += leftPoint > 0xffff ? 2 : 1;
+    rightIndex += rightPoint > 0xffff ? 2 : 1;
+  }
+  return (left.length - leftIndex) - (right.length - rightIndex);
+}
+
+export function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.keys(value)
-      .sort()
+      .sort(compareUnicodeKeys)
       .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
       .join(",")}}`;
   }

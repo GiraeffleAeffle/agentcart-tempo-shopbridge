@@ -38,18 +38,15 @@ ShopBridge sends:
   "payment_receipt": {},
   "agentcart_order_id": "order_...",
   "expected": {
+    "quote_hash": "sha256...",
     "amount_cents": 1480,
-    "currency": "EUR",
+    "currency": "USD",
     "merchant_id": "woocommerce-demo-shop",
     "rail": "tempo-mpp",
     "payment_contract_hash": "sha256...",
     "tempo_network": "testnet",
     "tempo_recipient": "0x...",
-    "stripe_profile_id": "acct_...",
-    "x402_network": "eip155:84532",
-    "x402_asset": "0x...",
-    "x402_pay_to": "0x...",
-    "x402_max_amount_required": "14800000"
+    "stripe_profile_id": "acct_..."
   }
 }
 ```
@@ -59,19 +56,42 @@ The canonical Stripe/card MPP fixture is checked in at
 The canonical Tempo MPP fixture is checked in at
 `docs/fixtures/verifier/payment-request.tempo-mpp.json`.
 
+For the bundled verifier, `amount_cents`, `currency`, `rail`, `quote_hash`, and
+`merchant_id` must come from the authenticated merchant's `expected` block or
+trusted `quote` object. Quote fallbacks are `total_cents`, `currency`, `rail`,
+`quote_hash`, and `merchant_id` (or `merchant.id`), respectively. The caller
+must obtain these values from its server-side quote/configuration, not copy
+them from buyer-supplied payment proof. `payment_receipt` fields are compared
+against those expectations and never supply missing values. A top-level
+`quote_hash` alone is not sufficient, and the deployment's default currency
+does not substitute for a missing payment expectation. Missing expectations
+are rejected with HTTP 400 before settlement lookup or replay claim.
+
+For Tempo, `expected.tempo_recipient` and `expected.tempo_network` must name the
+merchant-configured destination. If omitted, they may come only from the
+trusted quote's `payment_requirements.protocols` entry with `id=tempo-mpp`
+(`recipient` and `tempo_network` or `network`). Missing recipient/network is
+HTTP 400; the recipient must be a valid EVM address. Proof/receipt destination
+fields may be compared but never become the settlement target.
+
+The bundled verifier supports `tempo-mpp`, `stripe-card-mpp`, and
+`x402-compatible`. The x402 adapter is restricted to v2 exact EIP-3009 USDC on
+Base Sepolia; its requirements and receipt use `amount` for atomic units.
+
 The verifier must reject the payment unless it can prove:
 
 - the payment credential or receipt is valid for the selected rail;
 - the payment is bound to the exact `quote_hash`;
 - the `payment_contract_hash` matches every supplied copy in the quote,
   receipt, request, and verifier response;
-- amount and currency match the quote, or an explicit quote-bound FX conversion
-  record exists;
+- amount and currency match the trusted quote; no quote-bound FX conversion is
+  implemented by the bundled verifier;
 - selected rail matches the receipt and merchant setup;
 - Tempo recipient and network match the merchant configuration for Tempo rails;
 - Stripe profile matches the merchant configuration for Stripe/card rails;
-- x402 network, token asset, payTo address, and atomic amount match the
-  quote-bound `PAYMENT-REQUIRED` document for x402-compatible rails;
+- x402 network, token asset, payTo, and atomic `amount` match the quote; the
+  signed nonce commits to the quote hash, payment contract hash, and exact
+  checkout resource URL;
 - the transaction reference has not been used before;
 - the payment was not expired, revoked, or already refunded.
 
@@ -83,7 +103,7 @@ Expected success response:
   "quote_hash": "sha256...",
   "payment_contract_hash": "sha256...",
   "amount_cents": 1480,
-  "currency": "EUR",
+  "currency": "USD",
   "rail": "tempo-mpp",
   "network": "testnet",
   "recipient": "0x...",
@@ -91,7 +111,7 @@ Expected success response:
   "payer_source": "did:pkh:eip155:...",
   "asset": "0x...",
   "pay_to": "0x...",
-  "max_amount_required": "14800000",
+  "amount": "14800000",
   "transaction_reference": "0x...",
   "replay_reference": "0x...",
   "replay_request_hash": "sha256...",
@@ -151,6 +171,11 @@ The canonical Stripe/card MPP refund request fixture is checked in at
 The canonical Tempo MPP refund request fixture is checked in at
 `docs/fixtures/verifier/refund-request.tempo-mpp.json`.
 
+The requested refund rail must be available for the order currency and equal
+the original payment rail. ShopBridge rejects any other rail with
+`agentcart_refund_rail_mismatch`; selecting an available alternative rail does
+not authorize refunding a payment made on a different rail.
+
 The verifier must execute or verify the refund through the original rail and
 return:
 
@@ -178,8 +203,8 @@ Tempo refund fixtures are deliberately USD/pathUSD denominated. A Tempo refund
 success response must bind the refund transfer to the original transaction
 reference, merchant recipient, source/refund recipient, network, asset, quote
 hash, and replay reference before `real_refund_verified=true` is accepted. Do
-not claim EUR settlement or EUR refunds from a pathUSD proof unless a separate
-quote-bound FX verifier fixture is added.
+not claim EUR settlement or EUR refunds from a pathUSD proof: the bundled
+verifier has no quote-bound FX implementation.
 
 Negative contract fixtures are checked in at `docs/fixtures/verifier/negative/`.
 They cover amount mismatch, quote-hash mismatch, payment-contract mismatch,
@@ -203,10 +228,10 @@ payment rail/account.
 ## Current Demo Scope
 
 The repo implements the commerce flow, the verifier contract, a Stripe/card MPP
-sandbox verifier for Link CLI testing, and a guarded Tempo refund adapter. A
-production verifier still belongs to the selected payment rail or payment
-provider deployment because it must carry provider credentials, refund
-authority, replay protection, and operational monitoring.
+sandbox verifier for Link CLI testing, a guarded Tempo refund adapter, and an
+x402 v2 Base Sepolia settlement adapter. A production verifier still belongs to
+the selected payment rail or payment provider deployment because it must carry
+provider credentials, refund authority, replay protection, and monitoring.
 
 Tempo, x402, or other CLI proof helpers are value-proof artifacts only. Even on
 a successful mainnet command, AgentCart does not set `real_settlement` from CLI
@@ -216,7 +241,7 @@ x402/EVM surface work, but still does not expose a one-time Tempo refund API for
 completed WooCommerce orders. Session-channel `refundedToPayer` receipts cover
 unused session deposits, not refunding a completed one-time shop order. Real
 settlement and refund claims require the external verifier response to bind
-amount, currency or FX policy, merchant recipient/profile, quote hash, payment
+amount, currency, merchant recipient/profile, quote hash, payment
 contract hash, and a non-replayed transaction or refund reference.
 
 For Tempo charge-flow settlement, configure the verifier with
@@ -227,6 +252,14 @@ amount before returning `real_settlement_verified=true`. With settlement mode
 disabled, the verifier may accept a demo proof for staging, but it must return
 `real_settlement_verified=false` and must not make a refund eligible for live
 rail execution.
+
+The known pathUSD and USDC.e token addresses are USD-denominated. In verify
+mode, a non-USD quote (including EUR 15.80 paid with 15.80 pathUSD) is rejected
+with HTTP 400 and `provider_error_class=tempo_settlement_currency_mismatch`
+before any replay claim or RPC lookup. Unknown token denominations fail closed;
+an asset display-name override cannot change denomination. No quote-bound FX
+contract is implemented. Disabled mode retains explicit `demo_fixed_1_1`
+proofs for the local EUR demo with `real_settlement_verified=false`.
 
 For Tempo charge-flow refunds, configure the verifier with
 `AGENTCART_TEMPO_REFUND_MODE=live`,
@@ -241,6 +274,90 @@ The current EUR stablecoin decision fixture is
 Tempo staging shop as USD/pathUSD and treats EURC or Monerium EURe as x402/EVM
 rail candidates that need facilitator support plus the same verifier/refund
 contract before WooCommerce can mark settlement or refunds real.
+
+## x402 v2 Base Sepolia Settlement
+
+`gateway/scripts/verifier-x402.mjs` implements the verifier's x402 rail.
+It supports only v2 `exact` EIP-3009 USDC on Base Sepolia (`eip155:84532`),
+not mainnet, Permit2, other assets, or x402 refunds. Refund requests fail closed
+without moving funds.
+
+| Environment variable | Default / requirement |
+| --- | --- |
+| `AGENTCART_X402_MODE` | `disabled`; only `disabled` or `settle` |
+| `AGENTCART_X402_NETWORK` | `eip155:84532` |
+| `AGENTCART_X402_FACILITATOR_URL` | `https://x402.org/facilitator` |
+| `AGENTCART_X402_RPC_URL` | `https://sepolia.base.org` |
+| `AGENTCART_X402_CONFIRMATIONS` | `1` |
+| `AGENTCART_X402_FACILITATOR_TIMEOUT_MS` | `7000`; range `100`–`7000` |
+
+Settle mode requires `AGENTCART_VERIFIER_REPLAY_STORE_DRIVER=sqlite` and a
+configured `AGENTCART_VERIFIER_REPLAY_STORE_PATH`. Facilitator and RPC URLs
+must use HTTPS and resolve to global addresses only; redirects are errors.
+Only isolated local tests may opt into private outbound URLs with
+`AGENTCART_X402_ALLOW_PRIVATE_URLS=true`. Leave this unset in deployments.
+
+An authenticated operation checks facilitator `/supported`, caching supported
+capabilities for ten minutes. `/health` performs no facilitator or RPC calls
+and is not proof of live facilitator support. The complete path has a 12000 ms
+global budget, below the plugin's 15-second request timeout. Verify is capped at
+2500 ms and settle at the configured timeout (default 7000 ms). The facilitator
+can answer before its transaction is mined or visible on the configured RPC
+node, so after a successful settle response confirmation polls the receipt every
+500 ms until the global budget runs out. Recovery reconciliation reads the
+receipt once, within 1500 ms. Each RPC call is also capped at 1500 ms and the
+remaining global budget; ambiguous submission outcomes always reconcile.
+
+The verifier enforces equality between the advertised requirements and
+`paymentPayload.accepted`. Receipts require method `x402-compatible`, status
+`authorized`, `x402_version: 2`, atomic `amount`, network, asset, pay_to,
+quote_hash, payment_contract_hash, amount_cents, currency, and a padded-base64
+v2 PaymentPayload in `x402_payment_signature`.
+
+The signed authorization nonce must be the lowercase 0x-prefixed value:
+
+```text
+keccak256(utf8("shopbridge-x402-nonce-v1") || bytes32(quote_hash)
+  || bytes32(payment_contract_hash) || keccak256(utf8(resource_url)))
+```
+
+Both SHA-256 hashes are decoded from 64 hex characters to 32 bytes.
+`resource_url` is the exact PAYMENT-REQUIRED `resource.url`, equal to the
+quote's `payment_requirements.checkout_endpoint`. The verifier checks this
+commitment before any facilitator call. For quote hash `a` repeated 64 times,
+contract hash `b` repeated 64 times, and resource
+`https://shop.example/wp-json/agentcart/v1/orders`, the nonce is
+`0x68d8b9f6ce3e20691028d2c78b6904e615d34346820c101f4168c4f5a44c74d2`.
+
+`maxTimeoutSeconds` is an integer from 30 through 300. Before `/verify`, the
+integer-string authorization times must satisfy `validAfter <= now + 60`,
+`now < validBefore`, and `validBefore <= now + maxTimeoutSeconds + 60`.
+The buyer handoff uses `validAfter: "0"` and `validBefore = now + maxTimeoutSeconds`.
+An expired previously reserved authorization is reconciled, not resubmitted.
+
+Before any possible submission, SQLite records the reservation-time latest
+block (`start_block`), a resumable `scan_cursor`, the expiry (`valid_before`),
+and the facilitator transaction hash as soon as known. Reconciliation checks
+the recorded transaction and scans AuthorizationUsed forward from the fixed
+reservation block in chunks of at most 500 blocks, preserving the cursor
+across bounded requests. Migrated reservations without a block reference scan
+from genesis. The unconfirmed tip is rescanned rather than skipped.
+
+A used nonce remains recoverable until its AuthorizationUsed log and receipt
+can be confirmed. Missing logs, RPC errors, and verify-invalid after any prior
+submission lease yield retryable `x402_settlement_unconfirmed`, not a terminal
+failure. Expiry is definitive only when block B at `latest - confirmations`
+has timestamp at least `validBefore` and `authorizationState(from, nonce)`
+read pinned to that same block B is false. Wall-clock expiry or an unused nonce
+at a lagging latest head is not failure evidence. An authorization-linked
+confirmed transfer mismatch can also fail the row. Successful settlement
+requires a successful receipt, matching USDC Transfer and AuthorizationUsed
+logs, and the configured confirmations; facilitator success alone is not
+payment evidence.
+
+Exact stored-success retries return without network calls. Ambiguous retries
+reconcile before resubmission. Preserve the signed authorization and database;
+do not re-sign, discard reservations, or replace the database after a timeout.
 
 Validate the checked-in fixtures and the WooCommerce plugin payload field names:
 

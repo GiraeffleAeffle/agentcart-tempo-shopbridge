@@ -85,7 +85,7 @@ trait AgentCart_ShopBridge_Checkout_Recovery {
                 // Resolve uncertain settlement before mutable stock checks. The
                 // verifier receives exactly the original quote and evidence.
                 $receipt = self::payment_receipt_from_checkout_request($saved['body'], $retry, $quote);
-                $verification = self::verify_payment_receipt($quote, $receipt, $saved['body'], $retry);
+                $verification = self::verify_payment_receipt($quote, $receipt, $saved['body'], $retry, $order);
                 if (is_wp_error($verification)) {
                     AgentCart_ShopBridge_Checkout_Store::failure($order, $verification->get_error_code());
                     return $verification;
@@ -288,6 +288,9 @@ trait AgentCart_ShopBridge_Checkout_Recovery {
         $request->set_header('content-type', 'application/json');
         $request->set_body(wp_json_encode(['action' => sanitize_key(wp_unslash($_POST['recovery_action'] ?? 'retry'))]));
         $result = self::recover_checkout($request);
+        if ($result instanceof WP_REST_Response) {
+            $result = $result->get_data();
+        }
         $message = is_wp_error($result) ? $result->get_error_message() : 'Recovery state: ' . sanitize_text_field($result['state'] ?? 'updated');
         wp_die(esc_html($message), esc_html__('Checkout recovery', 'agentcart-shopbridge'), ['response' => 200, 'back_link' => true]);
     }

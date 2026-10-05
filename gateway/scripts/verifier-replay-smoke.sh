@@ -90,6 +90,7 @@ MPP_SECRET_KEY=mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm \
 AGENTCART_PAYMENT_VERIFIER_TOKEN=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv \
 AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY=true \
 AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL=true \
+AGENTCART_TEMPO_SETTLEMENT_MODE=disabled \
 AGENTCART_VERIFIER_ALERT_WEBHOOK_URL="http://127.0.0.1:$alert_port/agentcart-verifier-alerts" \
 AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN=alert_dummy \
 AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS=0 \
@@ -123,12 +124,14 @@ def payload(contract: str) -> dict:
         "quote_hash": quote_hash,
         "payment_contract_hash": contract,
         "expected": {
+            "quote_hash": quote_hash,
+            "merchant_id": "verifier-replay-smoke",
             "amount_cents": 1840,
             "currency": "EUR",
             "rail": "tempo-mpp",
             "payment_contract_hash": contract,
             "tempo_network": "testnet",
-            "tempo_recipient": "0xabc",
+            "tempo_recipient": "0x1111111111111111111111111111111111111111",
         },
         "payment_receipt": {
             "method": "tempo-mpp",
@@ -142,7 +145,7 @@ def payload(contract: str) -> dict:
                 "network": "testnet",
                 "body": {
                     "amount": "18.40",
-                    "recipient": "0xabc",
+                    "recipient": "0x1111111111111111111111111111111111111111",
                     "transaction_reference": "tempo_tx_replay_001",
                 },
             },

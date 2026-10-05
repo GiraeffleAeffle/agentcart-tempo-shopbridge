@@ -277,6 +277,8 @@ def finalized_document_errors(
         rpc = document.get("rpc")
         storage = document.get("contract_storage_verification")
         deployment_verification = document.get("deployment_verification")
+        selection = document.get("record_selection")
+        selected_storage = isinstance(selection, dict)
         profile = str(rpc.get("profile") or "") if isinstance(rpc, dict) else ""
         source = str(document.get("source") or "")
         expected_source = {
@@ -285,17 +287,21 @@ def finalized_document_errors(
         }.get(profile, "")
         if not expected_source or source != expected_source:
             errors.append({"error": "contract_events_direct_source_profile_mismatch"})
-        if not isinstance(storage, dict) or storage.get("status") != "matched":
+        allowed_storage_status = {"matched", "excluded_mismatched_records"} if selected_storage else {"matched"}
+        if not isinstance(storage, dict) or storage.get("status") not in allowed_storage_status:
             errors.append({"error": "contract_events_storage_verification_invalid"})
         else:
             checked_count = strict_nonnegative_int(storage.get("checked_record_count"))
             lifecycle_count = strict_nonnegative_int(document.get("lifecycle_record_count"))
             state_block = strict_nonnegative_int(storage.get("block_number"))
             storage_finalized = strict_nonnegative_int(storage.get("finalized_block_number"))
-            if checked_count is None or lifecycle_count is None or checked_count != lifecycle_count:
+            expected_checked_count = strict_nonnegative_int(selection.get("selected_record_count")) if selected_storage else lifecycle_count
+            if checked_count is None or lifecycle_count is None or checked_count != expected_checked_count:
                 errors.append({"error": "contract_events_storage_checked_count_mismatch"})
             if storage_finalized != block_number:
                 errors.append({"error": "contract_events_storage_finalized_block_mismatch"})
+            if selected_storage and storage.get("finalized_block_hash") != finality.get("block_hash"):
+                errors.append({"error": "contract_events_storage_finalized_hash_mismatch"})
             if profile == "standard":
                 if storage.get("scope") != "same_finalized_block" or state_block != block_number:
                     errors.append({"error": "contract_events_storage_scope_invalid"})
@@ -325,10 +331,10 @@ def finalized_document_errors(
         ):
             errors.append({"error": "contract_events_deployment_verification_scope_invalid"})
         record_errors = document.get("record_errors")
+        seen_record_errors: set[str] = set()
         if not isinstance(record_errors, list):
             errors.append({"error": "contract_events_record_errors_invalid"})
         else:
-            seen_record_errors: set[str] = set()
             for item in record_errors:
                 if not isinstance(item, dict):
                     errors.append({"error": "contract_events_record_error_invalid"})
@@ -367,7 +373,9 @@ def finalized_document_errors(
             selection_mode = selection.get("selection_mode")
             if (
                 selection.get("schema") != "agentcart.onchain_registry_candidate_selection.v1"
-                or selection.get("algorithm") != "sha256-query-seeded-record-id-sample"
+                or selection.get("algorithm") != ("sha256-rejection-sparse-fisher-yates"
+                    if document.get("projection_origin") == "finalized_storage"
+                    else "sha256-query-seeded-record-id-sample")
                 or selection_mode
                 not in {
                     "query_seeded_sample",
@@ -396,12 +404,38 @@ def finalized_document_errors(
                     or selected_count > scope_count
                     or scope_count > active_count
                     or selected_count > candidate_limit
-                    or active_count != len(active_record_ids)
+                    or (document.get("projection_origin") != "finalized_storage" and active_count != len(active_record_ids))
                     or not set(selected_record_ids).issubset(active_record_ids)
                 ):
                     errors.append({"error": "contract_events_record_selection_invalid"})
                 if any(failed_id not in set(selected_record_ids) for failed_id in seen_record_errors):
                     errors.append({"error": "contract_events_record_error_outside_selection"})
+                if isinstance(storage, dict):
+                    matched = storage.get("matched_record_ids")
+                    excluded = storage.get("excluded_record_ids")
+                    if (
+                        not isinstance(matched, list) or not isinstance(excluded, list)
+                        or any(not is_prefixed_hash(value) for value in (matched or []) + (excluded or []))
+                        or len(set(matched or [])) != len(matched or [])
+                        or len(set(excluded or [])) != len(excluded or [])
+                        or set(matched or []).intersection(excluded or [])
+                        or set(matched or []).union(excluded or []) != set(selected_record_ids)
+                        or (storage.get("status") == "matched" and bool(excluded))
+                        or (storage.get("status") == "excluded_mismatched_records" and not excluded)
+                    ):
+                        errors.append({"error": "contract_events_selected_storage_coverage_invalid"})
+                    else:
+                        failed_storage_ids = {
+                            normalized_hash(item.get("record_id"), prefix=True)
+                            for item in (record_errors or []) if isinstance(item, dict) and str(item.get("code") or "")
+                        }
+                        if not set(excluded).issubset(failed_storage_ids):
+                            errors.append({"error": "contract_events_storage_exclusion_error_missing"})
+                        for event in events:
+                            if isinstance(event.get("registry_record"), dict):
+                                target_id = record_id(event)
+                                if target_id not in matched or target_id in seen_record_errors:
+                                    errors.append({"error": "contract_events_unverified_record_document", "record_id": target_id})
                 if selection_mode in {
                     "discovery_facets_with_neutral_fallback",
                     "discovery_facets_no_match_fallback",

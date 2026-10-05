@@ -1,0 +1,69 @@
+x-agentcart-config: &agentcart_config |
+  // The harness runs due cron events explicitly after N3, like an external scheduler.
+  define('DISABLE_WP_CRON', true);
+  define('AGENTCART_SHOPBRIDGE_TOKEN', 'agentcart-woo-demo-token');
+  define('AGENTCART_MERCHANT_ID', 'x402-e2e-shop');
+  define('AGENTCART_PAYMENT_VERIFIER_URL', 'http://verifier:4260/agentcart/verify');
+  define('AGENTCART_PAYMENT_VERIFIER_TOKEN', trim(file_get_contents('/run/secrets/verifier-token')));
+  define('AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL', '1');
+  define('AGENTCART_PAYMENT_VERIFIER_TRUST_MODE', 'pinned_internal');
+  define('AGENTCART_CHECKOUT_MODE', 'external_verifier_only');
+  define('AGENTCART_SIGNED_REQUEST_MODE', 'off');
+  define('AGENTCART_SUPPORT_EMAIL', 'merchant@example.test');
+  define('AGENTCART_RETURNS_URL', 'http://shop.local/returns');
+  define('AGENTCART_SUBSTITUTION_POLICY', 'approval_required');
+  define('AGENTCART_CANCELLATION_WINDOW_MINUTES', 30);
+services:
+  wordpress:
+    ports: !reset []
+    networks:
+      default:
+        aliases: [shop.local]
+    environment:
+      WORDPRESS_CONFIG_EXTRA: *agentcart_config
+    volumes:
+      - ${X402_E2E_TMP}/verifier-token:/run/secrets/verifier-token:ro
+  wpcli:
+    environment:
+      WORDPRESS_CONFIG_EXTRA: *agentcart_config
+      WOO_PUBLIC_URL: http://shop.local
+      AGENTCART_WOO_MARKET_PROFILE: usd
+    volumes:
+      - ${X402_E2E_TMP}/verifier-token:/run/secrets/verifier-token:ro
+      - ./x402-e2e:/e2e:ro
+      - ${X402_E2E_TMP}/work:/work:ro
+  verifier:
+    image: ${X402_E2E_IMAGE}
+    command: [sh, -c, 'export AGENTCART_PAYMENT_VERIFIER_TOKEN="$$(cat /run/secrets/verifier-token)"; node tests/helpers/fake-x402.mjs & exec node scripts/stripe-mpp-verifier.mjs']
+    environment:
+      STRIPE_MPP_VERIFIER_BIND: 0.0.0.0
+      STRIPE_MPP_VERIFIER_PORT: '4260'
+      AGENTCART_VERIFIER_ENABLED_RAILS: x402-compatible
+      AGENTCART_X402_MODE: settle
+      AGENTCART_X402_NETWORK: eip155:84532
+      AGENTCART_X402_FACILITATOR_URL: http://127.0.0.1:4291
+      AGENTCART_X402_RPC_URL: http://127.0.0.1:4292
+      AGENTCART_X402_ALLOW_PRIVATE_URLS: 'true'
+      AGENTCART_VERIFIER_REPLAY_STORE_DRIVER: sqlite
+      AGENTCART_VERIFIER_REPLAY_STORE_PATH: /data/replay.sqlite
+    volumes:
+      - ../../gateway/tests:/app/tests:ro
+      - ${X402_E2E_TMP}/verifier-token:/run/secrets/verifier-token:ro
+  signer:
+    image: ${X402_E2E_IMAGE}
+    command: [node, /e2e/signer-service.mjs]
+    volumes:
+      - ./x402-e2e:/e2e:ro
+  skill:
+    image: python:3.11-slim
+    profiles: [e2e]
+    working_dir: /e2e
+    environment:
+      SHOPBRIDGE_ALLOW_PRIVATE_ORIGIN: '1'
+      SHOPBRIDGE_DISABLE_DEFAULT_REGISTRY: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    volumes:
+      - ../..:/repo:ro
+      - ./x402-e2e:/e2e:ro
+      - ${X402_E2E_TMP}/work:/work
+    command: [python, /e2e/drive_x402.py, positive]

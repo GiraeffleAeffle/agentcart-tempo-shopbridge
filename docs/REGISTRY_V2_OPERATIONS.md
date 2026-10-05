@@ -13,6 +13,14 @@ a finalized-state-capable RPC. The descriptor uses the existing v1 *deployment
 document schema* and explicitly selects `registry_version: 2`; this does not
 relabel a v1 contract. Use `pilot_enabled` for a testnet deployment; a mainnet
 descriptor requires the release decision and `mutation_policy: approved`.
+V2 direct buyers additionally require both independent providers to support
+JSON-RPC batches and [EIP-1898](https://eips.ethereum.org/EIPS/eip-1898)
+canonical block-hash selectors for storage/code
+reads. Unsupported providers fail closed without a history or number-only fallback.
+Buyer batches default to eight calls; `SHOPBRIDGE_ONCHAIN_RPC_BATCH_SIZE=1..8`
+can lower the limit. HTTP 413/request-too-large and HTTP 429 split in halves
+down to single requests; 429 first honors the bounded Retry-After cooldown.
+Every split uses the same general HTTP request budget.
 
 Run from `gateway`, after installing its pinned dependencies:
 
@@ -158,6 +166,109 @@ A successor supplies a verified immutable record, admission, quorum review,
 delay and its own bond. Previous history and collateral are retained.
 Scheduled pause/ownership changes have typed preparation operations as well;
 the Safe must preserve the published governance and conflict rules.
+
+## Enumerable discovery and facets V2
+
+New V2 deployments expose `indexedRecordCount()`, `indexedRecordIdAt(uint256)`
+and `recordURI(bytes32)`. The existing `record(bytes32)` tuple and lifecycle
+events remain compatible. Membership uses constant-time add/swap-remove; indices
+are snapshot-local and must not be treated as stable merchant identifiers.
+The index is **eligible-or-pending-prune**, not an eligibility certificate:
+admission expiry and entity/bond changes can invalidate an Active record.
+`status` returns `indexed_record_count`, `record.record_uri` and
+`record_specific_eligible` from `hasRecordEligibility(recordId)` (excluding
+global pause and admission quorum). Unsigned prune plans use this predicate.
+
+Deploy the separate `AgentCartMerchantDiscoveryFacetsV2` bound to this RegistryV2,
+not the deployed V1 facets. Keeping category routing separate preserves the
+immutable V1 contract and lifecycle interface and avoids putting optional
+category maintenance on the registry's governance/payment lifecycle. The V2
+facets retain `publish`, `clear`, `facetState` and `isCurrent`, and add
+`categoryRecordCount(bytes32)`, `categoryRecordAt(bytes32,uint256)` (record ID
+and declaration generation), and permissionless `prune(bytes32)`. Publish and
+clear replace at most eight memberships. Buyers verify indexed generation,
+current facet state, record-hash commitment, and `isCurrent` at the same
+finalized block as Active status and admission. Stale entries are routing hints
+only and can never establish eligibility.
+
+Add `discovery_facets` to the reviewed deployment descriptor with `address`,
+`deployment_block`, `deployment_block_hash`, and `runtime_code_hash` for the
+new V2 facets. Prepare pruning with any actor:
+
+```json
+{"operation":"prune","actor":"0x...","parameters":{"record_id":"0x..."}}
+```
+
+The unsigned plan targets only that descriptor's facets address after verifying
+its creation boundary, bytecode and registry binding, then simulates pruning
+at the finalized snapshot. Facet pruning removes stale/inactive/ineligible memberships without
+altering registry status or admission. It does not require validator authority.
+Do not point a V2 buyer or prune descriptor at the old V1 facets. No migration,
+deployment, signing, or broadcasting is performed by this tool.
+
+### Keeping the index available
+
+Someone must maintain routing freshness: a merchant, operator or permissionless
+keeper calls `pruneIneligible(recordId)` on RegistryV2 and `prune(recordId)` on
+FacetsV2. Registry pruning emits an event and removes only record-specific
+ineligibility (expired admission, blocked entity, insufficient bond, non-Active
+status or supersession). It rejects an otherwise-eligible record during a
+global pause or unsatisfied validator/quorum condition, preventing mass-prune
+griefing during governance transitions. It never revokes the record.
+Facets use the same public `hasRecordEligibility(recordId)` predicate for current
+sets, so pause-only and quorum-only failures cannot clear categories. Stale
+sets may still be removed immediately. Cleared facets do not remove merchants
+from neutral buyer fallback discovery.
+
+`renewAdmission`, `update`, controller rotation and unsuspension synchronize
+their touched record. After record-specific recovery such as restoring a blocked
+entity, a merchant or keeper calls permissionless `refreshIndexedRecord(recordId)`
+to re-add an eligible record; this is idempotent and rejects unknown/ineligible
+records. Entity restoration remains bounded rather than looping over shops.
+There is no bond-top-up operation in this contract. If facets were pruned,
+the controller republishes categories after recovery.
+Unsuspension re-indexes every record satisfying record-specific eligibility,
+even during admission quorum shortfall; once quorum recovers no manual refresh
+is needed for that record.
+
+Both registry maintenance operations have unsigned plans:
+
+```json
+{"operation":"pruneIneligible","actor":"0x...","parameters":{"record_id":"0x..."}}
+{"operation":"refreshIndexedRecord","actor":"0x...","parameters":{"record_id":"0x..."}}
+```
+
+The buyer excludes every ineligible draw and backfills only within its bounded
+reserve/budget, never accepting stale entries or scanning further history.
+Without maintenance, sufficiently polluted indices can return no merchants.
+
+For a uniform no-category run targeting 12 merchants with 36 reserve draws,
+if `S` of `N` indexed records are ineligible, the probability of drawing at
+least one eligible record is `1 - C(S,36)/C(N,36)` (use `min(N,36)` draws).
+For a large pool with stale fraction `s`, the conservative approximation is
+`1-s^36`: 90% stale gives 97.75% success; at most 87.99% stale gives at least
+99% success. These are sampling calculations, not live availability guarantees:
+documents can still fail, and finding one does not mean filling all 12 slots.
+With category routing, 12 neutral reserve slots are retained; if category
+entries contribute nothing, `1-s^12` applies to the remaining neutral pool:
+90% stale gives only 71.76%, and 99% requires at most 68.12% stale. Keepers
+must prune both sets rather than relying on those probabilities.
+
+### Witness boundary agreement
+
+V2 direct buyers default to exact number/hash/timestamp agreement between both
+providers' concurrently acquired `finalized` heads. Six acquisitions, spaced
+by 200 ms after disagreement and bounded by the discovery deadline, fail closed
+with `registry_v2_witness_finality_mismatch` if providers never converge.
+Persistent honest-provider lag is an availability risk, not permission to rewind.
+Only explicit `SHOPBRIDGE_ONCHAIN_WITNESS_FINALITY_POLICY=bounded_lag` permits
+the lower boundary, confirmed by both providers, within
+`SHOPBRIDGE_ONCHAIN_WITNESS_MAX_HEAD_SKEW_SECONDS` (default 12, bounds 1..60).
+Doctor labels this `bounded_lag_noncanonical`: it weakens revocation freshness
+by up to the configured skew. Header comparisons ignore non-consensus provider
+metadata. The RegistryV2 invariant campaign is bounded inline to 64 runs ×
+64 calls per run; deterministic lifecycle and gas-bound tests remain separate.
+
 
 ## Integration evidence still required
 

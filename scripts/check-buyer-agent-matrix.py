@@ -176,6 +176,10 @@ def validate_matrix(data: dict[str, Any]) -> list[str]:
             for field in ("setup_docs", "entrypoints", "commands_or_tools", "required_evidence"):
                 value = runtime.get(field)
                 require(isinstance(value, list) and bool(value), f"{runtime_id}: {field} must be a non-empty list", errors)
+            if runtime_id == "shopbridge-direct-skill":
+                commands = runtime.get("commands_or_tools")
+                require(isinstance(commands, list) and all(command in commands for command in ("x402_typed_data", "x402_receipt")),
+                        "shopbridge-direct-skill: quote-bound x402 signing commands are required", errors)
             capabilities = runtime.get("capabilities")
             require(isinstance(capabilities, dict), f"{runtime_id}: capabilities must be an object", errors)
             if isinstance(capabilities, dict):

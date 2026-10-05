@@ -556,16 +556,31 @@ def sha256_b64(data: bytes) -> str:
 
 
 def canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=json_default)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=json_default)
 
 
 def canonical_json_hash(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value).encode()).hexdigest()
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def hash_without(value: dict[str, Any], *excluded: str) -> str:
     excluded_set = set(excluded)
     return canonical_json_hash({key: child for key, child in value.items() if key not in excluded_set})
+
+
+def persisted_json_hash(material: Any, metadata: dict[str, Any]) -> str:
+    """Verify unmarked historical hashes only with their ASCII-escaped rule."""
+    if "canonicalization" not in metadata:
+        encoded = json.dumps(material, sort_keys=True, separators=(",", ":"), default=json_default)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    if metadata["canonicalization"] != "shopbridge-json-v1":
+        return ""
+    return canonical_json_hash(material)
+
+
+def persisted_ledger_event_hash(event: dict[str, Any]) -> str:
+    material = {key: value for key, value in event.items() if key != "event_hash"}
+    return persisted_json_hash(material, event)
 
 
 def service_quote_hash_payload(quote: dict[str, Any]) -> dict[str, Any]:
@@ -1661,7 +1676,9 @@ class WooCommerceAdapter:
                 for item in quote.get("items", [])
             ],
         }
-        raw_order = self.plugin_json(self.plugin_url("/wp-json/agentcart/v1/orders", {}), method="POST", payload=payload)
+        raw_order = self.plugin_json(
+            self.plugin_url("/wp-json/agentcart/v1/orders", {}), method="POST", payload=payload,
+            extra_headers={"Idempotency-Key": str(order["idempotency_key"])})
         if not isinstance(raw_order, dict):
             raise UpstreamError("AgentCart WooCommerce plugin order response was not an object")
         order_id = raw_order.get("id")
@@ -1831,12 +1848,14 @@ class WooCommerceAdapter:
         method: str,
         payload: dict[str, Any] | None = None,
         timeout: int = 15,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         body = None
         headers = {
             "Accept": "application/json",
             "X-AgentCart-Merchant-Token": self.config.woocommerce_agentcart_token,
         }
+        headers.update(extra_headers or {})
         if payload is not None:
             body = json.dumps(payload, default=json_default).encode()
             headers["Content-Type"] = "application/json"
@@ -2047,8 +2066,24 @@ class ShopBridgeRegistryAdapter:
             "merchant_of_record": self.merchant["merchant_of_record"],
         }
 
-    def create_merchant_order(self, _order: dict[str, Any], _quote: dict[str, Any]) -> dict[str, Any]:
-        raise Forbidden("Registry-discovered ShopBridge checkout requires public verifier-backed order creation")
+    def create_merchant_order(self, order: dict[str, Any], quote: dict[str, Any]) -> dict[str, Any]:
+        if registry_trust.normalized_payment_rail((order.get("payment_receipt") or {}).get("method")) != "x402-compatible":
+            raise Forbidden("Registry-discovered ShopBridge checkout requires public verifier-backed order creation")
+        raw = self.request_json(self.endpoint("checkout", "/wp-json/agentcart/v1/orders"), method="POST", payload={
+            "agentcart_order_id": order["id"],
+            "merchant_quote_id": quote.get("merchant_quote_id"),
+            "quote_hash": quote.get("quote_hash"),
+            "approval_hash": order.get("approval_hash"),
+            "quote": quote,
+            "rail": "x402-compatible",
+            "payment_receipt": order["payment_receipt"],
+        }, extra_headers={"Idempotency-Key": str(order["idempotency_key"])})
+        if not isinstance(raw, dict):
+            raise UpstreamError("ShopBridge x402 order response was not an object")
+        return {
+            **raw, "platform": "woocommerce-agentcart-plugin",
+            "state": str(raw.get("state") or "created"), "id": str(raw.get("id") or ""),
+        }
 
     def create_merchant_refund(self, _order: dict[str, Any], _request: dict[str, Any]) -> dict[str, Any]:
         raise Forbidden("Registry-discovered ShopBridge refunds require merchant-approved verifier-backed refund creation")
@@ -2081,12 +2116,13 @@ class ShopBridgeRegistryAdapter:
         params: dict[str, str] | None = None,
         payload: dict[str, Any] | None = None,
         timeout: int = 15,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         if params:
             separator = "&" if "?" in url else "?"
             url += separator + urllib.parse.urlencode({key: value for key, value in params.items() if value is not None})
         body = None
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", **(extra_headers or {})}
         if payload is not None:
             body = json.dumps(payload, default=json_default).encode()
             headers["Content-Type"] = "application/json"
@@ -2951,7 +2987,7 @@ class AgentCartService:
         }
 
     def registry_transparency_event_hash(self, event: dict[str, Any]) -> str:
-        return hash_without(event, "event_hash")
+        return persisted_ledger_event_hash(event)
 
     def append_hosted_registry_transparency_event(
         self,
@@ -2983,6 +3019,7 @@ class AgentCartService:
             "idempotency_key": str(payload.get("idempotency_key") or ""),
             "previous_event_hash": previous_event_hash,
             "hash_alg": "sha-256",
+            "canonicalization": "shopbridge-json-v1",
         }
         if record is not None:
             event["record_payload_hash"] = canonical_json_hash(record)
@@ -3864,66 +3901,6 @@ class AgentCartService:
             "registry_claim_hash": str(record.get("registry_claim_hash") or ""),
         }
 
-    def verify_registry_claim_binding(self, record: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
-        expected_hash = str(record.get("registry_claim_hash") or "")
-        if not expected_hash:
-            return []
-        errors: list[str] = []
-        hash_alg = str(record.get("registry_claim_hash_alg") or "sha-256").lower()
-        if hash_alg not in {"sha-256", "sha256"}:
-            errors.append("registry_claim_hash_alg_unsupported")
-        discovery = manifest.get("discovery") if isinstance(manifest.get("discovery"), dict) else {}
-        claim = discovery.get("registry_claim") if isinstance(discovery.get("registry_claim"), dict) else {}
-        if not claim:
-            errors.append("registry_claim_missing_in_manifest")
-            return errors
-        actual_hash = canonical_json_hash(claim)
-        if not hmac.compare_digest(expected_hash, actual_hash):
-            errors.append("registry_claim_hash_mismatch")
-        for field in (
-            "merchant_id",
-            "name",
-            "domain",
-            "manifest_url",
-            "payment_network",
-            "payment_recipient",
-            "stripe_profile_id",
-            "proof_url",
-            "revocation_url",
-        ):
-            expected = str(record.get(field) or "")
-            supplied = str(claim.get(field) or "")
-            if expected and supplied and expected != supplied:
-                errors.append(f"registry_claim_{field}_mismatch")
-            elif expected and not supplied:
-                errors.append(f"registry_claim_{field}_missing")
-        record_countries = sorted(str(value).upper() for value in record.get("ship_to_countries", []) if value)
-        claim_countries = sorted(str(value).upper() for value in claim.get("ship_to_countries", []) if value)
-        if record_countries and record_countries != claim_countries:
-            errors.append("registry_claim_ship_to_countries_mismatch")
-        record_protocols = sorted(str(value) for value in record.get("supported_protocols", []) if value)
-        claim_protocols = sorted(str(value) for value in claim.get("supported_protocols", []) if value)
-        if record_protocols and record_protocols != claim_protocols:
-            errors.append("registry_claim_supported_protocols_mismatch")
-        record_profile_ids = sorted(str(value) for value in record.get("protocol_profile_ids", []) if value)
-        claim_profile_ids = sorted(str(value) for value in claim.get("protocol_profile_ids", []) if value)
-        if record_profile_ids and record_profile_ids != claim_profile_ids:
-            errors.append("registry_claim_protocol_profile_ids_mismatch")
-        record_onchain_identity = self.registry_onchain_identity_payload(record)
-        claim_onchain_identity = self.registry_onchain_identity_payload(claim)
-        if record_onchain_identity and not claim_onchain_identity:
-            errors.append("registry_claim_onchain_identity_missing")
-        elif record_onchain_identity and canonical_json_hash(record_onchain_identity) != canonical_json_hash(claim_onchain_identity):
-            errors.append("registry_claim_onchain_identity_mismatch")
-        record_endpoints = record.get("endpoints") if isinstance(record.get("endpoints"), dict) else {}
-        claim_endpoints = claim.get("endpoints") if isinstance(claim.get("endpoints"), dict) else {}
-        for name, endpoint in record_endpoints.items():
-            supplied = claim_endpoints.get(name)
-            if endpoint and supplied and endpoint != supplied:
-                errors.append(f"registry_claim_endpoint_{name}_mismatch")
-            elif endpoint and not supplied:
-                errors.append(f"registry_claim_endpoint_{name}_missing")
-        return errors
 
     def verify_registry_payment_binding(self, record: dict[str, Any], manifest: dict[str, Any]) -> str | None:
         record_recipient = str(record.get("payment_recipient") or "").lower()
@@ -4037,6 +4014,7 @@ class AgentCartService:
             "registry_claim_hash_alg": str(record.get("registry_claim_hash_alg") or ""),
             "registry_claim_hash": str(record.get("registry_claim_hash") or ""),
             "registry_record_hash": registry_record_hash(record),
+            "registry_payment_bindings": registry_trust.registry_payment_bindings(record),
             "updated_at": str(record.get("updated_at") or ""),
             "proof_url": str((record.get("proof") or {}).get("url") or "") if isinstance(record.get("proof"), dict) else "",
             "revocation_url": str(record.get("revocation_url") or ""),
@@ -5454,6 +5432,7 @@ class AgentCartService:
                         "items": [{"product_id": product_id, "quantity": quantity}],
                         "ship_to": {"country": country, "postal_code": postal_code},
                         "idempotency_key": f"tournament-{uuid.uuid4().hex[:10]}",
+                        "payment_rail": request.get("payment_rail"),
                     }
                 )
             except AgentCartError as exc:
@@ -5824,6 +5803,7 @@ class AgentCartService:
             "properties": {
                 "agent_id": {"type": "string"},
                 "reason": {"type": "string"},
+                "payment_rail": {"type": "string"},
                 "items": {
                     "type": "array",
                     "minItems": 1,
@@ -5894,6 +5874,7 @@ class AgentCartService:
                     "type": "object",
                     "properties": {
                         "quote_id": {"type": "string"},
+                        "payment_rail": {"type": "string"},
                         "channel": {"type": "string"},
                         "delivery_channels": {
                             "type": "array",
@@ -5935,6 +5916,7 @@ class AgentCartService:
                         "quote_id": {"type": "string"},
                         "approval_id": {"type": "string"},
                         "idempotency_key": {"type": "string"},
+                        "payment_rail": {"type": "string"},
                         "payment_receipt": {"type": "object"},
                     },
                     "required": ["quote_id", "approval_id", "idempotency_key"],
@@ -6702,6 +6684,7 @@ class AgentCartService:
                 "properties": {
                     "agent_id": {"type": "string"},
                     "reason": {"type": "string"},
+                    "payment_rail": {"type": "string"},
                     "items": {
                         "type": "array",
                         "items": {
@@ -6753,6 +6736,7 @@ class AgentCartService:
                 "type": "object",
                 "properties": {
                     "quote_id": {"type": "string"},
+                    "payment_rail": {"type": "string"},
                     "channel": {"type": "string"},
                     "delivery_channels": {
                         "type": "array",
@@ -6791,6 +6775,8 @@ class AgentCartService:
                     "quote_id": {"type": "string"},
                     "approval_id": {"type": "string"},
                     "idempotency_key": {"type": "string"},
+                    "payment_rail": {"type": "string"},
+                    "payment_receipt": {"type": "object"},
                 },
                 "required": ["quote_id", "approval_id", "idempotency_key"],
             },
@@ -7397,6 +7383,7 @@ separate human confirmation.
             agent_id=agent_id,
             reason=reason,
             idempotency_key=request.get("idempotency_key"),
+            payment_rail=request.get("payment_rail"),
         )
         if remote_quote is not None:
             return remote_quote
@@ -7490,6 +7477,8 @@ separate human confirmation.
                 "merchant_of_record": self.adapter_for_merchant(merchant_id or self.adapter.merchant["id"]).merchant["merchant_of_record"],
                 "created_at": isoformat(now),
             }
+            if request.get("payment_rail"):
+                quote["payment_rail"] = registry_trust.normalized_payment_rail(request["payment_rail"])
             quote["quote_hash"] = service_quote_hash(quote)
             policy_result = self.evaluate_policy_for_quote(quote)
             quote["policy_result"] = policy_result
@@ -7514,6 +7503,7 @@ separate human confirmation.
         agent_id: str,
         reason: str,
         idempotency_key: Any,
+        payment_rail: Any = None,
     ) -> dict[str, Any] | None:
         normalized_items: list[dict[str, Any]] = []
         adapter: Any | None = None
@@ -7577,6 +7567,18 @@ separate human confirmation.
             "merchant_of_record": merchant_quote["merchant_of_record"],
             "created_at": isoformat(now),
         }
+        if payment_rail:
+            quote["payment_rail"] = registry_trust.normalized_payment_rail(payment_rail)
+        if isinstance(adapter, ShopBridgeRegistryAdapter):
+            trust = {
+                "merchant_origin": adapter.origin,
+                "registry_record_hash": str(adapter.record.get("registry_record_hash") or ""),
+                "registry_payment_bindings": adapter.record.get("registry_payment_bindings") or {},
+            }
+            trust["trust_hash"] = hash_without(trust, "trust_hash")
+            quote["quote_trust"] = trust
+            if self.quote_payment_readiness(quote)["state"] == "ready":
+                self.quote_payment_destination(quote)
         with self.lock:
             for item in quote["items"]:
                 quantity = int(item["quantity"])
@@ -7705,10 +7707,20 @@ separate human confirmation.
     def quote_payment_destination(self, quote: dict[str, Any]) -> dict[str, Any]:
         requirements = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
         protocols = requirements.get("protocols") if isinstance(requirements.get("protocols"), list) else []
+        selected_rail = registry_trust.normalized_payment_rail(quote.get("payment_rail"))
+        if selected_rail:
+            selection_issues = registry_trust.payment_protocol_selection_issues(protocols, selected_rail)
+            if selection_issues:
+                raise Forbidden(selection_issues[0], detail={"issues": selection_issues})
         for protocol in protocols:
-            if not isinstance(protocol, dict) or protocol.get("available", True) is False:
+            if not isinstance(protocol, dict) or protocol.get("available", True) is False or protocol.get("setup_required") is True:
                 continue
-            method = str(protocol.get("id") or protocol.get("method") or self.payment_provider.method)
+            if selected_rail and registry_trust.payment_protocol_rail(protocol) != selected_rail:
+                continue
+            method = registry_trust.payment_protocol_rail(protocol) or self.payment_provider.method
+            selection_issues = registry_trust.payment_protocol_selection_issues(protocols, method)
+            if selection_issues:
+                raise Forbidden(selection_issues[0], detail={"issues": selection_issues})
             destination = {
                 "rail": method,
                 "method": method,
@@ -7729,21 +7741,32 @@ separate human confirmation.
                 "asset",
                 "pay_to",
                 "payTo",
-                "max_amount_required",
-                "maxAmountRequired",
+                "amount",
                 "payment_required_header",
                 "payment_signature_header",
                 "payment_response_header",
             ):
                 if protocol.get(key):
                     destination[key] = protocol[key]
-            x402 = requirements.get("x402") if isinstance(requirements.get("x402"), dict) else {}
-            if method == "x402-compatible" and isinstance(x402.get("payment_required"), dict):
-                destination["payment_required"] = x402["payment_required"]
-            if method == "x402-compatible" and x402.get("payment_required_header_value"):
-                destination["payment_required_header_value"] = str(x402["payment_required_header_value"])
+            if method == "x402-compatible":
+                destination = registry_trust.registry_quote_payment_destination(quote, protocol)
+                destination["source"] = "quote.payment_requirements.protocols"
+                destination.pop("registry_verified", None)
+            self.require_registry_payment_destination(quote, destination, protocol=protocol)
+            x402_issues = registry_trust.x402_payment_required_issues(quote, protocol)
+            if x402_issues:
+                raise Forbidden(x402_issues[0], detail={"issues": x402_issues})
+            if destination.get("registry_verified"):
+                return registry_trust.registry_quote_payment_destination(quote, protocol)
             return destination
-        return {
+        advertised_protocols = [protocol for protocol in protocols if isinstance(protocol, dict)]
+        if advertised_protocols:
+            first = advertised_protocols[0]
+            selection_issues = registry_trust.payment_protocol_selection_issues(
+                advertised_protocols, first.get("id") or first.get("method"),
+            )
+            raise Forbidden(selection_issues[0], detail={"issues": selection_issues})
+        destination = {
             "rail": self.payment_provider.method,
             "method": self.payment_provider.method,
             "protocol": self.payment_provider.protocol,
@@ -7752,11 +7775,29 @@ separate human confirmation.
             "setup_required": False,
             "real_settlement": self.payment_provider.real_settlement,
         }
+        self.require_registry_payment_destination(quote, destination, protocol=destination)
+        return destination
+
+    def require_registry_payment_destination(
+        self, quote: dict[str, Any], destination: dict[str, Any], *, protocol: dict[str, Any],
+    ) -> None:
+        trust = registry_trust.quote_trust_metadata(quote)
+        adapter = self.adapters.get(str(quote.get("merchant_id") or ""))
+        registry_provenance = isinstance(adapter, ShopBridgeRegistryAdapter)
+        issues = registry_trust.registry_payment_destination_issues(
+            quote, protocol, registry_provenance=registry_provenance)
+        if issues:
+            raise Forbidden(issues[0])
+        if not (registry_provenance or trust.get("registry_record_hash") or quote.get("registry_record_hash")):
+            return
+        destination["source"] = "verified_registry_record"
+        destination["registry_verified"] = True
+
 
     def approval_material_for_quote(self, quote: dict[str, Any]) -> dict[str, Any]:
         shipping = quote.get("shipping") if isinstance(quote.get("shipping"), dict) else {}
         delivery = quote.get("delivery_window") or quote.get("delivery_estimate") or {}
-        return {
+        material = {
             "quote_id": quote["id"],
             "merchant": {
                 "id": quote["merchant_id"],
@@ -7795,6 +7836,12 @@ separate human confirmation.
                 ],
             },
         }
+        trust = registry_trust.quote_trust_metadata(quote)
+        if trust:
+            material["merchant_origin"] = trust.get("merchant_origin")
+            material["registry_record_hash"] = trust.get("registry_record_hash")
+            material["quote_trust"] = trust
+        return material
 
     def approval_record_for_quote(
         self,
@@ -7872,6 +7919,12 @@ separate human confirmation.
         delivery_channels = self.approval_delivery_channels(request, channel)
         with self.lock:
             quote = self.get_quote(quote_id)
+            requested_rail = registry_trust.normalized_payment_rail(request.get("payment_rail"))
+            if requested_rail:
+                if quote.get("payment_rail") and requested_rail != quote["payment_rail"]:
+                    raise Forbidden("payment_rail does not match the selected quote rail")
+                quote["payment_rail"] = requested_rail
+            self.quote_payment_destination(quote)
             policy_result = self.evaluate_policy_for_quote(quote)
             quote["policy_result"] = policy_result
             if policy_result["decision"] == "deny":
@@ -8540,6 +8593,41 @@ separate human confirmation.
             quote = self.get_quote(quote_id)
             approval = self.get_approval(approval_id)
             self.require_checkout_ready(quote, approval)
+            destination = self.quote_payment_destination(quote)
+            if request.get("payment_rail") and registry_trust.normalized_payment_rail(request["payment_rail"]) != destination["rail"]:
+                raise Forbidden("payment_rail does not match the approved quote rail")
+            if destination.get("rail") == "x402-compatible":
+                receipt = request.get("payment_receipt")
+                if not isinstance(receipt, dict):
+                    return 402, {
+                        "PAYMENT-REQUIRED": destination["payment_required_header_value"],
+                        "Cache-Control": "no-store",
+                    }, {"status": 402, "payment_destination": destination}
+                receipt = dict(receipt)
+                if headers.get("payment-signature"):
+                    receipt["x402_payment_signature"] = headers["payment-signature"]
+                issues = registry_trust.x402_receipt_issues(receipt, destination)
+                if issues:
+                    raise Forbidden(issues[0])
+                if (receipt.get("amount_cents") != quote["total_cents"]
+                        or str(receipt.get("currency") or "").upper() != quote["currency"].upper()
+                        or receipt.get("quote_hash") != quote.get("quote_hash")
+                        or not destination.get("payment_contract_hash")
+                        or receipt.get("payment_contract_hash") != destination["payment_contract_hash"]):
+                    raise Forbidden("payment_receipt_mismatch")
+                adapter = self.adapter_for_merchant(quote["merchant_id"])
+                if getattr(adapter, "mode", "") not in {"plugin", "registry_plugin"}:
+                    raise Forbidden("x402 requires a ShopBridge merchant verifier")
+                policy_result = self.evaluate_policy_for_quote(quote)
+                if policy_result["decision"] == "deny":
+                    raise Forbidden("policy denied quote at checkout", detail=policy_result)
+                receipt.setdefault("id", f"payrcpt_{canonical_json_hash([idempotency_key, receipt['x402_payment_signature']])[:24]}")
+                receipt["real_settlement"] = False
+                order = self.create_order_locked(
+                    quote, approval, {"id": "x402"}, "", idempotency_key=idempotency_key,
+                    policy_result=policy_result, supplied_receipt=receipt)
+                return 201, {"Location": f"/v1/orders/{order['id']}"}, {
+                    "order": order, "payment_receipt": order["payment_receipt"]}
 
         authorization = headers.get("authorization", "")
         if not authorization:
@@ -8605,12 +8693,16 @@ separate human confirmation.
         return 201, headers_out, {"order": order, "payment_receipt": receipt}
 
     def require_checkout_ready(self, quote: dict[str, Any], approval: dict[str, Any]) -> None:
+        self.quote_payment_destination(quote)
         if parse_time(quote["expires_at"]) < utcnow():
             raise Conflict("quote has expired")
         if approval["quote_id"] != quote["id"]:
             raise BadRequest("approval does not belong to quote")
         if approval["state"] != "approved":
             raise Forbidden(f"approval is {approval['state']}")
+        if self.quote_payment_destination(quote).get("rail") == "x402-compatible":
+            if approval.get("approval_hash") != canonical_json_hash(self.approval_material_for_quote(quote)):
+                raise Forbidden("approval_hash does not match the current quote approval packet")
 
     def create_payment_challenge(
         self,
@@ -8695,6 +8787,7 @@ separate human confirmation.
         *,
         idempotency_key: str,
         policy_result: dict[str, Any],
+        supplied_receipt: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         for item in quote["items"]:
             product_id = item["product_id"]
@@ -8703,18 +8796,19 @@ separate human confirmation.
             if available < quantity:
                 raise Conflict(f"stock changed; only {available} units available for {product_id}")
 
-        order_id = f"order_{uuid.uuid4().hex[:16]}"
-        receipt = self.payment_provider.receipt(
-            quote=quote,
-            approval=approval,
-            challenge=challenge,
-            authorization=authorization,
-        )
-        value_proof = self.create_external_value_proof(quote, approval)
-        if value_proof["state"] != "skipped":
-            receipt["external_value_proof"] = value_proof
+        order_id = (f"order_{canonical_json_hash([idempotency_key, supplied_receipt['x402_payment_signature']])[:24]}"
+                    if supplied_receipt is not None else f"order_{uuid.uuid4().hex[:16]}")
+        if supplied_receipt is not None:
+            receipt = supplied_receipt
+        else:
+            receipt = self.payment_provider.receipt(
+                quote=quote, approval=approval, challenge=challenge, authorization=authorization)
+            value_proof = self.create_external_value_proof(quote, approval)
+            if value_proof["state"] != "skipped":
+                receipt["external_value_proof"] = value_proof
         order = {
             "id": order_id,
+            "idempotency_key": idempotency_key,
             "merchant_order_id": f"FTS-{order_id[-8:].upper()}",
             "quote_id": quote["id"],
             "approval_id": approval["id"],
@@ -8740,6 +8834,12 @@ separate human confirmation.
         }
         adapter = self.adapter_for_merchant(quote["merchant_id"])
         merchant_order = adapter.create_merchant_order(order, quote)
+        if supplied_receipt is not None:
+            verification = merchant_order.get("payment_verification") or {}
+            if verification.get("real_settlement_verified") is not True:
+                raise UpstreamError("ShopBridge x402 order lacks verified settlement")
+            receipt["real_settlement"] = True
+            receipt["real_settlement_verified"] = True
         order["merchant_order"] = merchant_order
         if merchant_order.get("id"):
             order["merchant_order_id"] = str(merchant_order["id"])
@@ -9374,17 +9474,24 @@ separate human confirmation.
             or ""
         ).strip()
 
-    def refund_request_hash(self, order_id: str, request: dict[str, Any]) -> str:
-        return canonical_json_hash(
-            {
-                "order_id": order_id,
-                "request": {
-                    key: value
-                    for key, value in request.items()
-                    if key not in {"token"}
-                },
-            }
-        )
+    def refund_request_hash(
+        self,
+        order_id: str,
+        request: dict[str, Any],
+        *,
+        persisted: dict[str, Any] | None = None,
+    ) -> str:
+        material = {
+            "order_id": order_id,
+            "request": {
+                key: value
+                for key, value in request.items()
+                if key not in {"token"}
+            },
+        }
+        if persisted is not None:
+            return persisted_json_hash(material, persisted)
+        return canonical_json_hash(material)
 
     def existing_refund_for_idempotency(self, order: dict[str, Any], refund_id: str) -> dict[str, Any] | None:
         refunds = order.get("refunds") if isinstance(order.get("refunds"), list) else []
@@ -9485,7 +9592,8 @@ separate human confirmation.
             if isinstance(replay, dict):
                 if str(replay.get("order_id") or "") != order_id:
                     raise Conflict("refund idempotency key is already bound to a different order")
-                if str(replay.get("request_hash") or "") != request_hash:
+                expected_request_hash = self.refund_request_hash(order_id, request, persisted=replay)
+                if not expected_request_hash or str(replay.get("request_hash") or "") != expected_request_hash:
                     raise Conflict("refund idempotency key is already bound to a different refund request")
                 refund = self.existing_refund_for_idempotency(order, str(replay.get("refund_id") or ""))
                 if not refund:
@@ -9558,6 +9666,7 @@ separate human confirmation.
                 "order_id": order_id,
                 "refund_id": refund["id"],
                 "request_hash": request_hash,
+                "canonicalization": "shopbridge-json-v1",
                 "created_at": refund["created_at"],
             }
             current_order["updated_at"] = isoformat(utcnow())

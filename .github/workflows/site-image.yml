@@ -1,0 +1,122 @@
+name: Site image
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/site-image.yml
+      - scripts/check-agentcart-site.sh
+      - site/**
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/site-image.yml
+      - scripts/check-agentcart-site.sh
+      - site/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/giraeffleaeffle/agentcart-site
+
+concurrency:
+  group: site-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and smoke-test site image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build site image for validation
+        uses: docker/build-push-action@v6
+        with:
+          context: site
+          file: site/Dockerfile
+          load: true
+          platforms: linux/amd64
+          provenance: false
+          push: false
+          sbom: false
+          tags: agentcart-site:ci-${{ github.sha }}
+
+      - name: Smoke-test site image
+        run: bash scripts/check-agentcart-site.sh --image "agentcart-site:ci-${{ github.sha }}"
+
+  publish:
+    name: Publish immutable GHCR image
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=AgentCart website
+            org.opencontainers.image.description=Static agentcart.eu website served by unprivileged nginx
+
+      - name: Build and publish site image
+        id: publish
+        uses: docker/build-push-action@v6
+        with:
+          context: site
+          file: site/Dockerfile
+          platforms: linux/amd64
+          provenance: mode=max
+          push: true
+          sbom: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+
+      - name: Attest published image
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record immutable image reference
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          echo "IMAGE_DIGEST=${IMAGE_DIGEST}"
+          {
+            echo "### Published site image"
+            echo
+            echo "${IMAGE_NAME}@${IMAGE_DIGEST}"
+            echo
+            echo "Pin this digest in deploy/agentcart-site/values.yaml before a release."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -9,6 +9,9 @@ on:
       - gateway/package-lock.json
       - gateway/scripts/stripe-mpp-verifier.mjs
       - gateway/scripts/verifier-sqlite-replay-store.mjs
+      - gateway/scripts/verifier-x402.mjs
+      - gateway/tests/verifier-x402.test.mjs
+      - gateway/tests/helpers/**
       - gateway/scripts/verifier-refund-operations.mjs
       - gateway/scripts/verifier-refund-reconciler.mjs
       - gateway/tests/verifier-refund-reconciler.test.mjs
@@ -23,6 +26,9 @@ on:
       - gateway/package-lock.json
       - gateway/scripts/stripe-mpp-verifier.mjs
       - gateway/scripts/verifier-sqlite-replay-store.mjs
+      - gateway/scripts/verifier-x402.mjs
+      - gateway/tests/verifier-x402.test.mjs
+      - gateway/tests/helpers/**
       - gateway/scripts/verifier-refund-operations.mjs
       - gateway/scripts/verifier-refund-reconciler.mjs
       - gateway/tests/verifier-refund-reconciler.test.mjs

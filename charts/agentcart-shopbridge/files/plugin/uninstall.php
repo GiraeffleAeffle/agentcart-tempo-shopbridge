@@ -18,6 +18,7 @@ $agentcart_shopbridge_options = [
     'agentcart_shopbridge_token',
     'agentcart_shopbridge_payment_verifier_url',
     'agentcart_shopbridge_payment_verifier_token',
+    'agentcart_shopbridge_verifier_capabilities',
     'agentcart_shopbridge_checkout_mode',
     'agentcart_shopbridge_signed_request_mode',
     'agentcart_shopbridge_signed_request_secret',

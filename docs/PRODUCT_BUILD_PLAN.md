@@ -41,7 +41,7 @@ local integrations.
 | --- | --- | --- |
 | 1 | Registry transparency and refresh UX | Alpha implemented: safe multi-merchant discovery now exposes refresh/check status and machine-readable registry reasons |
 | 2 | Manifest protocol profiles | Alpha implemented: manifests now publish configured-only `protocol_profiles[]` for ShopBridge commerce, MPP payment, Stripe/card MPP, and registry mapping |
-| 3 | x402 compatibility shim | Alpha implemented: quote payment requirements now expose x402 exact-payment headers and checkout can answer unpaid quote-bound requests with `PAYMENT-REQUIRED` |
+| 3 | x402 v2 adapter | Implemented, capability-gated, and disabled by default: x402 v2 `exact` on Base Sepolia (`eip155:84532`) with USDC for USD quotes only. The plugin advertises x402 only after an administrator's explicit verifier capability check confirms rail, network, and asset. Quotes carry a v2 `PAYMENT-REQUIRED` header; checkout accepts `PAYMENT-SIGNATURE` or `x402_payment_signature`; paid orders return `PAYMENT-RESPONSE`. The verifier owns facilitator and settlement. Refunds are unsupported (manual only); EUR stores use Stripe/card. Only local fakes have run; no live testnet payment yet |
 | 4 | Signed HTTP request verification | Alpha implemented: ShopBridge can require HMAC or RSA signed requests with method/path/digest/nonce/expiry binding for sensitive endpoints, support multiple active HMAC signing keys, rotate active keys with a retirement window, retain sanitized signed-request audit records, and buyer skill/service paths can sign them |
 | 5 | MCP tool catalog | Alpha implemented: `/v1/mcp/tools` and `/mcp/tools.json` publish stable tool definitions for discovery, catalog, quote, approval, checkout, aftercare, refund, and audit flows |
 | 6 | AP2-style mandate mapping | Alpha implemented: approval records and payment handoffs now expose checked checkout/payment mandate-shaped fields without claiming signed AP2 VDC compliance |
@@ -319,8 +319,9 @@ Deliverables:
 - bind amount, currency, merchant id/profile, quote hash, idempotency key, and
   transaction reference;
 - execute refunds through the original rail;
-- keep Tempo stablecoin support as a separate rail with explicit FX/settlement
-  semantics.
+- keep Tempo stablecoin support as a separate rail; the current implementation
+  settles USD-quoted orders only (non-USD Tempo settlement is unsupported today;
+  Stripe/card is the EUR rail).
 
 Definition of done:
 

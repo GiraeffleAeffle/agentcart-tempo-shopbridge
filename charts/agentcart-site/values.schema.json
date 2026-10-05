@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "replicas", "hosts", "resources", "ingress"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^ghcr\\.io/[a-z0-9._/-]+$"},
+        "digest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"}
+      }
+    },
+    "replicas": {"type": "integer", "minimum": 1, "maximum": 4},
+    "hosts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["site", "preview"],
+      "description": "The image's nginx serves only these names; any other host would answer 404.",
+      "properties": {
+        "site": {"type": "array", "uniqueItems": true, "items": {"enum": ["agentcart.eu", "www.agentcart.eu"]}},
+        "preview": {"type": "array", "uniqueItems": true, "items": {"enum": ["preview.staging.agentcart.eu"]}}
+      }
+    },
+    "resources": {"type": "object"},
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["className", "clusterIssuer", "haproxySources"],
+      "properties": {
+        "className": {"type": "string", "minLength": 1},
+        "clusterIssuer": {"type": "string", "minLength": 1},
+        "haproxySources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/(3[0-2]|[12]?[0-9])$"}
+        }
+      }
+    }
+  }
+}

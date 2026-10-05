@@ -400,8 +400,12 @@ final class AgentCart_ShopBridge_Registry_Events {
      * @param mixed $value JSON value.
      */
     private static function canonical_json($value): string {
+        $is_object = $value instanceof stdClass;
+        if ($is_object) {
+            $value = get_object_vars($value);
+        }
         if (is_array($value)) {
-            if (self::is_list($value)) {
+            if (!$is_object && self::is_list($value)) {
                 return '[' . implode(',', array_map([self::class, 'canonical_json'], $value)) . ']';
             }
             ksort($value, SORT_STRING);
@@ -413,7 +417,7 @@ final class AgentCart_ShopBridge_Registry_Events {
         }
         $encoded = wp_json_encode(
             $value,
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_LINE_TERMINATORS | JSON_PRESERVE_ZERO_FRACTION
         );
         return is_string($encoded) ? $encoded : 'null';
     }

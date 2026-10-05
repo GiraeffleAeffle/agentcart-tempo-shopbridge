@@ -8,6 +8,8 @@ tests pass snapshots or an in-memory adapter.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import datetime as dt
 import hashlib
 import hmac
@@ -86,6 +88,375 @@ def registry_signature_payload(record: dict[str, Any]) -> dict[str, Any]:
 
 def registry_record_hash(record: dict[str, Any]) -> str:
     return canonical_json_hash(registry_signature_payload(record))
+
+def normalized_payment_rail(value: Any) -> str:
+    rail = str(value or "").strip().lower().replace("_", "-")
+    if rail in {"tempo", "tempo-mpp", "mpp", "mpp-shaped-demo", "demo-payment-proof"}:
+        return "tempo-mpp"
+    if rail in {"stripe", "stripe-card", "stripe-card-mpp"}:
+        return "stripe-card-mpp"
+    if rail in {"x402", "x402-exact", "x402-compatible"}:
+        return "x402-compatible"
+    return rail
+
+
+def registry_payment_bindings(record: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Destinations committed by the record, never by a live quote."""
+    bindings = {
+        "tempo-mpp": {
+            "network": str(record.get("payment_network") or "").strip(),
+            "recipient": str(record.get("payment_recipient") or "").strip().lower(),
+        },
+        "stripe-card-mpp": {
+            "stripe_profile_id": str(record.get("stripe_profile_id") or "").strip(),
+        },
+    }
+    if any(key in record for key in ("x402_network", "x402_asset", "x402_pay_to")):
+        bindings["x402-compatible"] = {
+            "network": str(record.get("x402_network") or "").strip(),
+            "asset": str(record.get("x402_asset") or "").strip().lower(),
+            "pay_to": str(record.get("x402_pay_to") or "").strip().lower(),
+        }
+    return bindings
+
+
+def payment_destination_matches_binding(destination: dict[str, Any], bindings: Any, *, rail: Any) -> bool:
+    # The caller derives this from its selected protocol id/method, not raw data's rail.
+    rail = normalized_payment_rail(rail)
+    if not isinstance(bindings, dict) or not isinstance(bindings.get(rail), dict):
+        return False
+    committed = bindings[rail]
+    if rail == "tempo-mpp":
+        network = str(destination.get("network") or "").strip()
+        recipient = str(destination.get("recipient") or destination.get("recipient_address") or destination.get("payment_recipient") or "").strip().lower()
+        expected_network = str(committed.get("network") or "").strip()
+        expected_recipient = str(committed.get("recipient") or "").strip().lower()
+        return bool(expected_network and expected_recipient) and network == expected_network and recipient == expected_recipient
+    if rail == "stripe-card-mpp":
+        expected = str(committed.get("stripe_profile_id") or "").strip()
+        supplied = [
+            str(destination[key] or "").strip()
+            for key in ("stripe_profile_id", "network_id")
+            if key in destination
+        ]
+        return bool(expected and supplied) and all(value == expected for value in supplied)
+    if rail == "x402-compatible":
+        values = {
+            "network": str(destination.get("network") or "").strip(),
+            "asset": str(destination.get("asset") or "").strip().lower(),
+            "pay_to": str(destination.get("pay_to") or destination.get("payTo") or "").strip().lower(),
+        }
+        return all(values[key] and values[key] == str(committed.get(key) or "").strip().lower()
+                   for key in ("network", "asset", "pay_to"))
+    return False
+
+def payment_protocol_rail(protocol: dict[str, Any]) -> str:
+    return normalized_payment_rail(protocol.get("id") or protocol.get("method"))
+
+
+def quote_trust_metadata(quote: dict[str, Any]) -> dict[str, Any]:
+    metadata = quote.get("agentcart_direct_skill") or quote.get("quote_trust")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def quote_trust_hash_valid(trust: Any) -> bool:
+    return isinstance(trust, dict) and trust.get("trust_hash") == canonical_json_hash(
+        {key: value for key, value in trust.items() if key != "trust_hash"})
+
+
+def registry_payment_destination_issues(
+    quote: dict[str, Any], protocol: dict[str, Any], *, registry_provenance: bool = False,
+) -> list[str]:
+    trust = quote_trust_metadata(quote)
+    if not (registry_provenance or trust.get("registry_record_hash") or quote.get("registry_record_hash")):
+        return []
+    if (not trust.get("registry_record_hash") or not quote_trust_hash_valid(trust)
+            or not payment_destination_matches_binding(
+                protocol, trust.get("registry_payment_bindings"), rail=payment_protocol_rail(protocol))):
+        return ["payment_destination_mismatch"]
+    return []
+
+
+X402_ASSETS = {
+    ("eip155:84532", "0x036cbd53842c5426634e7929541ec2318f3dcf7e"):
+        {"name": "USDC", "version": "2", "decimals": 6},
+}
+
+
+_MASK64 = (1 << 64) - 1
+_KECCAK_ROUND_CONSTANTS = (
+    0x0000000000000001,
+    0x0000000000008082,
+    0x800000000000808A,
+    0x8000000080008000,
+    0x000000000000808B,
+    0x0000000080000001,
+    0x8000000080008081,
+    0x8000000000008009,
+    0x000000000000008A,
+    0x0000000000000088,
+    0x0000000080008009,
+    0x000000008000000A,
+    0x000000008000808B,
+    0x800000000000008B,
+    0x8000000000008089,
+    0x8000000000008003,
+    0x8000000000008002,
+    0x8000000000000080,
+    0x000000000000800A,
+    0x800000008000000A,
+    0x8000000080008081,
+    0x8000000000008080,
+    0x0000000080000001,
+    0x8000000080008008,
+)
+_KECCAK_ROTATIONS = (
+    (0, 36, 3, 41, 18),
+    (1, 44, 10, 45, 2),
+    (62, 6, 43, 15, 61),
+    (28, 55, 25, 21, 56),
+    (27, 20, 39, 8, 14),
+)
+
+
+def _rotate_left(value: int, shift: int) -> int:
+    if not shift:
+        return value & _MASK64
+    return ((value << shift) | (value >> (64 - shift))) & _MASK64
+
+
+def _keccak_f1600(state: list[int]) -> None:
+    for round_constant in _KECCAK_ROUND_CONSTANTS:
+        columns = [
+            state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20]
+            for x in range(5)
+        ]
+        deltas = [columns[(x - 1) % 5] ^ _rotate_left(columns[(x + 1) % 5], 1) for x in range(5)]
+        for x in range(5):
+            for y in range(5):
+                state[x + 5 * y] ^= deltas[x]
+
+        moved = [0] * 25
+        for x in range(5):
+            for y in range(5):
+                moved[y + 5 * ((2 * x + 3 * y) % 5)] = _rotate_left(
+                    state[x + 5 * y], _KECCAK_ROTATIONS[x][y]
+                )
+        for x in range(5):
+            for y in range(5):
+                state[x + 5 * y] = (
+                    moved[x + 5 * y]
+                    ^ ((~moved[(x + 1) % 5 + 5 * y]) & moved[(x + 2) % 5 + 5 * y])
+                ) & _MASK64
+        state[0] ^= round_constant
+
+
+def keccak256(value: bytes) -> bytes:
+    rate = 136
+    padded = bytearray(value)
+    padded.append(0x01)
+    padded.extend(b"\x00" * (-len(padded) % rate))
+    padded[-1] |= 0x80
+    state = [0] * 25
+    for offset in range(0, len(padded), rate):
+        block = padded[offset : offset + rate]
+        for lane in range(rate // 8):
+            start = lane * 8
+            state[lane] ^= int.from_bytes(block[start : start + 8], "little")
+        _keccak_f1600(state)
+    output = bytearray()
+    while len(output) < 32:
+        for lane in range(rate // 8):
+            output.extend(state[lane].to_bytes(8, "little"))
+            if len(output) >= 32:
+                return bytes(output[:32])
+        _keccak_f1600(state)
+    return bytes(output[:32])
+
+
+def x402_authorization_nonce(quote_hash: str, payment_contract_hash: str, resource_url: str) -> str:
+    """Commit the EIP-3009 signature to the approved quote, contract and route."""
+    if any(not re.fullmatch(r"[0-9a-fA-F]{64}", value) for value in (quote_hash, payment_contract_hash)):
+        raise ValueError("x402 nonce commitments must be bytes32 SHA-256 hashes")
+    material = (b"shopbridge-x402-nonce-v1" + bytes.fromhex(quote_hash)
+                + bytes.fromhex(payment_contract_hash) + keccak256(resource_url.encode("utf-8")))
+    return "0x" + keccak256(material).hex()
+
+
+def decode_x402_header(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, str) or not value or len(value) > 131072:
+        return None
+    try:
+        raw = base64.b64decode(value, validate=True)
+        if base64.b64encode(raw).decode("ascii") != value:
+            return None
+        document = json.loads(raw.decode("utf-8"))
+        return document if isinstance(document, dict) else None
+    except (ValueError, UnicodeError, binascii.Error, RecursionError):
+        return None
+
+
+def x402_payment_required(quote: dict[str, Any]) -> dict[str, Any]:
+    payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+    x402 = payment.get("x402") if isinstance(payment.get("x402"), dict) else {}
+    document = decode_x402_header(x402.get("payment_required_header_value"))
+    return document or {}
+
+
+def x402_payment_required_issues(quote: dict[str, Any], protocol: dict[str, Any]) -> list[str]:
+    if payment_protocol_rail(protocol) != "x402-compatible":
+        return []
+    mismatch = ["x402_payment_required_mismatch"]
+    payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+    x402 = payment.get("x402") if isinstance(payment.get("x402"), dict) else {}
+    document = x402_payment_required(quote)
+    accepts = document.get("accepts")
+    if (type(document.get("x402Version")) is not int or document["x402Version"] != 2
+            or not isinstance(accepts, list) or len(accepts) != 1 or not isinstance(accepts[0], dict)
+            or not isinstance(document.get("resource"), dict) or not document["resource"].get("url")
+            or (x402.get("payment_required") is not None and x402["payment_required"] != document)):
+        return mismatch
+    resource_url = document["resource"]["url"]
+    if not isinstance(resource_url, str) or resource_url != payment.get("checkout_endpoint"):
+        return mismatch
+    parsed = urllib.parse.urlsplit(resource_url)
+    trust = quote_trust_metadata(quote)
+    if trust.get("registry_record_hash") and (
+            not trust.get("merchant_origin") or parsed.username or parsed.password
+            or f"{parsed.scheme}://{parsed.netloc}".lower() != str(trust["merchant_origin"]).rstrip("/").lower()):
+        return mismatch
+    try:
+        x402_authorization_nonce(str(quote.get("quote_hash") or ""),
+                                 quote_payment_contract_hash(quote, "x402-compatible"), resource_url)
+    except ValueError:
+        return mismatch
+    accepted = accepts[0]
+    network = str(protocol.get("network") or "")
+    asset = str(protocol.get("asset") or "").lower()
+    pinned = X402_ASSETS.get((network, asset))
+    if not pinned or str(quote.get("currency") or "").upper() != "USD":
+        return mismatch
+    total = quote.get("total_cents")
+    if type(total) is not int or total <= 0:
+        return mismatch
+    amount = str(total * 10 ** (pinned["decimals"] - 2))
+    extra = accepted.get("extra")
+    if (accepted.get("scheme") != "exact" or accepted.get("network") != network
+            or str(accepted.get("asset") or "").lower() != asset
+            or str(accepted.get("payTo") or "").lower() != str(protocol.get("pay_to") or protocol.get("payTo") or "").lower()
+            or not re.fullmatch(r"0x[0-9a-fA-F]{40}", str(accepted.get("payTo") or ""))
+            or accepted.get("amount") != amount or protocol.get("amount") != amount
+            or type(accepted.get("maxTimeoutSeconds")) is not int or not 30 <= accepted["maxTimeoutSeconds"] <= 300
+            or not isinstance(extra, dict) or any(extra.get(key) != pinned[key] for key in ("name", "version"))):
+        return mismatch
+    return []
+
+
+def x402_receipt_issues(receipt: dict[str, Any], destination: dict[str, Any]) -> list[str]:
+    payload = decode_x402_header(receipt.get("x402_payment_signature"))
+    accepts = (destination.get("payment_required") or {}).get("accepts")
+    accepted = accepts[0] if isinstance(accepts, list) and len(accepts) == 1 else None
+    if (type(receipt.get("x402_version")) is not int or receipt["x402_version"] != 2
+            or normalized_payment_rail(receipt.get("method")) != "x402-compatible"
+            or receipt.get("status") != "authorized"
+            or any(str(receipt.get(key) or "").lower() != str(destination.get(key) or "").lower()
+                   for key in ("network", "asset", "pay_to", "amount"))):
+        return ["payment_destination_mismatch"]
+    if (not accepted or not payload or type(payload.get("x402Version")) is not int or payload["x402Version"] != 2
+            or canonical_json(payload.get("accepted")) != canonical_json(accepted)
+            or not isinstance(payload.get("payload"), dict)):
+        return ["x402_payment_required_mismatch"]
+    authorization = payload["payload"].get("authorization")
+    try:
+        expected_nonce = x402_authorization_nonce(
+            str(receipt.get("quote_hash") or ""), str(receipt.get("payment_contract_hash") or ""),
+            destination["payment_required"]["resource"]["url"])
+    except (ValueError, KeyError, TypeError):
+        return ["x402_authorization_nonce_mismatch"]
+    if not isinstance(authorization, dict) or authorization.get("nonce") != expected_nonce:
+        return ["x402_authorization_nonce_mismatch"]
+    return []
+
+
+def payment_protocol_selection_issues(protocols: list[dict[str, Any]], rail: Any) -> list[str]:
+    selected_rail = normalized_payment_rail(rail)
+    matches = [
+        protocol for protocol in protocols
+        if isinstance(protocol, dict)
+        and payment_protocol_rail(protocol) == selected_rail
+    ]
+    if len(matches) > 1:
+        return ["duplicate_payment_rail"]
+    if not selected_rail or not matches:
+        return ["payment_rail_unavailable"]
+    issues = []
+    if matches[0].get("available", True) is False:
+        issues.append("payment_rail_unavailable")
+    if matches[0].get("setup_required") is True:
+        issues.append("payment_destination_setup_required")
+    return issues
+
+
+def quote_payment_contract_hash(quote: dict[str, Any], rail: str | None = None) -> str:
+    payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+    normalized_rail = normalized_payment_rail(rail)
+    contracts = payment.get("verification_contracts") if isinstance(payment.get("verification_contracts"), list) else []
+    for contract in contracts:
+        if not isinstance(contract, dict):
+            continue
+        if normalized_rail and normalized_payment_rail(contract.get("rail")) != normalized_rail:
+            continue
+        value = str(contract.get("payment_contract_hash") or "")
+        if value:
+            return value
+    contract = payment.get("verification_contract") if isinstance(payment.get("verification_contract"), dict) else {}
+    if contract and (not normalized_rail or normalized_payment_rail(contract.get("rail")) == normalized_rail):
+        value = str(contract.get("payment_contract_hash") or "")
+        if value:
+            return value
+    verification = payment.get("verification") if isinstance(payment.get("verification"), dict) else {}
+    return str(payment.get("payment_contract_hash") or verification.get("payment_contract_hash") or "")
+
+
+def registry_quote_payment_destination(quote: dict[str, Any], protocol: dict[str, Any]) -> dict[str, Any]:
+    """One approval representation for both registry-verified buyer runtimes."""
+    rail = payment_protocol_rail(protocol)
+    destination = {
+        "rail": rail,
+        "method": rail,
+        "protocol": str(protocol.get("protocol") or "mpp"),
+        "available": protocol.get("available", True) is not False,
+        "setup_required": protocol.get("setup_required") is True,
+        "source": "verified_registry_record",
+        "registry_verified": True,
+        "payment_contract_hash": quote_payment_contract_hash(quote, rail),
+    }
+    if rail == "stripe-card-mpp":
+        profile = str(protocol.get("stripe_profile_id") or protocol.get("network_id") or "")
+        destination.update({"stripe_profile_id": profile, "network_id": str(protocol.get("network_id") or profile)})
+    elif rail == "tempo-mpp":
+        destination.update({
+            "network": str(protocol.get("network") or ""),
+            "recipient": str(protocol.get("recipient") or protocol.get("recipient_address") or protocol.get("payment_recipient") or ""),
+            "settlement_asset": str(protocol.get("settlement_asset") or ""),
+        })
+    elif rail == "x402-compatible":
+        payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
+        x402 = payment.get("x402") if isinstance(payment.get("x402"), dict) else {}
+        destination.update({
+            "network": str(protocol.get("network") or ""),
+            "asset": str(protocol.get("asset") or ""),
+            "pay_to": str(protocol.get("pay_to") or protocol.get("payTo") or ""),
+            "amount": str(protocol.get("amount") or ""),
+            "payment_required_header": "PAYMENT-REQUIRED",
+            "payment_signature_header": "PAYMENT-SIGNATURE",
+            "payment_response_header": "PAYMENT-RESPONSE",
+            "payment_required": x402_payment_required(quote),
+            "payment_required_header_value": str(x402.get("payment_required_header_value") or ""),
+        })
+    return destination
+
+
 
 
 def parse_time(value: Any) -> dt.datetime | None:
@@ -433,6 +804,9 @@ def verify_registry_claim(record: dict[str, Any], manifest: dict[str, Any]) -> l
         "payment_network",
         "payment_recipient",
         "stripe_profile_id",
+        "x402_network",
+        "x402_asset",
+        "x402_pay_to",
         "proof_url",
         "revocation_url",
     ):

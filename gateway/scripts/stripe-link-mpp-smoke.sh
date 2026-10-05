@@ -128,6 +128,7 @@ print(json.dumps({
         "quote_hash": os.environ.get("QUOTE_HASH", "$QUOTE_HASH"),
     },
     "expected": {
+        "quote_hash": os.environ.get("QUOTE_HASH", "$QUOTE_HASH"),
         "amount_cents": int(os.environ.get("AMOUNT_CENTS", "$AMOUNT_CENTS")),
         "currency": os.environ.get("CURRENCY", "$CURRENCY").upper(),
         "merchant_id": os.environ.get("MERCHANT_ID", "$MERCHANT_ID"),

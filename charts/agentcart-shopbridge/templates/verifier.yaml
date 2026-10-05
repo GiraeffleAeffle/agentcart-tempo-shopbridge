@@ -86,6 +86,12 @@ spec:
             - {name: AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY, value: {{ .Values.verifier.replay.requireDurable | quote }}}
             - {name: AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH, value: "/data/replay-journal.jsonl"}
             - {name: AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL, value: {{ .Values.verifier.replay.requireJournal | quote }}}
+            - {name: AGENTCART_X402_MODE, value: {{ .Values.verifier.x402.mode | quote }}}
+            - {name: AGENTCART_X402_NETWORK, value: {{ .Values.verifier.x402.network | quote }}}
+            - {name: AGENTCART_X402_FACILITATOR_URL, value: {{ .Values.verifier.x402.facilitatorUrl | quote }}}
+            - {name: AGENTCART_X402_RPC_URL, value: {{ .Values.verifier.x402.rpcUrl | quote }}}
+            - {name: AGENTCART_X402_CONFIRMATIONS, value: {{ .Values.verifier.x402.confirmations | quote }}}
+            - {name: AGENTCART_X402_FACILITATOR_TIMEOUT_MS, value: {{ .Values.verifier.x402.facilitatorTimeoutMs | quote }}}
             - {name: AGENTCART_TEMPO_SETTLEMENT_MODE, value: {{ .Values.verifier.tempo.settlementMode | quote }}}
             - {name: AGENTCART_TEMPO_SETTLEMENT_RPC_URL, value: {{ .Values.verifier.tempo.settlementRpcUrl | quote }}}
             - {name: AGENTCART_TEMPO_SETTLEMENT_ASSET, value: {{ .Values.verifier.tempo.settlementAsset | quote }}}

@@ -1,0 +1,14 @@
+{{- if gt (int .Values.replicas) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentcart-site
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agentcart-site.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "agentcart-site.selector" . | nindent 6 }}
+{{- end }}

@@ -227,7 +227,7 @@ final class AgentCart_ShopBridge_Checkout_Store {
         }
         if ($saved_hash === '') {
             $payload = ['body' => $body, 'headers' => []];
-            foreach (['idempotency-key', 'payment-signature', 'x-payment', 'payment-response'] as $name) {
+            foreach (['idempotency-key', 'payment-signature', 'payment-response'] as $name) {
                 $payload['headers'][$name] = (string) $request->get_header($name);
             }
             if (!self::encryption_available()) {

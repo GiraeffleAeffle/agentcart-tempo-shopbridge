@@ -557,12 +557,8 @@ def onchain_projection(record: dict[str, Any]) -> dict[str, Any]:
     return projection
 
 
-def hash_without(value: dict[str, Any], field: str) -> str:
-    return agentcart.canonical_json_hash({key: item for key, item in value.items() if key != field})
-
-
 def onchain_ledger_event_hash(event: dict[str, Any]) -> str:
-    return hash_without(event, "event_hash")
+    return agentcart.persisted_ledger_event_hash(event)
 
 
 def load_onchain_ledger_events(path: pathlib.Path) -> list[dict[str, Any]]:
@@ -646,6 +642,7 @@ def onchain_ledger_event(
         "domain": domain,
         "previous_event_hash": previous_hash,
         "hash_alg": "sha-256",
+        "canonicalization": "shopbridge-json-v1",
     }
     if operation == "upsert":
         if onchain_record is None:

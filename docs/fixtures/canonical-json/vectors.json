@@ -1,0 +1,178 @@
+{
+  "schema": "agentcart.canonical_json_vectors.v1",
+  "canonicalization": "shopbridge-json-v1",
+  "cases": [
+    {
+      "name": "empty-object",
+      "value": {},
+      "canonical": "{}",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "name": "empty-list",
+      "value": [],
+      "canonical": "[]",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "name": "null",
+      "value": null,
+      "canonical": "null",
+      "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "name": "booleans",
+      "value": [
+        true,
+        false
+      ],
+      "canonical": "[true,false]",
+      "sha256": "153c9dbcc7025ecd7e50ce6d83f1995233dfc636bc869098e3a8d84288fd938a"
+    },
+    {
+      "name": "integers",
+      "value": [
+        0,
+        -1,
+        42,
+        -9007199254740991,
+        9007199254740991
+      ],
+      "canonical": "[0,-1,42,-9007199254740991,9007199254740991]",
+      "sha256": "473280c9b418d73d8982a9221610e875fc12ffcbf8cb07755ab700cb52c8f878"
+    },
+    {
+      "name": "german",
+      "value": {
+        "approver": "Jürgen Müller",
+        "street": "Straße"
+      },
+      "canonical": "{\"approver\":\"Jürgen Müller\",\"street\":\"Straße\"}",
+      "sha256": "8795934505e47b70a15654dc9961a9228a418480d4a235c9e8666bc8a3039709"
+    },
+    {
+      "name": "cjk",
+      "value": {
+        "東京": "茶",
+        "名": "李"
+      },
+      "canonical": "{\"名\":\"李\",\"東京\":\"茶\"}",
+      "sha256": "8973badbacc15963ad20ba3e3beeeb0ba0c2f35de1862b2eb72b12ed5e416b48"
+    },
+    {
+      "name": "astral-values",
+      "value": {
+        "emoji": "😀🛒",
+        "letter": "𐐀"
+      },
+      "canonical": "{\"emoji\":\"😀🛒\",\"letter\":\"𐐀\"}",
+      "sha256": "e9fd247c0e5fd12d5905e5a46cfb61827d9e14bd8cd7fc14bf6bd582f101f8a7"
+    },
+    {
+      "name": "nested-objects",
+      "value": {
+        "z": {
+          "b": 2,
+          "a": 1
+        },
+        "a": {
+          "y": null,
+          "x": true
+        }
+      },
+      "canonical": "{\"a\":{\"x\":true,\"y\":null},\"z\":{\"a\":1,\"b\":2}}",
+      "sha256": "86a9d1f5dd0eae46b7c737ae33954964e221c458686c7dc2aeef6b2bdfa3d041"
+    },
+    {
+      "name": "nested-lists",
+      "value": [
+        {
+          "z": 1,
+          "a": [
+            null,
+            {
+              "b": false,
+              "a": 2
+            }
+          ]
+        },
+        [],
+        {}
+      ],
+      "canonical": "[{\"a\":[null,{\"a\":2,\"b\":false}],\"z\":1},[],{}]",
+      "sha256": "3fc45e961aadc7fba93e9d12d4adaf1fe57bba73ad386cff3435a316f8f11c8c"
+    },
+    {
+      "name": "quotes-backslashes-slashes",
+      "value": "a\"b\\c/d",
+      "canonical": "\"a\\\"b\\\\c/d\"",
+      "sha256": "f7d22f20b73dd9230defe5b9504d1e4c3a320bfa744a7628e1df47c277dd7410"
+    },
+    {
+      "name": "short-control-escapes",
+      "value": "\b\f\n\r\t",
+      "canonical": "\"\\b\\f\\n\\r\\t\"",
+      "sha256": "88821412381596c0dc2c66e310ae7e66100d7e4196456e2e9f3d261d0b562746"
+    },
+    {
+      "name": "other-control-escapes",
+      "value": "\u0000\u0001\u000b\u000e\u001f",
+      "canonical": "\"\\u0000\\u0001\\u000b\\u000e\\u001f\"",
+      "sha256": "49b87ce4077d619798db85253267796ed6a279723a0b5b6717b6bb38b9e221d9"
+    },
+    {
+      "name": "delete-and-slash",
+      "value": "/",
+      "canonical": "\"/\"",
+      "sha256": "ed671c360df4b6c4186fd70dc393698bb60bffd36af18a1daa4487c188e5ab95"
+    },
+    {
+      "name": "unicode-line-separators",
+      "value": "  ",
+      "canonical": "\"  \"",
+      "sha256": "e3a0e2262ac7790f4df36b522a8fbdd4ee3370d568eb15dc25c5f1775f14ed6c"
+    },
+    {
+      "name": "bmp-astral-key-order",
+      "value": {
+        "😀": 4,
+        "": 3,
+        "𐀀": 5,
+        "a": 1,
+        "ü": 2
+      },
+      "canonical": "{\"a\":1,\"ü\":2,\"\":3,\"𐀀\":5,\"😀\":4}",
+      "sha256": "443022d3b558ee827b90d237b7d88a8bcf269736b25d543e59c8e7d4f91f6b1e"
+    },
+    {
+      "name": "prefix-key-order",
+      "value": {
+        "😀a": 3,
+        "😀": 2,
+        "z": 1
+      },
+      "canonical": "{\"z\":1,\"😀\":2,\"😀a\":3}",
+      "sha256": "461030180ca3710d67fca69beafe2e25e69d6206f944bd82b2b8de93d1e971ff"
+    },
+    {
+      "name": "numeric-string-object-keys",
+      "value": {
+        "2": "two",
+        "0": "zero",
+        "10": "ten"
+      },
+      "canonical": "{\"0\":\"zero\",\"10\":\"ten\",\"2\":\"two\"}",
+      "sha256": "7d7806c0acf13cab05395c7beecdeba30ad4e9ee915190e086d423f779094a19"
+    },
+    {
+      "name": "escaped-keys",
+      "value": {
+        "\n": "/",
+        "\"": "\\",
+        "\u0001": "ü"
+      },
+      "canonical": "{\"\\u0001\":\"ü\",\"\\n\":\"/\",\"\\\"\":\"\\\\\"}",
+      "sha256": "1e1d1e0e0c9cad2bbaa2f0698763d28aaeefde99c53f81ddeb711e06172d552f"
+    }
+  ]
+}

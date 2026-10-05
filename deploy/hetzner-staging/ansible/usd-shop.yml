@@ -108,6 +108,7 @@
         - package-lock.json
         - scripts/stripe-mpp-verifier.mjs
         - scripts/verifier-sqlite-replay-store.mjs
+        - scripts/verifier-x402.mjs
 
     - name: Copy verifier container definition
       ansible.builtin.copy:

@@ -9,10 +9,100 @@ if (!defined('ABSPATH')) {
     exit;
 }
 trait AgentCart_ShopBridge_Verifier_Client {
-    private static function call_payment_verifier($verifier_url, $quote, $receipt, $body) {
+    private static function x402_authorization_nonce($quote_hash, $contract_hash, $resource_url) {
+        if (!preg_match('/^[a-f0-9]{64}$/', $quote_hash) || !preg_match('/^[a-f0-9]{64}$/', $contract_hash) || $resource_url === '') {
+            return '';
+        }
+        return '0x' . bin2hex(self::x402_keccak256('shopbridge-x402-nonce-v1' . hex2bin($quote_hash) . hex2bin($contract_hash) . self::x402_keccak256($resource_url)));
+    }
+
+    /**
+     * Ethereum Keccak-256 (not SHA3-256), with lanes split into 32-bit halves.
+     *
+     * @param string $input Raw bytes.
+     * @return string 32 raw digest bytes.
+     */
+    private static function x402_keccak256($input) {
+        $rotations = [0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14];
+        $constants = [
+            [0x00000001, 0x00000000], [0x00008082, 0x00000000], [0x0000808a, 0x80000000], [0x80008000, 0x80000000],
+            [0x0000808b, 0x00000000], [0x80000001, 0x00000000], [0x80008081, 0x80000000], [0x00008009, 0x80000000],
+            [0x0000008a, 0x00000000], [0x00000088, 0x00000000], [0x80008009, 0x00000000], [0x8000000a, 0x00000000],
+            [0x8000808b, 0x00000000], [0x0000008b, 0x80000000], [0x00008089, 0x80000000], [0x00008003, 0x80000000],
+            [0x00008002, 0x80000000], [0x00000080, 0x80000000], [0x0000800a, 0x00000000], [0x8000000a, 0x80000000],
+            [0x80008081, 0x80000000], [0x00008080, 0x80000000], [0x80000001, 0x00000000], [0x80008008, 0x80000000],
+        ];
+        $remaining = 136 - (strlen($input) % 136);
+        $input .= $remaining === 1 ? "\x81" : "\x01" . str_repeat("\x00", $remaining - 2) . "\x80";
+        $state = array_fill(0, 25, [0, 0]);
+        $length = strlen($input);
+        for ($offset = 0; $offset < $length; $offset += 136) {
+            $words = array_values(unpack('V*', substr($input, $offset, 136)));
+            for ($i = 0; $i < 17; ++$i) {
+                $state[$i][0] ^= $words[2 * $i];
+                $state[$i][1] ^= $words[2 * $i + 1];
+            }
+            foreach ($constants as $constant) {
+                $columns = array_fill(0, 5, [0, 0]);
+                for ($x = 0; $x < 5; ++$x) {
+                    for ($y = 0; $y < 5; ++$y) {
+                        $columns[$x][0] ^= $state[$x + 5 * $y][0];
+                        $columns[$x][1] ^= $state[$x + 5 * $y][1];
+                    }
+                }
+                $lanes = array_fill(0, 25, [0, 0]);
+                for ($x = 0; $x < 5; ++$x) {
+                    $next = self::x402_rotate_lane($columns[($x + 1) % 5], 1);
+                    $delta = [$columns[($x + 4) % 5][0] ^ $next[0], $columns[($x + 4) % 5][1] ^ $next[1]];
+                    for ($y = 0; $y < 5; ++$y) {
+                        $i = $x + 5 * $y;
+                        $lanes[$y + 5 * ((2 * $x + 3 * $y) % 5)] = self::x402_rotate_lane([$state[$i][0] ^ $delta[0], $state[$i][1] ^ $delta[1]], $rotations[$i]);
+                    }
+                }
+                for ($x = 0; $x < 5; ++$x) {
+                    for ($y = 0; $y < 5; ++$y) {
+                        for ($half = 0; $half < 2; ++$half) {
+                            $state[$x + 5 * $y][$half] = $lanes[$x + 5 * $y][$half] ^ ((~$lanes[($x + 1) % 5 + 5 * $y][$half]) & $lanes[($x + 2) % 5 + 5 * $y][$half]);
+                        }
+                    }
+                }
+                $state[0][0] ^= $constant[0];
+                $state[0][1] ^= $constant[1];
+            }
+        }
+        $digest = '';
+        for ($i = 0; $i < 4; ++$i) {
+            $digest .= pack('V2', $state[$i][0], $state[$i][1]);
+        }
+        return $digest;
+    }
+
+    private static function x402_rotate_lane($lane, $bits) {
+        if ($bits >= 32) {
+            $lane = [$lane[1], $lane[0]];
+            $bits -= 32;
+        }
+        if ($bits === 0) {
+            return $lane;
+        }
+        return [
+            (($lane[0] << $bits) | ($lane[1] >> (32 - $bits))) & 0xffffffff,
+            (($lane[1] << $bits) | ($lane[0] >> (32 - $bits))) & 0xffffffff,
+        ];
+    }
+
+    private static function call_payment_verifier($verifier_url, $quote, $receipt, $body, $payment_contract, $checkout_draft) {
         $rail = self::payment_rail_from_receipt($receipt, $body);
-        $payment_contract = self::payment_verification_contract($quote, $rail);
         $payment_contract_hash = self::payment_contract_hash($payment_contract);
+        $settlement = $payment_contract['settlement'] ?? [];
+        if ($rail === 'x402-compatible') {
+            $document = $quote['payment_requirements']['x402']['payment_required'] ?? [];
+            $nonce = self::x402_authorization_nonce((string) ($quote['quote_hash'] ?? ''), $payment_contract_hash, (string) ($document['resource']['url'] ?? ''));
+            $decoded = json_decode(base64_decode((string) ($receipt['x402_payment_signature'] ?? ''), true), true); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decode the x402 v2 transport document.
+            if ($nonce === '' || ($decoded['payload']['authorization']['nonce'] ?? '') !== $nonce) {
+                return new WP_Error('agentcart_x402_nonce_mismatch', 'The x402 authorization nonce does not bind this quote and checkout resource.', ['status' => 402]);
+            }
+        }
         $payload = [
             'operation' => 'payment',
             'quote' => $quote,
@@ -28,13 +118,15 @@ trait AgentCart_ShopBridge_Verifier_Client {
                 'merchant_id' => self::merchant()['id'],
                 'rail' => $rail,
                 'payment_contract_hash' => $payment_contract_hash,
-                'tempo_network' => self::tempo_network(),
-                'tempo_recipient' => self::tempo_recipient(),
-                'stripe_profile_id' => self::stripe_profile_id(),
-                'x402_network' => self::x402_network(),
-                'x402_asset' => self::x402_asset(),
-                'x402_pay_to' => self::x402_pay_to(),
-                'x402_max_amount_required' => self::x402_atomic_amount(intval($quote['total_cents'] ?? 0)),
+                'tempo_network' => $rail === 'tempo-mpp' ? ($settlement['network'] ?? '') : self::tempo_network(),
+                'tempo_recipient' => $rail === 'tempo-mpp' ? ($settlement['recipient'] ?? '') : self::tempo_recipient(),
+                'stripe_profile_id' => $rail === 'stripe-card-mpp' ? ($settlement['stripe_profile_id'] ?? '') : self::stripe_profile_id(),
+                'x402_network' => $rail === 'x402-compatible' ? ($settlement['network'] ?? '') : self::x402_network(),
+                'x402_asset' => $rail === 'x402-compatible' ? ($settlement['asset'] ?? '') : self::x402_asset(),
+                'x402_pay_to' => $rail === 'x402-compatible' ? ($settlement['pay_to'] ?? '') : self::x402_pay_to(),
+                'x402_amount' => $rail === 'x402-compatible' ? ($settlement['amount'] ?? '') : self::x402_atomic_amount(intval($quote['total_cents'] ?? 0)),
+                'x402_max_timeout_seconds' => $rail === 'x402-compatible' ? ($settlement['max_timeout_seconds'] ?? 0) : self::x402_max_timeout_seconds(),
+                'x402_payment_requirements' => $quote['payment_requirements']['x402']['payment_required']['accepts'][0] ?? null,
             ],
         ];
         $headers = ['Content-Type' => 'application/json'];
@@ -42,7 +134,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         if ($token !== '') {
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-        $response = self::verifier_http_post($verifier_url, $payload, $headers, 15);
+        $response = self::verifier_http_post($verifier_url, $payload, $headers, 15, $checkout_draft);
         if (is_wp_error($response)) {
             return new WP_Error(
                 'agentcart_payment_verifier_failed',
@@ -62,18 +154,18 @@ trait AgentCart_ShopBridge_Verifier_Client {
         $verified_currency = strtoupper((string) ($decoded['currency'] ?? ''));
         $expected_currency = strtoupper((string) ($quote['currency'] ?? get_woocommerce_currency()));
         $verified_network = (string) ($decoded['network'] ?? $decoded['x402_network'] ?? '');
-        $expected_network = self::tempo_network();
+        $expected_network = (string) ($settlement['network'] ?? '');
         $verified_recipient = strtolower((string) ($decoded['recipient'] ?? ''));
-        $expected_recipient = strtolower(self::tempo_recipient());
+        $expected_recipient = strtolower((string) ($settlement['recipient'] ?? ''));
         $verified_rail = self::normalize_payment_rail((string) ($decoded['rail'] ?? ''));
         $verified_stripe_profile_id = sanitize_text_field((string) ($decoded['stripe_profile_id'] ?? ''));
-        $expected_stripe_profile_id = self::stripe_profile_id();
+        $expected_stripe_profile_id = (string) ($settlement['stripe_profile_id'] ?? '');
         $verified_x402_asset = strtolower(sanitize_text_field((string) ($decoded['asset'] ?? $decoded['x402_asset'] ?? '')));
         $verified_x402_pay_to = strtolower(sanitize_text_field((string) ($decoded['pay_to'] ?? $decoded['payTo'] ?? $decoded['x402_pay_to'] ?? '')));
-        $verified_x402_amount = sanitize_text_field((string) ($decoded['max_amount_required'] ?? $decoded['maxAmountRequired'] ?? $decoded['x402_max_amount_required'] ?? ''));
-        $expected_x402_asset = strtolower(self::x402_asset());
-        $expected_x402_pay_to = strtolower(self::x402_pay_to());
-        $expected_x402_amount = self::x402_atomic_amount(intval($quote['total_cents'] ?? 0));
+        $verified_x402_amount = sanitize_text_field((string) ($decoded['amount'] ?? $decoded['x402_amount'] ?? ''));
+        $expected_x402_asset = $rail === 'x402-compatible' ? strtolower((string) ($settlement['asset'] ?? '')) : '';
+        $expected_x402_pay_to = $rail === 'x402-compatible' ? strtolower((string) ($settlement['pay_to'] ?? '')) : '';
+        $expected_x402_amount = $rail === 'x402-compatible' ? (string) ($settlement['amount'] ?? '') : '';
         $verified_payer_address = strtolower(sanitize_text_field((string) ($decoded['payer_address'] ?? $decoded['source_address'] ?? '')));
         $verified_payer_source = sanitize_text_field((string) ($decoded['payer_source'] ?? $decoded['payment_source'] ?? ''));
         $transaction_reference = sanitize_text_field((string) ($decoded['transaction_reference'] ?? ''));
@@ -107,7 +199,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         if ($rail === 'stripe-card-mpp' && $expected_stripe_profile_id !== '' && $verified_stripe_profile_id !== $expected_stripe_profile_id) {
             return new WP_Error('agentcart_payment_stripe_profile_mismatch', 'External payment verifier returned the wrong Stripe profile.', ['status' => 402]);
         }
-        if ($rail === 'x402-compatible' && self::x402_network() !== '' && $verified_network !== self::x402_network()) {
+        if ($rail === 'x402-compatible' && $expected_network !== '' && $verified_network !== $expected_network) {
             return new WP_Error('agentcart_payment_x402_network_mismatch', 'External payment verifier returned the wrong x402 network.', ['status' => 402]);
         }
         if ($rail === 'x402-compatible' && $expected_x402_asset !== '' && $verified_x402_asset !== $expected_x402_asset) {
@@ -146,6 +238,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
             'transaction_reference' => $transaction_reference,
             'quote_hash' => $expected_quote_hash,
             'payment_contract_hash' => $payment_contract_hash,
+            'payment_response' => sanitize_text_field((string) ($decoded['payment_response_header_value'] ?? '')),
         ];
     }
 
@@ -195,7 +288,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         if ($token !== '') {
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-        $response = self::verifier_http_post($verifier_url, $payload, $headers, 20);
+        $response = self::verifier_http_post($verifier_url, $payload, $headers, 20, null);
         if (is_wp_error($response)) {
             return new WP_Error(
                 'agentcart_refund_verifier_failed',
@@ -259,7 +352,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         ];
     }
 
-    private static function verifier_http_post($verifier_url, $payload, $headers, $timeout) {
+    private static function verifier_http_post($verifier_url, $payload, $headers, $timeout, $checkout_draft) {
         $url = self::normalize_payment_verifier_url($verifier_url);
         if ($url === '') {
             return new WP_Error(
@@ -268,14 +361,18 @@ trait AgentCart_ShopBridge_Verifier_Client {
                 ['status' => 400]
             );
         }
-        return wp_remote_post($url, [
+        $args = [
             'headers' => $headers,
             'body' => wp_json_encode($payload),
             'timeout' => intval($timeout),
             'reject_unsafe_urls' => !self::payment_verifier_url_allows_private_networks(),
             'redirection' => 0,
             'limit_response_size' => 1048576,
-        ]);
+        ];
+        if ($checkout_draft !== null && !AgentCart_ShopBridge_Checkout_Store::verification_attempted($checkout_draft)) {
+            AgentCart_ShopBridge_Checkout_Store::mark_verifying($checkout_draft);
+        }
+        return wp_remote_post($url, $args);
     }
 
     private static function verifier_error_detail($status, $decoded, $raw_body) {

@@ -7,6 +7,7 @@ store:
   title: Example AgentCart Shop
   merchantId: example-shop
   environmentType: staging
+  # EUR is demo-only with Tempo; real Tempo settlement requires marketProfile: usd.
   marketProfile: eur
   varianceProfile: baseline-eu-tax-shipping
   tempoNetwork: testnet

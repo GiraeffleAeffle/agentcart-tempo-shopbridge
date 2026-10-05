@@ -75,19 +75,31 @@ fields we should treat as MPP-level are:
 | Receipt | `Payment-Receipt`, method, status, reference, timestamp | Returned after the server verifies the credential. Method-specific receipts may carry transaction hashes, Stripe PaymentIntent references, or similar IDs. |
 | Safety | challenge id, expiry, request binding/body digest, idempotency/replay protection | The protocol protects the paid request boundary. Product and order safety remain application responsibilities. |
 
-## x402 Compatibility Shim
+## x402 v2 Adapter
 
-ShopBridge can now publish an x402-shaped exact-payment requirement for a
-quote when the merchant configures an x402 network, token asset, payTo address,
-asset decimals/currency, and external verifier. An unpaid quote-bound checkout
-can return `402` with a `PAYMENT-REQUIRED` header and body containing
-`x402Version`, `accepts[]`, `scheme`, `network`, `maxAmountRequired`,
-`resource`, `payTo`, `asset`, and timeout fields.
+x402 v2 `exact` on Base Sepolia (`eip155:84532`) with USDC is supported for USD
+quotes only, and is disabled by default. The plugin advertises x402 only after
+an administrator runs an explicit verifier capability check that confirms the
+rail, network, and asset; until then configured x402 profiles are published as
+unavailable and emit no payment requirements.
 
-This is a compatibility shim around the existing verifier seam. ShopBridge does
-not run a facilitator or settle onchain by itself. The verifier must validate
-the `PAYMENT-SIGNATURE`/x402 receipt, quote hash, amount, currency, network,
-asset, payTo, and replay state before WooCommerce creates a paid order.
+Once advertised, a quote carries a v2 `PAYMENT-REQUIRED` header whose decoded
+payload has `x402Version: 2`, a `resource` object, and `accepts[]` entries with
+`scheme`, `network`, `amount` (atomic units), `asset`, `payTo`, and
+`maxTimeoutSeconds`. Checkout accepts the signed payload in a
+`PAYMENT-SIGNATURE` header or the `x402_payment_signature` field, and a
+successful order returns a `PAYMENT-RESPONSE` header.
+
+The plugin does not run a facilitator or settle onchain. The verifier owns the
+facilitator URL and Base RPC (operator environment), verifies the payload
+through the facilitator, settles, then confirms the Transfer and
+AuthorizationUsed logs on-chain before reporting real settlement. It requires
+the SQLite replay store, which keeps durable authorization replay state, and
+must validate quote hash, amount, network, asset, and payTo. Buyers bind x402
+destinations to registry-committed `x402_network`/`x402_asset`/`x402_pay_to`
+and check `PAYMENT-REQUIRED` `accepts[0]` before signing. x402 refunds are
+unsupported and manual only. Only local fakes have run; no live testnet payment
+has been proven yet.
 
 AgentCart fields are deliberately outside the MPP core:
 
@@ -121,18 +133,22 @@ In the bundled local demo:
 For the first real Tempo staging shop, use a USD WooCommerce currency profile.
 That keeps the shop currency, Tempo/pathUSD proof, and refund fixture aligned
 without pretending that a USD stablecoin rail settled a EUR order. EUR storefront
-testing should wait for either a quote-bound FX verifier or an EUR-stablecoin
-rail.
+testing should use Stripe/card MPP; quote-bound FX and an EUR-stablecoin rail
+are future work.
 
 For production with a German/EU WooCommerce shop, one of these must be true:
 
-- the merchant accepts USD-stablecoin settlement and handles accounting/FX;
-- a payment provider/verifier converts the EUR quote into a quote-bound
-  USD-stablecoin amount before payment;
-- the merchant uses a non-stablecoin MPP method such as Stripe/card settlement;
-- an EUR stablecoin or custom MPP payment method is supported and configured.
+- the merchant quotes in USD and uses Tempo settlement (non-USD Tempo
+  settlement is unsupported);
+- the merchant uses a non-stablecoin MPP method such as Stripe/card
+  settlement, which is the EUR rail.
 
-For EUR stablecoins, x402/EVM is the more promising path than Tempo/pathUSD:
+Quote-bound FX and an EUR stablecoin or custom MPP payment method are future
+work. There is no FX, so EUR stores use Stripe/card. The x402/EVM notes below
+are exploratory only for EUR; supported x402 is the USD Base Sepolia USDC rail
+above, which is capability-gated and disabled by default.
+
+For EUR stablecoins, x402/EVM would be more promising than Tempo/pathUSD:
 
 - x402 can model EVM token payments by CAIP-2 network id and token address.
 - EURC is the first EUR candidate when the selected facilitator supports it,
@@ -177,11 +193,14 @@ support through Shared Payment Tokens and also allow custom payment methods.
 
 Production options for an EU shop:
 
-- `tempo.charge` with merchant acceptance of USD-stablecoin accounting;
-- `tempo.charge` with quote-bound FX handled by a verifier or PSP;
 - `stripe.charge` for card settlement, refunds, reporting, disputes, and
-  multi-currency payouts through Stripe;
-- a custom or future EUR-stablecoin MPP method.
+  multi-currency payouts through Stripe. This is the EUR rail: non-USD Tempo
+  settlement is unsupported;
+- `tempo.charge` only for USD-quoted orders, with merchant acceptance of
+  USD-stablecoin accounting.
+
+Quote-bound FX and a custom or future EUR-stablecoin MPP method are future
+work, not current options.
 
 The plugin should create a WooCommerce order only after the selected method's
 verifier confirms the quote hash, amount, currency or settlement asset,

@@ -1,0 +1,10 @@
+# Live values for the agentcart.eu website (charts/agentcart-site). The operator supplies the
+# HAProxy source CIDRs at deploy time; they are never committed (see charts/agentcart-site/README.md).
+image:
+  # Built from 8f3db56 by .github/workflows/site-image.yml (run 37234071728).
+  digest: sha256:577d8b01a46d3a3f4b6ab03bd1824ec0f0275e2494d13f326a69b6aa2c44fb91
+hosts:
+  # Add agentcart.eu and www.agentcart.eu only after both names resolve to the cluster.
+  site: []
+  preview:
+    - preview.staging.agentcart.eu

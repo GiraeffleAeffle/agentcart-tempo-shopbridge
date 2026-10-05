@@ -117,8 +117,9 @@ Check or PHPCS would otherwise catch later:
 - `$_POST` values are unslashed before sanitization;
 - `$_SERVER` values are unslashed before use;
 - custom admin POST actions have nonce fields and nonce checks;
-- outbound HTTP calls are limited to the configured payment/refund verifier and
-  hosted registry connection wrappers and use WordPress HTTP APIs, JSON headers,
+- outbound HTTP calls cover the configured payment/refund verifier, opt-in
+  hosted registry, this shop's public endpoint checks, and administrator-initiated
+  pinned registry RPC reads; they use WordPress HTTP APIs, bounded responses,
   timeouts, response-code checks, and error handling;
 - admin badge HTML escapes generated attributes and labels.
 - public REST and `.well-known` discovery/registry endpoints are covered by the
@@ -130,12 +131,38 @@ the official-tool gate above is the bridge to strict WPCS/Plugin Check runs.
 
 ## External Service Disclosure
 
-ShopBridge does not call external services for catalog or quote browsing. It
-can call a merchant-configured payment verifier URL during paid-order creation
-or verified refund recording. It can also call a merchant-configured hosted
-registry connection URL when an admin explicitly submits a registry bundle or
-revocation request from `WooCommerce -> AgentCart`, and can fetch registry
-health/monitor JSON when an admin explicitly clicks the registry health action.
+ShopBridge does not call external services on installation or for public
+manifest/catalog/quote browsing. A merchant-configured payment verifier is called
+during paid-order creation, verified refund recording, and scheduled retries of
+interrupted checkout or manager-approved compensation. The hosted registry URL
+defaults to empty; explicitly saved URLs and wp-config.php overrides remain
+usable only through administrator-initiated bundle submission, revocation, or
+health/monitor/onchain-event checks. Installs relying on the previous implicit
+hosted default must explicitly save the desired URL after upgrading.
+
+The built-in `https://rpc.moderato.tempo.xyz` destination is called only by
+"Check registry health" with valid configured public onchain identity. It receives
+standard read-only JSON-RPC parameters for chain/block/bytecode, public registry
+contract/controller/record/hash, hostname hashing, and state reads. No key,
+signature, buyer, order, or payment data is sent. Operator-managed v2 deployments
+instead use configured primary and witness RPCs, including admission-state reads.
+The packaged readme already provides Tempo terms/privacy links; terms/privacy
+links for merchant-selected verifiers, hosted registries, and witness providers
+are not supplied by the repository and must be reviewed by the operator.
+
+The separate public endpoint check fetches this shop's own manifest, proof,
+revocation, and bundle URLs. The plugin never contacts an x402 facilitator.
+x402 v2 exact Base Sepolia USDC is offered for USD quotes only after the merchant
+uses the nonce-protected "Check verifier capabilities" action. That authenticated
+call sends only the operation and bearer token; its local snapshot has no TTL and
+is invalidated when the verifier URL or x402 destination changes. Without confirmation
+the rail reports `verifier_x402_support_unconfirmed`. No capability calls occur on
+manifest/quote paths. Only the verifier contacts its operator-configured facilitator
+and Base RPC; the plugin does not. x402 refunds remain unsupported_manual_only.
+Checkout and refund entrypoints also reject caller-selected unavailable rails
+before verifier calls or local acceptance; checkout binds all contract-hash
+claims to the intact stored quote advertisement. Admin sandbox dry checkout
+uses its quoted sandbox contract rather than bypassing these checks.
 
 The WordPress.org readme needs to disclose this because the verifier can receive
 quote, order/refund, payment receipt, merchant id, rail, destination, amount,

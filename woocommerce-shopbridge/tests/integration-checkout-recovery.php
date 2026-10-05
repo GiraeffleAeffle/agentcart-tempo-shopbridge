@@ -89,7 +89,7 @@ add_filter('pre_http_request', function ($pre, $args, $url) use (&$payment_calls
         $data = ['ok' => true, 'real_settlement_verified' => true, 'amount_cents' => $expected['amount_cents'],
             'currency' => $expected['currency'], 'quote_hash' => $body['quote_hash'],
             'payment_contract_hash' => $body['payment_contract_hash'], 'rail' => 'tempo-mpp', 'network' => 'testnet',
-            'payer_address' => '0x1111111111111111111111111111111111111111',
+            'payer_address' => '0x' . str_repeat('1', 40),
             'transaction_reference' => $body['payment_receipt']['id']];
     }
     return ['response' => ['code' => 200], 'headers' => [], 'body' => wp_json_encode($data)];

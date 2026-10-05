@@ -49,7 +49,7 @@ standards/adapters -> AgentCart commerce core -> WooCommerce + verifier rails
 
 | Standard or ecosystem | AgentCart fit | Current status | Target |
 | --- | --- | --- | --- |
-| x402 / HTTP 402 | Payment requirement, authorization retry, and payment response shape | MPP-shaped HTTP 402 flow exists, but not x402 V2 headers | Add x402-compatible challenge/proof adapter while keeping verifier contract rail-neutral |
+| x402 / HTTP 402 | Payment requirement, authorization retry, and payment response shape | MPP-shaped HTTP 402 flow exists; the x402 v2 `exact` adapter (Base Sepolia `eip155:84532`, USDC, USD quotes only) is implemented and disabled by default, advertised only after an administrator's explicit verifier capability check confirms rail, network, and asset. Only local fakes have run; no live testnet payment yet | Run a live testnet payment through the verifier, while keeping verifier contract rail-neutral |
 | MPP | Machine payment proof rail | Tempo demo proof and MPP-shaped flow exist | Keep as one payment protocol under `payment_requirements.protocols[]` |
 | Stripe machine payments / stablecoin acceptance | Production-friendly merchant settlement path for eligible merchants | Verifier fixtures and sandbox helper exist; US-region limitation documented | Treat as one rail behind the verifier seam, not as the whole checkout model |
 | ERC-8004 | Public identity, registration file, reputation, and validation for agents/service providers | Merchant record commitments and lifecycle are live in an AgentCart-specific Tempo testnet contract; full records remain offchain with controller-bound domain proof, and the Direct Skill queries the contract itself. This is ERC-8004-aligned metadata, not an ERC-8004 conformance claim | Evaluate an ERC-8004 adapter plus reputation/validation mapping after external pilots and the production-network decision |
@@ -165,7 +165,9 @@ Deliverables:
   `/.well-known/agentcart.json` and the capability document;
 - explicit entries for `agentcart-shopbridge`, `mpp-http-auth`,
   `stripe-card-mpp`, `erc8004-ready`, and `x402-compatible` only when actually
-  configured;
+  configured (a configured x402 profile is published with `status: unavailable`
+  and emits no payment requirements until the verifier capability check
+  confirms the rail, network, and asset);
 - no `signed-http-ready` profile until that adapter is implemented;
 - registry records bind compact `protocol_profile_ids` while preserving legacy
   `supported_protocols`;
@@ -179,16 +181,21 @@ Definition of done:
 - docs no longer rely on ambiguous "MPP-shaped" wording without structured
   machine-readable fields.
 
-### Slice 3: x402 Compatibility Shim
+### Slice 3: x402 v2 Adapter
 
-Status: alpha implemented.
+Status: implemented and capability-gated, disabled by default. x402 v2
+`exact` on Base Sepolia (`eip155:84532`) with USDC is supported for USD quotes
+only. Verified with local fakes only; no live testnet payment has run.
 
 Goal: keep the current verifier flow, but expose payment requirements in a way
-that x402-capable agents can understand.
+that x402 v2 capable agents can understand once an administrator's verifier
+capability check confirms the rail, network, and asset.
 
 Deliverables:
 
-- x402-compatible 402 response/header option for quote-bound checkout;
+- v2 `PAYMENT-REQUIRED` header on quote-bound 402 responses; checkout accepts
+  a `PAYMENT-SIGNATURE` header or `x402_payment_signature`, and successful
+  orders return `PAYMENT-RESPONSE`;
 - mapping from AgentCart `payment_requirements.protocols[]` to x402 payment
   requirements;
 - configured-only `x402-compatible` manifest profile with explicit network,
@@ -202,8 +209,17 @@ Deliverables:
 Definition of done:
 
 - existing AgentCart clients keep working;
-- x402-capable clients can detect and satisfy payment requirements through a
-  standard-shaped flow.
+- the verifier owns the facilitator URL and Base RPC, verifies and settles
+  through the facilitator, then confirms the Transfer and AuthorizationUsed
+  logs on-chain before reporting real settlement, and requires the SQLite
+  replay store for durable authorization replay state;
+- the buyer skill and service bind x402 destinations to registry-committed
+  `x402_network`/`x402_asset`/`x402_pay_to` and check `PAYMENT-REQUIRED`
+  `accepts[0]` before signing;
+- until the capability check passes, x402 profiles are unavailable and no x402
+  payment requirements are emitted;
+- x402 refunds are unsupported and manual only; there is no FX, so EUR stores
+  use Stripe/card.
 
 ### Slice 4: Signed HTTP Requests
 
@@ -283,7 +299,8 @@ Definition of done:
 
 1. Registry transparency and refresh UX. Alpha implemented.
 2. Manifest protocol profiles. Alpha implemented.
-3. x402 compatibility shim. Alpha implemented.
+3. x402 v2 adapter. Implemented and capability-gated, disabled by default;
+   local fakes only, no live testnet payment yet.
 4. Signed HTTP request verification and sanitized audit trail. Alpha
    implemented.
 5. MCP-style tool catalog. Alpha implemented.

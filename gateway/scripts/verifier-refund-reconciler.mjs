@@ -3,8 +3,10 @@ import crypto from 'node:crypto';
 import { runSqlite, sqlString as q } from './verifier-sqlite-replay-store.mjs';
 
 export function reconciliationQueue(db) {
-  const rows = sql => JSON.parse(runSqlite(db, `.timeout 5000\n${sql}`, { json: true }).trim() || '[]');
-  runSqlite(db, `CREATE TABLE IF NOT EXISTS refund_reconciliation (
+  // Every statement waits on concurrent writers instead of failing with "database is locked".
+  const exec = (sql, options) => runSqlite(db, `.timeout 5000\n${sql}`, options);
+  const rows = sql => JSON.parse(exec(sql, { json: true }).trim() || '[]');
+  exec(`CREATE TABLE IF NOT EXISTS refund_reconciliation (
     request_key TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER NOT NULL DEFAULT 0, lease_token TEXT NOT NULL DEFAULT '',
     lease_until INTEGER NOT NULL DEFAULT 0, last_error_code TEXT NOT NULL DEFAULT '');`);
@@ -28,7 +30,7 @@ export function reconciliationQueue(db) {
     finish(claim, error, now = Date.now()) {
       const delay = Math.min(3600000, 60000 * 2 ** Math.min(claim.attempts - 1, 6));
       // A stale worker cannot release the lease of a replacement worker.
-      runSqlite(db, `UPDATE refund_reconciliation SET lease_until=0, lease_token='',
+      exec(`UPDATE refund_reconciliation SET lease_until=0, lease_token='',
         next_attempt_at=${now + delay}, last_error_code=${q(error ? 'provider_retry_failed' : '')}
         WHERE request_key=${q(claim.request_key)} AND lease_token=${q(claim.lease_token)};`);
     },

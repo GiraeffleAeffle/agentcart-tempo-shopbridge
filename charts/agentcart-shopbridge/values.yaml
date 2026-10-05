@@ -32,6 +32,7 @@ store:
   title: AgentCart Demo Shop
   merchantId: example-shop
   environmentType: staging
+  # EUR is demo-only with Tempo; real Tempo settlement requires marketProfile: usd.
   marketProfile: eur
   varianceProfile: baseline-eu-tax-shipping
   tempoNetwork: testnet
@@ -44,6 +45,14 @@ store:
     # Operator-reviewed wordpress_deployment from v2 identity preparation.
     # Empty keeps the existing Moderato v1 pilot verifier.
     v2Deployment: {}
+  # Optional x402 v2 settlement: Base Sepolia USDC, USD quotes only. Empty keeps x402 off.
+  # Needs verifier.x402.mode=settle, x402-compatible in verifier.enabledRails and an
+  # admin capability check after rollout; the plugin fails closed until that check passes.
+  x402:
+    network: ""
+    asset: ""
+    payTo: ""
+    maxTimeoutSeconds: 300
   checkoutMode: trusted_token_or_verifier
   stockHoldMode: hard
   stockHoldMinutes: 15
@@ -77,6 +86,13 @@ verifier:
     existingClaim: ""
     storageClass: ""
     size: 1Gi
+  x402:
+    mode: disabled
+    network: "eip155:84532"
+    facilitatorUrl: "https://x402.org/facilitator"
+    rpcUrl: "https://sepolia.base.org"
+    confirmations: 1
+    facilitatorTimeoutMs: 7000
   tempo:
     settlementMode: disabled
     settlementRpcUrl: ""
