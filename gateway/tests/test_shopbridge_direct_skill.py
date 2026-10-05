@@ -1801,6 +1801,48 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
 
         self.assertEqual(str(raised.exception), "checkout_base_url does not match approved quote merchant_origin")
 
+    def test_checkout_without_base_url_goes_to_approved_quote_origin(self) -> None:
+        # A live x402 checkout without base_url fell back to the local demo default and failed
+        # before contacting the merchant whose quote the buyer had approved.
+        with mock.patch.object(shopbridge_direct, "request_json", side_effect=lambda path, **kwargs: sample_quote()):
+            quote = shopbridge_direct.command_quote(
+                {
+                    "base_url": "https://merchant.example",
+                    "items": [{"product_id": "woo_10", "quantity": 1}],
+                    "quote_trust": shopbridge_direct.quote_trust_metadata(shopbridge_direct.annotate_quote_trust(
+                        {}, merchant_origin="https://merchant.example",
+                        registry_record_hash="registry-record-hash-123",
+                        manifest_url="https://merchant.example/.well-known/agentcart.json",
+                        registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(
+                            registry_manifest_and_record()[1]),
+                    )),
+                }
+            )
+        packet = shopbridge_direct.approval_packet(quote, payment_rail="stripe-card-mpp")
+
+        for configured_default in (shopbridge_direct.DEFAULT_BASE_URL, "https://other.example"):
+            with self.subTest(configured_default=configured_default):
+                calls = []
+
+                def fake_checkout(path, *, method="GET", payload=None, headers=None, base_url=None):
+                    calls.append((path, method, base_url))
+                    return {"id": "1", "status": "processing"}
+
+                with mock.patch.object(shopbridge_direct, "BASE_URL", configured_default), \
+                        mock.patch.object(shopbridge_direct, "request_json", side_effect=fake_checkout):
+                    shopbridge_direct.command_checkout(
+                        {
+                            "quote": quote,
+                            "payment_rail": "stripe-card-mpp",
+                            "approved": True,
+                            "approval_hash": packet["approval_hash"],
+                            "payment_receipt": sample_payment_receipt(),
+                            **handoff_checkout_args(quote, "stripe-card-mpp"),
+                        }
+                    )
+
+                self.assertEqual(calls, [("/wp-json/agentcart/v1/orders", "POST", "https://merchant.example")])
+
     def test_resolve_merchant_verifies_registry_record_and_returns_base_url(self) -> None:
         manifest, record, proof = registry_manifest_and_record()
 
@@ -3352,6 +3394,164 @@ class X402BuyerTests(unittest.TestCase):
             sample_x402_quote(), merchant_origin="https://merchant.example", registry_record_hash="record",
             registry_payment_bindings=shopbridge_direct.registry_trust.registry_payment_bindings(sample_x402_record()),
             payment_rail="x402-compatible")
+
+    def signing_handoff(self):
+        quote = self.bound_quote()
+        approval = shopbridge_direct.approval_packet(quote)
+        handoff = shopbridge_direct.command_payment_handoff({
+            "quote": quote, "approved": True, "approval_hash": approval["approval_hash"]})
+        return quote, approval, handoff
+
+    def signing_args(self, quote, approval, handoff, **extra):
+        return {"quote": quote, "payment_rail": "x402-compatible", "approved": True,
+                "approval_hash": approval["approval_hash"], "payment_handoff": handoff,
+                "payer": "0x" + "11" * 20, **extra}
+
+    def test_signing_refuses_future_approval_timestamp(self):
+        quote = self.bound_quote()
+        approval = shopbridge_direct.approval_packet(quote)
+        now = shopbridge_direct.parse_time(shopbridge_direct.iso_now()).replace(microsecond=0)
+        with mock.patch.object(shopbridge_direct, "iso_now", return_value=now.isoformat()):
+            for ahead in (0.1, 1, 30):
+                handoff = shopbridge_direct.command_payment_handoff({
+                    "quote": quote, "approved": True, "approval_hash": approval["approval_hash"],
+                    "approved_at": (now + shopbridge_direct.dt.timedelta(seconds=ahead)).isoformat()})
+                args = self.signing_args(quote, approval, handoff, signature="0x" + "11" * 64 + "1b")
+                for command in (shopbridge_direct.command_x402_typed_data, shopbridge_direct.command_x402_receipt):
+                    with self.subTest(ahead=ahead, command=command.__name__), self.assertRaises(SystemExit):
+                        command(args)
+
+    def test_signing_refuses_stripped_registry_provenance(self):
+        quote = self.bound_quote()
+        quote.pop("agentcart_direct_skill")
+        approval = shopbridge_direct.approval_packet(quote)
+        handoff = shopbridge_direct.command_payment_handoff({
+            "quote": quote, "approved": True, "approval_hash": approval["approval_hash"]})
+        self.assertIsNot(handoff["payment_request"]["payment_destination"].get("registry_verified"), True)
+        args = self.signing_args(quote, approval, handoff, signature="0x" + "11" * 64 + "1b")
+        for command in (shopbridge_direct.command_x402_typed_data, shopbridge_direct.command_x402_receipt):
+            with self.subTest(command=command.__name__), self.assertRaises(SystemExit):
+                command(args)
+
+    def test_signing_refuses_internally_consistent_forged_handoff(self):
+        quote, approval, handoff = self.signing_handoff()
+        forged = json.loads(json.dumps(handoff))
+        request = forged["payment_request"]
+        destination = request["payment_destination"]
+        accepted = request["accepted"]
+        accepted["payTo"] = "0x" + "33" * 20
+        accepted["amount"] = "90000000"
+        destination.update(pay_to=accepted["payTo"], amount=accepted["amount"])
+        request["amount_cents"] = 9000
+        destination["payment_required"]["accepts"] = [accepted]
+        header = base64.b64encode(json.dumps(destination["payment_required"]).encode()).decode()
+        request["payment_required_header_value"] = header
+        destination["payment_required_header_value"] = header
+        request["authorization_nonce"] = shopbridge_direct.registry_trust.x402_authorization_nonce(
+            request["quote_hash"], request["payment_contract_hash"],
+            destination["payment_required"]["resource"]["url"])
+        forged["payment_handoff_hash"] = shopbridge_direct.sha256_hex(request)
+        args = {"quote": quote, "payment_rail": "x402-compatible", "approved": True,
+                "approval_hash": approval["approval_hash"], "payment_handoff": forged,
+                "payer": "0x" + "11" * 20, "signature": "0x" + "11" * 64 + "1b"}
+        for command in (shopbridge_direct.command_x402_typed_data, shopbridge_direct.command_x402_receipt):
+            with self.subTest(command=command.__name__), self.assertRaises(SystemExit):
+                command(args)
+
+    def test_signing_refuses_different_quote_or_approval(self):
+        quote, approval, handoff = self.signing_handoff()
+        other_quote = json.loads(json.dumps(quote))
+        other_quote["id"] = "different-quote"
+        other_approval = shopbridge_direct.approval_packet(other_quote)
+        for args in (
+                self.signing_args(quote, approval, handoff, approval_hash="wrong"),
+                self.signing_args(other_quote, other_approval, handoff)):
+            for command in (shopbridge_direct.command_x402_typed_data, shopbridge_direct.command_x402_receipt):
+                with self.subTest(command=command.__name__, quote=args["quote"]["id"]), self.assertRaises(SystemExit):
+                    command({**args, "signature": "0x" + "11" * 64 + "1b"})
+
+    def test_signing_requires_original_approval_context(self):
+        quote, approval, handoff = self.signing_handoff()
+        for field in ("quote", "payment_rail", "approved", "approval_hash"):
+            args = self.signing_args(quote, approval, handoff, signature="0x" + "11" * 64 + "1b")
+            args.pop(field)
+            for command in (shopbridge_direct.command_x402_typed_data, shopbridge_direct.command_x402_receipt):
+                with self.subTest(field=field, command=command.__name__), self.assertRaises(SystemExit):
+                    command(args)
+
+    def test_signing_shape_domain_and_receipt_checkout(self):
+        quote, approval, handoff = self.signing_handoff()
+        args = self.signing_args(quote, approval, handoff)
+        output = shopbridge_direct.command_x402_typed_data(args)
+        typed = output["typed_data"]
+        self.assertEqual(typed["primaryType"], "TransferWithAuthorization")
+        self.assertEqual(typed["message"]["nonce"], handoff["payment_request"]["authorization_nonce"])
+        self.assertEqual(typed["message"]["validBefore"], handoff["payment_request"]["validBefore"])
+        self.assertEqual(typed["domain"]["chainId"], "84532")
+        keccak = shopbridge_direct.registry_trust.keccak256
+        domain = typed["domain"]
+        encoded = (keccak(b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
+                   + keccak(domain["name"].encode()) + keccak(domain["version"].encode())
+                   + int(domain["chainId"]).to_bytes(32, "big")
+                   + bytes.fromhex(domain["verifyingContract"][2:]).rjust(32, b"\0"))
+        self.assertEqual("0x" + keccak(encoded).hex(),
+                         "0x71f17a3b2ff373b803d70a5a07c046c1a2bc8e89c09ef722fcb047abe94c9818")
+        result = shopbridge_direct.command_x402_receipt({**args, "signature": "0x" + "11" * 64 + "1b"})
+        self.assertEqual(result["checkout_args"], handoff["checkout_args"])
+        self.assertEqual(shopbridge_direct.registry_trust.x402_receipt_issues(
+            result["payment_receipt"], handoff["payment_request"]["payment_destination"]), [])
+        payload = shopbridge_direct.checkout_payload({
+            "quote": quote, "approved": True, "approval_hash": approval["approval_hash"],
+            **result["checkout_args"], "payment_receipt": result["payment_receipt"]})
+        self.assertEqual(payload["payment_receipt"]["status"], "authorized")
+
+    def test_signing_refuses_each_tampered_requirement(self):
+        for field, value in (("payTo", "0x" + "33" * 20), ("amount", "1"),
+                             ("network", "eip155:1"), ("asset", "0x" + "44" * 20),
+                             ("maxTimeoutSeconds", 301)):
+            with self.subTest(field=field):
+                quote, approval, handoff = self.signing_handoff()
+                handoff["payment_request"]["accepted"][field] = value
+                handoff["payment_handoff_hash"] = shopbridge_direct.sha256_hex(handoff["payment_request"])
+                with self.assertRaises(SystemExit):
+                    shopbridge_direct.command_x402_typed_data(self.signing_args(quote, approval, handoff))
+
+    def test_signing_refuses_nonce_expiry_payer_and_signature(self):
+        for field, value, error in (("authorization_nonce", "0x" + "00" * 32, "nonce mismatch"),
+                                    ("validBefore", "1", "request a new")):
+            with self.subTest(field=field):
+                quote, approval, handoff = self.signing_handoff()
+                handoff["payment_request"][field] = value
+                handoff["payment_handoff_hash"] = shopbridge_direct.sha256_hex(handoff["payment_request"])
+                with self.assertRaisesRegex(SystemExit, error):
+                    shopbridge_direct.command_x402_typed_data(self.signing_args(quote, approval, handoff))
+        quote, approval, handoff = self.signing_handoff()
+        with self.assertRaisesRegex(SystemExit, "payer"):
+            shopbridge_direct.command_x402_typed_data(self.signing_args(quote, approval, handoff, payer="bad"))
+        for signature in ("bad", "0x" + "11" * 65):
+            with self.subTest(signature=signature), self.assertRaisesRegex(SystemExit, "signature"):
+                shopbridge_direct.command_x402_receipt(self.signing_args(quote, approval, handoff, signature=signature))
+
+    def test_signing_retries_keep_original_authorization(self):
+        quote, approval, handoff = self.signing_handoff()
+        args = self.signing_args(quote, approval, handoff, payer="0x" + "AB" * 20,
+                                 signature="0x" + "11" * 64 + "00")
+        first = shopbridge_direct.command_x402_typed_data(args)
+        receipt = shopbridge_direct.command_x402_receipt(args)
+        now = shopbridge_direct.parse_time(shopbridge_direct.iso_now())
+        with mock.patch.object(shopbridge_direct, "iso_now", return_value=(now + shopbridge_direct.dt.timedelta(seconds=1)).isoformat()):
+            self.assertEqual(shopbridge_direct.command_x402_typed_data(args), first)
+            self.assertEqual(shopbridge_direct.command_x402_receipt(args), receipt)
+
+    def test_signing_refuses_out_of_window_and_wrong_rail(self):
+        for field, value in (("validBefore", "9999999999"), ("validAfter", "1"),
+                             ("rail", "tempo-mpp")):
+            with self.subTest(field=field):
+                quote, approval, handoff = self.signing_handoff()
+                handoff["payment_request"][field] = value
+                handoff["payment_handoff_hash"] = shopbridge_direct.sha256_hex(handoff["payment_request"])
+                with self.assertRaises(SystemExit):
+                    shopbridge_direct.command_x402_typed_data(self.signing_args(quote, approval, handoff))
 
     def test_nonce_commitment_vector(self):
         self.assertEqual(shopbridge_direct.registry_trust.x402_authorization_nonce(

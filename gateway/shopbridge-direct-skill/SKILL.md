@@ -2,7 +2,7 @@
 name: shopbridge-direct
 description: Discover shops that support AgentCart ShopBridge, compare their verified WooCommerce catalogs and quotes, and prepare approval-safe direct checkout without running the AgentCart buyer service. Use when a buyer asks an agent to find, compare, or buy from ShopBridge merchants.
 metadata:
-  version: "1.24.0"
+  version: "1.25.0"
 ---
 
 # ShopBridge Direct Skill
@@ -661,9 +661,24 @@ The EIP-3009 authorization MUST use that nonce, computed as
 `keccak256(utf8("shopbridge-x402-nonce-v1") || bytes32(quote_hash) ||
 bytes32(payment_contract_hash) || keccak256(utf8(resource.url)))`, with each
 64-hex SHA-256 hash decoded into 32 bytes. The result is lowercase `0x` hex.
-Use the handoff's `validAfter:"0"` and `validBefore` (current Unix seconds plus
-`maxTimeoutSeconds`). Hand these to an existing buyer-approved x402 client;
-this skill contains no wallet or signing code.
+Use the handoff's `validAfter:"0"` and `validBefore` (pinned `approved_at`
+Unix seconds plus `maxTimeoutSeconds`). ShopBridge fixes the quote-bound nonce; generic x402
+clients that choose a fresh nonce are rejected fail closed.
+Use `x402_typed_data` with `{quote: <approved quote>, payment_rail:
+"x402-compatible", approved: true, approval_hash: "...", payment_handoff:
+<full output>, payer: "0x..."}`. It returns `typed_data` for wallet
+`eth_signTypedData_v4` and `expires_at`. Before signing, the wallet or human
+must confirm that `message.to` and `message.value` match the approval packet's
+payment destination and atomic amount: this signature authorizes a bearer transfer.
+Then call `x402_receipt` with the same quote, payment_rail, approved,
+approval_hash, full payment_handoff and payer, plus `signature: "0x..."`,
+and pass its `payment_receipt` plus unchanged
+`checkout_args` to checkout with the approved quote. Both commands revalidate
+the handoff by re-running approval, registry-binding and preflight gates against
+the approved quote, comparing the derived payment request and pinned checkout
+arguments, and reusing its timestamps and nonce. An expired handoff requires a
+new handoff, not renewed timestamps on an old signature. Python performs format
+and binding checks only; the facilitator verifies the cryptographic signature.
 Return the padded-base64 v2 PaymentPayload in `payment_receipt.x402_payment_signature`,
 with `method:"x402-compatible"`, `status:"authorized"`, `x402_version:2`,
 network, asset, pay_to, atomic `amount`, amount_cents, currency, quote_hash and
@@ -674,12 +689,35 @@ proves payment; a signing handoff or authorization alone never proves money move
 X402 refunds are unsupported (`x402_refund_unsupported`, HTTP 400,
 `real_refund_verified:false`); contact merchant support rather than promise a refund.
 
+### Security boundary
+
+An x402 authorization is a bearer instrument: anyone holding it can submit
+the authorized USDC transfer. `x402_typed_data` is for an external wallet or
+human signer, who must confirm `to` and `value` against the approval packet
+before signing. The skill's checks are consistency and registry gates, not
+proof of human approval; calling-agent assertions are not authenticated approval.
+The signing commands refuse unverified registry destinations, future `approved_at`,
+and `validBefore` beyond local now plus `maxTimeoutSeconds`, without buyer-side skew.
+
+There is no built-in automated signer. Automated agent signing needs a separately
+designed signer with an operator-owned policy and authoritative registry revalidation.
+For manual testnet signing, save the bare `typed_data` object as `typed_data.json`
+and use `cast wallet sign --data --from-file typed_data.json --interactive`
+(Foundry), or any wallet's `eth_signTypedData_v4`. Use an existing buyer-approved
+wallet; never expose or commit its key.
+
+
 
 Checkout with a supplied verifier/payment receipt:
 
 ```json
 {"command":"checkout","args":{"base_url":"https://shop.example","quote":{...},"payment_rail":"stripe-card-mpp","approved":true,"approval_hash":"...","payment_receipt":{"method":"stripe-card-mpp","status":"succeeded","amount_cents":1480,"currency":"EUR","quote_hash":"...","payment_contract_hash":"...","stripe_profile_id":"acct_...","authorization":"opaque-provider-credential-or-reference"}}}
 ```
+
+Checkout sends the order to the approved quote's `merchant_origin` (from its
+`quote_trust`), so `base_url` is optional. A supplied `base_url` must equal that
+origin; neither `SHOPBRIDGE_BASE_URL` nor the local demo default can redirect a
+checkout to another merchant.
 
 For supplied production receipts, the skill requires the explicit fields named
 by `payment_handoff.receipt_requirements`. It does not fill in missing amount,

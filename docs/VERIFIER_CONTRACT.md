@@ -301,9 +301,12 @@ An authenticated operation checks facilitator `/supported`, caching supported
 capabilities for ten minutes. `/health` performs no facilitator or RPC calls
 and is not proof of live facilitator support. The complete path has a 12000 ms
 global budget, below the plugin's 15-second request timeout. Verify is capped at
-2500 ms, settle at the configured timeout (default 7000 ms), and confirmation
-at 1500 ms total. Each RPC call is also capped at 1500 ms and the remaining
-global budget; ambiguous submission outcomes always reconcile.
+2500 ms and settle at the configured timeout (default 7000 ms). The facilitator
+can answer before its transaction is mined or visible on the configured RPC
+node, so after a successful settle response confirmation polls the receipt every
+500 ms until the global budget runs out. Recovery reconciliation reads the
+receipt once, within 1500 ms. Each RPC call is also capped at 1500 ms and the
+remaining global budget; ambiguous submission outcomes always reconcile.
 
 The verifier enforces equality between the advertised requirements and
 `paymentPayload.accepted`. Receipts require method `x402-compatible`, status

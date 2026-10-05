@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawnVerifier } from './helpers/spawn-verifier.mjs';
 import { keccak256, toBytes } from 'viem';
 import {
   createX402Verifier, x402Config, x402MissingConfig, x402Fetch, x402Store,
@@ -240,43 +240,20 @@ test('global deadline includes pre-provider work and stops submission', async t 
   await assert.rejects(s.verifier.payment(i.payload, i.expected, Date.now() - 1), retryable);
   assert.deepEqual(s.fake.state.calls, []);
 });
-async function processVerifier(config) {
-  const portServer = http.createServer();
-  await new Promise(resolve => portServer.listen(0, '127.0.0.1', resolve));
-  const port = portServer.address().port;
-  await new Promise(resolve => portServer.close(resolve));
-  const child = spawn(process.execPath, ['scripts/stripe-mpp-verifier.mjs'], {
-    cwd: new URL('..', import.meta.url),
-    env: {
-      ...process.env, STRIPE_MPP_VERIFIER_PORT: String(port), AGENTCART_PAYMENT_VERIFIER_TOKEN: 'v'.repeat(40),
-      AGENTCART_VERIFIER_ENABLED_RAILS: 'x402-compatible', AGENTCART_X402_MODE: config.mode,
-      AGENTCART_X402_ALLOW_PRIVATE_URLS: 'true', AGENTCART_X402_FACILITATOR_URL: config.facilitator,
-      AGENTCART_X402_RPC_URL: config.rpc, AGENTCART_VERIFIER_REPLAY_STORE_DRIVER: 'sqlite',
-      AGENTCART_VERIFIER_REPLAY_STORE_PATH: config.db,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+// Each instance registers its own teardown so a failing assertion cannot leak a verifier process;
+// explicit close() calls stay valid because closing twice is a no-op.
+async function processVerifier(t, config) {
+  const verifier = await spawnVerifier({
+    AGENTCART_PAYMENT_VERIFIER_TOKEN: 'v'.repeat(40),
+    AGENTCART_VERIFIER_ENABLED_RAILS: 'x402-compatible', AGENTCART_X402_MODE: config.mode,
+    AGENTCART_X402_ALLOW_PRIVATE_URLS: 'true', AGENTCART_X402_FACILITATOR_URL: config.facilitator,
+    AGENTCART_X402_RPC_URL: config.rpc, AGENTCART_VERIFIER_REPLAY_STORE_DRIVER: 'sqlite',
+    AGENTCART_VERIFIER_REPLAY_STORE_PATH: config.db,
   });
-  let output = '';
-  child.stdout.on('data', data => output += data);
-  child.stderr.on('data', data => output += data);
-  const base = `http://127.0.0.1:${port}`;
-  for (let n = 0; n < 100; n++) {
-    try {
-      await fetch(`${base}/health`);
-      break;
-    } catch {
-      if (child.exitCode !== null) throw new Error(output);
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-  }
+  t.after(() => verifier.close());
+  const base = verifier.base;
   return {
-    close: async () => {
-      if (child.exitCode === null) {
-        const exit = new Promise(resolve => child.once('exit', resolve));
-        child.kill();
-        await exit;
-      }
-    },
+    close: verifier.close,
     post: async payload => {
       const res = await fetch(`${base}/agentcart/verify`, {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${'v'.repeat(40)}` },
@@ -297,13 +274,13 @@ function httpInput() {
 test('actual verifier HTTP payment, restart persistence, refund rejection and disabled mode', async t => {
   const s = await setup(t);
   const i = httpInput();
-  let process = await processVerifier(s.config);
+  let process = await processVerifier(t, s.config);
   let result = await process.post(i.payload);
   assert.equal(result.status, 200, JSON.stringify(result));
   assert.equal(result.body.real_settlement_verified, true);
   await process.close();
   const count = [s.fake.state.calls.length, s.fake.state.rpcCalls.length];
-  process = await processVerifier(s.config);
+  process = await processVerifier(t, s.config);
   result = await process.post(i.payload);
   assert.equal(result.status, 200);
   assert.deepEqual([s.fake.state.calls.length, s.fake.state.rpcCalls.length], count);
@@ -312,7 +289,7 @@ test('actual verifier HTTP payment, restart persistence, refund rejection and di
   assert.equal(result.body.error, 'x402_refund_unsupported');
   assert.equal(result.body.real_refund_verified, false);
   await process.close();
-  process = await processVerifier({ ...s.config, mode: 'disabled' });
+  process = await processVerifier(t, { ...s.config, mode: 'disabled' });
   result = await process.post(i.payload);
   assert.equal(result.status, 503);
   await process.close();
@@ -332,8 +309,7 @@ test('multi-rail quote verifies against the selected rail contract, not the defa
       verification: { payment_contract_hash: tempoHash }, verification_contracts: contracts,
     },
   };
-  const verifier = await processVerifier(s.config);
-  t.after(() => verifier.close());
+  const verifier = await processVerifier(t, s.config);
   let result = await verifier.post(i.payload);
   assert.equal(result.status, 200, JSON.stringify(result.body));
   assert.equal(result.body.real_settlement_verified, true);
@@ -417,18 +393,36 @@ test('settle has enough time for a delayed Base Sepolia facilitator', async t =>
   assert.equal((await s.run(input())).real_settlement_verified, true);
   assert.ok(!s.fake.state.rpcCalls.includes('eth_getLogs'));
 });
+test('first call verifies a settlement whose receipt appears after the facilitator answers', async t => {
+  const s = await setup(t);
+  // The facilitator can answer before its transaction is mined or visible on the RPC node
+  // (Base Sepolia mines every 2 s). Staging hit this: the first checkout reported unconfirmed.
+  s.fake.state.mineDelayMs = 2000;
+  assert.equal((await s.run(input())).real_settlement_verified, true);
+  assert.equal(s.fake.state.calls.filter(call => call === '/settle').length, 1);
+  assert.ok(!s.fake.state.rpcCalls.includes('eth_getLogs'));
+});
+test('receipt polling stops at the global deadline', async t => {
+  const s = await setup(t);
+  // /settle answers with a transaction that never becomes visible.
+  s.fake.state.unresolved = true;
+  const i = input();
+  const started = Date.now();
+  await assert.rejects(s.verifier.payment(i.payload, i.expected, started + 2000), retryable);
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 2800, `payment returned after ${elapsed} ms`);
+  assert.equal(s.fake.state.calls.filter(call => call === '/settle').length, 1);
+});
 
 test('capability fails readiness for missing replay database or unsupported facilitator', async t => {
   const s = await setup(t);
-  const missingDatabase = await processVerifier({ ...s.config, db: '' });
-  t.after(() => missingDatabase.close());
+  const missingDatabase = await processVerifier(t, { ...s.config, db: '' });
   let response = await missingDatabase.post({ operation: 'capabilities' });
   assert.equal(response.body.ok, false);
   assert.equal(response.body.x402.configured, false);
   assert.ok(response.body.missing.includes('AGENTCART_VERIFIER_REPLAY_STORE_PATH'));
   s.fake.state.unsupported = true;
-  const unsupported = await processVerifier(s.config);
-  t.after(() => unsupported.close());
+  const unsupported = await processVerifier(t, s.config);
   response = await unsupported.post({ operation: 'capabilities' });
   assert.equal(response.body.x402.configured, true);
   assert.equal(response.body.x402.facilitator.supported_kind_confirmed, false);

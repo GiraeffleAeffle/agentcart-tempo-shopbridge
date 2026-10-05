@@ -196,9 +196,11 @@ verifier:
 
 `verifier.x402.mode` defaults to `disabled`; the other values above are defaults.
 The facilitator settle timeout must be 100–7000 ms. Verify has a 2500 ms
-ceiling, settle defaults to 7000 ms, and confirmation has a 1500 ms total
-ceiling. RPC calls are capped at 1500 ms and the remaining 12000 ms global
-budget (below the plugin's 15 s timeout). Ambiguous submission always reconciles.
+ceiling and settle defaults to 7000 ms. After a successful settle response,
+confirmation polls the receipt every 500 ms until the global budget runs out;
+recovery reads it once, within 1500 ms. RPC calls are capped at 1500 ms and the
+remaining 12000 ms global budget (below the plugin's 15 s timeout). Ambiguous
+submission always reconciles.
 URLs must use HTTPS and resolve exclusively to global addresses; redirects
 fail closed. The chart deliberately does not expose
 the local-test-only `AGENTCART_X402_ALLOW_PRIVATE_URLS=true` override.
@@ -206,6 +208,24 @@ Authenticated operations cache facilitator `/supported` capabilities for ten
 minutes; health checks make no facilitator or RPC calls. x402 refunds are
 unsupported. See `docs/VERIFIER_CONTRACT.md` and
 `docs/VERIFIER_OPERATIONS_READINESS.md` for durable retry handling.
+
+The storefront side is declarative too. `store.x402` becomes `wp-config` constants
+on every pod start, so a reseed or reset cannot silently drop payment
+configuration. Network, asset and payTo are all-or-nothing; the timeout must be
+30–300 seconds:
+
+```yaml
+store:
+  marketProfile: usd
+  x402:
+    network: "eip155:84532"
+    asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    payTo: "0x<merchant address>"
+    maxTimeoutSeconds: 300
+```
+
+The plugin still offers x402 only after an administrator's verifier capability
+check confirms settle mode and facilitator support for this network and asset.
 
 For a slow private registry tunnel, use
 `scripts/push-oci-layout-resumable.py` against a loopback port-forward. It
@@ -227,7 +247,12 @@ manifest digest. This avoids relying on a single long-lived layer request.
   egress only to DNS and public HTTPS RPC endpoints;
 - egress to private, loopback, link-local, and carrier-grade NAT ranges is
   denied for public HTTPS calls;
-- persistent claims survive Helm uninstall and StatefulSet deletion.
+- persistent claims survive Helm uninstall and StatefulSet deletion;
+- storefront access logs record only time, method, path without query string,
+  status, size and duration. They never record client addresses, user agents,
+  referrers or query strings, which can carry order status tokens. nginx error
+  logging is limited to critical messages, because error lines include the client
+  address and the full request line.
 
 The default ingress namespace selector is portable. Some CNI/ingress setups
 SNAT traffic; add only their observed source CIDRs through private values.

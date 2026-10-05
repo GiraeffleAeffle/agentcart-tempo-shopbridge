@@ -51,6 +51,35 @@
             }
           ]
         },
+        "x402": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["network", "asset", "payTo", "maxTimeoutSeconds"],
+          "properties": {
+            "network": {"type": "string", "enum": ["", "eip155:84532"]},
+            "asset": {"type": "string", "enum": ["", "0x036CbD53842c5426634e7929541eC2318f3dCF7e"]},
+            "payTo": {"type": "string", "pattern": "^(|0x[0-9a-fA-F]{40})$"},
+            "maxTimeoutSeconds": {"type": "integer", "minimum": 30, "maximum": 300}
+          },
+          "allOf": [
+            {
+              "if": {
+                "anyOf": [
+                  {"properties": {"network": {"minLength": 1}}},
+                  {"properties": {"asset": {"minLength": 1}}},
+                  {"properties": {"payTo": {"minLength": 1}}}
+                ]
+              },
+              "then": {
+                "properties": {
+                  "network": {"minLength": 1},
+                  "asset": {"minLength": 1},
+                  "payTo": {"minLength": 1}
+                }
+              }
+            }
+          ]
+        },
         "returnsPath": {"type": "string", "pattern": "^/"}
       }
     },
@@ -228,6 +257,31 @@
           "store": {
             "properties": {
               "marketProfile": {"not": {"const": "eur"}}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["store"],
+        "properties": {
+          "store": {
+            "required": ["x402"],
+            "properties": {"x402": {"required": ["network"], "properties": {"network": {"minLength": 1}}}}
+          }
+        }
+      },
+      "then": {
+        "required": ["verifier"],
+        "properties": {
+          "store": {"properties": {"marketProfile": {"const": "usd"}}},
+          "verifier": {
+            "required": ["enabled", "enabledRails", "x402"],
+            "properties": {
+              "enabled": {"const": true},
+              "enabledRails": {"contains": {"const": "x402-compatible"}},
+              "x402": {"required": ["mode"], "properties": {"mode": {"const": "settle"}}}
             }
           }
         }

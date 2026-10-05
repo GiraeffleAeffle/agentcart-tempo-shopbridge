@@ -53,6 +53,28 @@ iteration, or set `AGENTCART_WOO_SMOKE_REQUIRE_REAL_REFUND_VERIFIER_EVIDENCE=1`
 when running against a production-shaped verifier that should return real refund
 evidence.
 
+For an isolated x402 v2 fake-stack integration run (Docker Compose with `!reset`
+support, Docker, curl and openssl required):
+
+```sh
+bash scripts/run-x402-e2e.sh
+```
+
+This runs the Python 3.11 skill against WordPress and the verifier with fake
+facilitator/RPC services. The positive checkout signs the skill's typed data
+directly with a test-only viem bridge (Node 22) and a runtime-only ephemeral key;
+replay and four adversarial cases assert per-quote verifier payment-call counts.
+WP-cron is disabled; the harness acts as the external scheduler and runs due cron events after N3.
+It waits for the scheduled recovery (bounded to 150 seconds), verifies the unpaid
+N3 draft is retried exactly once and rescheduled with backoff, and confirms completed orders
+are not re-settled and local nonce rejections are never attempted or recovered.
+No live payment or chain transaction occurs, and
+the fake facilitator does not validate signatures. Installation may download
+Docker/npm dependencies and the gitignored WooCommerce archive. Each run prints
+a compact JSON summary and removes its unique compose project, volumes, local
+verifier image and cache temp directory; it never touches the default demo
+compose project. The verifier token is random, unprinted and temporary.
+
 The default runtime images are `wordpress:php8.2-apache` and
 `wordpress:cli-php8.2`. Override `WORDPRESS_IMAGE` and `WORDPRESS_CLI_IMAGE`
 when running compatibility matrix entries.

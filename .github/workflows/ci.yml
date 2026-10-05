@@ -68,3 +68,12 @@ jobs:
 
       - name: Exercise recovery on legacy and HPOS order storage
         run: bash scripts/run-woocommerce-recovery-integration.sh
+
+  x402-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Exercise isolated fake-stack x402 checkout
+        run: bash scripts/run-x402-e2e.sh

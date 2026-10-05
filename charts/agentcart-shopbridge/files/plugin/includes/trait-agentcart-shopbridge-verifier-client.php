@@ -91,7 +91,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         ];
     }
 
-    private static function call_payment_verifier($verifier_url, $quote, $receipt, $body, $payment_contract) {
+    private static function call_payment_verifier($verifier_url, $quote, $receipt, $body, $payment_contract, $checkout_draft) {
         $rail = self::payment_rail_from_receipt($receipt, $body);
         $payment_contract_hash = self::payment_contract_hash($payment_contract);
         $settlement = $payment_contract['settlement'] ?? [];
@@ -134,7 +134,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         if ($token !== '') {
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-        $response = self::verifier_http_post($verifier_url, $payload, $headers, 15);
+        $response = self::verifier_http_post($verifier_url, $payload, $headers, 15, $checkout_draft);
         if (is_wp_error($response)) {
             return new WP_Error(
                 'agentcart_payment_verifier_failed',
@@ -288,7 +288,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         if ($token !== '') {
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-        $response = self::verifier_http_post($verifier_url, $payload, $headers, 20);
+        $response = self::verifier_http_post($verifier_url, $payload, $headers, 20, null);
         if (is_wp_error($response)) {
             return new WP_Error(
                 'agentcart_refund_verifier_failed',
@@ -352,7 +352,7 @@ trait AgentCart_ShopBridge_Verifier_Client {
         ];
     }
 
-    private static function verifier_http_post($verifier_url, $payload, $headers, $timeout) {
+    private static function verifier_http_post($verifier_url, $payload, $headers, $timeout, $checkout_draft) {
         $url = self::normalize_payment_verifier_url($verifier_url);
         if ($url === '') {
             return new WP_Error(
@@ -361,14 +361,18 @@ trait AgentCart_ShopBridge_Verifier_Client {
                 ['status' => 400]
             );
         }
-        return wp_remote_post($url, [
+        $args = [
             'headers' => $headers,
             'body' => wp_json_encode($payload),
             'timeout' => intval($timeout),
             'reject_unsafe_urls' => !self::payment_verifier_url_allows_private_networks(),
             'redirection' => 0,
             'limit_response_size' => 1048576,
-        ]);
+        ];
+        if ($checkout_draft !== null && !AgentCart_ShopBridge_Checkout_Store::verification_attempted($checkout_draft)) {
+            AgentCart_ShopBridge_Checkout_Store::mark_verifying($checkout_draft);
+        }
+        return wp_remote_post($url, $args);
     }
 
     private static function verifier_error_detail($status, $decoded, $raw_body) {

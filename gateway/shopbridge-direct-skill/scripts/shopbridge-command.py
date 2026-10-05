@@ -2734,9 +2734,13 @@ def payment_destination_binding_issues(
 
 
 def checkout_base_url_for_quote(args: dict[str, Any], quote: dict[str, Any]) -> str:
-    base_url = base_url_from_args(args)
     trust = quote_trust_metadata(quote)
     approved_origin = str(trust.get("merchant_origin") or "")
+    if approved_origin and not configured_base_url(args)["source"].startswith("args."):
+        # The approved quote names the merchant that produced it; a configured default origin
+        # (SHOPBRIDGE_BASE_URL or the local demo default) must not redirect its checkout.
+        return base_url_from_args({**args, "base_url": approved_origin})
+    base_url = base_url_from_args(args)
     if approved_origin and normalized_origin(base_url) != normalized_origin(approved_origin):
         raise SystemExit("checkout_base_url does not match approved quote merchant_origin")
     return base_url
@@ -3482,6 +3486,8 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "checkout_preflight",
             "payment_readiness",
             "payment_handoff",
+            "x402_typed_data",
+            "x402_receipt",
             "checkout",
             "order_status",
             "aftercare_summary",
@@ -4792,7 +4798,9 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
             str(quote["quote_hash"]), str(destination["payment_contract_hash"]),
             destination["payment_required"]["resource"]["url"])
         payment_request["validAfter"] = "0"
-        handoff_time = parse_time(handoff_now)
+        handoff_time = parse_time(approved_at)
+        if handoff_time is None:
+            raise SystemExit("approved_at must be an ISO-8601 timestamp")
         payment_request["validBefore"] = str(int(handoff_time.timestamp()) + payment_request["accepted"]["maxTimeoutSeconds"])
     return {
         "ok": True,
@@ -4811,6 +4819,124 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
         },
         "safety_note": "This handoff does not move money and does not contain secret keys. It is the structured instruction for a payment-capable agent or provider, and the resulting receipt is still verified by ShopBridge before WooCommerce creates a paid order.",
     }
+
+
+def x402_signing_request(args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Validate the unchanged quote-bound handoff; never renew an authorization."""
+    handoff = args.get("payment_handoff")
+    payer = args.get("payer")
+    if not isinstance(payer, str) or not re.fullmatch(r"0x[0-9a-fA-F]{40}", payer):
+        raise SystemExit("payer must be a 0x-prefixed 20-byte address")
+    if not isinstance(handoff, dict) or handoff.get("ok") is not True:
+        raise SystemExit("A successful payment_handoff is required")
+    request = handoff.get("payment_request")
+    if not isinstance(request, dict) or request.get("rail") != "x402-compatible":
+        raise SystemExit("An x402-compatible payment_handoff is required")
+    if handoff.get("payment_handoff_hash") != sha256_hex(request):
+        raise SystemExit("payment_handoff commitment mismatch")
+    destination = request.get("payment_destination")
+    document = registry_trust.decode_x402_header(request.get("payment_required_header_value"))
+    accepted = request.get("accepted")
+    if (not isinstance(destination, dict) or not isinstance(document, dict)
+            or type(document.get("x402Version")) is not int or document["x402Version"] != 2
+            or document.get("accepts") != [accepted]
+            or destination.get("payment_required") != document or not isinstance(accepted, dict)):
+        raise SystemExit("x402 payment requirements mismatch")
+    if (accepted.get("scheme") != "exact" or accepted.get("network") != "eip155:84532"
+            or str(accepted.get("asset", "")).lower() != "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+            or not isinstance(accepted.get("extra"), dict)
+            or accepted["extra"].get("name") != "USDC" or accepted["extra"].get("version") != "2"
+            or type(accepted.get("maxTimeoutSeconds")) is not int
+            or not 30 <= accepted["maxTimeoutSeconds"] <= 300
+            or not re.fullmatch(r"0x[0-9a-fA-F]{40}", str(accepted.get("payTo", "")))
+            or not isinstance(accepted.get("amount"), str)
+            or not re.fullmatch(r"[0-9]+", accepted["amount"]) or int(accepted["amount"]) <= 0
+            or request.get("currency") != "USD" or type(request.get("amount_cents")) is not int
+            or accepted["amount"] != str(request["amount_cents"] * 10000)
+            or any(str(destination.get(key, "")).lower() != str(accepted.get(field, "")).lower()
+                   for key, field in (("network", "network"), ("asset", "asset"), ("pay_to", "payTo"), ("amount", "amount")))
+            or destination.get("payment_contract_hash") != request.get("payment_contract_hash")):
+        raise SystemExit("x402 payment requirements mismatch")
+    try:
+        nonce = registry_trust.x402_authorization_nonce(
+            request["quote_hash"], request["payment_contract_hash"], document["resource"]["url"])
+    except (KeyError, TypeError, ValueError):
+        raise SystemExit("x402 nonce commitments are invalid") from None
+    if nonce != request.get("authorization_nonce"):
+        raise SystemExit("x402 authorization nonce mismatch")
+    before = request.get("validBefore")
+    if request.get("validAfter") != "0" or not isinstance(before, str) or not re.fullmatch(r"[0-9]+", before):
+        raise SystemExit("x402 authorization validity is invalid")
+    now_time = parse_time(iso_now())
+    now = int(now_time.timestamp())
+    if int(before) <= now:
+        raise SystemExit("Expired x402 handoff: request a new payment_handoff")
+    if int(before) > now + accepted["maxTimeoutSeconds"]:
+        raise SystemExit("x402 authorization validity exceeds maxTimeoutSeconds")
+    if not isinstance(handoff.get("checkout_args"), dict) or any(
+            not handoff["checkout_args"].get(key) for key in ("approved_at", "audit_event_timestamp")):
+        raise SystemExit("payment_handoff checkout_args are required")
+    approved_at = parse_time(handoff["checkout_args"]["approved_at"])
+    if approved_at is None or approved_at > now_time:
+        raise SystemExit("payment_handoff approved_at must not be in the future")
+    if (not isinstance(args.get("quote"), dict) or args.get("payment_rail") != "x402-compatible"
+            or args.get("approved") is not True or not isinstance(args.get("approval_hash"), str)):
+        raise SystemExit("quote, payment_rail=x402-compatible, approved=true and approval_hash are required")
+    derived = command_payment_handoff({
+        "quote": args["quote"], "payment_rail": args["payment_rail"],
+        "approved": True, "approval_hash": args["approval_hash"],
+        "approved_at": handoff["checkout_args"]["approved_at"],
+        "audit_event_timestamp": handoff["checkout_args"]["audit_event_timestamp"],
+    })
+    if derived.get("ok") is not True or any(
+            registry_trust.canonical_json(handoff.get(key)) != registry_trust.canonical_json(derived.get(key))
+            for key in ("payment_request", "checkout_args", "payment_handoff_hash")):
+        raise SystemExit("payment_handoff does not match the approved quote")
+    if derived["payment_request"]["payment_destination"].get("registry_verified") is not True:
+        raise SystemExit("x402 signing requires a registry-verified payment destination")
+    return handoff, request, payer
+
+
+def command_x402_typed_data(args: dict[str, Any]) -> dict[str, Any]:
+    _, request, payer = x402_signing_request(args)
+    accepted = request["accepted"]
+    fields = [("from", "address"), ("to", "address"), ("value", "uint256"),
+              ("validAfter", "uint256"), ("validBefore", "uint256"), ("nonce", "bytes32")]
+    domain_fields = [("name", "string"), ("version", "string"), ("chainId", "uint256"),
+                     ("verifyingContract", "address")]
+    return {
+        "typed_data": {
+            "domain": {"name": "USDC", "version": "2", "chainId": "84532", "verifyingContract": accepted["asset"]},
+            "types": {name: [{"name": key, "type": kind} for key, kind in values]
+                      for name, values in (("EIP712Domain", domain_fields), ("TransferWithAuthorization", fields))},
+            "primaryType": "TransferWithAuthorization",
+            "message": {"from": payer, "to": accepted["payTo"], "value": accepted["amount"],
+                        "validAfter": request["validAfter"], "validBefore": request["validBefore"],
+                        "nonce": request["authorization_nonce"]},
+        },
+        "expires_at": dt.datetime.fromtimestamp(int(request["validBefore"]), dt.timezone.utc).isoformat(),
+    }
+
+
+def command_x402_receipt(args: dict[str, Any]) -> dict[str, Any]:
+    handoff, request, _ = x402_signing_request(args)
+    signature = args.get("signature")
+    if (not isinstance(signature, str) or not re.fullmatch(r"0x[0-9a-fA-F]{130}", signature)
+            or int(signature[-2:], 16) not in (0, 1, 27, 28)):
+        raise SystemExit("signature must be 65 bytes with recovery id 0, 1, 27 or 28")
+    authorization = command_x402_typed_data(args)["typed_data"]["message"]
+    payload = {"x402Version": 2, "accepted": request["accepted"],
+               "payload": {"signature": signature, "authorization": authorization}}
+    receipt = {
+        "method": "x402-compatible", "status": "authorized", "x402_version": 2,
+        **{key: request[key] for key in ("amount_cents", "currency", "quote_hash", "payment_contract_hash")},
+        **{key: request["payment_destination"][key] for key in ("network", "asset", "pay_to", "amount")},
+        "x402_payment_signature": base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode("ascii"),
+    }
+    issues = registry_trust.x402_receipt_issues(receipt, request["payment_destination"])
+    if issues:
+        raise SystemExit(issues[0])
+    return {"payment_receipt": receipt, "checkout_args": handoff["checkout_args"]}
 
 
 def validate_receipt_destination(receipt: dict[str, Any], destination: dict[str, Any]) -> None:
@@ -5204,6 +5330,10 @@ def main() -> None:
         compact = command_payment_readiness(args)
     elif command == "payment_handoff":
         compact = command_payment_handoff(args)
+    elif command == "x402_typed_data":
+        compact = command_x402_typed_data(args)
+    elif command == "x402_receipt":
+        compact = command_x402_receipt(args)
     elif command == "checkout":
         result = command_checkout(args)
         compact = result
