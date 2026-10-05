@@ -12,6 +12,7 @@ RUN npm ci --omit=dev --ignore-scripts \
 
 COPY scripts/stripe-mpp-verifier.mjs scripts/stripe-mpp-verifier.mjs
 COPY scripts/verifier-sqlite-replay-store.mjs scripts/verifier-sqlite-replay-store.mjs
+COPY scripts/verifier-x402.mjs scripts/verifier-x402.mjs
 
 COPY scripts/verifier-refund-operations.mjs scripts/verifier-refund-reconciler.mjs ./scripts/
 

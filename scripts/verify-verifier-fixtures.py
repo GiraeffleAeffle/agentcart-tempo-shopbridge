@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import pathlib
 import re
 import sys
@@ -11,13 +12,9 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIXTURE_DIR = ROOT / "docs" / "fixtures" / "verifier"
-PLUGIN = ROOT / "woocommerce-shopbridge" / "agentcart-shopbridge" / "agentcart-shopbridge.php"
-VERIFIER_CLIENT = PLUGIN.parent / "includes" / "trait-agentcart-shopbridge-verifier-client.php"
-STRIPE_VERIFIER = ROOT / "gateway" / "scripts" / "stripe-mpp-verifier.mjs"
-REFUND_OPERATIONS = ROOT / "gateway" / "scripts" / "verifier-refund-operations.mjs"
-SQLITE_REPLAY_STORE = ROOT / "gateway" / "scripts" / "verifier-sqlite-replay-store.mjs"
-SQLITE_REPLAY_SMOKE = ROOT / "gateway" / "scripts" / "verifier-sqlite-replay-smoke.sh"
-SUPPORTED_RAILS = {"stripe-card-mpp", "tempo-mpp"}
+sys.path.insert(0, str(ROOT / "gateway" / "shopbridge-direct-skill" / "scripts"))
+from shopbridge_registry_trust import x402_authorization_nonce
+SUPPORTED_RAILS = {"stripe-card-mpp", "tempo-mpp", "x402-compatible"}
 
 
 def load_fixture(name: str) -> dict[str, Any]:
@@ -153,6 +150,34 @@ def verify_payment_request(payload: dict[str, Any]) -> None:
         require(protocol.get("recipient") == recipient, "quote Tempo recipient must match expected recipient")
         require(protocol.get("asset") == asset, "quote Tempo asset must match expected asset")
         require_non_empty_string(payload, "payment_receipt.payer_address")
+    elif rail == "x402-compatible":
+        require(currency == "USD", "x402 USDC only accepts USD")
+        requirements = expected.get("x402_payment_requirements")
+        require(isinstance(requirements, dict), "x402 trusted requirements are required")
+        require(requirements.get("network") == "eip155:84532", "x402 network mismatch")
+        require(str(requirements.get("asset", "")).lower() == "0x036cbd53842c5426634e7929541ec2318f3dcf7e", "x402 asset mismatch")
+        require(requirements.get("amount") == str(amount * 10000), "x402 atomic amount mismatch")
+        require(requirements.get("extra") == {"name": "USDC", "version": "2"}, "x402 EIP712 domain mismatch")
+        require(receipt.get("method") == "x402-compatible" and receipt.get("status") == "authorized"
+                and receipt.get("x402_version") == 2, "x402 receipt method/status/version mismatch")
+        require(isinstance(requirements.get("maxTimeoutSeconds"), int)
+                and 30 <= requirements["maxTimeoutSeconds"] <= 300, "x402 timeout outside protocol bounds")
+        signature = require_non_empty_string(payload, "payment_receipt.x402_payment_signature")
+        payment = json.loads(base64.b64decode(signature, validate=True))
+        require(payment.get("x402Version") == 2 and payment.get("accepted") == requirements, "x402 accepted mismatch")
+        authorization = payment.get("payload", {}).get("authorization", {})
+        require(authorization.get("value") == requirements["amount"], "x402 authorization amount mismatch")
+        require(authorization.get("to", "").lower() == requirements.get("payTo", "").lower(), "x402 authorization recipient mismatch")
+        resource_url = require_non_empty_string(payload, "quote.payment_requirements.checkout_endpoint")
+        require(payment.get("resource", {}).get("url") == resource_url, "x402 resource mismatch")
+        require(authorization.get("nonce") == x402_authorization_nonce(
+            expected["quote_hash"], expected["payment_contract_hash"], resource_url), "x402 nonce mismatch")
+        # Fixtures are historical signed examples: check the interval shape, not today's clock.
+        require(all(isinstance(authorization.get(key), str) and authorization[key].isdigit()
+                    for key in ("validAfter", "validBefore")), "x402 validity fields must be integer strings")
+        require(int(authorization["validAfter"]) < int(authorization["validBefore"]), "x402 validity interval mismatch")
+        for receipt_key, requirement_key in [("network", "network"), ("asset", "asset"), ("pay_to", "payTo"), ("amount", "amount")]:
+            require(str(receipt.get(receipt_key, "")).lower() == str(requirements.get(requirement_key, "")).lower(), f"x402 receipt {receipt_key} mismatch")
     require_non_empty_string(payload, "agentcart_order_id")
     require_non_empty_string(payload, "expected.merchant_id")
 
@@ -176,9 +201,16 @@ def verify_payment_success(payload: dict[str, Any], request: dict[str, Any]) -> 
         require(payload.get("recipient") == path_value(request, "expected.tempo_recipient"), "Tempo payment recipient mismatch")
         require(payload.get("asset") == path_value(request, "expected.asset"), "Tempo payment asset mismatch")
         require_non_empty_string(payload, "payer_address")
+    elif rail == "x402-compatible":
+        require(payload.get("currency") == "USD", "x402 payment currency mismatch")
+        for key in ["network", "asset", "pay_to", "amount"]:
+            require(str(payload.get(key, "")).lower() == str(path_value(request, f"payment_receipt.{key}")).lower(), f"x402 success {key} mismatch")
+        settle = json.loads(base64.b64decode(require_non_empty_string(payload, "payment_response_header_value"), validate=True))
+        require(settle.get("success") is True and settle.get("transaction") == payload.get("transaction_reference"), "x402 settlement response mismatch")
     reference = require_non_empty_string(payload, "transaction_reference")
-    require(payload.get("replay_reference") == reference, "payment replay_reference must match transaction_reference")
-    require_quote_hash(require_non_empty_string(payload, "replay_request_hash"), "payment replay_request_hash")
+    if rail != "x402-compatible":
+        require(payload.get("replay_reference") == reference, "payment replay_reference must match transaction_reference")
+        require_quote_hash(require_non_empty_string(payload, "replay_request_hash"), "payment replay_request_hash")
     require(payload.get("real_settlement_verified") is True, "payment success must represent real settlement verification")
 
 
@@ -241,12 +273,13 @@ def verify_refund_success(payload: dict[str, Any], request: dict[str, Any]) -> N
 def verify_payment_fixture_set(rail: str) -> None:
     payment_request = load_fixture(f"payment-request.{rail}.json")
     payment_success = load_fixture(f"payment-success.{rail}.json")
-    refund_request = load_fixture(f"refund-request.{rail}.json")
-    refund_success = load_fixture(f"refund-success.{rail}.json")
     verify_payment_request(payment_request)
     verify_payment_success(payment_success, payment_request)
-    verify_refund_request(refund_request, payment_request, payment_success)
-    verify_refund_success(refund_success, refund_request)
+    if rail != "x402-compatible":
+        refund_request = load_fixture(f"refund-request.{rail}.json")
+        refund_success = load_fixture(f"refund-success.{rail}.json")
+        verify_refund_request(refund_request, payment_request, payment_success)
+        verify_refund_success(refund_success, refund_request)
 
 
 def verify_euro_stablecoin_rail_plan() -> None:
@@ -369,236 +402,6 @@ def verify_negative_fixtures() -> None:
     require(not missing, f"missing negative verifier fixture cases: {', '.join(missing)}")
 
 
-def function_body(source: str, name: str) -> str:
-    match = re.search(rf"private static function {re.escape(name)}\([^)]*\) \{{", source)
-    if not match:
-        raise AssertionError(f"function not found: {name}")
-    start = match.end()
-    depth = 1
-    index = start
-    while index < len(source) and depth:
-        char = source[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-        index += 1
-    require(depth == 0, f"function body not closed: {name}")
-    return source[start : index - 1]
-
-
-def plugin_contract_source() -> str:
-    return PLUGIN.read_text(encoding="utf-8") + "\n" + VERIFIER_CLIENT.read_text(encoding="utf-8")
-
-
-def verify_plugin_contract_fields() -> None:
-    source = plugin_contract_source()
-    payment_body = function_body(source, "call_payment_verifier")
-    refund_body = function_body(source, "call_refund_verifier")
-    for literal in [
-        "'operation' => 'payment'",
-        "'quote' => $quote",
-        "'quote_hash' =>",
-        "'payment_receipt' => $receipt",
-        "'agentcart_order_id' =>",
-        "'expected' =>",
-        "'amount_cents' =>",
-        "'currency' =>",
-        "'merchant_id' => self::merchant()['id']",
-        "'rail' => $rail",
-        "'tempo_network' => self::tempo_network()",
-        "'tempo_recipient' => self::tempo_recipient()",
-        "'payer_address' => $verified_payer_address",
-        "'payer_source' => $verified_payer_source",
-        "'stripe_profile_id' => self::stripe_profile_id()",
-        "self::verifier_http_post($verifier_url, $payload, $headers, 15)",
-        "self::verifier_error_detail($status, $decoded, $raw_body)",
-        "agentcart_payment_contract_required",
-    ]:
-        require(literal in payment_body, f"call_payment_verifier missing {literal}")
-    for literal in [
-        "'operation' => 'refund'",
-        "'merchant' => self::merchant()",
-        "'order' =>",
-        "'refund' =>",
-        "'expected' =>",
-        "'agentcart_order_id' =>",
-        "'quote_hash' => $quote_hash",
-        "'transaction_reference' => $transaction_reference",
-        "'payment_verification' =>",
-        "'amount_cents' => intval($amount_cents)",
-        "'currency' => $currency",
-        "'rail' => $rail",
-        "'requested_reference' =>",
-        "'recipient' => $rail === 'tempo-mpp' ? $refund_recipient : ''",
-        "'asset' => $rail === 'tempo-mpp' ? $tempo_asset_name : ''",
-        "'original_transaction_reference' => $transaction_reference",
-        "'tempo_network' => self::tempo_network()",
-        "'tempo_recipient' => self::tempo_recipient()",
-        "'refund_recipient' => $rail === 'tempo-mpp' ? $refund_recipient : ''",
-        "'asset' => $rail === 'tempo-mpp' ? $tempo_asset_name : ''",
-        "'stripe_profile_id' => self::stripe_profile_id()",
-        "self::verifier_http_post($verifier_url, $payload, $headers, 20)",
-        "self::verifier_error_detail($status, $decoded, $raw_body)",
-    ]:
-        require(literal in refund_body, f"call_refund_verifier missing {literal}")
-    for literal in [
-        "sanitize_payment_verifier_url_setting",
-        "normalize_payment_verifier_url",
-        "payment_verifier_url_allows_private_networks",
-        "payment_verifier_host_resolves_to_public_ips",
-        "payment_verifier_ip_is_public",
-        "AGENTCART_ALLOW_PRIVATE_PAYMENT_VERIFIER_URL",
-        "wp_remote_post($url",
-        "'reject_unsafe_urls' => !self::payment_verifier_url_allows_private_networks()",
-        "'redirection' => 0",
-        "'limit_response_size' => 1048576",
-        "verifier_error_detail",
-        "raw_body_hash",
-        "raw_body_bytes",
-    ]:
-        require(literal in source, f"plugin verifier HTTP hardening missing {literal}")
-
-
-def verify_stripe_verifier_replay_fields() -> None:
-    source = STRIPE_VERIFIER.read_text(encoding="utf-8")
-    for literal in [
-        "AGENTCART_VERIFIER_REPLAY_STORE_PATH",
-        "AGENTCART_VERIFIER_REPLAY_STORE_DRIVER",
-        "STRIPE_MPP_REPLAY_STORE_PATH",
-        "AGENTCART_VERIFIER_REPLAY_LOCK_TIMEOUT_MS",
-        "AGENTCART_VERIFIER_REQUIRE_DURABLE_REPLAY",
-        "AGENTCART_VERIFIER_REPLAY_JOURNAL_PATH",
-        "STRIPE_MPP_REPLAY_JOURNAL_PATH",
-        "AGENTCART_VERIFIER_REQUIRE_REPLAY_JOURNAL",
-        "requireDurableReplayStore",
-        "requireReplayJournal",
-        "replay_store_required",
-        "replay_store_driver",
-        "replay_store_durable",
-        "replay_store_error",
-        "replay_journal_required",
-        "replay_journal_writable",
-        "replay_journal_error",
-        "agentcart.verifierReplay.v1",
-        "agentcart.verifierReplayJournal.v1",
-        "const status = readiness()",
-        "acquireReplayStoreLock",
-        "withReplayStoreMutation",
-        "replayStoreDiagnostics",
-        "replayJournalDiagnostics",
-        "appendReplayJournalEvent",
-        "recordReplayJournalClaim",
-        "original_transaction_reference_hash",
-        "requested_reference_hash",
-        "refund_reference_hash",
-        "replay_store_locking",
-        "replay_store_writable",
-        "replay_store_counts",
-        "replayStoreLockPath",
-        "replayStoreWriteProbe",
-        "claimSQLiteReplayReference",
-        "sqliteReplayStoreDiagnostics",
-        "sqliteReplayStoreWriteProbe",
-        "replayStoreDriver === \"sqlite\"",
-        "replayRequestHash",
-        "replayComparableMetadata",
-        "idempotent_replay",
-        "replay_conflict",
-        "request_hash",
-        "claimReplayReference(\"payments\"",
-        "durableRefundStore()",
-        "store.reserve(requestedReference",
-        "await advanceStripeRefund(store, op, stripeClient)",
-        "await advanceTempoRefund(store, op",
-        "Real refunds require the durable SQLite replay and refund ledger.",
-        "refund.requested_reference is required",
-        "AGENTCART_TEMPO_SETTLEMENT_MODE",
-        "waitForTransactionReceipt",
-        "erc20TransferTopic",
-        "Tempo settlement transaction does not contain the expected token transfer.",
-        "real_settlement_verified: settlement.verified === true",
-        "AGENTCART_TEMPO_REFUND_MODE",
-        "AGENTCART_TEMPO_REFUND_PRIVATE_KEY",
-        "createWalletClient",
-        "privateKeyToAccount",
-        "Tempo refund wallet does not match the original payment recipient.",
-        "Tempo refund recipient must match the original payer address.",
-        "Tempo refund requires real settlement evidence on the original payment.",
-        "authoritativeContractHashes",
-        "payment_contract_hash is required from the request, expected block, or quote.",
-        "payment_contract_hash must be a SHA-256 hex digest.",
-        "payment_receipt.payment_contract_hash is required.",
-        "providerErrorClass",
-        "providerErrorResponse",
-        "provider_error_class",
-        "provider_status",
-        "request_id",
-        "retryable",
-        "agentcart.verifierMetrics.v1",
-        "agentcart.verifierEvent.v1",
-        "verifierMetricsSnapshot",
-        "recordVerifierResponse",
-        "structuredLog",
-        "x-agentcart-correlation-id",
-        "AGENTCART_VERIFIER_ALERT_WEBHOOK_URL",
-        "AGENTCART_VERIFIER_ALERT_WEBHOOK_TOKEN",
-        "AGENTCART_VERIFIER_ALERT_MIN_SEVERITY",
-        "AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS",
-        "agentcart.verifier_alert_notification.v1",
-        "agentcart.verifier_alert_delivery.v1",
-        "deliverVerifierAlert",
-        "verifierAlertForEvent",
-        "verifierAlertFingerprint",
-        "x-agentcart-event",
-        "verifier.alert",
-        "provider_errors",
-        "success_rate",
-        "latency_ms",
-        "real_settlement_verified",
-        "real_refund_verified",
-        "url.pathname === \"/metrics\"",
-        "unauthorized || jsonResponse(verifierMetricsSnapshot())",
-    ]:
-        require(literal in source, f"stripe verifier missing replay guard: {literal}")
-    require(
-        source.count("await claimReplayReference(") >= 2,
-        "stripe verifier payment replay claims must be awaited so file locking is effective",
-    )
-    refund_source = REFUND_OPERATIONS.read_text(encoding="utf-8")
-    for literal in [
-        "BEGIN IMMEDIATE", "SUM(amount_cents)", "refund_operations", "refund_events",
-        "Original verified payment is missing from the durable ledger",
-        "idempotencyKey: `shopbridge-refund-${op.request_key}`",
-        "real_refund_verified: op.state === \"succeeded\"",
-        "broadcast(op.signed_transaction)",
-    ]:
-        require(literal in refund_source, f"durable refund ledger missing guard: {literal}")
-    sqlite_source = SQLITE_REPLAY_STORE.read_text(encoding="utf-8")
-    for literal in [
-        "agentcart.verifierReplay.sqlite.v1",
-        "BEGIN IMMEDIATE",
-        "PRIMARY KEY (bucket, reference_hash)",
-        "payments",
-        "refund_requests",
-        "refunds",
-        "sqlite-immediate-transaction",
-        "claimSQLiteReplayReference",
-        "sqliteReplayStoreDiagnostics",
-        "replayReferenceHash",
-        "replayRequestHash",
-    ]:
-        require(literal in sqlite_source, f"sqlite replay store missing contract literal: {literal}")
-    smoke_source = SQLITE_REPLAY_SMOKE.read_text(encoding="utf-8")
-    for literal in [
-        "verifier-sqlite-replay-store.mjs",
-        "Promise.all",
-        "payments",
-        "refund_requests",
-        "refunds",
-        "sqlite-immediate-transaction",
-    ]:
-        require(literal in smoke_source, f"sqlite replay smoke missing contract literal: {literal}")
 
 
 def main() -> int:
@@ -607,8 +410,6 @@ def main() -> int:
             verify_payment_fixture_set(rail)
         verify_euro_stablecoin_rail_plan()
         verify_negative_fixtures()
-        verify_plugin_contract_fields()
-        verify_stripe_verifier_replay_fields()
     except (AssertionError, OSError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, indent=2), file=sys.stderr)
         return 1

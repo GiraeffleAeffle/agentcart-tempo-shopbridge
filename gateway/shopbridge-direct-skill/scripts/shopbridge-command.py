@@ -792,66 +792,6 @@ def endpoint_host_errors(record: dict[str, Any], manifest: dict[str, Any]) -> li
     return errors
 
 
-def verify_registry_claim(record: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
-    expected_hash = str(record.get("registry_claim_hash") or "")
-    if not expected_hash:
-        expected_manifest_hash = str(record.get("manifest_hash") or "")
-        if not expected_manifest_hash:
-            return ["missing_registry_claim_hash"]
-        actual_manifest_hash = sha256_hex(manifest)
-        return [] if expected_manifest_hash == actual_manifest_hash else ["manifest_hash_mismatch"]
-    discovery = manifest.get("discovery") if isinstance(manifest.get("discovery"), dict) else {}
-    claim = discovery.get("registry_claim") if isinstance(discovery.get("registry_claim"), dict) else {}
-    if not claim:
-        return ["registry_claim_missing_in_manifest"]
-    errors: list[str] = []
-    actual_hash = sha256_hex(claim)
-    if expected_hash != actual_hash:
-        errors.append("registry_claim_hash_mismatch")
-    for field in (
-        "merchant_id",
-        "name",
-        "domain",
-        "manifest_url",
-        "payment_network",
-        "payment_recipient",
-        "stripe_profile_id",
-        "proof_url",
-        "revocation_url",
-    ):
-        expected = str(record.get(field) or "")
-        supplied = str(claim.get(field) or "")
-        if expected and supplied and expected != supplied:
-            errors.append(f"registry_claim_{field}_mismatch")
-        elif expected and not supplied:
-            errors.append(f"registry_claim_{field}_missing")
-    record_profile_ids = sorted(str(value) for value in record.get("protocol_profile_ids", []) if value)
-    claim_profile_ids = sorted(str(value) for value in claim.get("protocol_profile_ids", []) if value)
-    if record_profile_ids and record_profile_ids != claim_profile_ids:
-        errors.append("registry_claim_protocol_profile_ids_mismatch")
-    record_countries = sorted(str(value).upper() for value in record.get("ship_to_countries", []) if value)
-    claim_countries = sorted(str(value).upper() for value in claim.get("ship_to_countries", []) if value)
-    if record_countries and record_countries != claim_countries:
-        errors.append("registry_claim_ship_to_countries_mismatch")
-    record_protocols = sorted(str(value) for value in record.get("supported_protocols", []) if value)
-    claim_protocols = sorted(str(value) for value in claim.get("supported_protocols", []) if value)
-    if record_protocols and record_protocols != claim_protocols:
-        errors.append("registry_claim_supported_protocols_mismatch")
-    record_onchain_identity = registry_onchain_identity_payload(record)
-    claim_onchain_identity = registry_onchain_identity_payload(claim)
-    if record_onchain_identity and not claim_onchain_identity:
-        errors.append("registry_claim_onchain_identity_missing")
-    elif record_onchain_identity and sha256_hex(record_onchain_identity) != sha256_hex(claim_onchain_identity):
-        errors.append("registry_claim_onchain_identity_mismatch")
-    record_endpoints = record.get("endpoints") if isinstance(record.get("endpoints"), dict) else {}
-    claim_endpoints = claim.get("endpoints") if isinstance(claim.get("endpoints"), dict) else {}
-    for name, endpoint in record_endpoints.items():
-        supplied = claim_endpoints.get(name)
-        if endpoint and supplied and endpoint != supplied:
-            errors.append(f"registry_claim_endpoint_{name}_mismatch")
-        elif endpoint and not supplied:
-            errors.append(f"registry_claim_endpoint_{name}_missing")
-    return errors
 
 
 def raw_registry_onchain_identity(value: dict[str, Any]) -> Any:
@@ -2651,7 +2591,7 @@ def selected_payment_protocol(quote: dict[str, Any], payment_rail: str | None = 
     requested = normalize_payment_rail(payment_rail)
     if requested:
         for protocol in protocols:
-            if normalize_payment_rail(protocol.get("id") or protocol.get("method")) == requested:
+            if registry_trust.payment_protocol_rail(protocol) == requested:
                 return protocol
         return {"id": requested, "available": False}
     for protocol in protocols:
@@ -2666,7 +2606,10 @@ def quote_payment_selection_issues(quote: dict[str, Any], payment_rail: str | No
 
 
 def quote_payment_issues(quote: dict[str, Any], payment_rail: str | None = None) -> list[str]:
-    return quote_payment_selection_issues(quote, payment_rail) + payment_destination_binding_issues(quote, payment_rail)
+    protocol = selected_payment_protocol(quote, payment_rail)
+    return (quote_payment_selection_issues(quote, payment_rail)
+            + payment_destination_binding_issues(quote, payment_rail)
+            + registry_trust.x402_payment_required_issues(quote, protocol))
 
 
 
@@ -2676,7 +2619,7 @@ def payment_contract_hash_for_quote(quote: dict[str, Any], rail: str | None = No
 
 def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) -> dict[str, Any]:
     protocol = selected_payment_protocol(quote, payment_rail)
-    rail = normalize_payment_rail(protocol.get("id") or payment_rail)
+    rail = registry_trust.payment_protocol_rail(protocol) or normalize_payment_rail(payment_rail)
     destination: dict[str, Any] = {
         "rail": rail,
         "method": rail,
@@ -2708,23 +2651,9 @@ def payment_destination(quote: dict[str, Any], payment_rail: str | None = None) 
             }
         )
     elif rail == "x402-compatible":
-        destination.update(
-            {
-                "network": str(protocol.get("network") or ""),
-                "asset": str(protocol.get("asset") or ""),
-                "pay_to": str(protocol.get("pay_to") or protocol.get("payTo") or protocol.get("recipient") or ""),
-                "max_amount_required": str(protocol.get("max_amount_required") or protocol.get("maxAmountRequired") or ""),
-                "payment_required_header": str(protocol.get("payment_required_header") or "PAYMENT-REQUIRED"),
-                "payment_signature_header": str(protocol.get("payment_signature_header") or "PAYMENT-SIGNATURE"),
-                "payment_response_header": str(protocol.get("payment_response_header") or "PAYMENT-RESPONSE"),
-            }
-        )
-        payment = quote.get("payment_requirements") if isinstance(quote.get("payment_requirements"), dict) else {}
-        x402 = payment.get("x402") if isinstance(payment.get("x402"), dict) else {}
-        if isinstance(x402.get("payment_required"), dict):
-            destination["payment_required"] = x402["payment_required"]
-        if x402.get("payment_required_header_value"):
-            destination["payment_required_header_value"] = str(x402["payment_required_header_value"])
+        destination = registry_trust.registry_quote_payment_destination(quote, protocol)
+        destination["source"] = "quote.payment_requirements.protocols"
+        destination.pop("registry_verified", None)
     trust = quote_trust_metadata(quote)
     if trust.get("registry_record_hash") and not payment_destination_binding_issues(quote, payment_rail, destination=protocol):
         destination = registry_trust.registry_quote_payment_destination(quote, protocol)
@@ -2758,8 +2687,7 @@ def normalized_origin(value: str) -> str:
 
 
 def quote_trust_metadata(quote: dict[str, Any]) -> dict[str, Any]:
-    metadata = quote.get(QUOTE_TRUST_KEY) or quote.get("quote_trust")
-    return metadata if isinstance(metadata, dict) else {}
+    return registry_trust.quote_trust_metadata(quote)
 
 
 def annotate_quote_trust(
@@ -2785,7 +2713,11 @@ def annotate_quote_trust(
     trust["trust_hash"] = hash_without(trust, "trust_hash")
     copied[QUOTE_TRUST_KEY] = trust
     if "payment_requirements" in copied:
+        protocol = selected_payment_protocol(copied, payment_rail)
         selection_issues = quote_payment_selection_issues(copied, payment_rail)
+        if registry_trust.payment_protocol_rail(protocol) == "x402-compatible":
+            selection_issues += payment_destination_binding_issues(copied, payment_rail)
+            selection_issues += registry_trust.x402_payment_required_issues(copied, protocol)
         if selection_issues:
             raise SystemExit(selection_issues[0])
     return copied
@@ -2797,23 +2729,18 @@ def payment_destination_binding_issues(
     *,
     destination: dict[str, Any] | None = None,
 ) -> list[str]:
-    trust = quote_trust_metadata(quote)
-    if not (trust.get("registry_record_hash") or quote.get("registry_record_hash")):
-        return []
-    if trust.get("trust_hash") != hash_without(trust, "trust_hash"):
-        return ["payment_destination_mismatch"]
-    # Avoid recursion when payment_destination itself is labelling the result.
     selected = destination if destination is not None else selected_payment_protocol(quote, payment_rail)
-    selected_rail = normalize_payment_rail(selected.get("id") or selected.get("method"))
-    if not registry_trust.payment_destination_matches_binding(selected, trust.get("registry_payment_bindings"), rail=selected_rail):
-        return ["payment_destination_mismatch"]
-    return []
+    return registry_trust.registry_payment_destination_issues(quote, selected)
 
 
 def checkout_base_url_for_quote(args: dict[str, Any], quote: dict[str, Any]) -> str:
-    base_url = base_url_from_args(args)
     trust = quote_trust_metadata(quote)
     approved_origin = str(trust.get("merchant_origin") or "")
+    if approved_origin and not configured_base_url(args)["source"].startswith("args."):
+        # The approved quote names the merchant that produced it; a configured default origin
+        # (SHOPBRIDGE_BASE_URL or the local demo default) must not redirect its checkout.
+        return base_url_from_args({**args, "base_url": approved_origin})
+    base_url = base_url_from_args(args)
     if approved_origin and normalized_origin(base_url) != normalized_origin(approved_origin):
         raise SystemExit("checkout_base_url does not match approved quote merchant_origin")
     return base_url
@@ -3347,6 +3274,26 @@ def doctor_next_commands(mode: str, base_url: str, has_registry: bool) -> list[d
     return commands
 
 
+def compact_doctor_diagnostics(value: Any) -> Any:
+    if isinstance(value, list):
+        return [compact_doctor_diagnostics(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result = {key: compact_doctor_diagnostics(item) for key, item in value.items()}
+    ranges = value.get("scanned_ranges")
+    if isinstance(ranges, list):
+        contracts: dict[str, dict[str, Any]] = {}
+        for scanned in ranges:
+            if not isinstance(scanned, dict):
+                continue
+            contract = str(scanned.get("contract") or "unknown")
+            summary = contracts.setdefault(contract, {"count": 0, "first": scanned, "last": scanned})
+            summary["count"] += 1
+            summary["last"] = scanned
+        result["scanned_ranges"] = {"count": len(ranges), "contracts": contracts}
+    return result
+
+
 @safe_http.budgeted_discovery
 def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
     base = configured_base_url(args)
@@ -3449,6 +3396,21 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    if not (arg_bool(args, "verbose", False) or arg_bool(args, "diagnostics", False)):
+        checks = [compact_doctor_diagnostics(check) for check in checks]
+        for check in checks:
+            error = check.get("error")
+            if isinstance(error, str):
+                try:
+                    payload = json.loads(error)
+                except (ValueError, TypeError):
+                    continue
+                check["error"] = json.dumps(compact_doctor_diagnostics(payload), sort_keys=True)
+    for check in checks:
+        verification = check.get("admission_verification")
+        if isinstance(verification, dict) and "finality_agreement" in verification:
+            check["finality_agreement"] = verification["finality_agreement"]
+
     issues = [check for check in checks if check.get("ok") is False]
     purchase_readiness = command_payment_readiness(
         {"payment_rail": args.get("payment_rail") or "tempo-mpp"}
@@ -3524,6 +3486,8 @@ def command_doctor(args: dict[str, Any]) -> dict[str, Any]:
             "checkout_preflight",
             "payment_readiness",
             "payment_handoff",
+            "x402_typed_data",
+            "x402_receipt",
             "checkout",
             "order_status",
             "aftercare_summary",
@@ -3555,7 +3519,7 @@ def command_quote(args: dict[str, Any]) -> dict[str, Any]:
     base_url = base_url_from_args(args)
     carried_trust = args.get("quote_trust")
     if carried_trust is not None:
-        if not isinstance(carried_trust, dict) or carried_trust.get("trust_hash") != hash_without(carried_trust, "trust_hash"):
+        if not registry_trust.quote_trust_hash_valid(carried_trust):
             raise SystemExit("payment_destination_mismatch")
         if normalized_origin(str(carried_trust.get("merchant_origin") or "")) != normalized_origin(base_url):
             raise SystemExit("payment_destination_mismatch")
@@ -4707,7 +4671,7 @@ def command_checkout_preflight(args: dict[str, Any]) -> dict[str, Any]:
     if destination.get("rail") == "tempo-mpp" and not destination.get("recipient"):
         issues.append("missing_tempo_recipient")
     if destination.get("rail") == "x402-compatible":
-        for key in ("network", "asset", "pay_to", "max_amount_required", "payment_required"):
+        for key in ("network", "asset", "pay_to", "amount", "payment_required"):
             if not destination.get(key):
                 issues.append(f"missing_x402_{key}")
     max_total_cents = args.get("max_total_cents")
@@ -4742,15 +4706,15 @@ def payment_receipt_requirements(destination: dict[str, Any]) -> dict[str, Any]:
         fields.extend(["network", "recipient"])
         alternatives = ["transaction_reference", "explorer_url"]
     elif rail == "x402-compatible":
-        fields.extend(["network", "asset", "pay_to", "max_amount_required"])
-        alternatives = ["x402_payment_signature", "payment_signature", "payment_signature_header", "transaction_reference"]
+        fields.extend(["x402_version", "network", "asset", "pay_to", "amount", "x402_payment_signature"])
+        alternatives = ["x402_payment_signature"]
     return {
         "required_fields": fields,
         "one_of": alternatives,
         "must_match_quote": must_match_quote,
         "must_match_payment_destination": [
             key
-            for key in ("stripe_profile_id", "network_id", "network", "recipient", "payment_contract_hash")
+            for key in ("stripe_profile_id", "network_id", "network", "recipient", "asset", "pay_to", "amount", "payment_contract_hash")
             if destination.get(key)
         ],
     }
@@ -4821,6 +4785,23 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
         "description": f"Quote-bound AgentCart payment for {quote_title(quote)}",
         "receipt_requirements": payment_receipt_requirements(destination),
     }
+    handoff_now = iso_now()
+    approved_at = str(args.get("approved_at") or handoff_now)
+    checkout_args = {
+        "approved_at": approved_at,
+        "audit_event_timestamp": str(args.get("audit_event_timestamp") or approved_at),
+    }
+    if destination.get("rail") == "x402-compatible":
+        payment_request["payment_required_header_value"] = destination["payment_required_header_value"]
+        payment_request["accepted"] = destination["payment_required"]["accepts"][0]
+        payment_request["authorization_nonce"] = registry_trust.x402_authorization_nonce(
+            str(quote["quote_hash"]), str(destination["payment_contract_hash"]),
+            destination["payment_required"]["resource"]["url"])
+        payment_request["validAfter"] = "0"
+        handoff_time = parse_time(approved_at)
+        if handoff_time is None:
+            raise SystemExit("approved_at must be an ISO-8601 timestamp")
+        payment_request["validBefore"] = str(int(handoff_time.timestamp()) + payment_request["accepted"]["maxTimeoutSeconds"])
     return {
         "ok": True,
         "approval_hash": approval["approval_hash"],
@@ -4830,13 +4811,132 @@ def command_payment_handoff(args: dict[str, Any]) -> dict[str, Any]:
         "approval_summary": approval["summary"],
         "payment_request": payment_request,
         "payment_handoff_hash": sha256_hex(payment_request),
+        "checkout_args": checkout_args,
         "checkout_contract": {
             "next_command": "checkout",
-            "required_args": ["quote", "approved", "approval_hash", "payment_receipt"],
+            "required_args": ["quote", "approved", "approval_hash", "payment_receipt", "approved_at", "audit_event_timestamp"],
             "receipt_validation": "checkout requires the returned receipt to match amount, currency, quote_hash, and payment_destination",
         },
         "safety_note": "This handoff does not move money and does not contain secret keys. It is the structured instruction for a payment-capable agent or provider, and the resulting receipt is still verified by ShopBridge before WooCommerce creates a paid order.",
     }
+
+
+def x402_signing_request(args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Validate the unchanged quote-bound handoff; never renew an authorization."""
+    handoff = args.get("payment_handoff")
+    payer = args.get("payer")
+    if not isinstance(payer, str) or not re.fullmatch(r"0x[0-9a-fA-F]{40}", payer):
+        raise SystemExit("payer must be a 0x-prefixed 20-byte address")
+    if not isinstance(handoff, dict) or handoff.get("ok") is not True:
+        raise SystemExit("A successful payment_handoff is required")
+    request = handoff.get("payment_request")
+    if not isinstance(request, dict) or request.get("rail") != "x402-compatible":
+        raise SystemExit("An x402-compatible payment_handoff is required")
+    if handoff.get("payment_handoff_hash") != sha256_hex(request):
+        raise SystemExit("payment_handoff commitment mismatch")
+    destination = request.get("payment_destination")
+    document = registry_trust.decode_x402_header(request.get("payment_required_header_value"))
+    accepted = request.get("accepted")
+    if (not isinstance(destination, dict) or not isinstance(document, dict)
+            or type(document.get("x402Version")) is not int or document["x402Version"] != 2
+            or document.get("accepts") != [accepted]
+            or destination.get("payment_required") != document or not isinstance(accepted, dict)):
+        raise SystemExit("x402 payment requirements mismatch")
+    if (accepted.get("scheme") != "exact" or accepted.get("network") != "eip155:84532"
+            or str(accepted.get("asset", "")).lower() != "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+            or not isinstance(accepted.get("extra"), dict)
+            or accepted["extra"].get("name") != "USDC" or accepted["extra"].get("version") != "2"
+            or type(accepted.get("maxTimeoutSeconds")) is not int
+            or not 30 <= accepted["maxTimeoutSeconds"] <= 300
+            or not re.fullmatch(r"0x[0-9a-fA-F]{40}", str(accepted.get("payTo", "")))
+            or not isinstance(accepted.get("amount"), str)
+            or not re.fullmatch(r"[0-9]+", accepted["amount"]) or int(accepted["amount"]) <= 0
+            or request.get("currency") != "USD" or type(request.get("amount_cents")) is not int
+            or accepted["amount"] != str(request["amount_cents"] * 10000)
+            or any(str(destination.get(key, "")).lower() != str(accepted.get(field, "")).lower()
+                   for key, field in (("network", "network"), ("asset", "asset"), ("pay_to", "payTo"), ("amount", "amount")))
+            or destination.get("payment_contract_hash") != request.get("payment_contract_hash")):
+        raise SystemExit("x402 payment requirements mismatch")
+    try:
+        nonce = registry_trust.x402_authorization_nonce(
+            request["quote_hash"], request["payment_contract_hash"], document["resource"]["url"])
+    except (KeyError, TypeError, ValueError):
+        raise SystemExit("x402 nonce commitments are invalid") from None
+    if nonce != request.get("authorization_nonce"):
+        raise SystemExit("x402 authorization nonce mismatch")
+    before = request.get("validBefore")
+    if request.get("validAfter") != "0" or not isinstance(before, str) or not re.fullmatch(r"[0-9]+", before):
+        raise SystemExit("x402 authorization validity is invalid")
+    now_time = parse_time(iso_now())
+    now = int(now_time.timestamp())
+    if int(before) <= now:
+        raise SystemExit("Expired x402 handoff: request a new payment_handoff")
+    if int(before) > now + accepted["maxTimeoutSeconds"]:
+        raise SystemExit("x402 authorization validity exceeds maxTimeoutSeconds")
+    if not isinstance(handoff.get("checkout_args"), dict) or any(
+            not handoff["checkout_args"].get(key) for key in ("approved_at", "audit_event_timestamp")):
+        raise SystemExit("payment_handoff checkout_args are required")
+    approved_at = parse_time(handoff["checkout_args"]["approved_at"])
+    if approved_at is None or approved_at > now_time:
+        raise SystemExit("payment_handoff approved_at must not be in the future")
+    if (not isinstance(args.get("quote"), dict) or args.get("payment_rail") != "x402-compatible"
+            or args.get("approved") is not True or not isinstance(args.get("approval_hash"), str)):
+        raise SystemExit("quote, payment_rail=x402-compatible, approved=true and approval_hash are required")
+    derived = command_payment_handoff({
+        "quote": args["quote"], "payment_rail": args["payment_rail"],
+        "approved": True, "approval_hash": args["approval_hash"],
+        "approved_at": handoff["checkout_args"]["approved_at"],
+        "audit_event_timestamp": handoff["checkout_args"]["audit_event_timestamp"],
+    })
+    if derived.get("ok") is not True or any(
+            registry_trust.canonical_json(handoff.get(key)) != registry_trust.canonical_json(derived.get(key))
+            for key in ("payment_request", "checkout_args", "payment_handoff_hash")):
+        raise SystemExit("payment_handoff does not match the approved quote")
+    if derived["payment_request"]["payment_destination"].get("registry_verified") is not True:
+        raise SystemExit("x402 signing requires a registry-verified payment destination")
+    return handoff, request, payer
+
+
+def command_x402_typed_data(args: dict[str, Any]) -> dict[str, Any]:
+    _, request, payer = x402_signing_request(args)
+    accepted = request["accepted"]
+    fields = [("from", "address"), ("to", "address"), ("value", "uint256"),
+              ("validAfter", "uint256"), ("validBefore", "uint256"), ("nonce", "bytes32")]
+    domain_fields = [("name", "string"), ("version", "string"), ("chainId", "uint256"),
+                     ("verifyingContract", "address")]
+    return {
+        "typed_data": {
+            "domain": {"name": "USDC", "version": "2", "chainId": "84532", "verifyingContract": accepted["asset"]},
+            "types": {name: [{"name": key, "type": kind} for key, kind in values]
+                      for name, values in (("EIP712Domain", domain_fields), ("TransferWithAuthorization", fields))},
+            "primaryType": "TransferWithAuthorization",
+            "message": {"from": payer, "to": accepted["payTo"], "value": accepted["amount"],
+                        "validAfter": request["validAfter"], "validBefore": request["validBefore"],
+                        "nonce": request["authorization_nonce"]},
+        },
+        "expires_at": dt.datetime.fromtimestamp(int(request["validBefore"]), dt.timezone.utc).isoformat(),
+    }
+
+
+def command_x402_receipt(args: dict[str, Any]) -> dict[str, Any]:
+    handoff, request, _ = x402_signing_request(args)
+    signature = args.get("signature")
+    if (not isinstance(signature, str) or not re.fullmatch(r"0x[0-9a-fA-F]{130}", signature)
+            or int(signature[-2:], 16) not in (0, 1, 27, 28)):
+        raise SystemExit("signature must be 65 bytes with recovery id 0, 1, 27 or 28")
+    authorization = command_x402_typed_data(args)["typed_data"]["message"]
+    payload = {"x402Version": 2, "accepted": request["accepted"],
+               "payload": {"signature": signature, "authorization": authorization}}
+    receipt = {
+        "method": "x402-compatible", "status": "authorized", "x402_version": 2,
+        **{key: request[key] for key in ("amount_cents", "currency", "quote_hash", "payment_contract_hash")},
+        **{key: request["payment_destination"][key] for key in ("network", "asset", "pay_to", "amount")},
+        "x402_payment_signature": base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode("ascii"),
+    }
+    issues = registry_trust.x402_receipt_issues(receipt, request["payment_destination"])
+    if issues:
+        raise SystemExit(issues[0])
+    return {"payment_receipt": receipt, "checkout_args": handoff["checkout_args"]}
 
 
 def validate_receipt_destination(receipt: dict[str, Any], destination: dict[str, Any]) -> None:
@@ -4858,22 +4958,9 @@ def validate_receipt_destination(receipt: dict[str, Any], destination: dict[str,
         if expected_network and supplied_network and supplied_network != expected_network:
             raise SystemExit("payment_receipt.network does not match quote payment destination")
     elif rail == "x402-compatible":
-        expected_network = str(destination.get("network") or "").lower()
-        supplied_network = str(receipt.get("network") or receipt.get("x402_network") or "").lower()
-        if expected_network and supplied_network and supplied_network != expected_network:
-            raise SystemExit("payment_receipt.network does not match quote payment destination")
-        expected_asset = str(destination.get("asset") or "").lower()
-        supplied_asset = str(receipt.get("asset") or receipt.get("x402_asset") or "").lower()
-        if expected_asset and supplied_asset and supplied_asset != expected_asset:
-            raise SystemExit("payment_receipt.asset does not match quote payment destination")
-        expected_pay_to = str(destination.get("pay_to") or "").lower()
-        supplied_pay_to = str(receipt.get("pay_to") or receipt.get("payTo") or receipt.get("recipient") or "").lower()
-        if expected_pay_to and supplied_pay_to and supplied_pay_to != expected_pay_to:
-            raise SystemExit("payment_receipt.pay_to does not match quote payment destination")
-        expected_amount = str(destination.get("max_amount_required") or "")
-        supplied_amount = str(receipt.get("max_amount_required") or receipt.get("maxAmountRequired") or "")
-        if expected_amount and supplied_amount and supplied_amount != expected_amount:
-            raise SystemExit("payment_receipt.max_amount_required does not match quote payment destination")
+        issues = registry_trust.x402_receipt_issues(receipt, destination)
+        if issues:
+            raise SystemExit(issues[0])
 
 
 def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
@@ -4900,7 +4987,8 @@ def supplied_payment_receipt(quote: dict[str, Any], args: dict[str, Any]) -> dic
     validate_receipt_destination(receipt, destination)
     return {
         **receipt,
-        "id": receipt.get("id") or f"skill_payrcpt_{uuid.uuid4().hex[:12]}",
+        # Content-derived receipt identity stays stable across retries.
+        "id": receipt.get("id") or f"skill_payrcpt_{hash_without(receipt, 'id')[:24]}",
         "status": receipt.get("status") or "succeeded",
         "amount_cents": expected_amount,
         "currency": expected_currency,
@@ -5124,9 +5212,14 @@ def checkout_payload(args: dict[str, Any]) -> dict[str, Any]:
     if supplied_approval_hash != expected_approval_hash:
         raise SystemExit("approval_hash does not match the current quote approval packet")
     if args.get("use_tempo_demo_proof"):
+        if payment_destination(quote, args.get("payment_rail")).get("rail") == "x402-compatible":
+            raise SystemExit("x402 requires x402_payment_signature; Tempo demo proof cannot authorize x402")
         receipt = demo_payment_receipt(quote)
     else:
         receipt = supplied_payment_receipt(quote, args)
+        if not args.get("approved_at") or not args.get("audit_event_timestamp"):
+            raise SystemExit(
+                "Pass payment_handoff.checkout_args (approved_at and audit_event_timestamp) unchanged to checkout, including retries")
     stable_order_id = f"skill_{expected_approval_hash[:24]}"
     destination = payment_destination(quote, args.get("payment_rail"))
     order_id = args.get("agentcart_order_id") or args.get("idempotency_key") or stable_order_id
@@ -5237,6 +5330,10 @@ def main() -> None:
         compact = command_payment_readiness(args)
     elif command == "payment_handoff":
         compact = command_payment_handoff(args)
+    elif command == "x402_typed_data":
+        compact = command_x402_typed_data(args)
+    elif command == "x402_receipt":
+        compact = command_x402_receipt(args)
     elif command == "checkout":
         result = command_checkout(args)
         compact = result

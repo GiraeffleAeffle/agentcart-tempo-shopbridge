@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { decodeFunctionData, decodeFunctionResult, encodeAbiParameters, keccak256, parseAbi, toBytes } from "viem";
 import { registryRecordHash } from "../scripts/onchain-registry-indexer.mjs";
-import { prepareRegistryV2Operation, registryV2Abi } from "../scripts/registry-v2-plans.mjs";
+import { prepareRegistryV2Operation, registryV2Abi, discoveryFacetsV2Abi } from "../scripts/registry-v2-plans.mjs";
 
 const hash = byte => `0x${byte.repeat(64)}`;
 const actor = `0x${"11".repeat(20)}`;
@@ -39,8 +39,11 @@ function fixture(options = {}) {
   const stored = { controller: actor, recordHash: documentHash, domainHash, status: 1 };
   const client = {
     async getChainId() { return options.chainId || 42431; },
-    async getBlock({ blockNumber }) { return { number: blockNumber ?? 200n, hash: blockNumber === 100n ? hash("a") : hash("b"), timestamp: BigInt(now / 1000 - 30) }; },
-    async getBytecode({ blockNumber }) { return blockNumber === 99n ? "0x" : options.runtime || runtime; },
+    async getBlock({ blockNumber }) { return { number: blockNumber ?? 200n, hash: blockNumber === 100n ? hash("a") : blockNumber === 150n ? hash("c") : hash("b"), timestamp: BigInt(now / 1000 - 30) }; },
+    async getBytecode({ blockNumber, address }) {
+      if (address?.toLowerCase() === token.toLowerCase()) return blockNumber === 149n ? "0x" : options.facetsRuntime || runtime;
+      return blockNumber === 99n ? "0x" : options.runtime || runtime;
+    },
     async readContract(call) {
       assert.equal(call.blockNumber, 200n);
       calls.push(call);
@@ -49,7 +52,9 @@ function fixture(options = {}) {
         bondToken: token, minimumBond: 1000000n, allowance: options.allowance || 0n, balanceOf: options.balance ?? 10000000n,
         admission: [options.admitted !== false, hash("6"), BigInt(now / 1000 + 86400)],
         eligibility: [options.admitted !== false, hash("6"), BigInt(now / 1000 + 86400), 1000000n],
+        hasRecordEligibility: options.recordEligible ?? options.admitted !== false,
         bondExitAt: 0n, sanctions: [zero, zero, actor, 0n, 0n, false],
+        recordURI: recordUri, indexedRecordCount: 3n, registry: options.facetsRegistry || registry, isCurrent: options.facetsCurrent ?? false,
         validatorActionHash: hash("7"), attestationThresholdActionHash: hash("8"),
         supersession: { ...stored, controller: actor },
       };
@@ -98,6 +103,8 @@ test("status separates finalized eligibility, remaining bond and pending sanctio
   assert.equal(status.admission.bond_base_units, "1000000");
   assert.equal(status.sanction.ready_at, "0");
   assert.equal(status.snapshot.block_number, "200");
+  assert.equal(status.record.record_uri, recordUri);
+  assert.equal(status.indexed_record_count, "3");
   assert.equal(status.wallet_request, null);
   assert.equal(calls.some(call => call.account), false);
 });
@@ -164,6 +171,64 @@ test("case, amount, beneficiary and appeal evidence are explicit in each unsigne
   const appeal = await prepare("appealSlash", { record_id: recordId, evidence_hash: hash("9") });
   assert.deepEqual(decodeFunctionData({ abi: registryV2Abi, data: appeal.transaction_request.data }).args, [recordId, hash("9")]);
   await assert.rejects(fixture({ revert: "InvalidSanction" }).prepare("executeSlash", { record_id: recordId }), /InvalidSanction/);
+});
+
+test("permissionless prune plans target only the verified facets deployment", async () => {
+  const facetsDeployment = { ...deployment, discovery_facets: {
+    address: token, deployment_block: 150, deployment_block_hash: hash("c"), runtime_code_hash: keccak256(runtime),
+  } };
+  const { prepare, calls } = fixture();
+  const plan = await prepare("prune", { record_id: recordId }, { deployment: facetsDeployment });
+  assert.equal(plan.transaction_request.to, token);
+  assert.deepEqual(decodeFunctionData({ abi: discoveryFacetsV2Abi, data: plan.transaction_request.data }),
+    { functionName: "prune", args: [recordId] });
+  assert.equal(plan.evidence.discovery_facets.current, false);
+  assert.equal(calls.at(-1).account, actor);
+  assert.equal(calls.at(-1).address, token);
+  await assert.rejects(prepare("prune", { record_id: recordId }), /facets_v2_deployment_required/);
+  await assert.rejects(fixture({ facetsRegistry: actor }).prepare("prune", { record_id: recordId },
+    { deployment: facetsDeployment }), /facets_registry_mismatch/);
+  await assert.rejects(fixture({ facetsRuntime: "0x6001" }).prepare("prune", { record_id: recordId },
+    { deployment: facetsDeployment }), /facets_runtime_code_hash_mismatch/);
+  await assert.rejects(prepare("prune", { record_id: recordId }, { deployment: {
+    ...facetsDeployment, discovery_facets: { ...facetsDeployment.discovery_facets, deployment_block_hash: hash("d") },
+  } }), /facets_deployment_block_hash_mismatch/);
+});
+
+test("prune-ineligible plans remove only ineligible registry membership, never facet or status authority", async () => {
+  const plan = await fixture({ admitted: false }).prepare("pruneIneligible", { record_id: recordId });
+  assert.equal(plan.transaction_request.to, registry);
+  assert.deepEqual(decodeFunctionData({ abi: registryV2Abi, data: plan.transaction_request.data }),
+    { functionName: "pruneIneligible", args: [recordId] });
+  assert.equal(plan.evidence.admission.eligible, false);
+  await assert.rejects(fixture().prepare("pruneIneligible", { record_id: recordId }), /record_still_eligible/);
+  await assert.rejects(fixture({ admitted: false, revert: "UnknownRecord" })
+    .prepare("pruneIneligible", { record_id: recordId }), /UnknownRecord/);
+});
+
+test("global-only ineligibility cannot authorize registry or current-facet prune plans", async () => {
+  const { prepare } = fixture({ admitted: false, recordEligible: true, facetsCurrent: true });
+  await assert.rejects(prepare("pruneIneligible", { record_id: recordId }), /record_still_eligible/);
+  const facetsDeployment = { ...deployment, discovery_facets: {
+    address: token, deployment_block: 150, deployment_block_hash: hash("c"), runtime_code_hash: keccak256(runtime),
+  } };
+  await assert.rejects(prepare("prune", { record_id: recordId }, { deployment: facetsDeployment }), /record_still_eligible/);
+  const stale = await fixture({ admitted: false, recordEligible: true })
+    .prepare("prune", { record_id: recordId }, { deployment: facetsDeployment });
+  assert.equal(stale.transaction_request.to, token);
+});
+
+test("index refresh plans require recovered eligibility and preserve simulation safeguards", async () => {
+  const plan = await fixture().prepare("refreshIndexedRecord", { record_id: recordId });
+  assert.equal(plan.transaction_request.to, registry);
+  assert.deepEqual(decodeFunctionData({ abi: registryV2Abi, data: plan.transaction_request.data }),
+    { functionName: "refreshIndexedRecord", args: [recordId] });
+  assert.equal(plan.evidence.admission.eligible, true);
+  await assert.rejects(fixture({ admitted: false }).prepare("refreshIndexedRecord", { record_id: recordId }), /record_ineligible/);
+  await assert.rejects(fixture({ revert: "UnknownRecord" }).prepare("refreshIndexedRecord", { record_id: recordId }), /UnknownRecord/);
+  // A global pause alone is not permission to destroy routing membership.
+  await assert.rejects(fixture({ admitted: false, revert: "RecordStillEligible" })
+    .prepare("pruneIneligible", { record_id: recordId }), /RecordStillEligible/);
 });
 
 test("governance preparation computes exact scheduled actions and still simulates delayed execution", async () => {

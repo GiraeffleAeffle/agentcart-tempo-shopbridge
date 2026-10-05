@@ -132,6 +132,10 @@ spec:
             {{- if .Values.store.registryOnchain.v2Deployment }}
             - {name: AGENTCART_REGISTRY_V2_DEPLOYMENT, value: {{ .Values.store.registryOnchain.v2Deployment | toJson | quote }}}
             {{- end }}
+            - {name: AGENTCART_X402_NETWORK, value: {{ .Values.store.x402.network | quote }}}
+            - {name: AGENTCART_X402_ASSET, value: {{ .Values.store.x402.asset | quote }}}
+            - {name: AGENTCART_X402_PAY_TO, value: {{ .Values.store.x402.payTo | quote }}}
+            - {name: AGENTCART_X402_MAX_TIMEOUT_SECONDS, value: {{ .Values.store.x402.maxTimeoutSeconds | quote }}}
             - {name: AGENTCART_CHECKOUT_MODE, value: {{ .Values.store.checkoutMode | quote }}}
             - {name: AGENTCART_PLUGIN_VERSION, value: {{ .Chart.AppVersion | quote }}}
             - {name: AGENTCART_STOCK_HOLD_MODE, value: {{ .Values.store.stockHoldMode | quote }}}
@@ -216,16 +220,21 @@ spec:
           command: [nginx, -g, daemon off;]
           ports:
             - {name: http, containerPort: 8080}
+          # These probes are answered by PHP; the capability document takes about one second
+          # to render, so the kubelet's 1 s default would mark healthy pods NotReady.
           startupProbe:
             httpGet: {path: /wp-json/agentcart/v1/capability, port: http}
             periodSeconds: 5
+            timeoutSeconds: 5
             failureThreshold: 120
           readinessProbe:
             httpGet: {path: /wp-json/agentcart/v1/capability, port: http}
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet: {path: /, port: http}
             periodSeconds: 20
+            timeoutSeconds: 5
             failureThreshold: 6
           resources:
             {{- toYaml .Values.resources.nginx | nindent 12 }}

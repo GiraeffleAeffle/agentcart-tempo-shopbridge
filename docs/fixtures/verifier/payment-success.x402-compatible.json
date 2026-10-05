@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "rail": "x402-compatible",
+  "provider": "x402",
+  "amount_cents": 1480,
+  "currency": "USD",
+  "quote_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "payment_contract_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "network": "eip155:84532",
+  "asset": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+  "pay_to": "0x2222222222222222222222222222222222222222",
+  "amount": "14800000",
+  "payer_address": "0x1111111111111111111111111111111111111111",
+  "transaction_reference": "0xabababababababababababababababababababababababababababababababab",
+  "settlement_reference": "0xabababababababababababababababababababababababababababababababab",
+  "real_settlement_verified": true,
+  "x402_settle_response": {
+    "success": true,
+    "transaction": "0xabababababababababababababababababababababababababababababababab",
+    "network": "eip155:84532",
+    "payer": "0x1111111111111111111111111111111111111111"
+  },
+  "payment_response_header": "PAYMENT-RESPONSE",
+  "payment_response_header_value": "eyJzdWNjZXNzIjp0cnVlLCJ0cmFuc2FjdGlvbiI6IjB4YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MzIiLCJwYXllciI6IjB4MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMSJ9"
+}

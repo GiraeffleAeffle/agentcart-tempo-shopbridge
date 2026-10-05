@@ -15,7 +15,8 @@ bash "$root/scripts/sync-helm-chart-files.sh" --check
 
 rendered="$(mktemp "${TMPDIR:-/tmp}/agentcart-helm.XXXXXX")"
 rendered_verifier="$(mktemp "${TMPDIR:-/tmp}/agentcart-helm-verifier.XXXXXX")"
-cleanup() { rm -f -- "$rendered" "$rendered_verifier"; }
+rendered_x402="$(mktemp "${TMPDIR:-/tmp}/agentcart-helm-x402.XXXXXX")"
+cleanup() { rm -f -- "$rendered" "$rendered_verifier" "$rendered_x402"; }
 trap cleanup EXIT INT TERM
 "$helm_bin" template public-check "$chart" --namespace public-check >"$rendered"
 "$helm_bin" template verifier-check "$chart" --namespace verifier-check \
@@ -83,6 +84,73 @@ if "$helm_bin" lint "$chart" \
   printf 'invalid verifier alert severity unexpectedly passed chart validation\n' >&2
   exit 1
 fi
+
+x402_flags=(
+  --set store.marketProfile=usd
+  --set store.checkoutMode=external_verifier_only
+  --set store.signedRequestMode=require_mutations
+  --set verifier.enabled=true
+  --set verifier.x402.mode=settle
+  --set images.verifier.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111
+)
+"$helm_bin" lint "$chart" "${x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=x402-compatible' >/dev/null
+"$helm_bin" template x402-check "$chart" "${x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=x402-compatible' >"$rendered_x402"
+grep -Fq 'x402-compatible' "$rendered_x402"
+grep -Fq 'AGENTCART_X402_MODE, value: "settle"' "$rendered_x402"
+for invalid_setting in \
+  'verifier.enabledRails[0]=x402' \
+  'verifier.x402.mode=disabled' \
+  'verifier.x402.facilitatorTimeoutMs=99' \
+  'verifier.x402.facilitatorTimeoutMs=7001'; do
+  for operation in lint template; do
+    if "$helm_bin" "$operation" "$chart" "${x402_flags[@]}" \
+      --set 'verifier.enabledRails[0]=x402-compatible' --set "$invalid_setting" >/dev/null 2>&1; then
+      printf 'invalid x402 setting unexpectedly passed %s: %s\n' "$operation" "$invalid_setting" >&2
+      exit 1
+    fi
+  done
+done
+store_x402_flags=(
+  --set store.x402.network=eip155:84532
+  --set store.x402.asset=0x036CbD53842c5426634e7929541eC2318f3dCF7e
+  --set store.x402.payTo=0x4444444444444444444444444444444444444444
+  --set store.x402.maxTimeoutSeconds=120
+)
+"$helm_bin" lint "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=x402-compatible' >/dev/null
+"$helm_bin" template x402-check "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=x402-compatible' >"$rendered_x402"
+grep -Fq 'AGENTCART_X402_NETWORK, value: "eip155:84532"' "$rendered_x402"
+grep -Fq 'AGENTCART_X402_PAY_TO, value: "0x4444444444444444444444444444444444444444"' "$rendered_x402"
+grep -Fq 'AGENTCART_X402_MAX_TIMEOUT_SECONDS, value: "120"' "$rendered_x402"
+for invalid_setting in \
+  'store.x402.payTo=' \
+  'store.x402.network=eip155:8453' \
+  'store.x402.asset=0x1111111111111111111111111111111111111111' \
+  'store.x402.maxTimeoutSeconds=301' \
+  'store.marketProfile=eur' \
+  'verifier.enabled=false'; do
+  for operation in lint template; do
+    if "$helm_bin" "$operation" "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+      --set 'verifier.enabledRails[0]=x402-compatible' --set "$invalid_setting" >/dev/null 2>&1; then
+      printf 'invalid store x402 setting unexpectedly passed %s: %s\n' "$operation" "$invalid_setting" >&2
+      exit 1
+    fi
+  done
+done
+# A storefront x402 destination without an x402 verifier rail must fail; Tempo verify keeps
+# the Tempo rule satisfied so only the x402 consistency rule can reject it.
+if "$helm_bin" lint "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=tempo-mpp' --set verifier.tempo.settlementMode=verify >/dev/null 2>&1; then
+  printf 'storefront x402 without an x402 verifier rail unexpectedly passed chart validation\n' >&2
+  exit 1
+fi
+# The live pilot shape: Tempo and x402 rails together with a storefront x402 destination.
+"$helm_bin" lint "$chart" "${x402_flags[@]}" "${store_x402_flags[@]}" \
+  --set 'verifier.enabledRails[0]=tempo-mpp' --set 'verifier.enabledRails[1]=x402-compatible' \
+  --set verifier.tempo.settlementMode=verify >/dev/null
 
 for forbidden in \
   '/Users/' \
@@ -174,6 +242,30 @@ if "$helm_bin" lint "$chart" --set 'verifier.allowedTempoNetworks[0]=unknown' >/
   exit 1
 fi
 bash -n "$chart/files/bootstrap/run-scheduler.sh"
+
+# Storefront HTTP probes are answered by PHP, and the capability document takes about one
+# second to render. With the kubelet's default 1 s timeout, healthy pods flapped NotReady
+# and the ingress answered 503.
+awk '
+  function finish() {
+    if (in_probe && php) {
+      probes++
+      if (timeout < 3) { printf "PHP-backed %s in %s has timeoutSeconds %d; need >= 3\n", name, FILENAME, timeout > "/dev/stderr"; bad = 1 }
+    }
+    in_probe = 0
+  }
+  FNR == 1 { finish() }
+  { match($0, /^ */); indent = RLENGTH }
+  in_probe && NF > 0 && indent <= probe_indent { finish() }
+  /^ *(startup|readiness|liveness)Probe:$/ { in_probe = 1; probe_indent = indent; name = $1; php = 0; timeout = 1; next }
+  in_probe && /httpGet: \{path: \/(wp-json\/|,)/ { php = 1 }
+  in_probe && /^ *timeoutSeconds: [0-9]+$/ { timeout = $2 + 0 }
+  END {
+    finish()
+    if (probes < 6) { printf "expected at least 6 PHP-backed storefront probes, found %d\n", probes > "/dev/stderr"; bad = 1 }
+    exit bad
+  }
+' "$rendered" "$rendered_verifier"
 
 rendered_bytes="$(wc -c <"$rendered" | tr -d ' ')"
 (( rendered_bytes < 900000 )) || {

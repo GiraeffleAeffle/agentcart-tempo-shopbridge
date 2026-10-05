@@ -24,6 +24,7 @@ if command -v forge >/dev/null 2>&1; then
   (
     cd "$ROOT_DIR"
     ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY:-dummy}" forge test --quiet
+    python3 "$ROOT_DIR/scripts/check-contract-sizes.py"
   )
 elif [ "${AGENTCART_REQUIRE_SOLIDITY_TESTS:-0}" = 1 ]; then
   printf 'forge is required for this verification run\n' >&2
@@ -60,6 +61,8 @@ py311_files=(
   scripts/check-beta-release-readiness.py
   scripts/build-beta-release-decision.py
   scripts/collect-pilot-evidence.py
+  site/build.py
+  site/check.py
   scripts/check-ucp-a2a-profiles.py
   scripts/check-pilot-readiness.py
   scripts/check-production-payment-profile.py
@@ -152,6 +155,36 @@ docker run --rm \
   --volume "$ROOT_DIR/charts/agentcart-shopbridge/files/nginx.conf:/etc/nginx/nginx.conf:ro" \
   docker.io/library/nginx@sha256:3bcf852aed06467cf075c6105892e4d5a6ebbbafa0ce22d35062db9e90ddef4c \
   nginx -t
+# Storefront nginx output (access and error logs) must not record client addresses, user agents,
+# referrers or query strings. The probes include an unreachable FastCGI upstream and a denied path,
+# which produce error-level lines under a verbose error_log.
+check_nginx_access_log_privacy() {
+  local conf="$1" output forbidden
+  output="$(docker run --rm --entrypoint sh \
+    --volume "$conf:/etc/nginx/nginx.conf:ro" \
+    docker.io/library/nginx@sha256:3bcf852aed06467cf075c6105892e4d5a6ebbbafa0ce22d35062db9e90ddef4c \
+    -c 'mkdir -p /var/www/html && : > /var/www/html/index.php
+        nginx -g "daemon off;" & for _ in 1 2 3 4 5; do curl -s -o /dev/null http://127.0.0.1:8080/health-probe && break; sleep 1; done
+        curl -s -o /dev/null -H "User-Agent: verify-agent/1" -H "Referer: https://referrer.invalid/" \
+          -H "X-Forwarded-For: 203.0.113.9" "http://127.0.0.1:8080/wp-json/agentcart/v1/orders/1/status?status_token=VERIFY-TOKEN"
+        curl -s -o /dev/null "http://127.0.0.1:8080/.hidden?status_token=VERIFY-TOKEN"
+        nginx -s quit; wait' 2>&1)"
+  for forbidden in VERIFY-TOKEN status_token 203.0.113.9 127.0.0.1 verify-agent referrer.invalid; do
+    if grep -qF "$forbidden" <<<"$output"; then
+      printf 'nginx output leaks %s\n' "$forbidden" >&2
+      return 1
+    fi
+  done
+  if ! grep -qF '"GET /wp-json/agentcart/v1/orders/1/status HTTP/1.1"' <<<"$output"; then
+    printf 'nginx access log does not record the request path\n' >&2
+    return 1
+  fi
+}
+check_nginx_access_log_privacy "$ROOT_DIR/charts/agentcart-shopbridge/files/nginx.conf"
+
+section "AgentCart website"
+bash -n "$ROOT_DIR/scripts/check-agentcart-site.sh"
+bash "$ROOT_DIR/scripts/check-agentcart-site.sh"
 
 section "WooCommerce ShopBridge live smoke"
 if [ -n "${AGENTCART_WOO_SMOKE_BASE_URL:-}" ]; then

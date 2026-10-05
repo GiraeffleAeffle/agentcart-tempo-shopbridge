@@ -42,6 +42,15 @@ class BuyerAgentMatrixTest(unittest.TestCase):
 
         self.assertEqual([], errors)
 
+    def test_missing_x402_signing_command_fails(self) -> None:
+        for command in ("x402_typed_data", "x402_receipt"):
+            with self.subTest(command=command):
+                matrix = load_matrix()
+                runtime = next(row for row in matrix["runtimes"] if row["id"] == "shopbridge-direct-skill")
+                runtime["commands_or_tools"].remove(command)
+                errors = buyer_agent_matrix_tool.validate_matrix(matrix)
+                self.assertTrue(any("x402 signing commands" in error for error in errors), errors)
+
     def test_missing_required_runtime_fails(self) -> None:
         matrix = load_matrix()
         matrix["runtimes"] = [

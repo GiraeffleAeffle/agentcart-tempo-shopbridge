@@ -89,8 +89,21 @@ signing configuration until its operations are resolved.
 
 `contracts/AgentCartMerchantRegistryV2.sol` is a new deployment target. It keeps
 the v1 lifecycle read/event interface for compatibility and adds
-`eligibility(recordId)`. Record IDs use a v2 domain separator; obtain them with
+`eligibility(recordId)`, `indexedRecordCount()`, `indexedRecordIdAt(uint256)` and
+`recordURI(bytes32)`. Record IDs use a v2 domain separator; obtain them with
 the contract's `computeRecordId`. Never relabel the deployed Moderato contract.
+The eligible-or-pending-prune index uses constant-time add/swap-remove; stored
+current URIs remove log-history dependency for selected records. Permissionless
+`pruneIneligible(recordId)` removes record-specific stale membership only, never
+otherwise-eligible records during global pause/quorum conditions.
+The public `hasRecordEligibility(recordId)` view supplies the same predicate to
+FacetsV2 current-set pruning and unsuspension re-indexing. Global quorum loss
+must neither erase sound categories nor strand recovered records outside the index.
+Renewal/update/rotation/unsuspension synchronize the touched record; after
+record-specific recovery a merchant or keeper calls idempotent
+`refreshIndexedRecord(recordId)`. Entity restoration does not scan all shops.
+Eligibility is checked independently on every draw, with bounded backfill;
+index maintenance is an availability requirement, not a buyer trust shortcut.
 
 - At least two active validators must agree on an admission binding the domain,
   controller, exact record hash, accountable entity, expiry, and evidence hash.
@@ -147,10 +160,33 @@ fall back to v1 identity-only eligibility.
 Also set `SHOPBRIDGE_ONCHAIN_ADMISSION_WITNESS_RPC_URL` to an independently
 operated second RPC. V2 rejects a missing witness or the same hostname, verifies
 its chain, finalized boundary, creation evidence and runtime code, and compares
-all lifecycle logs and every admission result before fetching shop documents.
+every enumerated index, selected record, URI, revocation, category state and
+admission result at the same pinned finalized block hash before fetching shop
+documents. V2 never scans history logs; bounded sampling without replacement
+and reserve candidates cost O(k) reads independent of chain age.
 Disagreement fails closed. This is two-provider agreement, not a cryptographic
 state proof; different hostnames cannot establish operational independence or
 protect against collusion. Review the actual providers in release evidence.
+The default finality policy acquires both heads concurrently and requires exact
+number/hash/timestamp agreement, with six bounded acquisitions and 200 ms backoff.
+Persistent lag between honest RPCs fails closed. Explicit `bounded_lag` permits
+rewind only to a jointly confirmed lower boundary within the configured 1..60-second
+head timestamp skew; diagnostics label it `bounded_lag_noncanonical`, because
+revocations in that window may be hidden. See the skill's finality-policy settings.
+Both V2 providers must support validated JSON-RPC batches and EIP-1898 canonical
+block-hash selectors for storage/code reads. Unsupported batching or selectors
+fail closed, with no history or number-only fallback. Batching and in-run
+hash-scoped read reuse keep the existing HTTP request cap.
+
+Use the separate new `AgentCartMerchantDiscoveryFacetsV2` bound to RegistryV2.
+It retains the V1 declaration/state interface while adding category count/index
+views with declaration generation and permissionless `prune(recordId)`. At
+most eight memberships change per declaration. Buyers check Active status,
+entry generation, facet state/hash binding and `isCurrent` at the finalized
+boundary; lifecycle generation changes invalidate declarations even if the
+record hash is unchanged. Stale entries cannot create eligibility and neutral
+sampling remains available. A separate contract keeps optional routing
+maintenance outside registry governance and leaves deployed V1 untouched.
 
 The current Myotis adapter reads storage at a newer verified head. V2 rejects
 that mode until it can prove admission at the required finalized boundary.
@@ -161,8 +197,9 @@ in this change concern quote collection and comparison, not v2 authorization.
 
 The new [v2 operator workflow](REGISTRY_V2_OPERATIONS.md) prepares pinned,
 simulated unsigned wallet requests for identity, admission, exact bond allowance,
-registration, renewal, governance, supersession, slashing, appeals and exit. It
-also reads finalized eligibility and case state. It never signs or broadcasts.
+registration, renewal, governance, supersession, slashing, appeals, exit and
+permissionless facets/registry pruning and registry refresh. It also reads
+finalized eligibility, stored URI, indexed count and case state. It never signs or broadcasts.
 Its deployment template is deliberately invalid until reviewed evidence exists.
 The merchant UI now accepts operator-pinned v2 configuration, verifies bonded
 admission against two finalized RPC views, and invalidates expired admission or

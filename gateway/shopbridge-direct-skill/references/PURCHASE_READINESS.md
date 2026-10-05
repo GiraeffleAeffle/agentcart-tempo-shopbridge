@@ -41,12 +41,13 @@ The refreshed quote has new quote, payment-contract, and approval hashes. Never
 reuse the Comparison Quote's approval packet.
 
 The carried `quote_trust` binds the origin and registry record hash to the
-record's Tempo network/recipient and Stripe profile. The refreshed quote must
-match the selected rail's commitment; `payment_destination_mismatch` blocks
-ranking, approval, payment handoff and checkout. Missing/empty commitments
-fail closed, including x402 (which has no binding in the current registry
-schema). Do not refresh with only `base_url`: that is unverified single-merchant
-mode, not a continuation of verified discovery.
+record's Tempo network/recipient, Stripe profile, and optional x402
+network/asset/pay_to. The refreshed quote must match the selected rail's
+commitment; `payment_destination_mismatch` blocks ranking, approval, payment
+handoff and checkout. Missing/empty commitments fail closed: records without
+x402 fields cannot authorize x402, but their committed MPP rails remain usable.
+Do not refresh with only `base_url`: that is unverified single-merchant mode,
+not a continuation of verified discovery.
 For Stripe, compare `stripe_profile_id`/`network_id`, not the protocol-profile
 label `profile_id`. Choose the binding by the selected protocol's `id`/`method`;
 a merchant-provided `rail` cannot redirect the binding check to another rail.
@@ -102,3 +103,53 @@ Continue only when all of these are true:
 Then call `payment_handoff`. It does not move money. Let the confirmed
 wallet/provider satisfy its `receipt_requirements`, verify the returned receipt,
 and only then call `checkout`.
+Persist `payment_handoff.checkout_args` and merge its `approved_at` and
+`audit_event_timestamp` into `checkout`/`checkout_payload` arguments unchanged,
+including on retries. Retain the same quote, approval, receipt and idempotency
+key; do not rebuild a handoff to retry a possibly completed checkout.
+For supplied non-demo receipts on any rail, checkout requires both fields and
+rejects missing or empty values before merchant I/O. It will not silently use
+the current time. Only the Tempo demo-proof flow is exempt.
+
+For x402, confirm an existing buyer-approved client can sign v2 `exact`
+Base Sepolia USDC payments. USD quotes only; no conversion from EUR or other
+currencies is implemented. The handoff supplies padded-base64
+`payment_required_header_value` and the decoded `accepted` entry, already
+checked against the approved amount and destination. Its `authorization_nonce`
+commits the quote hash, payment-contract hash and exact checkout resource URL;
+the signing client must use it unchanged. Use `validAfter:"0"` and the returned
+`validBefore` (pinned `approved_at` plus the timeout, bounded to 30–300 seconds).
+Use the quote-bound flow `payment_handoff` → `x402_typed_data` → wallet
+`eth_signTypedData_v4` → `x402_receipt` → checkout with the returned
+`payment_receipt` and unchanged `checkout_args`. Both new commands take the
+full `payment_handoff`, `payer`, original `quote`, `payment_rail:"x402-compatible"`,
+`approved:true` and `approval_hash`; receipt also takes the wallet `signature`.
+They re-run approval, registry-binding and preflight gates and require exact
+agreement with the derived handoff. The wallet or human must confirm the typed
+data's `to` and `value` match the approval packet before authorizing the transfer.
+ShopBridge fixes the nonce: generic clients selecting their own nonce fail
+closed. Do not renew timestamps when retrying; request a new handoff if expired.
+Python does not verify cryptography; the facilitator verifies the signature
+before settlement.
+Return the client's padded-base64 PaymentPayload as `x402_payment_signature`
+with `method:"x402-compatible"`, `status:"authorized"` and all required receipt
+fields. Checkout refuses a different decoded `accepted` object or signed nonce
+before calling the merchant. This is a client-agnostic signing handoff, not wallet
+creation or proof of settlement. X402 refunds are unsupported; never claim
+money moved or a refund was executed from an authorization alone.
+
+### Security boundary
+
+The x402 authorization is a bearer instrument. The `x402_typed_data` output is
+for an external wallet or human signer, who must confirm `to` and `value`
+against the approval packet before signing. The skill's checks are consistency
+and registry gates, not proof of human approval. Signing refuses unverified
+registry destinations, future `approved_at`, and validity beyond local now plus
+the accepted timeout; the verifier's clock-skew allowance is not a buyer allowance.
+
+There is no built-in automated signer. Automated agent signing requires a
+separately designed signer with an operator-owned policy and authoritative
+registry revalidation. For manual testnet signing, save the bare `typed_data`
+object to `typed_data.json`, then use
+`cast wallet sign --data --from-file typed_data.json --interactive` (Foundry),
+or any wallet's `eth_signTypedData_v4`. Never expose or commit private keys.

@@ -168,12 +168,36 @@ registry/facets runtime code hashes before scanning newer finalized blocks,
 including when runtime hashes are unpinned. A changed provider or runtime causes
 a full rescan. Selected/backfill records still require storage checks at that
 same finalized snapshot. Myotis and V2 both bypass persistent checkpoints.
-V2 independently verifies the full finalized history with both RPCs on every
-run; no local witness-agreement flag is stored or trusted.
+The undeployed enumerable V2 instead reads indexed-record/category counts and samples
+indices without replacement, then checks the selected stored records, URIs,
+hashes and admission on both independently operated RPCs at one pinned finalized
+block hash. It never scans history logs or trusts a local witness-agreement flag.
+By default both `finalized` heads must agree exactly on number, hash and timestamp.
+The buyer re-acquires both concurrently up to six times with 200 ms backoff,
+within its discovery deadline, before `registry_v2_witness_finality_mismatch`.
+Persistent honest-provider lag can make discovery unavailable. Explicit
+`SHOPBRIDGE_ONCHAIN_WITNESS_FINALITY_POLICY=bounded_lag` permits the lower
+boundary only after both providers confirm its consensus header and head
+timestamps differ by at most `SHOPBRIDGE_ONCHAIN_WITNESS_MAX_HEAD_SKEW_SECONDS`
+(default 12, bounds 1..60). This weakens revocation freshness by that skew;
+doctor labels it `finality_agreement:"bounded_lag_noncanonical"`.
+Both V2 providers must support JSON-RPC batches and EIP-1898
+`{"blockHash":"0x...","requireCanonical":true}` selectors for finalized
+storage/code reads. Unsupported capabilities fail closed, not back to a log
+scan. Validated batches preserve the unchanged HTTP request budget.
+Its index is eligible-or-pending-prune, not an eligibility certificate. The
+buyer excludes lapsed admission and other ineligible draws before accepting
+merchants, and backfills only within the bounded reserve. Merchants, operators
+or keepers must call RegistryV2 `pruneIneligible` and FacetsV2 `prune` to keep
+the index fresh; after record-specific recovery, `refreshIndexedRecord`
+idempotently re-adds an eligible record. Global pause/quorum conditions alone
+cannot be used to prune otherwise-eligible records. See
+[index-maintenance probabilities](REGISTRY_V2_OPERATIONS.md#keeping-the-index-available):
+an unmaintained heavily stale index can miss all valid merchants.
 
 Set `SHOPBRIDGE_ONCHAIN_CACHE_DIR` to choose the directory; otherwise it uses
 `$XDG_CACHE_HOME/shopbridge-direct` or `~/.cache/shopbridge-direct`.
-`SHOPBRIDGE_ONCHAIN_CACHE_DISABLED=1` forces a full scan. Files are versioned,
+`SHOPBRIDGE_ONCHAIN_CACHE_DISABLED=1` forces a full V1 scan. Files are versioned,
 bounded to 16 MiB and atomically written with mode `0600`. Corrupt, unreadable
 or mismatched files trigger full verification; an unwritable cache does not
 prevent discovery. Treat V1 checkpoints as trusted local availability/routing
@@ -185,6 +209,10 @@ non-owned or group/world-writable cache directories disable caching with
 `cache_dir_insecure`; files must be non-symlink regular files owned by the
 effective user with no group/other permission bits. Insecure existing directories
 are not chmodded. Diagnostics report cache status and scanned block ranges.
+Normal doctor output preserves `onchain_checkpoint.status` but summarizes
+`scanned_ranges` as total count and count/first/last per contract. Pass
+`{"command":"doctor","args":{"verbose":true}}` (or `diagnostics:true`) for
+the complete range list.
 Persistence is disabled with `cache_unsupported_platform` on platforms without
 the required POSIX owner, no-follow and directory-FD primitives (for example
 Windows). Discovery continues with a full verified scan, never a weaker cache
@@ -203,7 +231,7 @@ was absorbed by retry. Four workers hit persistent rate limits, so higher
 concurrency is opt-in rather than the default. Buyer-computed
 100,000-block log pages and one end-block header per synchronized range are
 exempt from the general request cap but retain the time/byte budgets. At most
-2,000 log pages are allowed per run, including both RPCs in v2; larger scans
+2,000 log pages are allowed per V1 run; larger scans
 fail with `history_scan_exceeds_limit`. Event-volume-dependent block headers
 are deduplicated/cached but still use the general cap because an open v1
 registry allows a spammer to influence their count.
@@ -213,15 +241,16 @@ finalized prefix and reports `history_sync_incomplete` with blocks done/total.
 Repeat doctor or discovery with the same protected local cache to resume.
 A prefix alone cannot make a merchant eligible; projection requires all
 history through the newly checked finalized boundary. Myotis retains its full
-verified-index scan. V2 never persists prefixes or resumes them: both RPCs must
-verify the entire history afresh, within the budget, on every invocation.
+verified-index scan. V2 needs no prefix persistence: bounded storage enumeration
+has request cost proportional to the sampled reserve pool, not chain age.
 
 A first V1 sync on an old chain may require several invocations. Harnesses must
 persist `SHOPBRIDGE_ONCHAIN_CACHE_DIR` between invocations; ephemeral cloud
-sandboxes without persistent storage are not supported for direct on-chain
-discovery. Checkpoints and bounded parallelism accelerate repeated discovery,
-but do not remove chain-age-dependent first-sync work. A contract-side
-active-set/category index in a future registry version is the durable fix.
+sandboxes without persistent storage are not supported for V1 direct on-chain
+discovery. Checkpoints and bounded parallelism accelerate repeated V1 discovery,
+but do not remove chain-age-dependent first-sync work. Enumerable RegistryV2
+and its separate V2 Discovery Facets contract provide the durable fix for new
+deployments; the immutable Moderato V1 deployment remains unchanged.
 
 If no merchant record resolves, its failed registry-source check retains
 `authority:smart_contract`, per-record error codes, candidate selection and
@@ -230,11 +259,16 @@ missing-configuration message. Quote discovery exposes the same structured
 error. A standard-RPC storage mismatch excludes that candidate and backfills
 at the same finalized boundary; Myotis storage mismatches still fail closed.
 
-It requests the RPC `finalized` head, reads the eligibility-changing contract
+For V1 it requests the RPC `finalized` head, reads eligibility-changing contract
 logs and indexed category declarations from the verified checkpoint (or the
-deployment blocks on a cold run), and reconstructs current lifecycle state. A category declaration is usable
+deployment blocks on a cold run), and reconstructs current lifecycle state. For
+V2, it samples the eligible-or-pending-prune index plus category sets from finalized storage.
+A category declaration is usable
 only when its generation and category-set commitment match both finalized
-contract state and the current hash-committed Registry Record. A deterministic
+contract state and the current hash-committed Registry Record. V2 also checks
+`isCurrent(recordId)` so a lifecycle generation change cannot revive stale
+category routing even if the record hash is unchanged. Permissionless facet
+pruning improves routing availability, never establishes eligibility. A deterministic
 neutral fallback remains for ambiguous queries and uncategorized merchants. It
 then chooses a bounded set of active candidates and fetches only each selected
 record's current `recordURI`; historical record documents do not have to remain
@@ -524,7 +558,53 @@ Checkout safety:
   secret and does not move money; it says exactly which rail, amount, currency,
   quote hash, approval record, and merchant profile/recipient the resulting
   receipt must bind.
-- Pass only the resulting quote-bound `payment_receipt` to `checkout`.
+  Persist its `checkout_args`, then pass `approved_at` and
+  `audit_event_timestamp` unchanged to skill checkout, including every retry
+  with the identical quote, approval, receipt and idempotency key.
+  These fields are required for every supplied non-demo receipt on any rail:
+  checkout rejects missing or empty values before contacting the merchant
+  instead of generating current-time defaults. The Tempo demo-proof flow is exempt.
+- For x402, use an existing buyer-approved v2 client to sign the handoff's
+  `accepted` object and padded-base64 `payment_required_header_value`.
+  Only Base Sepolia (`eip155:84532`) USDC and USD quotes are supported, with no
+  FX conversion. Registry quotes require committed `x402_network`,
+  `x402_asset` and `x402_pay_to`; old records remain usable for committed MPP
+  rails but cannot authorize x402. The skill does not create wallets.
+  The challenge resource must exactly equal the quote's checkout endpoint and
+  have the registry-verified origin. The EIP-3009 nonce must equal
+  `keccak256(utf8("shopbridge-x402-nonce-v1") || bytes32(quote_hash) ||
+  bytes32(payment_contract_hash) || keccak256(utf8(resource.url)))`; decode each
+  64-hex SHA-256 hash into 32 bytes and use lowercase `0x` hex. The handoff
+  returns this as `authorization_nonce`, with `validAfter:"0"` and
+  `validBefore` = pinned `approved_at` Unix seconds plus `maxTimeoutSeconds` (30–300 seconds).
+  Use `payment_handoff` → `x402_typed_data` → wallet `eth_signTypedData_v4`
+  → `x402_receipt` → checkout with returned `payment_receipt` and unchanged
+  `checkout_args`. Both signing commands take the full handoff, `payer`, original
+  `quote`, `payment_rail:"x402-compatible"`, `approved:true` and `approval_hash`;
+  receipt additionally takes `signature`. They rederive the handoff through the
+  same approval, registry-binding and preflight gates. Before signing, the wallet
+  or human must confirm `message.to` and `message.value` match the approval packet's
+  destination and atomic amount. Generic clients choosing their own
+  nonce are rejected fail closed. Expiry requires a new handoff, never new
+  timestamps substituted into a retry. Python does not verify signatures;
+  the facilitator does. Use an external wallet or human signer; there is no
+  built-in automated signer.
+  Supply the client's padded-base64 v2 PaymentPayload in
+  `payment_receipt.x402_payment_signature`, plus `method:"x402-compatible"`,
+  `status:"authorized"`, `x402_version:2`, network, asset, pay_to, atomic
+  `amount`, amount_cents, currency, quote_hash and payment_contract_hash.
+  Both buyer runtimes refuse a different decoded `accepted` object or signed
+  nonce before merchant checkout. In the gateway service, pass the explicit
+  `payment_rail:"x402-compatible"` on quote and approval requests and retain it
+  at checkout; protocol ordering must not select a different rail.
+  Retry with the same idempotency key and payment signature. The gateway
+  derives stable merchant order/receipt identifiers from both and forwards
+  `Idempotency-Key`, so a transient merchant failure can replay the same body.
+  The gateway accepts this receipt directly on its approved checkout; without
+  it, its HTTP 402 response carries `PAYMENT-REQUIRED`.
+- Pass the quote-bound `payment_receipt` and persisted checkout arguments to
+  `checkout`. For status, pass the order response's `status_token` explicitly;
+  the helper sends `X-AgentCart-Order-Token`, not a URL query credential.
 - Preserve the checkout `audit_packet` when available. It hash-links the
   approval decision, payment receipt, and checkout payload for later household
   audit import.
@@ -535,10 +615,30 @@ Checkout safety:
   unless the buyer is using a trusted AgentCart gateway with merchant
   authorization. ShopBridge cancellation changes Woo order state only; paid
   orders still need a separate rail-verified refund.
+- X402 refunds are unsupported (HTTP 400 `x402_refund_unsupported`,
+  `real_refund_verified:false`). Do not promise a refund or infer settlement
+  from an authorization; only verifier-confirmed settlement and on-chain
+  evidence prove the x402 payment.
 - Production checkout must supply a verifier/payment receipt explicitly bound
   to amount, currency, quote hash, merchant recipient/profile, and transaction
   reference or credential.
 - The Tempo demo proof is sandbox/testnet proof, not production EUR settlement.
+
+### Security boundary
+
+The x402 authorization is a bearer instrument. `x402_typed_data` output is for
+an external wallet or human signer, who must confirm `to` and `value` against
+the approval packet before signing. The skill's checks are consistency and
+registry gates, not proof of human approval. Signing rejects unverified registry
+destinations, future `approved_at`, and `validBefore` beyond local now plus the
+accepted timeout, with no buyer-side future-skew allowance.
+
+There is no built-in automated signer. Automated agent signing needs a separately
+designed signer with an operator-owned policy and authoritative registry revalidation.
+For manual testnet signing, save the bare `typed_data` object to `typed_data.json`
+and run `cast wallet sign --data --from-file typed_data.json --interactive`
+(Foundry), or use any wallet's `eth_signTypedData_v4`. Never expose or commit keys.
+
 
 Audit import into an AgentCart service:
 

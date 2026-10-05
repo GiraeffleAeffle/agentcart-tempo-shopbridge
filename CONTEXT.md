@@ -40,7 +40,7 @@ The product is a production-candidate alpha. The codebase has strong contract ch
 | Payment Readiness | The buyer-side state showing whether an existing wallet or payment provider can satisfy a Final Quote's selected payment rail. It is independent of merchant discovery and quote readiness. |
 | Payment Recipient | The merchant or payment-provider address that receives quote-bound funds. It is distinct from the Registry Controller and buyer Payment Wallet. |
 | Payment Wallet | The buyer-controlled wallet or provider used only after a Final Quote and explicit approval. Discovery does not require it. |
-| Payment Requirements | Quote-bound rail requirements for MPP, Stripe/card MPP, x402-compatible flows (x402 currently unavailable), or future rails, plus verifier expectations. |
+| Payment Requirements | Quote-bound rail requirements for MPP, Stripe/card MPP, x402 v2 `exact` (USD quotes on Base Sepolia USDC only, capability-gated and disabled by default), or future rails, plus verifier expectations. |
 | External Verifier | The settlement authority that proves payment or refund evidence for a selected rail before ShopBridge claims real money movement. |
 | Checkout Draft | An unpaid internal WooCommerce record used to reserve stock for a Final Quote and retain an interrupted checkout request. It cannot authorize fulfillment. |
 | Order | A Checkout Draft promoted to a paid WooCommerce order only after quote, approval, idempotency, stock, drift, and payment verification checks pass. |

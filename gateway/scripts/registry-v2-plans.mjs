@@ -10,6 +10,12 @@ export const registryV2Abi = [...merchantRegistryAbi, ...parseAbi([
   "function minimumBond() view returns (uint256)",
   "function admission(bytes32 domainHash, address controller, bytes32 recordHash) view returns (bool approved, bytes32 entity, uint64 expiresAt)",
   "function eligibility(bytes32 recordId) view returns (bool eligible, bytes32 entity, uint64 expiresAt, uint256 bond)",
+  "function hasRecordEligibility(bytes32 recordId) view returns (bool)",
+  "function indexedRecordCount() view returns (uint256)",
+  "function indexedRecordIdAt(uint256 index) view returns (bytes32)",
+  "function recordURI(bytes32 recordId) view returns (string)",
+  "function pruneIneligible(bytes32 recordId)",
+  "function refreshIndexedRecord(bytes32 recordId)",
   "function bondExitAt(bytes32 recordId) view returns (uint64)",
   "function sanctions(bytes32 recordId) view returns (bytes32 action, bytes32 reason, address beneficiary, uint256 amount, uint64 readyAt, bool appealed)",
   "function voteAdmission(bytes32 domainHash, address controller, bytes32 recordHash, bytes32 entity, uint64 expiresAt, bytes32 evidenceHash) returns (bytes32)",
@@ -38,6 +44,14 @@ export const registryV2Abi = [...merchantRegistryAbi, ...parseAbi([
   "function transferOwnership(address newOwner)",
   "function acceptOwnership()",
 ])];
+export const discoveryFacetsV2Abi = parseAbi([
+  "function registry() view returns (address)",
+  "function categoryRecordCount(bytes32 categoryHash) view returns (uint256)",
+  "function categoryRecordAt(bytes32 categoryHash, uint256 index) view returns (bytes32 recordId, uint64 generation)",
+  "function facetState(bytes32 recordId) view returns ((bytes32 recordHash, bytes32 categorySetHash, uint64 generation, uint8 categoryCount))",
+  "function isCurrent(bytes32 recordId) view returns (bool)",
+  "function prune(bytes32 recordId)",
+]);
 const tokenAbi = parseAbi([
   "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address account) view returns (uint256)",
@@ -56,6 +70,9 @@ const operations = {
   revoke: "record_id:hash reason_hash:hash",
   approveBond: "",
   withdrawBond: "record_id:hash",
+  prune: "record_id:hash",
+  pruneIneligible: "record_id:hash",
+  refreshIndexedRecord: "record_id:hash",
   proposeSlash: "record_id:hash amount_base_units:uint256 beneficiary:address case_hash:hash evidence_uri:uri",
   appealSlash: "record_id:hash evidence_hash:hash",
   reviewAppeal: "record_id:hash",
@@ -187,12 +204,15 @@ export async function prepareRegistryV2Operation({ request, deployment, publicCl
     deployment_block: deployment.deployment_block, deployment_block_hash: deployment.deployment_block_hash, runtime_code_hash: deployment.runtime_code_hash };
   const boundary = { block_number: snapshot.number.toString(), block_hash: snapshot.hash, block_tag: "finalized" };
   if (request.operation === "status") {
-    const [record, eligibility, exitAt, sanction] = await Promise.all([
+    const [record, eligibility, exitAt, sanction, uri, indexedCount, recordEligible] = await Promise.all([
       read("record", [values.record_id]), read("eligibility", [values.record_id]),
       read("bondExitAt", [values.record_id]), read("sanctions", [values.record_id]),
+      read("recordURI", [values.record_id]), read("indexedRecordCount"),
+      read("hasRecordEligibility", [values.record_id]),
     ]);
     return serializable({ schema: "agentcart.registry_v2_status.v1", state: "finalized_snapshot", deployment: deploymentEvidence,
-      record_id: values.record_id, record: recordValues(record),
+      record_id: values.record_id, record: { ...recordValues(record), record_uri: uri }, indexed_record_count: indexedCount,
+      record_specific_eligible: recordEligible,
       admission: { eligible: eligibility[0], entity_id: eligibility[1], expires_at: eligibility[2], bond_base_units: eligibility[3] },
       bond_exit_at: exitAt, sanction: { action_hash: sanction[0], case_hash: sanction[1], beneficiary: sanction[2], amount_base_units: sanction[3], ready_at: sanction[4], appealed: sanction[5] },
       snapshot: boundary, transaction_request: null, wallet_request: null });
@@ -240,6 +260,39 @@ export async function prepareRegistryV2Operation({ request, deployment, publicCl
     if (String(pending.controller).toLowerCase() !== actor.toLowerCase()) throw new Error("successor_controller_required");
     evidence.document = await checkedDocument({ uri: values.record_uri, hash: pending.recordHash,
       controller: actor, domainHash: pending.domainHash, allowedIds: [values.record_id], deployment, loadRecord });
+  } else if (functionName === "prune") {
+    const facets = deployment.discovery_facets;
+    if (!facets) throw new Error("discovery_facets_v2_deployment_required");
+    target = getAddress(facets.address);
+    abi = discoveryFacetsV2Abi;
+    const creationNumber = BigInt(facets.deployment_block);
+    if (creationNumber > snapshot.number) throw new Error("discovery_facets_not_finalized");
+    const [creation, beforeCode, creationCode, code, boundRegistry] = await Promise.all([
+      publicClient.getBlock({ blockNumber: creationNumber }),
+      creationNumber === 0n ? Promise.resolve("0x") : publicClient.getBytecode({ address: target, blockNumber: creationNumber - 1n }),
+      publicClient.getBytecode({ address: target, blockNumber: creationNumber }),
+      publicClient.getBytecode({ address: target, blockNumber: snapshot.number }),
+      read("registry", [], target, abi),
+    ]);
+    if (creation.hash?.toLowerCase() !== facets.deployment_block_hash.toLowerCase()) throw new Error("discovery_facets_deployment_block_hash_mismatch");
+    if (beforeCode && beforeCode !== "0x") throw new Error("discovery_facets_deployment_boundary_mismatch");
+    if (!creationCode || creationCode === "0x" || !code || code === "0x"
+      || keccak256(creationCode) !== facets.runtime_code_hash.toLowerCase()
+      || keccak256(code) !== facets.runtime_code_hash.toLowerCase()) throw new Error("discovery_facets_runtime_code_hash_mismatch");
+    if (String(boundRegistry).toLowerCase() !== registry.toLowerCase()) throw new Error("discovery_facets_registry_mismatch");
+    const current = await read("isCurrent", [values.record_id], target, abi);
+    const recordEligible = await read("hasRecordEligibility", [values.record_id]);
+    if (current && recordEligible) throw new Error("record_still_eligible");
+    evidence.discovery_facets = { ...facets, registry_address: registry,
+      current, record_specific_eligible: recordEligible };
+  } else if (["pruneIneligible", "refreshIndexedRecord"].includes(functionName)) {
+    const [eligibility, recordEligible] = await Promise.all([
+      read("eligibility", [values.record_id]), read("hasRecordEligibility", [values.record_id]),
+    ]);
+    if (functionName === "pruneIneligible" && recordEligible) throw new Error("record_still_eligible");
+    if (functionName === "refreshIndexedRecord" && eligibility[0] !== true) throw new Error("record_ineligible");
+    evidence.admission = { eligible: eligibility[0], entity_id: eligibility[1],
+      expires_at: eligibility[2], bond_base_units: eligibility[3], record_specific_eligible: recordEligible };
   } else if (functionName === "approveBond") {
     const [token, minimum] = await Promise.all([read("bondToken"), read("minimumBond")]);
     target = field(token, "address", "bond_token");

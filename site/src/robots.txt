@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: $base_url/sitemap.xml
