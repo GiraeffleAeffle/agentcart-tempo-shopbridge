@@ -7,15 +7,15 @@ tax and shipping, buyer approval, quote-bound payment verification,
 WooCommerce order creation, delivery visibility, refunds/cancellations, and
 audit records.
 
-Current status: production-candidate alpha. The USD pilot merchant is active in
-the ShopBridge Merchant Registry on Tempo Moderato, and its coarse catalog
-categories are published through the controller-bound on-chain Discovery
-Facets module. The Direct Skill queries both contracts over JSON-RPC. Normal
-buyer discovery does not use `registry.agentcart.eu`; that hostname serves the
-OCI container-image registry plus legacy diagnostic/compatibility API routes.
-It is not the Merchant Registry contract and it stores no authoritative shop
-membership. This supports merchant installability and buyer-agent discovery
-testing; it is not a production-payment pilot. The
+Current status: production-candidate alpha. As of 2026-10-06, the two staging
+shops are active in the ShopBridge Merchant Registry on Tempo Moderato, with
+current immutable records and Discovery Facets generation 3 categories. The
+original USD pilot record was revoked with reason `pilot_complete`. The Direct
+Skill queries both contracts over JSON-RPC; buyer discovery never depended on
+the hosted registry. `registry.agentcart.eu` now serves only the OCI
+container-image registry at `/v2/`; the former `/`, `/registry`, and
+`/v1/registry/...` routes return 404. This supports merchant installability and
+buyer-agent discovery testing; it is not a production-payment pilot. The
 WooCommerce plugin, buyer skill, registry contract, verifier contract, package
 scripts, and release checks are present.
 Before a paid public merchant pilot, the external beta evidence gate,

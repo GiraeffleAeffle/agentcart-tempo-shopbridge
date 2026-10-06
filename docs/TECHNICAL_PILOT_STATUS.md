@@ -1,7 +1,7 @@
 # Technical Pilot Status
 
-> Snapshot: 2026-08-27. This is a testnet engineering status, not a production
-> or mainnet-readiness claim.
+> Baseline snapshot: 2026-08-27; deployment state updated 2026-10-06. This is a
+> testnet engineering status, not a production or mainnet-readiness claim.
 
 ## Outcome
 
@@ -20,8 +20,9 @@ resolved webhook events. The supervised merchant package is now implemented in
 source: WordPress publishes public controller-bound identity and immutable
 record snapshots, while a two-phase operator plan hands the exact transaction
 to an external wallet and verifies exact state only at finality. The recurring
-witness and authenticated receiver are now active, both contracts are publicly
-source-verified, and a Daybreak Blue model-assisted review is recorded. What
+witness and authenticated receiver were active until the hosted deployment
+was retired on 2026-10-06. Both contracts are publicly source-verified, and a
+Daybreak Blue model-assisted review is recorded. What
 remains is production-v2 hardening, named governance, external human review,
 secondary alerting, and non-maintainer buyer and merchant evidence.
 No production chain or real-money rail was used.
@@ -34,18 +35,18 @@ No production chain or real-money rail was used.
 | Buyer discovery HTTP boundary | Implemented as a portable redirect-free, size-bounded, DNS-pinned transport | Private/local targets require explicit opt-in |
 | Finalized onchain projection | Implemented and fail-closed | Covers registration, update, controller rotation, suspension, attestation, revoke, and supersession/recovery |
 | Immutable full-record archive | Implemented in the public-registry chart and as merchant-hosted content-addressed WordPress snapshots | Old content hashes remain fetchable after revoke/recovery while the plugin remains installed. Production still needs a separately operated append-only copy because disablement makes the merchant route unavailable and uninstall removes the plugin archive |
-| Reference RPC indexer | Implemented and live with an independent Tenderly witness | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, and publishes only the common range after both RPC paths agree. The public snapshot declares `independently_verified`; a failure preserves the last good snapshot until buyer freshness enforcement expires it |
-| Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; hosted event feeds remain compatibility inputs |
+| Reference RPC indexer | Implemented; was live with an independent Tenderly witness until 2026-10-06; hosted deployment retired | Reads no newer than `finalized`, records block identity/range/time, validates record hash/controller binding, and publishes only the common range after both RPC paths agree. Matched public snapshots declared `independently_verified`; a failure preserves the last good snapshot until buyer freshness enforcement expires it |
+| Buyer auto-discovery | Implemented and live | Direct Skill queries Tempo JSON-RPC itself, replays finalized eligibility events, verifies committed record documents, and checks projected records against contract storage; buyer discovery never depended on the retired hosted feeds |
 | Category-routed discovery | Implemented, finalized, and live-tested across three USD shops | The controller-bound Discovery Facets contract stores current record hash, category-set commitment, count, generation, and indexed category declarations. A live `tea` query matched all three on-chain declarations before catalog access; buyer discovery keeps a neutral fallback and still confirms products in each current merchant catalog. |
 | Buyer quote and payment readiness | Implemented in source after the first workstation-agent run exposed the ambiguity | Discovery explicitly requires no wallet; payment readiness is reported separately without invoking payment tools; country/postcode quotes are comparison-only; approval, payment, and checkout require a refreshed financially consistent quote with a complete buyer-supplied delivery address. Publish the updated skill/plugin and repeat the external run |
 | Buyer verified-light-client transport | Implemented fail-closed profile; upstream fix merged | Myotis merge `f639a7a7253aab2941400ba9c3827fbc23be429e` now exports the finalized execution height. Pin that revision or later and complete the ShopBridge sync, log-index, registry replay, restart, and weak-subjectivity freshness drill before production use |
-| Registry contracts | Merchant Registry and Discovery Facets live on Tempo Moderato with public exact-match source | Three USD records are active and category-current. The Daybreak Blue model-assisted review found no critical issue and drove buyer-trust, rotation, WordPress SSRF, completeness-label, and publication fixes; production v2 and an external human review remain open |
+| Registry contracts | Merchant Registry and Discovery Facets live on Tempo Moderato with public exact-match source | As of 2026-10-06, the two staging shop records are active and category-current at generation 3; the USD pilot record is revoked with reason `pilot_complete`. The Daybreak Blue model-assisted review found no critical issue and drove buyer-trust, rotation, WordPress SSRF, completeness-label, and publication fixes; production v2 and an external human review remain open |
 | Merchant onchain enrollment | Implemented for a supervised Tempo Moderato pilot | Two-phase `prepare` derives four public WordPress identity values, validates the immutable merchant record, selects and simulates register/update, and emits a secret-free external-wallet request. Retained plans support revoke preparation even when the shop is unavailable |
 | Registry write operator | Implemented with 30-minute intent-hash-bound plans, runtime/creation-boundary and finalized-state preflight, immutable-record revalidation, signer/controller matching, immediate post-broadcast journaling, exact transaction-inclusion verification, canonical receipt finality, and post-write state verification | External wallet is primary; the environment-key `execute` path is an isolated supervised fallback. Free-form mutations are not exposed. Pilot writes must be serialized per controller because the current contract lacks an atomic expected-current-hash mutation; Ethereum, Gnosis, and Tempo mainnet writes remain blocked by default |
 | WordPress registry readiness | Implemented fail-closed with a pinned direct Tempo RPC verifier | Hosted submission, hosted event/health snapshots, and local HTTPS proof do not count as canonical inclusion. `finalized_current` requires one fresh finalized block hash, EIP-1898 canonical state reads, the pinned deployment block/creation boundary/runtime, Ethereum Keccak of the normalized shop hostname, and the exact active chain, contract, current controller, stable domain-mapped record id, record hash, status, and non-revocation. The result trusts the named pinned RPC; hosted data is retained only as labeled operator compatibility evidence |
 | External verifier | Implemented and live on Talos from the pinned GHCR digest | Payment, refund, replay-conflict, backup, and restart evidence pass; alert-webhook delivery remains open |
-| Helm operations | Implemented and exercised | Verifier-only external mode, Bound PVC-backed SQLite replay state, restricted network policy, independent registry witness, and Secret-backed authenticated alert delivery are live. Payment-verifier alert delivery remains separate and open |
-| Independent reconstruction | Live recurring comparison against Tenderly; matched and firing/resolved delivery evidence retained | Add a durable secondary pager and perform a real controlled witness outage/divergence exercise. Conduit's pruned history cannot replay from deployment |
+| Helm operations | Implemented and exercised; hosted registry deployment retired 2026-10-06 | Verifier-only external mode, Bound PVC-backed SQLite replay state, and restricted network policy remain implemented. The independent registry witness and Secret-backed authenticated alert receiver are no longer running. Payment-verifier alert delivery remains separate and open |
+| Independent reconstruction | Implemented; recurring Tenderly comparison retired 2026-10-06; matched and firing/resolved delivery evidence retained | Before a future deployment, add a durable secondary pager and perform a real controlled witness outage/divergence exercise. Conduit's pruned history cannot replay from deployment |
 | Ethereum/Gnosis/Tempo production | Not approved | Requires the promotion gates in ADR 0008 and a new production-network ADR |
 
 ## Testnet Deployment
@@ -58,7 +59,8 @@ No production chain or real-money rail was used.
   `0xad99d0e1f877af983fd372657fdac9bfd4f6b467b3f9bfbdd024ecd5bc831481`
 - Deployment block: `30731101`
 - Governance: dedicated EOA, trusted-operator testnet pilot
-- State: recovered USD merchant record active after finalized revoke/re-register
+- State: two staging shop records active with generation 3 categories as of
+  2026-10-06; original USD pilot record revoked with reason `pilot_complete`
 
 Tempo's public verifier now reports `exact_match` and runtime `exact_match` for
 both pilot contracts and exposes their complete source sets. The guarded
@@ -66,12 +68,52 @@ both pilot contracts and exposes their complete source sets. The guarded
 an already-published result only after retrieving the authoritative exact
 match. See `docs/CONTRACT_SOURCE_PUBLICATION.md`.
 
+### 2026-10-06: hosted registry retired and registry re-anchored
+
+Helm release `shopbridge-registry` (`charts/agentcart-shopbridge-registry/`),
+its indexer/witness sidecar configuration, and `registry-alert-receiver` with
+its Secret were removed from Talos after already being scaled to zero. The
+recurring indexer, independent Tenderly witness comparison, and authenticated
+alert receiver are no longer running. The chart remains for self-hosting.
+`https://registry.agentcart.eu/` now serves only OCI container images at
+`/v2/`; the former `/`, `/registry`, and `/v1/registry/...` routes return 404.
+
+The `woo-usd.agentcart.eu` pilot record was revoked with reason
+`pilot_complete` in transaction
+`0x233e040d598a5e2077b5060fe1573884a31157fd3c314534a705e8b09c9f4677`.
+That shop and the EUR demo `woo-staging.agentcart.eu`, whose storage had
+already been deleted, were removed from the cluster together with their DNS
+records. Their earlier evidence remains historical.
+
+The two active staging shops were updated to their current immutable records
+and their categories republished at Discovery Facets generation 3:
+
+| Shop | Record update | Record hash | Finalized block | Categories tx |
+| --- | --- | --- | --- | --- |
+| `value-shop.staging.agentcart.eu` | `0xe2fa99dfe91414dc15f0fa9e9f09b9601243bd9e2e3aae4011c3e515a3d69c7c` | `0xce60157a10b71093563f6bce51b267e2ab6006755e46ebf80965ad5305c4832d` | 38400918 | `0xbb07f00e02aad779a1fff9953ea4d398a52c471c355fbdd2ca6ece3d7417fb63` |
+| `premium-shop.staging.agentcart.eu` | `0x4bee1e693ab76b9e2d1e922a08046ccde5fbbd7206972f36d4b2bb28d544bcce` | `0x4b6f07c796e923f3dce37548a31a0b1c91a2034679256ea78744c5c8b4b41de0` | 38400944 | `0x1803faf60e97188a8d337b11b048c59560f996fc01802eab568e6719a84ea285` |
+
+All three record writes were made by the registry controller through the
+supervised isolated-signer fallback of
+`gateway/scripts/onchain-registry-operator.mjs`; categories used
+`onchain-discovery-facets-operator.mjs`. The writes were verified at finality.
+Before the updates, all three registered records failed with
+`registry_record_fetch_failed`: the reinstalled staging shops no longer served
+the committed hashes, and woo-usd was gone. A fresh default `discover_quotes`
+run of the public Direct Skill, with no hosted registry or base URL, found
+AgentCart Value Tea Shop at 1217 cents and AgentCart Premium Tea Shop at 1607
+cents. Skill `doctor` reported zero record-resolution errors. Buyer discovery
+never depended on the hosted registry; the skill reads both contracts over
+JSON-RPC.
+
+### Historical deployment and lifecycle evidence (2026-08-23–2026-08-27)
+
 The public HTTPS registry was upgraded to chart 0.3.0 on 2026-08-23. Helm
-revision 13 is deployed with two ready replicas and two ready service endpoints.
-Health and records return HTTP 200 with the active USD staging entry and
-advertise the real Tempo contract as `testnet_only`. Ethereum remains
-`not_deployed`, OCI `/v2/` remains available, registry mutations remain HTTP
-405, and the same-origin finalized-events route is live. Each pod runs the
+revision 13 was deployed with two ready replicas and two ready service
+endpoints. Health and records returned HTTP 200 with the active USD staging
+entry and advertised the real Tempo contract as `testnet_only`. Ethereum was
+`not_deployed`, OCI `/v2/` remained available, registry mutations returned HTTP
+405, and the same-origin finalized-events route was live. Each pod ran the
 least-privilege recurring indexer without a Kubernetes service-account token.
 
 The lifecycle used record id
@@ -82,16 +124,16 @@ revocation finalized in
 `0x785cd582d7c77b025e284ed104b103f987a00519f6c8918215d7a8470d1f325a`;
 and recovery to hash `c8236a74...f702a66` finalized in
 `0x995de9a5b0f0c3774e164917d01287fb32e95499c8f6c50614637dc91eb3c060`.
-Both immutable documents remain fetchable, and the merchant's HTTPS revocation
-document retains the first hash.
+Both immutable documents remained fetchable at that time, and the merchant's
+HTTPS revocation document retained the first hash.
 
 The hosted snapshot through finalized block `32138528` and independent dRPC
 and Tenderly snapshots through blocks `32138688` and `32138796` were complete,
 zero-error outputs with the same four events. Canonical `.events` JSON had
 SHA-256 `f5322c1cd41d6e1bf34c28604b10fc97f6801ae4793d575a3ef4c343170440c0`
 on every path. Conduit correctly failed closed because its available history
-started after the deployment block. The sidecars continue to check chain and
-contract identity, publish only complete snapshots atomically, and rely on the
+started after the deployment block. The sidecars checked chain and contract
+identity, published only complete snapshots atomically, and relied on the
 shared ten-minute snapshot and finalized-block freshness boundary to expire an
 extended outage or frozen RPC response.
 
