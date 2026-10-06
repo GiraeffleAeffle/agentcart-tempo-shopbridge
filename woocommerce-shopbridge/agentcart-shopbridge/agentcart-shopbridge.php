@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AgentCart ShopBridge
  * Description: Exposes opt-in WooCommerce catalog, quote, and paid-order endpoints for AgentCart household agents.
- * Version: 1.25.0
+ * Version: 1.25.1
  * Requires at least: 6.4
  * Requires PHP: 8.1
  * Requires Plugins: woocommerce

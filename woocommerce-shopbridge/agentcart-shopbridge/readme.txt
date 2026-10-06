@@ -5,7 +5,7 @@ Requires at least: 6.4
 Tested up to: 7.1
 Requires PHP: 8.1
 Requires Plugins: woocommerce
-Stable tag: 1.25.0
+Stable tag: 1.25.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -312,7 +312,7 @@ AgentCart metadata so merchants retain their commerce audit trail.
 
 == Changelog ==
 
-= Unreleased =
+= 1.25.1 =
 * No plugin code changes. This release updates the ShopBridge Direct buyer
   skill, which no longer offers the retired AgentCart-hosted registry.
 * The AgentCart-hosted registry at registry.agentcart.eu is retired. Clear a
@@ -385,7 +385,7 @@ AgentCart metadata so merchants retain their commerce audit trail.
 
 == Upgrade Notice ==
 
-= Unreleased =
+= 1.25.1 =
 No plugin code changes. The AgentCart-hosted registry at registry.agentcart.eu
 is retired: clear a Registry connection URL that points there.
 
