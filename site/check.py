@@ -41,11 +41,20 @@ class Page(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
+        in_svg = tag == "svg" or "svg" in self.stack
+        if in_svg:
+            if tag in {"script", "style", "foreignobject"}:
+                self.fail(f"forbidden SVG <{tag}> element")
+            # Inspect every attribute, including duplicates, before dict conversion
+            # can hide an earlier value that a browser would use.
+            for key, value in attrs:
+                if key in {"href", "xlink:href"} and (not value or not value.startswith("#")):
+                    self.fail("SVG references must be same-document # fragments")
         if tag in {"script", "style", "base"}:
             self.fail(f"forbidden <{tag}> element")
         if "style" in attributes:
             self.fail("inline style attribute")
-        if any(key.startswith("on") for key in attributes):
+        if any(key.startswith("on") for key, _ in attrs):
             self.fail("inline event handler")
         if tag == "html":
             self.lang = attributes.get("lang")
@@ -62,7 +71,7 @@ class Page(HTMLParser):
             value = attributes.get(key)
             if not value:
                 continue
-            resource = tag in LOAD_TAGS or (tag == "link" and rel != ["canonical"])
+            resource = (tag in LOAD_TAGS or (tag == "link" and rel != ["canonical"])) and not (in_svg and value.startswith("#"))
             self.references.append((value, resource, tag))
         srcset = attributes.get("srcset")
         if srcset:
@@ -92,7 +101,7 @@ class Page(HTMLParser):
             self.handle_endtag(tag)
 
     def handle_data(self, data):
-        if "title" in self.stack:
+        if "title" in self.stack and "svg" not in self.stack:
             self.title.append(data)
         for marker in self.active_markers:
             marker["text"].append(data)
