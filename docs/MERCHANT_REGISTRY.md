@@ -26,33 +26,26 @@ agent.
 
 ## Public Pilot Deployment
 
-The public pilot discovery plane is available at:
+The Talos-hosted ShopBridge registry was retired on 2026-10-06. Helm release
+`shopbridge-registry`, its indexer/witness sidecar configuration, and
+`registry-alert-receiver` with its Secret were removed after already being
+scaled to zero. The recurring indexer, independent Tenderly witness comparison,
+and authenticated alert receiver are no longer running.
 
-```text
-https://registry.agentcart.eu/v1/registry/records
-```
+`https://registry.agentcart.eu/` now serves only the OCI container-image
+registry at `/v2/`. The former `/`, `/registry`, and `/v1/registry/...` routes
+return 404. The `charts/agentcart-shopbridge-registry/` chart remains in the
+repository for self-hosting; it is not the authoritative merchant list.
 
-It is a small, stateless, read-only compatibility deployment of
-`charts/agentcart-shopbridge-registry/`. It accepts only `GET` and `HEAD` and is
-not the authoritative merchant list. The default buyer skill does not call it:
-it obtains active record commitments and category candidates from the two
-contracts, then verifies each committed off-chain record against the merchant's
-HTTPS manifest, domain proof, revocation document, catalog, and quote endpoint.
-
-The same hostname serves the OCI Distribution registry at `/v2/`; that is the
-container-image registry. The ShopBridge chart owns only `/`, `/registry`, and
-`/v1/registry...` compatibility routes. Neither service is the on-chain
-Merchant Registry.
-
-This deployment intentionally does not claim stronger trust than it provides:
-
-- it has no database or durable append-only transparency log;
-- the curated feed itself is not signed; every record is checked against
-  merchant-hosted proof and revocation material, and only the USD record is
-  additionally committed to the Tempo testnet contract;
-- Tempo Moderato is a trusted-operator testnet pilot, not production governance;
-- Ethereum remains `not_deployed`, while `/v1/registry/onchain` reports the
-  Moderato contract as `testnet_only` with its finalized event URL.
+Buyer discovery never depended on the hosted registry. The Direct Skill reads
+the Merchant Registry and Discovery Facets contracts over JSON-RPC, then
+verifies each committed off-chain record against the merchant's HTTPS manifest,
+domain proof, revocation document, catalog, and quote endpoint. On Tempo
+Moderato, the two staging shops have current immutable records and generation
+3 categories; the original USD pilot record was revoked with reason
+`pilot_complete`. See `docs/TECHNICAL_PILOT_STATUS.md` for the finalized
+2026-10-06 transactions. Tempo Moderato remains a trusted-operator testnet
+pilot, not production governance.
 
 The controller-bound proof, fail-closed indexer, immutable archive,
 register/revoke/recover drill, and opt-in independent-RPC comparison/alert
