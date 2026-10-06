@@ -50,8 +50,6 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8098"
 BASE_URL = os.getenv("SHOPBRIDGE_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
-DEFAULT_REGISTRY_URL = "https://registry.agentcart.eu/v1/registry/records"
-DEFAULT_DISCOVERY_INDEX_URL = "https://registry.agentcart.eu/v1/registry/discovery-index"
 DEFAULT_ONCHAIN_CHAIN_ID = 42431
 DEFAULT_ONCHAIN_REGISTRY_ADDRESS = "0x0965961617c5B0898167AA4034C5511dB0EfcA07"
 DEFAULT_ONCHAIN_DISCOVERY_FACETS_ADDRESS = "0x693de216d208ADC933365bD6F4FCbC062BB8Afe5"
@@ -1302,7 +1300,7 @@ def advertised_onchain_registry_events_url(document: Any, *, registry_url: str) 
     return advertised
 
 
-def explicit_registry_url(args: dict[str, Any]) -> str:
+def configured_registry_url(args: dict[str, Any]) -> str:
     return str(
         args.get("registry_url")
         or args.get("registry_feed_url")
@@ -1313,13 +1311,6 @@ def explicit_registry_url(args: dict[str, Any]) -> str:
 
 def default_registry_disabled(args: dict[str, Any]) -> bool:
     return boolish(args.get("disable_default_registry"), DISABLE_DEFAULT_REGISTRY)
-
-
-def configured_registry_url(args: dict[str, Any]) -> str:
-    explicit = explicit_registry_url(args)
-    if explicit:
-        return explicit
-    return DEFAULT_REGISTRY_URL if boolish(args.get("use_hosted_registry"), False) else ""
 
 
 def configured_registry_path(args: dict[str, Any]) -> str:

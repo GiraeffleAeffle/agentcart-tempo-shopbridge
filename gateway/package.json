@@ -1,6 +1,6 @@
 {
   "name": "agentcart",
-  "version": "1.25.0",
+  "version": "1.25.1",
   "private": true,
   "type": "module",
   "description": "Household-safe commerce bridge demo with optional Tempo MPP smoke tooling.",
