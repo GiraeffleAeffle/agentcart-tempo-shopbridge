@@ -34,9 +34,12 @@ includes the five public content pages, not the error page.
 `check.py` checks all generated HTML, required files, local links and fragments,
 resource loads, language and page metadata, release URLs/versions/checksums and
 sizes, and prohibited public-site wording. It also checks CSS/SVG resource
-references and sitemap consistency. External anchor links are allowed;
-canonical links are metadata, not resource loads. The checker reads this
-checkout’s `release.json`, not a metadata file inside the output directory.
+references and sitemap consistency. Inline SVG rejects scripts, style elements,
+foreign objects, event handlers and non-fragment `href`/`xlink:href` references
+(including duplicate attributes). Same-document SVG fragments are checked like
+other local links. External HTML anchor links are allowed; canonical links are
+metadata, not resource loads. The checker reads this checkout’s `release.json`,
+not a metadata file inside the output directory.
 
 For a quick local preview:
 
@@ -90,12 +93,12 @@ templates.
 5. Build, run the checker and compare two builds as above. Review the download
    panels and the release footer before publication.
 
-The current pinned release is v1.24.0. Its plugin ZIP extracts to
+The current pinned release is v1.25.0. Its plugin ZIP extracts to
 `agentcart-shopbridge/`; its skill ZIP extracts to `shopbridge-direct-skill/`
-with `SKILL.md`, `references/`, `agents/openai.yaml` and `scripts/`. The verified
-x402 v2 Base Sepolia USDC flow and stricter checkout-origin/payment-destination
-binding are deliberately labelled as next-release features, not capabilities
-of these downloads.
+with `SKILL.md`, `references/`, `agents/openai.yaml` and `scripts/`. The x402 v2
+Base Sepolia USDC flow and checkout-origin/payment-destination binding are
+included in these downloads. x402 remains disabled by default and requires an
+explicit verifier capability check; refunds are manual only.
 
 ## Content and accessibility maintenance
 
@@ -115,10 +118,25 @@ to OpenAI’s skill authoring documentation. Do not add other harness paths
 without checking their primary documentation.
 
 Use the shared navigation and skip link, one h1 per page, semantic landmarks,
-visible keyboard focus, descriptive links and scrollable tables. The CSS is
-mobile-first; prose is limited to 72ch. System fonts and local SVGs avoid
-third-party loads. Light-mode text uses ink `#172027`, muted `#5e6a66` and teal
-`#0a6c60` against white or `#f4f7f6`; dark-mode text uses light ink, muted and
-teal variants against `#131d19` or `#1c2923`. The header wordmark is text in the
-accent colour, so it follows the colour scheme. Preserve WCAG AA text contrast
-when changing these colors.
+visible keyboard focus and descriptive links. The CSS is mobile-first, with
+two-column heroes, download panels and guide navigation on wider screens.
+Legal and privacy prose stays centered and readable; their content is unchanged.
+Tables become stacked rows on phones so captions and cell content remain visible.
+Download labels are short, filenames are shown separately, commands wrap inside
+download panels and checksums break cleanly.
+
+The home, merchant and buyer pages use accessible inline SVG diagrams, with
+`role="img"` and unique title/description ids referenced by `aria-labelledby`.
+All diagram styling lives in `site.css`; no scripts, inline styles, external
+fonts or images are needed. The home sequence has separate wide and vertical
+variants, switching at 64rem to keep text legible; an HTML ordered sequence
+preserves the explanation without the diagram. The merchant and skill sequences
+also have HTML equivalents. Review all six pages at 1280px and 375px in both
+color schemes after design changes; check document overflow as well as panels.
+
+System fonts and local SVGs avoid third-party loads. Light-mode text uses ink
+`#172027`, muted `#5e6a66` and teal `#0a6c60` against white, `#f4f7f6` or the
+diagram tint `#e5f1ec`; dark-mode text uses light ink, muted and teal variants
+against `#131d19`, `#1c2923` or `#20372e`. The header wordmark and diagram
+colors follow the color scheme. Preserve WCAG AA text contrast when changing
+these colors.

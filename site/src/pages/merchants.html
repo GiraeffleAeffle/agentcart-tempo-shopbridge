@@ -1,26 +1,86 @@
-    <div class="prose">
-      <p class="eyebrow">WordPress + WooCommerce</p>
-      <h1>Integrate your shop with ShopBridge.</h1>
-      <p class="lead">Install the merchant plugin, expose an opt-in catalog, and prepare your staging shop for the supervised testnet pilot. This is not a self-service production payment launch.</p>
-      <h2>Requirements</h2>
-      <ul>
-        <li>WordPress 6.4 or later (plugin metadata: tested up to 7.1).</li>
-        <li>PHP 8.1 or later and an active WooCommerce installation.</li>
-        <li>A public HTTPS site with a staging product, shipping and tax configuration.</li>
-      </ul>
+    <section class="hero" aria-labelledby="merchant-heading">
+      <div class="hero-copy">
+        <p class="eyebrow">WordPress + WooCommerce</p>
+        <h1 id="merchant-heading">Keep your shop.<br>Add an agent doorway.</h1>
+        <p class="lead">Install ShopBridge, choose the products agents can see, and let WooCommerce calculate the quote. Your stock, tax, shipping and orders stay where they belong.</p>
+        <div class="actions"><a class="button primary" href="#plugin-download">Get the plugin</a><a class="button" href="#install">Installation guide</a></div>
+        <p class="hero-note">Prepare a staging shop for the supervised testnet pilot. This is not a self-service production payment launch.</p>
+      </div>
+      <figure class="diagram-panel">
+        <svg class="diagram compact" viewBox="0 0 360 505" role="img" aria-labelledby="merchant-svg-title merchant-svg-desc">
+          <title id="merchant-svg-title">What ShopBridge adds to your WooCommerce shop</title>
+          <desc id="merchant-svg-desc">WooCommerce remains the system of record. The plugin adds opt-in commerce endpoints, manifest, record, proof and revocations. The merchant's external controller wallet signs the on-chain registry entry. A separate merchant-run verifier confirms payment before WooCommerce marks an order paid. The plugin moves no money.</desc>
+          <rect class="svg-emphasis" x="10" y="10" width="340" height="108" rx="12"/>
+          <text class="svg-number" x="28" y="36">YOUR SHOP / SYSTEM OF RECORD</text>
+          <text class="svg-title" x="28" y="65">WooCommerce</text>
+          <text class="svg-text" x="28" y="90">Products · stock · tax · shipping</text>
+          <text class="svg-text" x="28" y="110">Fulfillment · refunds · support</text>
+          <path class="svg-line" d="M180 118V145M174 137L180 145L186 137"/>
+          <rect class="svg-node" x="10" y="145" width="340" height="110" rx="12"/>
+          <text class="svg-number" x="28" y="171">PLUGIN / OPT-IN INTERFACE</text>
+          <text class="svg-title" x="28" y="199">AgentCart ShopBridge</text>
+          <text class="svg-text" x="28" y="224">Manifest · record · proof · revocations</text>
+          <text class="svg-text" x="28" y="246">Catalog · quote · orders · status</text>
+          <path class="svg-line" d="M180 255V284M174 276L180 284L186 276"/>
+          <rect class="svg-node" x="10" y="284" width="340" height="88" rx="12"/>
+          <text class="svg-title" x="28" y="311">On-chain registry entry</text>
+          <text class="svg-text" x="28" y="337">Merchant’s controller wallet signs</text>
+          <text class="svg-text" x="28" y="360">Domain + wallet + record hash / URL</text>
+          <path class="svg-soft-line" d="M180 372V398"/>
+          <rect class="svg-emphasis" x="10" y="398" width="340" height="88" rx="12"/>
+          <text class="svg-number" x="28" y="424">SEPARATE SERVICE / PAYMENT</text>
+          <text class="svg-title" x="28" y="450">Merchant-run verifier</text>
+          <text class="svg-text" x="28" y="473">Settlement verified → order paid</text>
+        </svg>
+        <figcaption>You remain merchant of record. The plugin moves no money; the controller wallet is not the payment recipient.</figcaption>
+      </figure>
+    </section>
+    <div class="setup-grid">
+      <section aria-labelledby="requirements-heading">
+        <p class="eyebrow">Before you start</p>
+        <h2 id="requirements-heading">A normal WooCommerce install.</h2>
+        <ul>
+          <li>WordPress 6.4 or later (plugin metadata: tested up to 7.1).</li>
+          <li>PHP 8.1 or later and an active WooCommerce installation.</li>
+          <li>A public HTTPS site with a staging product, shipping and tax configuration.</li>
+        </ul>
+        <h3>What the plugin adds</h3>
+        <ol class="flow">
+          <li><span>Choose opt-in products; WooCommerce remains the source of truth.</span></li>
+          <li><span>Publish <code>/.well-known/agentcart.json</code>, registry record, proof, revocations and REST commerce endpoints.</span></li>
+          <li><span>Have your external controller wallet sign the Merchant Registry entry and category declarations on Tempo Moderato testnet.</span></li>
+          <li><span>Run an external verifier that confirms quote-bound settlement before an order is marked paid.</span></li>
+        </ol>
+      </section>
       <section class="download" aria-labelledby="plugin-download">
-        <h2 id="plugin-download">Download the WooCommerce plugin</h2>
-        <p><a class="button" href="$plugin_url" data-release-asset="plugin">Download $plugin_name</a></p>
+        <p class="eyebrow">Merchant download</p>
+        <h2 id="plugin-download">The WooCommerce plugin</h2>
+        <p><a class="button primary" href="$plugin_url" data-release-asset="plugin">Download plugin ZIP<span hidden> — $plugin_name</span></a><code class="file-name">$plugin_name</code></p>
         <dl>
           <dt>Release version</dt><dd data-release-version="$version">$version</dd>
           <dt>Size</dt><dd data-release-bytes="plugin">$plugin_bytes bytes</dd>
           <dt>SHA-256</dt><dd><code class="checksum" data-release-sha256="plugin">$plugin_sha256</code></dd>
         </dl>
-        <p>Verify the downloaded file and compare the result with the SHA-256 above:</p>
+        <p>Verify the downloaded file against the SHA-256 above:</p>
         <pre><code>shasum -a 256 agentcart-shopbridge.zip</code></pre>
         <p class="note">The ZIP contains <code>agentcart-shopbridge/</code>. Downloads are hosted by GitHub. <a href="$manifest_url">View this release’s checksum manifest</a>.</p>
       </section>
-      <h2>Install and configure in WordPress</h2>
+    </div>
+    <div class="guide-layout">
+      <aside class="side-nav" aria-labelledby="merchant-guide-heading">
+        <h2 id="merchant-guide-heading">Merchant guide</h2>
+        <nav aria-label="Merchant guide sections">
+          <a href="#install">Install and configure</a>
+          <a href="#readiness">Readiness checklist</a>
+          <a href="#verifier">Payment verifier</a>
+          <a href="#boundaries">Responsibilities</a>
+          <a href="#enrollment">Registry enrollment</a>
+          <a href="#endpoints">Public endpoints</a>
+          <a href="#pilot">Join the pilot</a>
+        </nav>
+      </aside>
+      <article class="guide-content" aria-labelledby="install">
+      <h2 id="install">Install and configure in WordPress</h2>
       <ol>
         <li>Open <strong>Plugins → Add New → Upload Plugin</strong>, select the ZIP, install it, and activate <strong>AgentCart ShopBridge</strong>.</li>
         <li>Open <strong>WooCommerce → AgentCart</strong>. If credentials are not managed in <code>wp-config.php</code>, use the Quick Start panel to prepare sandbox access defaults. This does not expose products or configure a payment recipient.</li>
@@ -31,7 +91,7 @@
         <li>Complete supervised registry enrollment below. Have the observer verify finalized inclusion, then select <strong>Check registry health</strong>.</li>
         <li>Run a separate buyer test with the configured external verifier before claiming testnet settlement. Use Support Diagnostics for a redacted setup report.</li>
       </ol>
-      <h2>Configuration essentials for production readiness</h2>
+      <h2 id="readiness">Configuration essentials for production readiness</h2>
       <p>The setup checklist is a readiness gate, not a statement that the current pilot is production-ready.</p>
       <ul>
         <li>Set stable merchant identity, a public support contact, terms and returns URLs.</li>
@@ -40,10 +100,9 @@
         <li>Choose the signed-request policy for sensitive endpoints. Shared secrets must have at least 32 characters and be distinct for merchant, verifier and signed-request roles.</li>
         <li>Publish and check the HTTPS manifest, registry proof, revocations and bundle; confirm the exact finalized registry record rather than relying on a hosted submission.</li>
       </ul>
-      <h2>Payment verification is a separate service</h2>
+      <h2 id="verifier">Payment verification is a separate service</h2>
       <p>The external verifier image is <code>ghcr.io/giraeffleaeffle/agentcart-shopbridge-verifier</code>. An operator runs the verifier and configures its rail-specific credentials and payment profile, then sets its URL and token in the plugin. See the <a href="https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/blob/main/docs/VERIFIER_CONTRACT.md">verifier contract and integration requirements</a>.</p>
       <p>With <code>external_verifier_only</code>, a trusted merchant token cannot bypass payment verification to mark a demo order paid. The verifier must bind the receipt to amount, currency, merchant destination, quote hash, payment contract hash and a replay-safe transaction reference.</p>
-    </div>
     <div class="table-scroll" role="region" aria-label="Payment rails and maturity" tabindex="0">
       <table>
         <caption>Payment rails: current maturity, not production availability</caption>
@@ -56,13 +115,12 @@
         </tbody>
       </table>
     </div>
-    <div class="prose">
-      <h2>What the plugin does not do</h2>
+      <h2 id="boundaries">What the plugin does not do</h2>
       <p>The plugin moves no money. Settlement and rail refunds belong to the buyer’s wallet or provider and the merchant’s configured verifier. WooCommerce stays the system of record for products, stock, tax, shipping, fulfillment, refunds and support. The merchant stays merchant of record.</p>
       <h3>External services</h3>
       <p>Public catalog and quote browsing does not contact a verifier or hosted registry connection. Paid-order and verified-refund operations can send quote, receipt and order/refund data to the merchant-configured verifier. Registry submission, revocation and health actions can send public merchant records and endpoint metadata to the merchant-configured registry connection.</p>
       <p>An administrator’s registry health action makes read-only calls to <code>https://rpc.moderato.tempo.xyz</code> using public on-chain identity and registry state, not wallet secrets or buyer/order data. The services’ terms and privacy policies must be reviewed by the operator. A hosted registry response is diagnostic; it is not proof of finalized on-chain inclusion.</p>
-      <h2>Get listed in the on-chain registry</h2>
+      <h2 id="enrollment">Get listed in the on-chain registry</h2>
       <p>Enrollment is a <strong>supervised Tempo Moderato pilot</strong>. A pilot observer prepares and reviews the transaction; the merchant’s own external controller wallet signs it. WordPress stores only four public fields:</p>
       <ol>
         <li>Public controller address.</li>
@@ -72,7 +130,7 @@
       </ol>
       <p>After saving these fields, refresh the metadata and public endpoint check. Review the observer’s exact zero-value transaction plan in your own wallet. The observer verifies the exact transaction and active record at a finalized block; then run the plugin’s registry health check. Never enter a private key, seed phrase, wallet session or signature into WordPress.</p>
       <p>The registry controller is a separate role from the merchant’s payment recipient. Read the <a href="https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/blob/main/docs/MERCHANT_ONCHAIN_ENROLLMENT.md">supervised enrollment procedure</a>.</p>
-      <h2>Public discovery and commerce endpoints</h2>
+      <h2 id="endpoints">Public discovery and commerce endpoints</h2>
       <p>These paths belong to your merchant’s HTTPS origin, not to agentcart.eu:</p>
       <ul>
         <li><code>/.well-known/agentcart.json</code> — merchant manifest.</li>
@@ -86,6 +144,7 @@
       <p>Order creation uses <code>/wp-json/agentcart/v1/orders</code>; status uses <code>/wp-json/agentcart/v1/orders/{id}/status</code> with an order token. Refund and cancellation routes under the order require a merchant token or trusted gateway; they are not public buyer actions. Support diagnostics and checkout recovery require WooCommerce manager permissions. Signed-request policy can further restrict sensitive calls.</p>
       <h2>Optional Kubernetes deployment</h2>
       <p>For operators who already use Kubernetes, the repository provides an optional <a href="https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/charts/agentcart-shopbridge">single-store Helm chart</a>. A normal WordPress plugin installation does not require Helm.</p>
-      <h2>Join the supervised pilot</h2>
+      <h2 id="pilot">Join the supervised pilot</h2>
       <p>Email <a href="mailto:contact@agentcart.eu">contact@agentcart.eu</a> with your staging shop and integration questions. The pilot is testnet and sandbox only; no real money moves.</p>
+      </article>
     </div>

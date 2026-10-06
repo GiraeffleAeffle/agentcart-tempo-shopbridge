@@ -1,42 +1,115 @@
-    <p class="eyebrow">Agent commerce for WooCommerce</p>
-    <h1>A commerce bridge between shops and buyer agents.</h1>
-    <p class="lead">AgentCart ShopBridge lets opt-in WooCommerce merchants expose products, calculate final quotes, and accept approval-bound orders from buyer agents. WooCommerce remains the shop’s system of record.</p>
-    <div class="actions">
-      <a class="button" href="/merchants/">Integrate your WooCommerce shop</a>
-      <a class="button" href="/agents/">Install the buyer agent skill</a>
-    </div>
-    <section aria-labelledby="parts-heading">
-      <h2 id="parts-heading">Three independent parts</h2>
+    <section class="hero" aria-labelledby="home-heading">
+      <div class="hero-copy">
+        <p class="eyebrow">Agent commerce for WooCommerce</p>
+        <h1 id="home-heading">Your shop.<br>Their agent.<br>One clear handoff.</h1>
+        <p class="lead">AgentCart ShopBridge connects opt-in WooCommerce shops to buyer agents. Discover a verified shop, compare a final quote, and put the human in control of payment.</p>
+        <div class="actions">
+          <a class="button primary" href="/merchants/">Connect your shop</a>
+          <a class="button" href="/agents/">Install the buyer skill</a>
+        </div>
+        <p class="hero-note"><strong>Production-candidate alpha.</strong><br>Testnet and sandbox only. No real money moves.</p>
+      </div>
+      <figure class="diagram-panel">
+        <svg class="diagram compact" viewBox="0 0 360 350" role="img" aria-labelledby="bridge-title bridge-desc">
+          <title id="bridge-title">The plugin, registry and skill fit together</title>
+          <desc id="bridge-desc">The buyer agent uses the ShopBridge Direct skill to verify a shop through the on-chain registry, then requests a catalog and quote directly from the merchant's WooCommerce plugin. The merchant's controller wallet signs the registry entry.</desc>
+          <path class="svg-line" d="M90 100V132H270V100M90 132V142M90 166V178M270 132V142M270 166V178"/>
+          <rect class="svg-emphasis" x="45" y="12" width="270" height="88" rx="12"/>
+          <text class="svg-number" x="65" y="39">01 / ON-CHAIN IDENTITY</text>
+          <text class="svg-title" x="65" y="65">Shop registry</text>
+          <text class="svg-text" x="65" y="87">Tempo Moderato testnet</text>
+          <text class="svg-small" x="16" y="159">Skill verifies</text>
+          <text class="svg-small" x="213" y="159">Merchant signs</text>
+          <rect class="svg-node" x="5" y="180" width="162" height="104" rx="12"/>
+          <rect class="svg-node" x="193" y="180" width="162" height="104" rx="12"/>
+          <text class="svg-number" x="20" y="207">02 / BUYER</text>
+          <text class="svg-title" x="20" y="233">Agent + skill</text>
+          <text class="svg-text" x="20" y="260">ShopBridge Direct</text>
+          <text class="svg-number" x="207" y="207">03 / MERCHANT</text>
+          <text class="svg-title" x="207" y="233">Shop + plugin</text>
+          <text class="svg-text" x="207" y="260">WooCommerce</text>
+          <path class="svg-line" d="M86 285V316H274V285M266 293L274 285L282 293"/>
+          <text class="svg-text" x="88" y="342">Direct catalog + quote</text>
+        </svg>
+        <figcaption>Three independent pieces. No AgentCart buyer service required.</figcaption>
+      </figure>
+    </section>
+    <section class="section" aria-labelledby="parts-heading">
+      <div class="section-heading">
+        <p class="eyebrow">The architecture</p>
+        <h2 id="parts-heading">A bridge, not a replacement.</h2>
+      </div>
       <div class="cards">
         <article class="card">
-          <h3>The WooCommerce plugin</h3>
-          <p>The merchant chooses which products to expose. ShopBridge provides machine-readable catalog, quote, order and status endpoints while WooCommerce handles stock, tax, shipping and fulfillment.</p>
+          <span class="card-label">Merchant / plugin</span>
+          <h3>Your shop stays your shop</h3>
+          <p>You choose which products to expose. The plugin publishes the manifest, registry record and catalog, quote, order and status endpoints. WooCommerce keeps products, stock, tax, shipping, fulfillment and refunds; you stay merchant of record.</p>
         </article>
         <article class="card">
-          <h3>The buyer agent skill</h3>
-          <p>ShopBridge Direct discovers verified merchants and compares their quotes without an AgentCart service. The optional AgentCart service adds durable household policy, approval state and audit records.</p>
+          <span class="card-label">Trust / registry</span>
+          <h3>Identity, not paid placement</h3>
+          <p>The Merchant Registry binds a domain, controller wallet, record hash and record URL. The merchant’s wallet signs its entry. Discovery Facets adds category routing. Both contracts live on Tempo Moderato testnet; neither ranks offers.</p>
         </article>
         <article class="card">
-          <h3>Trust and payment</h3>
-          <p>The on-chain merchant registry on Tempo Moderato testnet binds merchant identity and discovery records. An external verifier confirms quote-bound payments before WooCommerce marks an order paid.</p>
+          <span class="card-label">Buyer / skill</span>
+          <h3>Direct from agent to shop</h3>
+          <p>Any agent harness can use ShopBridge Direct: instructions plus a Python helper, JSON in and out. It reads the registry over JSON-RPC, verifies records before contacting shops, and compares offers by final total and delivery.</p>
         </article>
       </div>
+      <p class="note">The optional AgentCart service adds durable household policy, approval state and audit records. The direct skill does not need it.</p>
     </section>
-    <section class="prose" aria-labelledby="flow-heading">
-      <h2 id="flow-heading">From discovery to aftercare</h2>
-      <ol class="flow">
-        <li><span>Discover verified merchants from the on-chain registry.</span></li>
-        <li><span>Compare quotes using only country and postcode. Refresh the selected merchant’s quote with the complete delivery address.</span></li>
-        <li><span>A human approves the exact approval packet: merchant, items, total, delivery, payment destination and approval hash.</span></li>
-        <li><span>Hand the approved payment request to the buyer’s wallet or payment provider.</span></li>
-        <li><span>The merchant’s external verifier confirms settlement against the quote.</span></li>
-        <li><span>WooCommerce marks the order paid only after successful verification.</span></li>
-        <li><span>Read order status and tracking, and prepare aftercare requests for the merchant.</span></li>
+    <section class="section" aria-labelledby="flow-heading">
+      <div class="section-heading">
+        <p class="eyebrow">From discovery to aftercare</p>
+        <h2 id="flow-heading">How it works</h2>
+        <p>Finding an offer is not permission to pay. The exact quote passes through human approval, the buyer’s payment account and the merchant’s verifier.</p>
+      </div>
+      <figure class="diagram-panel" id="home-diagram">
+        <svg class="diagram diagram-wide" viewBox="0 0 1100 340" role="img" aria-labelledby="flow-wide-title flow-wide-desc">
+          <title id="flow-wide-title">Eight steps from buyer agent to order aftercare</title>
+          <desc id="flow-wide-desc">In order: buyer agent with the skill; on-chain registry verification; WooCommerce shop with the plugin for catalog and quote; human approval of the packet; buyer wallet or provider payment; merchant verifier confirms settlement; WooCommerce marks the order paid; status and aftercare.</desc>
+          <path class="svg-line" d="M258 80H282M526 80H550M794 80H818M1062 135V163H38V196M258 252H282M526 252H550M794 252H818"/>
+          <path class="svg-line" d="M274 74L282 80L274 86M542 74L550 80L542 86M810 74L818 80L810 86M32 188L38 196L44 188M274 246L282 252L274 258M542 246L550 252L542 258M810 246L818 252L810 258"/>
+          <rect class="svg-node" x="14" y="20" width="244" height="115" rx="12"/><text class="svg-number" x="32" y="47">01 / BUYER</text><text class="svg-title" x="32" y="77">Agent + skill</text><text class="svg-text" x="32" y="106">ShopBridge Direct</text>
+          <rect class="svg-node" x="282" y="20" width="244" height="115" rx="12"/><text class="svg-number" x="300" y="47">02 / VERIFY</text><text class="svg-title" x="300" y="77">On-chain registry</text><text class="svg-text" x="300" y="106">Identity + record checks</text>
+          <rect class="svg-node" x="550" y="20" width="244" height="115" rx="12"/><text class="svg-number" x="568" y="47">03 / COMPARE</text><text class="svg-title" x="568" y="77">Shop + plugin</text><text class="svg-text" x="568" y="106">Catalog → final quote</text>
+          <rect class="svg-emphasis" x="818" y="20" width="244" height="115" rx="12"/><text class="svg-number" x="836" y="47">04 / HUMAN</text><text class="svg-title" x="836" y="77">Approve the packet</text><text class="svg-text" x="836" y="106">Exact approval_hash</text>
+          <rect class="svg-node" x="14" y="196" width="244" height="115" rx="12"/><text class="svg-number" x="32" y="223">05 / PAYMENT</text><text class="svg-title" x="32" y="253">Wallet / provider</text><text class="svg-text" x="32" y="282">Buyer’s own account pays</text>
+          <rect class="svg-node" x="282" y="196" width="244" height="115" rx="12"/><text class="svg-number" x="300" y="223">06 / SETTLEMENT</text><text class="svg-title" x="300" y="253">Merchant’s verifier</text><text class="svg-text" x="300" y="282">Confirms quote-bound proof</text>
+          <rect class="svg-node" x="550" y="196" width="244" height="115" rx="12"/><text class="svg-number" x="568" y="223">07 / ORDER</text><text class="svg-title" x="568" y="253">WooCommerce</text><text class="svg-text" x="568" y="282">Order marked paid</text>
+          <rect class="svg-node" x="818" y="196" width="244" height="115" rx="12"/><text class="svg-number" x="836" y="223">08 / FOLLOW-UP</text><text class="svg-title" x="836" y="253">Status + aftercare</text><text class="svg-text" x="836" y="282">Token + request drafts</text>
+        </svg>
+        <svg class="diagram compact diagram-narrow" viewBox="0 0 360 800" role="img" aria-labelledby="flow-phone-title flow-phone-desc">
+          <title id="flow-phone-title">How ShopBridge works, step by step</title>
+          <desc id="flow-phone-desc">The buyer skill verifies the on-chain shop registry, then gets catalogs and quotes from the merchant plugin. A human approves the exact packet. The buyer wallet or provider pays, the merchant verifier confirms settlement, WooCommerce marks the order paid, and the skill reads status and drafts aftercare.</desc>
+          <path class="svg-line" d="M180 92V110M180 190V208M180 288V306M180 386V404M180 484V502M180 582V600M180 680V698"/>
+          <path class="svg-line" d="M174 102L180 110L186 102M174 200L180 208L186 200M174 298L180 306L186 298M174 396L180 404L186 396M174 494L180 502L186 494M174 592L180 600L186 592M174 690L180 698L186 690"/>
+          <rect class="svg-node" x="10" y="12" width="340" height="80" rx="12"/><text class="svg-number" x="26" y="41">01</text><text class="svg-title" x="65" y="43">Buyer agent + skill</text><text class="svg-text" x="65" y="69">ShopBridge Direct</text>
+          <rect class="svg-node" x="10" y="110" width="340" height="80" rx="12"/><text class="svg-number" x="26" y="139">02</text><text class="svg-title" x="65" y="141">On-chain shop registry</text><text class="svg-text" x="65" y="167">Verify identity + record</text>
+          <rect class="svg-node" x="10" y="208" width="340" height="80" rx="12"/><text class="svg-number" x="26" y="237">03</text><text class="svg-title" x="65" y="239">Merchant shop + plugin</text><text class="svg-text" x="65" y="265">Catalog → final quote</text>
+          <rect class="svg-emphasis" x="10" y="306" width="340" height="80" rx="12"/><text class="svg-number" x="26" y="335">04</text><text class="svg-title" x="65" y="337">Human approves</text><text class="svg-text" x="65" y="363">Exact packet + approval_hash</text>
+          <rect class="svg-node" x="10" y="404" width="340" height="80" rx="12"/><text class="svg-number" x="26" y="433">05</text><text class="svg-title" x="65" y="435">Buyer’s wallet / provider</text><text class="svg-text" x="65" y="461">Pays the approved destination</text>
+          <rect class="svg-node" x="10" y="502" width="340" height="80" rx="12"/><text class="svg-number" x="26" y="531">06</text><text class="svg-title" x="65" y="533">Merchant’s verifier</text><text class="svg-text" x="65" y="559">Confirms quote-bound settlement</text>
+          <rect class="svg-node" x="10" y="600" width="340" height="80" rx="12"/><text class="svg-number" x="26" y="629">07</text><text class="svg-title" x="65" y="631">WooCommerce order</text><text class="svg-text" x="65" y="657">Marked paid after verification</text>
+          <rect class="svg-node" x="10" y="698" width="340" height="80" rx="12"/><text class="svg-number" x="26" y="727">08</text><text class="svg-title" x="65" y="729">Status + aftercare</text><text class="svg-text" x="65" y="755">Status token + request drafts</text>
+        </svg>
+        <figcaption>The plugin moves no money. The skill has no built-in signer. Payment and verification are separate responsibilities.</figcaption>
+      </figure>
+      <ol class="flow columns">
+        <li><span><strong>Start with the buyer skill.</strong>Load ShopBridge Direct in the agent harness. Discovery does not need a wallet.</span></li>
+        <li><span><strong>Verify the registry record.</strong>Read both on-chain contracts directly over JSON-RPC, then check the selected shop’s record, domain proof and revocations before catalog or quote calls.</span></li>
+        <li><span><strong>Get a final WooCommerce quote.</strong>Compare using country and postcode only. Send the complete delivery address only to the selected verified merchant and refresh its quote.</span></li>
+        <li><span><strong>Ask the human to approve.</strong>The exact packet binds merchant, items, total, delivery and payment destination with an <code>approval_hash</code>. Confirm payment readiness before requesting approval.</span></li>
+        <li><span><strong>Hand off payment.</strong>Only after approval does <code>payment_handoff</code> produce a request. The buyer’s own wallet or provider pays.</span></li>
+        <li><span><strong>Verify settlement.</strong>The merchant-run external verifier checks amount, currency, destination, quote hash, payment contract hash and a replay-safe transaction reference.</span></li>
+        <li><span><strong>Mark the order paid.</strong>WooCommerce does so only after successful verification; the merchant handles fulfillment and support.</span></li>
+        <li><span><strong>Follow the order.</strong>Read status and tracking with the status token. Refund and cancellation aftercare is drafted for the merchant, not executed by the skill.</span></li>
       </ol>
     </section>
     <aside class="status" aria-labelledby="status-heading">
-      <h2 id="status-heading">Current status</h2>
+      <p class="eyebrow">Know the boundary</p>
+      <h2 id="status-heading">Ready to explore. Not a live-money launch.</h2>
       <p><strong>Production-candidate alpha.</strong> Testnet and sandbox only. No real money moves in the current public pilot; testnet tokens are not real-money settlement.</p>
+      <p>Tempo MPP uses pathUSD on Tempo testnet with USD quotes. x402 uses USDC on Base Sepolia with USD quotes and is disabled by default. Stripe/card MPP is sandbox only.</p>
       <p>Current downloadable release: <a href="$release_url" data-release-version="$version">$version</a>. Paid production use still requires external onboarding evidence, production payment operations and the remaining review gates.</p>
     </aside>
-    <p class="prose">Start with the <a href="/merchants/">WordPress and WooCommerce integration guide</a> or the <a href="/agents/">ShopBridge Direct skill guide</a>.</p>

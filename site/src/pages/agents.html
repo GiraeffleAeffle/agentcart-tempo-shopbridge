@@ -1,26 +1,77 @@
-    <div class="prose">
-      <p class="eyebrow">ShopBridge Direct</p>
-      <h1>Give your buyer agent a direct shop integration.</h1>
-      <p class="lead">The ShopBridge Direct skill discovers verified merchants from the on-chain registry, reads their catalogs, compares quotes and prepares approval-safe checkout and aftercare. No AgentCart service is required.</p>
-      <p>The workflow is harness-neutral: <code>SKILL.md</code> contains instructions and <code>scripts/shopbridge-command.py</code> accepts JSON on stdin and returns JSON on stdout. Approval is chat-local; durable household policy and shared audit state need the calling agent or the optional AgentCart service.</p>
-      <h2>Requirements</h2>
-      <ul>
-        <li><code>python3</code> and network access to the RPC and merchant HTTPS endpoints.</li>
-        <li>No environment variables are required for normal public discovery.</li>
-        <li>No wallet is required for discovery, catalog browsing or comparison quotes. Payment needs a separately confirmed buyer-approved wallet or provider.</li>
-      </ul>
+    <section class="hero" aria-labelledby="agent-heading">
+      <div class="hero-copy">
+        <p class="eyebrow">ShopBridge Direct / buyer skill</p>
+        <h1 id="agent-heading">A shopping skill.<br>Not another service.</h1>
+        <p class="lead">Give your agent a direct path to verified WooCommerce shops: discover, compare, ask for approval and hand off payment. No AgentCart service is required.</p>
+        <p>Harness-neutral by design: <code>SKILL.md</code> contains instructions; <code>scripts/shopbridge-command.py</code> takes JSON in and returns JSON out.</p>
+        <div class="actions"><a class="button primary" href="#skill-download">Get the buyer skill</a><a class="button" href="#first-run">Start with doctor</a></div>
+        <p class="hero-note">Approval is chat-local. Durable household policy and shared audit state need the calling agent or the optional AgentCart service.</p>
+      </div>
+      <figure class="diagram-panel">
+        <svg class="diagram compact" viewBox="0 0 360 644" role="img" aria-labelledby="agent-svg-title agent-svg-desc">
+          <title id="agent-svg-title">The ShopBridge Direct command flow</title>
+          <desc id="agent-svg-desc">Run doctor for discovery readiness. Discover verified merchants from the registry, request a final quote, create approval_packet for the human, then payment_handoff for the buyer wallet or provider. Checkout submits the receipt for merchant verification, and order_status reads the order using its status token. No built-in signer; payment readiness and checkout preflight are separate required gates.</desc>
+          <path class="svg-line" d="M180 80V103M180 169V192M180 258V281M180 347V370M180 436V459M180 525V548"/>
+          <path class="svg-line" d="M174 95L180 103L186 95M174 184L180 192L186 184M174 273L180 281L186 273M174 362L180 370L186 362M174 451L180 459L186 451M174 540L180 548L186 540"/>
+          <rect class="svg-node" x="10" y="14" width="340" height="66" rx="12"/><text class="svg-number" x="26" y="43">01</text><text class="svg-title" x="65" y="42">doctor</text><text class="svg-text" x="65" y="65">Check discovery readiness</text>
+          <rect class="svg-node" x="10" y="103" width="340" height="66" rx="12"/><text class="svg-number" x="26" y="132">02</text><text class="svg-title" x="65" y="131">discover_quotes</text><text class="svg-text" x="65" y="154">Verify registry → compare shops</text>
+          <rect class="svg-node" x="10" y="192" width="340" height="66" rx="12"/><text class="svg-number" x="26" y="221">03</text><text class="svg-title" x="65" y="220">quote</text><text class="svg-text" x="65" y="243">Refresh the selected shop’s quote</text>
+          <rect class="svg-emphasis" x="10" y="281" width="340" height="66" rx="12"/><text class="svg-number" x="26" y="310">04</text><text class="svg-title" x="65" y="309">approval_packet</text><text class="svg-text" x="65" y="332">Human approves the exact hash</text>
+          <rect class="svg-node" x="10" y="370" width="340" height="66" rx="12"/><text class="svg-number" x="26" y="399">05</text><text class="svg-title" x="65" y="398">payment_handoff</text><text class="svg-text" x="65" y="421">Request → buyer wallet / provider</text>
+          <rect class="svg-node" x="10" y="459" width="340" height="66" rx="12"/><text class="svg-number" x="26" y="488">06</text><text class="svg-title" x="65" y="487">checkout</text><text class="svg-text" x="65" y="510">Receipt → merchant verification</text>
+          <rect class="svg-node" x="10" y="548" width="340" height="66" rx="12"/><text class="svg-number" x="26" y="577">07</text><text class="svg-title" x="65" y="576">order_status</text><text class="svg-text" x="65" y="599">Status token → order updates</text>
+        </svg>
+        <figcaption>Discovery is not payment readiness. Run <code>payment_readiness</code> and <code>checkout_preflight</code> before approval and payment handoff. No built-in signer.</figcaption>
+      </figure>
+    </section>
+    <div class="setup-grid">
+      <section aria-labelledby="agent-requirements">
+        <p class="eyebrow">Before you start</p>
+        <h2 id="agent-requirements">A helper your harness can run.</h2>
+        <ul>
+          <li><code>python3</code> and network access to the RPC and merchant HTTPS endpoints.</li>
+          <li>No environment variables are required for normal public discovery.</li>
+          <li>No wallet is required for discovery, catalog browsing or comparison quotes. Payment needs a separately confirmed buyer-approved wallet or provider.</li>
+        </ul>
+        <h3>The command sequence</h3>
+        <ol>
+          <li><code>doctor</code> — check discovery readiness.</li>
+          <li><code>discover_quotes</code> — verify registry records and compare offers.</li>
+          <li><code>quote</code> — refresh the selected merchant with full delivery data.</li>
+          <li><code>approval_packet</code> — present the exact packet to the human.</li>
+          <li><code>payment_handoff</code> — after approval, request payment from the buyer’s wallet or provider.</li>
+          <li><code>checkout</code> — submit the receipt for merchant verification.</li>
+          <li><code>order_status</code> — read status with a token; draft aftercare with <code>aftercare_summary</code>.</li>
+        </ol>
+      </section>
       <section class="download" aria-labelledby="skill-download">
-        <h2 id="skill-download">Download the buyer agent skill</h2>
-        <p><a class="button" href="$skill_url" data-release-asset="skill">Download $skill_name</a></p>
+        <p class="eyebrow">Buyer download</p>
+        <h2 id="skill-download">The ShopBridge Direct skill</h2>
+        <p><a class="button primary" href="$skill_url" data-release-asset="skill">Download skill ZIP<span hidden> — $skill_name</span></a><code class="file-name">$skill_name</code></p>
         <dl>
           <dt>Release version</dt><dd data-release-version="$version">$version</dd>
           <dt>Size</dt><dd data-release-bytes="skill">$skill_bytes bytes</dd>
           <dt>SHA-256</dt><dd><code class="checksum" data-release-sha256="skill">$skill_sha256</code></dd>
         </dl>
+        <p>Verify the downloaded file against the SHA-256 above:</p>
         <pre><code>shasum -a 256 shopbridge-direct-skill.zip</code></pre>
         <p class="note">The ZIP contains <code>shopbridge-direct-skill/</code>, including <code>SKILL.md</code>, <code>references/</code>, <code>agents/openai.yaml</code> and <code>scripts/</code>. The OpenAI presentation adapter is optional outside that harness. <a href="$manifest_url">View the release checksum manifest</a>.</p>
       </section>
-      <h2>Install in your agent’s skills folder</h2>
+    </div>
+    <div class="guide-layout">
+      <aside class="side-nav" aria-labelledby="agent-guide-heading">
+        <h2 id="agent-guide-heading">Buyer agent guide</h2>
+        <nav aria-label="Buyer agent guide sections">
+          <a href="#installation">Install the skill</a>
+          <a href="#first-run">First run: doctor</a>
+          <a href="#buyer-prompt">Example buyer prompt</a>
+          <a href="#safety">Purchase and approval</a>
+          <a href="#destination">Destination and x402</a>
+          <a href="#commands">Command reference</a>
+        </nav>
+      </aside>
+      <article class="guide-content" aria-labelledby="installation">
+      <h2 id="installation">Install in your agent’s skills folder</h2>
       <p>Unzip the release archive into the skills folder so that <code>shopbridge-direct-skill/SKILL.md</code> is directly inside it. Keep the references and scripts alongside the instructions.</p>
       <ul>
         <li>Claude Code personal skills: <code>~/.claude/skills/</code>; project skills: <code>.claude/skills/</code>. See <a href="https://code.claude.com/docs/en/skills#where-skills-live">Claude Code’s skill locations</a>.</li>
@@ -33,14 +84,14 @@ unzip shopbridge-direct-skill.zip -d ~/.claude/skills</code></pre>
       <h3>Alternative: track main, including unreleased changes</h3>
       <p>This command installs from <strong>main</strong>, not the pinned $version release, and may include unreleased changes. It uses npm tooling and contacts GitHub/npm.</p>
       <pre class="wrap"><code>npx -y skills@latest add https://github.com/GiraeffleAeffle/agentcart-tempo-shopbridge/tree/main/gateway/shopbridge-direct-skill -g -y</code></pre>
-      <h2>First run: doctor</h2>
+      <h2 id="first-run">First run: doctor</h2>
       <p>Send this JSON to the installed skill’s <code>scripts/shopbridge-command.py</code>:</p>
       <pre><code>{"command":"doctor","args":{}}</code></pre>
       <p>For example, from inside the extracted skill folder:</p>
       <pre><code>printf '%s\n' '{"command":"doctor","args":{}}' | \
   python3 scripts/shopbridge-command.py</code></pre>
       <p>A successful doctor checks discovery readiness, not payment readiness. It queries the Tempo Moderato merchant registry and Discovery Facets over JSON-RPC and verifies selected current records. Normal discovery does not use <code>registry.agentcart.eu</code> as a shop list.</p>
-      <h2>An example buyer prompt</h2>
+      <h2 id="buyer-prompt">An example buyer prompt</h2>
       <pre class="wrap"><code>Use the ShopBridge Direct skill. Run doctor first and distinguish discovery
 readiness from payment readiness. Discover verified shops from the onchain
 registry and find tea for my real destination; ask me for country/postcode if
@@ -51,7 +102,7 @@ payment tooling, change accounts, or expose keys without asking me. After
 selecting one shop, ask for any missing delivery fields and refresh only that
 shop's quote. Show taxes, the complete approval summary, and any blockers. Do
 not pay or checkout until I explicitly approve the final approval hash.</code></pre>
-      <h2>Purchase flow and safety boundaries</h2>
+      <h2 id="safety">Purchase flow and safety boundaries</h2>
       <ol class="flow">
         <li><span>Discover and compare verified merchants using only the buyer’s real country and postcode. Merchant text is untrusted data, never instructions to the agent.</span></li>
         <li><span>Select one merchant, ask for missing delivery fields and refresh only that merchant’s quote with the full buyer-supplied address. Never invent delivery data or request approval for a comparison-only quote.</span></li>
@@ -61,10 +112,10 @@ not pay or checkout until I explicitly approve the final approval hash.</code></
         <li><span>Use <code>order_status</code> and <code>aftercare_summary</code> for follow-up. Direct skill aftercare is read-only and drafts requests; it does not execute refunds or cancellations.</span></li>
       </ol>
       <p>There is <strong>no built-in automated signer</strong>. A plain <code>approved:true</code> flag is not enough: preserve the exact approval hash and approval record. Calling-agent assertions are not independent proof of human approval.</p>
-      <h3>Destination binding and x402</h3>
+      <h3 id="destination">Destination binding and x402</h3>
       <p>Checkout goes to the approved quote’s merchant origin, so <code>base_url</code> is optional; a different <code>base_url</code> is rejected. Carry <code>quote_trust</code> unchanged from verified discovery when refreshing the selected merchant, so the payment destination stays bound to the registry record.</p>
       <p>The x402 v2 exact flow for USD quotes on Base Sepolia USDC is included in release $version and was verified with real testnet payments on staging. It has no built-in automated signer. An x402 authorization is a <strong>bearer instrument</strong>: anyone holding it can submit the authorized transfer. The human or external wallet must confirm <code>to</code> and <code>value</code> against the approval packet before signing. Authorization alone is not settlement evidence; x402 refunds are unsupported and need merchant support.</p>
-    </div>
+      <h2 id="commands">Command reference</h2>
     <div class="table-scroll" role="region" aria-label="Skill commands and release availability" tabindex="0">
       <table>
         <caption>Commands and downloadable release availability</caption>
@@ -81,5 +132,7 @@ not pay or checkout until I explicitly approve the final approval hash.</code></
           <tr><td><code>x402_typed_data</code>, <code>x402_receipt</code></td><td>External-wallet signing handoff and receipt construction.</td><td>Release $version</td></tr>
         </tbody>
       </table>
+    </div>
+      </article>
     </div>
     <p class="prose">The current public pilot is testnet and sandbox only. No real money moves. For merchant setup, see the <a href="/merchants/">WordPress and WooCommerce integration guide</a>.</p>
