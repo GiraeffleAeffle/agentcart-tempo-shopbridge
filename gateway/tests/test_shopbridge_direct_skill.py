@@ -21,6 +21,9 @@ shopbridge_direct = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = shopbridge_direct
 SPEC.loader.exec_module(shopbridge_direct)
 
+HOSTED_FEED_URL = "https://registry.example/v1/registry/records"
+HOSTED_FEED_EVENTS_URL = "https://registry.example/v1/registry/onchain/events"
+
 
 def registry_updated_at() -> str:
     return shopbridge_direct.utcnow().replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -844,20 +847,20 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         )
         self.assertEqual(deployment.chain_id, 1)
 
-    def test_default_registry_applies_advertised_finalized_onchain_projection(self) -> None:
+    def test_hosted_feed_applies_advertised_finalized_onchain_projection(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
         record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
         events = finalized_onchain_events_document(record)
         registry_document = {
             "entries": [record],
-            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+            "onchain_events_url": HOSTED_FEED_EVENTS_URL,
         }
         with mock.patch.object(
             shopbridge_direct,
             "fetch_json_url",
             side_effect=[registry_document, events],
         ) as fetch:
-            records = shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+            records = shopbridge_direct.registry_records_from_source({"registry_url": HOSTED_FEED_URL})
 
         self.assertEqual([entry["merchant_id"] for entry in records], ["merchant-tea-shop"])
         self.assertEqual(fetch.call_count, 2)
@@ -869,7 +872,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         events["completeness_authority"] = "rpc_asserted_complete"
         registry_document = {
             "entries": [record],
-            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+            "onchain_events_url": HOSTED_FEED_EVENTS_URL,
         }
 
         with mock.patch.object(
@@ -878,7 +881,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             side_effect=[registry_document, events],
         ):
             with self.assertRaises(SystemExit) as raised:
-                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+                shopbridge_direct.registry_records_from_source({"registry_url": HOSTED_FEED_URL})
 
         self.assertIn("contract_events_independent_authority_required", str(raised.exception))
 
@@ -950,20 +953,20 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             {error["error"] for error in rejected["verification"]["errors"]},
         )
 
-    def test_default_registry_filters_onchain_revoked_hosted_record(self) -> None:
+    def test_hosted_feed_filters_onchain_revoked_record(self) -> None:
         _manifest, record, _proof = registry_manifest_and_record()
         record["onchain_identity"] = {"standard": "agentcart-onchain-registry-v1"}
         events = finalized_onchain_events_document(record, revoked=True)
         registry_document = {
             "entries": [record],
-            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+            "onchain_events_url": HOSTED_FEED_EVENTS_URL,
         }
         with mock.patch.object(
             shopbridge_direct,
             "fetch_json_url",
             side_effect=[registry_document, events],
         ):
-            records = shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+            records = shopbridge_direct.registry_records_from_source({"registry_url": HOSTED_FEED_URL})
 
         self.assertEqual(records, [])
 
@@ -973,7 +976,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         events = finalized_onchain_events_document(record, complete=False)
         registry_document = {
             "entries": [record],
-            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+            "onchain_events_url": HOSTED_FEED_EVENTS_URL,
         }
         with mock.patch.object(
             shopbridge_direct,
@@ -981,7 +984,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             side_effect=[registry_document, events],
         ):
             with self.assertRaises(SystemExit) as raised:
-                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+                shopbridge_direct.registry_records_from_source({"registry_url": HOSTED_FEED_URL})
 
         self.assertIn("contract_events_snapshot_incomplete", str(raised.exception))
 
@@ -992,7 +995,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         events["indexed_at"] = "2026-01-01T00:00:00Z"
         registry_document = {
             "entries": [record],
-            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+            "onchain_events_url": HOSTED_FEED_EVENTS_URL,
         }
         with mock.patch.object(
             shopbridge_direct,
@@ -1000,7 +1003,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             side_effect=[registry_document, events],
         ):
             with self.assertRaises(SystemExit) as raised:
-                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+                shopbridge_direct.registry_records_from_source({"registry_url": HOSTED_FEED_URL})
 
         self.assertIn("contract_events_snapshot_stale", str(raised.exception))
 
@@ -1011,7 +1014,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         events["finality"]["block_time"] = "2026-01-01T00:00:00Z"
         registry_document = {
             "entries": [record],
-            "onchain_events_url": "https://registry.agentcart.eu/v1/registry/onchain/events",
+            "onchain_events_url": HOSTED_FEED_EVENTS_URL,
         }
         with mock.patch.object(
             shopbridge_direct,
@@ -1019,7 +1022,7 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             side_effect=[registry_document, events],
         ):
             with self.assertRaises(SystemExit) as raised:
-                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+                shopbridge_direct.registry_records_from_source({"registry_url": HOSTED_FEED_URL})
 
         self.assertIn("contract_events_finalized_block_stale", str(raised.exception))
 
@@ -1035,22 +1038,35 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
             return_value=registry_document,
         ) as fetch:
             with self.assertRaises(SystemExit) as raised:
-                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+                shopbridge_direct.registry_records_from_source({"registry_url": HOSTED_FEED_URL})
 
         self.assertEqual(str(raised.exception), "onchain_registry_events_url_must_share_registry_origin")
-        fetch.assert_called_once_with(shopbridge_direct.DEFAULT_REGISTRY_URL)
+        fetch.assert_called_once_with(HOSTED_FEED_URL)
+
+    def test_use_hosted_registry_does_not_fetch_a_hosted_feed(self) -> None:
+        with mock.patch.object(
+            shopbridge_direct,
+            "fetch_json_url",
+            side_effect=AssertionError("hosted registry feed fetched"),
+        ) as fetch, mock.patch.object(
+            shopbridge_direct.onchain_rpc,
+            "collect_finalized_events",
+            side_effect=shopbridge_direct.onchain_rpc.OnchainRpcError("onchain_registry_reached"),
+        ) as collect:
+            with self.assertRaises(SystemExit) as raised:
+                shopbridge_direct.registry_records_from_source({"use_hosted_registry": True})
+
+        self.assertIn("onchain_registry_reached", str(raised.exception))
+        collect.assert_called_once()
+        fetch.assert_not_called()
 
     def test_explicit_single_merchant_override_suppresses_default_registry(self) -> None:
         self.assertEqual(
-            shopbridge_direct.configured_registry_url({"base_url": "https://merchant.example"}),
+            shopbridge_direct.configured_onchain_rpc_url({"base_url": "https://merchant.example"}),
             "",
         )
 
     def test_default_registry_can_be_disabled_for_offline_use(self) -> None:
-        self.assertEqual(
-            shopbridge_direct.configured_registry_url({"disable_default_registry": True}),
-            "",
-        )
         self.assertEqual(
             shopbridge_direct.configured_onchain_rpc_url({"disable_default_registry": True}),
             "",
@@ -2663,9 +2679,9 @@ class ShopBridgeDirectSkillTests(unittest.TestCase):
         )
         self.assertEqual(
             shopbridge_direct.configured_discovery_index_url(
-                {"discovery_index_url": shopbridge_direct.DEFAULT_DISCOVERY_INDEX_URL}
+                {"discovery_index_url": "https://registry.example/v1/registry/discovery-index"}
             ),
-            shopbridge_direct.DEFAULT_DISCOVERY_INDEX_URL,
+            "https://registry.example/v1/registry/discovery-index",
         )
 
     def test_discover_quotes_uses_configured_registry_path_without_inline_records(self) -> None:

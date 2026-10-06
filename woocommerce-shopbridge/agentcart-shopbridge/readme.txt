@@ -312,6 +312,13 @@ AgentCart metadata so merchants retain their commerce audit trail.
 
 == Changelog ==
 
+= Unreleased =
+* No plugin code changes. This release updates the ShopBridge Direct buyer
+  skill, which no longer offers the retired AgentCart-hosted registry.
+* The AgentCart-hosted registry at registry.agentcart.eu is retired. Clear a
+  saved Registry connection URL or AGENTCART_REGISTRY_CONNECTION_URL that points
+  there; onchain registration does not use it.
+
 = 1.25.0 =
 * Require strict configured settlement and confirmed facilitator support before
   advertising x402; preserve capability snapshots on transport failure and
@@ -377,6 +384,10 @@ AgentCart metadata so merchants retain their commerce audit trail.
   status, refund, and cancellation flows.
 
 == Upgrade Notice ==
+
+= Unreleased =
+No plugin code changes. The AgentCart-hosted registry at registry.agentcart.eu
+is retired: clear a Registry connection URL that points there.
 
 = 1.25.0 =
 Hosted registry is opt-in: save its URL. x402 requires a configured

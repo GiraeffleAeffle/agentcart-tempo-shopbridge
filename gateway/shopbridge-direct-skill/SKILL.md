@@ -21,9 +21,9 @@ quote call.
 The current testnet deployment is `eip155:42431`: Merchant Registry
 `0x0965961617c5B0898167AA4034C5511dB0EfcA07` from block `30731101`, and
 Discovery Facets `0x693de216d208ADC933365bD6F4FCbC062BB8Afe5` from block `32721088`.
-Normal discovery does not call `registry.agentcart.eu`. Its `/v1/registry/*`
-routes are legacy compatibility/diagnostic APIs on the host that also serves
-the OCI image registry; they are not the shop registry used by this workflow.
+Discovery does not use a hosted AgentCart registry: the former API at
+`registry.agentcart.eu` was retired on 2026-10-06, and that host now serves
+only an OCI image registry.
 Use `SHOPBRIDGE_BASE_URL` only when the buyer explicitly supplies one known
 merchant or for local tests.
 
