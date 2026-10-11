@@ -216,6 +216,14 @@ grep -Fq 'AGENTCART_VERIFIER_ALERT_THROTTLE_SECONDS' "$rendered_verifier"
 grep -Fq 'STRIPE_SANDBOX_SECRET_KEY' "$rendered_verifier"
 grep -Fq 'STRIPE_PROFILE_ID' "$rendered_verifier"
 grep -Fq 'MPP_SECRET_KEY' "$rendered_verifier"
+if ! grep -A4 'name: AGENTCART_STRIPE_PROFILE_ID' "$rendered_verifier" | grep -Fq 'key: STRIPE_PROFILE_ID'; then
+  printf 'stripe-card-mpp verifier rail did not pass STRIPE_PROFILE_ID to the storefront seed\n' >&2
+  exit 1
+fi
+if grep -Fq 'name: AGENTCART_STRIPE_PROFILE_ID' "$rendered" || grep -Fq 'name: AGENTCART_STRIPE_PROFILE_ID' "$rendered_x402"; then
+  printf 'storefront requested STRIPE_PROFILE_ID without a stripe-card-mpp verifier rail\n' >&2
+  exit 1
+fi
 grep -Fq 'external_verifier_only' "$rendered_verifier"
 grep -Fq 'pinned_internal' "$rendered_verifier"
 grep -Fq 'kind: PersistentVolumeClaim' "$rendered_verifier"

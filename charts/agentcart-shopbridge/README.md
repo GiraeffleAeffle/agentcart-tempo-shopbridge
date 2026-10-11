@@ -75,6 +75,10 @@ STRIPE_PROFILE_ID
 MPP_SECRET_KEY
 ```
 
+The storefront seed reads the same `STRIPE_PROFILE_ID` key and saves it as the
+shop's Stripe profile, so WordPress advertises Stripe/card only when the
+verifier is configured for it.
+
 When `verifier.tempo.refundMode=live`, it must also contain the dedicated
 testnet refund signer:
 
