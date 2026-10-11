@@ -710,6 +710,19 @@ if ($profile === 'ranking-premium-usd') {
     return;
 }
 
+if ($profile === 'ranking-coffee-usd') {
+    if (get_woocommerce_currency() !== 'USD') {
+        throw new RuntimeException('ranking-coffee-usd requires the USD market profile');
+    }
+    foreach (['AGENT-TEA-HAZEL', 'AGENT-SHAVER-1', 'AGENT-DETERGENT-1'] as $sku) {
+        agentcart_demo_update_product_meta($sku, ['_agentcart_enabled' => 'no']);
+    }
+    agentcart_demo_update_price('AGENT-COFFEE-1', '11.00');
+    agentcart_demo_update_shipping('AgentCart USD Demo', 'Coffee tracked parcel', '4.00');
+    printf("Applied AgentCart WooCommerce merchant variance profile: %s\n", $profile);
+    return;
+}
+
 if ($profile === 'restricted-stock-policy') {
     update_option('agentcart_shopbridge_stock_hold_minutes', 5);
     agentcart_demo_update_product_meta('AGENT-TEA-HAZEL', [
