@@ -2,6 +2,8 @@
 
 Date: 2026-08-27
 
+Rerun: 2026-10-11 with five shops; see the last section.
+
 Network: Tempo Moderato (`eip155:42431`)
 
 Scope: read-only buyer comparison after supervised testnet enrollment; no
@@ -84,3 +86,78 @@ Discovery Facets plugin file existed in chart files but was absent from the
 generated ConfigMap and rollout checksum. The chart and regression check now
 include it. This was an installation defect, not an on-chain discovery defect,
 and the multi-shop rehearsal caught it before external merchant testing.
+
+## 2026-10-11: Five-Shop Rerun
+
+All five shops ran release 1.25.2 on the same Talos cluster: chart, plugin and
+verifier image
+`sha256:03811e569f3a6678972859ef8b38bb5f6b9cae01ff97bd09b908983243739159`.
+The scope is the same as above: a read-only buyer comparison, with no payment
+or order.
+
+### Shops
+
+| Shop | Seed profile | Currency | Verifier rails | Declared categories |
+| --- | --- | --- | --- | --- |
+| `value-shop.staging.agentcart.eu` | `ranking-value-usd` | USD | Tempo MPP, x402 | coffee, household, personal-care, tea |
+| `premium-shop.staging.agentcart.eu` | `ranking-premium-usd` | USD | Tempo MPP | coffee, household, personal-care, tea |
+| `coffee-shop.staging.agentcart.eu` | `ranking-coffee-usd` | USD | Tempo MPP | coffee |
+| `restricted-shop.staging.agentcart.eu` | `restricted-stock-policy` | USD | Tempo MPP | coffee, household, tea |
+| `eur-shop.staging.agentcart.eu` | `baseline-eu-tax-shipping` | EUR | Stripe/card MPP (sandbox) | coffee, household, personal-care, tea |
+
+The value and premium records were unchanged by the 1.25.1 and 1.25.2
+upgrades, so they needed no new transactions. The three new shops were
+registered and their categories published by the registry controller through
+the supervised isolated-signer fallback. Every write was verified at finality:
+
+| Shop | Transaction | Block |
+| --- | --- | ---: |
+| coffee-shop register | `0xb71337c2c1d74e1c2b8ebbf6a0977d9d486d6bfc7ee70a558116928799c7439d` | 39,111,411 |
+| coffee-shop categories | `0x48cf5ca5a84764ea4ddc3fe99059c2a74155b7d73555b4ff17dc2e260070cc9d` | 39,111,422 |
+| restricted-shop register | `0xf68c9d1d41ea190684c4bbda8e0b50b0674f296350da36437af7306c14bbb258` | 39,111,435 |
+| restricted-shop categories | `0xe45a4582a7f3b1c7b6344e1226d8be1648610201043ae6029893aac73b34d4a0` | 39,111,446 |
+| eur-shop register | `0x2f4dc71f0cd00d64ad2c411c5b4e31cf83707472436fcfd3146056a2a112fe69` | 39,111,460 |
+| eur-shop categories | `0x4a94d194193c81d7c2c77d730ed7f5c969dde9096bdf30145f8663cc62ea8b2a` | 39,111,471 |
+| eur-shop update (adds its Stripe profile) | `0x0cbd6c695b54031bee302d6d03e90a56ec787f640fb133e4933ad613ff642880` | 39,116,661 |
+| eur-shop categories | `0xd4f6132c6bec94c9eeba840290a3c6c3a508cccac5bb94e1a949bff59bc2fe0e` | 39,116,672 |
+
+### Buyer results
+
+Every run used the public Direct Skill with its defaults: no base URL, no
+hosted registry, quantity 1, ranked by final total. Each run contacted all five
+registered shops before catalog access.
+
+| Query | Ship to | Rail | Ranked offers | Rejected |
+| --- | --- | --- | --- | --- |
+| tea | US 10001 | Tempo MPP | Value $12.17, Premium $16.07 | restricted, EUR: merchant does not ship to US |
+| coffee | US 10001 | Tempo MPP | Coffee $15.98, Premium $17.70, Value $18.70, Restricted $19.70 | EUR: merchant does not ship to US |
+| tea | DE 10115 | Stripe/card MPP | EUR Tea Shop €14.80 | value, premium: merchant does not ship to DE; restricted: quote request failed |
+| tea | US 10001 | x402 | Value $12.17 | premium: payment_rail_unavailable; restricted, EUR: merchant does not ship to US |
+
+### Findings
+
+1. **Stripe/card on chart-deployed shops (fixed in 1.25.2).** The chart gave
+   `STRIPE_PROFILE_ID` to the verifier but not to WordPress. The EUR shop's
+   quotes therefore listed `stripe-card-mpp` as unavailable, without a reason.
+   Release 1.25.2 passes the key to the storefront seed, and the same query
+   then ranked the EUR shop.
+2. **Categories order candidates; they exclude shops only in larger
+   registries.** The skill contacts up to 12 shops by default
+   (`SHOPBRIDGE_ONCHAIN_RECORD_CANDIDATE_LIMIT`, maximum 50):
+   - category matches first;
+   - then one reserved slot for a non-matching shop, so self-declared
+     categories cannot hide a merchant;
+   - then the remaining shops, up to the limit.
+
+   With five registered shops, every query contacted all five. The coffee
+   shop received the tea queries through the reserved slot and returned no tea
+   offer. Category routing reduces requests only once more shops are
+   registered than the limit.
+3. **Delivery time cannot break ties.** Ranking sorts by final total, then
+   latest delivery. However, the plugin quotes a fixed "2-4 business days" for
+   every shop, so merchants cannot state their own delivery time and the tie
+   break never distinguishes shops.
+4. **Generic error for a contradictory shop setup.** The restricted shop allows
+   tea to DE and AT at product level, but its USD store ships only to the US. A
+   DE quote therefore fails, and the skill reports "quote request failed"
+   instead of a shipping reason.
