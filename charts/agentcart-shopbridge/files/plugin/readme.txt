@@ -312,6 +312,11 @@ AgentCart metadata so merchants retain their commerce audit trail.
 
 == Changelog ==
 
+= Unreleased =
+* No plugin code changes. The Helm chart now passes the Stripe profile id to
+  WordPress when the verifier's stripe-card-mpp rail is enabled, so
+  chart-deployed shops can advertise Stripe/card payments.
+
 = 1.25.1 =
 * No plugin code changes. This release updates the ShopBridge Direct buyer
   skill, which no longer offers the retired AgentCart-hosted registry.

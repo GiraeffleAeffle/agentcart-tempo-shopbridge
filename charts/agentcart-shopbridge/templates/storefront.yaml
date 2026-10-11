@@ -111,6 +111,13 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: AGENTCART_PAYMENT_VERIFIER_TOKEN
             {{- end }}
+            {{- if and .Values.verifier.enabled (has "stripe-card-mpp" .Values.verifier.enabledRails) }}
+            - name: AGENTCART_STRIPE_PROFILE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: STRIPE_PROFILE_ID
+            {{- end }}
             - {name: WORDPRESS_DB_HOST, value: "{{ include "agentcart-shopbridge.dbFullname" . }}:3306"}
             - {name: WORDPRESS_DB_USER, value: {{ .Values.database.user | quote }}}
             - {name: WORDPRESS_DB_NAME, value: {{ .Values.database.name | quote }}}
