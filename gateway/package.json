@@ -16,11 +16,12 @@
     "stripe:link:smoke": "bash scripts/stripe-link-mpp-smoke.sh"
   },
   "dependencies": {
-    "mppx": "^0.8.1",
+    "mppx": "0.8.2",
     "stripe": "^22.2.1",
     "viem": "2.52.2"
   },
   "overrides": {
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "zod": "^4.6.6"
   }
 }
