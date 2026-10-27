@@ -153,7 +153,7 @@ bash -n "$ROOT_DIR/scripts/check-shopbridge-registry-chart.sh"
 bash "$ROOT_DIR/scripts/check-shopbridge-registry-chart.sh"
 docker run --rm \
   --volume "$ROOT_DIR/charts/agentcart-shopbridge/files/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  docker.io/library/nginx@sha256:3bcf852aed06467cf075c6105892e4d5a6ebbbafa0ce22d35062db9e90ddef4c \
+  docker.io/library/nginx@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417 \
   nginx -t
 # Storefront nginx output (access and error logs) must not record client addresses, user agents,
 # referrers or query strings. The probes include an unreachable FastCGI upstream and a denied path,
@@ -162,7 +162,7 @@ check_nginx_access_log_privacy() {
   local conf="$1" output forbidden
   output="$(docker run --rm --entrypoint sh \
     --volume "$conf:/etc/nginx/nginx.conf:ro" \
-    docker.io/library/nginx@sha256:3bcf852aed06467cf075c6105892e4d5a6ebbbafa0ce22d35062db9e90ddef4c \
+    docker.io/library/nginx@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417 \
     -c 'mkdir -p /var/www/html && : > /var/www/html/index.php
         nginx -g "daemon off;" & for _ in 1 2 3 4 5; do curl -s -o /dev/null http://127.0.0.1:8080/health-probe && break; sleep 1; done
         curl -s -o /dev/null -H "User-Agent: verify-agent/1" -H "Referer: https://referrer.invalid/" \
