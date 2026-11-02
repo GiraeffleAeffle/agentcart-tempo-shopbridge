@@ -5,6 +5,8 @@ COPY src ./src
 RUN python3 build.py --out /out && python3 check.py /out
 
 FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:e2a8fca8aa356d66159aaf8a877a9c126773635adf210503eefaaeaffeed6ad7
+USER root
+RUN apk add --no-cache brotli-libs=1.2.1-r0
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY nginx/ /etc/nginx/agentcart-site/
 COPY --from=build /out/ /srv/agentcart-site/
